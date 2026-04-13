@@ -1,0 +1,166 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import { Row, Col, Card, Statistic, Table } from 'antd';
+import ReactECharts from './Chart';
+import DateFilter from './DateFilter';
+import PageLoading from './PageLoading';
+import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../config';
+import { barItemStyle, CHART_COLORS, getBaseOption, pieStyle } from '../chartTheme';
+
+interface Props {
+  dept: string;
+  title: string;
+  color: string;
+}
+
+const StorePreview: React.FC<Props> = ({ dept, title, color }) => {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [startDate, setStartDate] = useState(DATA_START_DATE);
+  const [endDate, setEndDate] = useState(DATA_END_DATE);
+
+  const fetchData = useCallback((s: string, e: string) => {
+    setLoading(true);
+    fetch(`${API_BASE}/api/department?dept=${dept}&start=${s}&end=${e}`)
+      .then(res => res.json())
+      .then(res => { setData(res.data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [dept]);
+
+  useEffect(() => { fetchData(startDate, endDate); }, [fetchData, startDate, endDate]);
+
+  if (loading) return <PageLoading />;
+  if (!data) return <div>加载失败</div>;
+
+  const shops = data.shops || [];
+  const totalSales = shops.reduce((s: number, d: any) => s + d.sales, 0);
+  const totalQty = shops.reduce((s: number, d: any) => s + d.qty, 0);
+  const avgOrderValue = totalQty > 0 ? totalSales / totalQty : 0;
+  const baseOpt = getBaseOption();
+
+  // 店铺排名表
+  const indexedShops = shops.map((g: any, i: number) => ({ ...g, _rank: i + 1 }));
+  const columns = [
+    { title: '排名', dataIndex: '_rank', key: 'rank', width: 60, align: 'center' as const,
+      render: (rank: number) => <span style={{ color: rank <= 3 ? color : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span> },
+    { title: '店铺名称', dataIndex: 'shopName', key: 'shopName', ellipsis: true },
+    { title: '销售额', dataIndex: 'sales', key: 'sales', width: 130, sorter: (a: any, b: any) => a.sales - b.sales,
+      render: (v: number) => `¥${v?.toLocaleString()}` },
+    { title: '货品数', dataIndex: 'qty', key: 'qty', width: 90, sorter: (a: any, b: any) => a.qty - b.qty,
+      render: (v: number) => v?.toLocaleString() },
+    { title: '客单价', key: 'avgPrice', width: 110, sorter: (a: any, b: any) => (a.qty > 0 ? a.sales/a.qty : 0) - (b.qty > 0 ? b.sales/b.qty : 0),
+      render: (_: any, r: any) => r.qty > 0 ? `¥${(r.sales / r.qty).toFixed(2)}` : '-' },
+    { title: '销售占比', key: 'pct', width: 100,
+      render: (_: any, r: any) => totalSales > 0 ? `${(r.sales / totalSales * 100).toFixed(1)}%` : '-' },
+  ];
+
+  // 销售额占比 — 店铺过多时显示 TOP10 + 其他，避免标签挤压
+  const sortedBySales = [...shops].sort((a: any, b: any) => (b.sales || 0) - (a.sales || 0));
+  const pieTopCount = 10;
+  const topPieShops = sortedBySales.slice(0, pieTopCount);
+  const otherSales = sortedBySales.slice(pieTopCount).reduce((sum: number, s: any) => sum + (s.sales || 0), 0);
+  const pieData = [
+    ...topPieShops.map((s: any) => ({ value: s.sales, name: s.shopName })),
+    ...(otherSales > 0 ? [{ value: otherSales, name: '其他店铺' }] : []),
+  ];
+  const salesPieOption = {
+    ...pieStyle,
+    color: CHART_COLORS,
+    tooltip: { ...pieStyle.tooltip, trigger: 'item' as const, formatter: (p: any) => `${p.name}<br/>¥${p.value?.toLocaleString()}（${p.percent}%）` },
+    legend: {
+      ...pieStyle.legend,
+      orient: 'vertical' as const,
+      right: 8,
+      top: 'middle',
+      bottom: 'auto',
+      type: 'scroll' as const,
+      itemGap: 10,
+      formatter: (name: string) => (name.length > 16 ? name.slice(0, 16) + '...' : name),
+    },
+    series: [{
+      type: 'pie',
+      radius: ['35%', '62%'],
+      center: ['34%', '50%'],
+      label: {
+        show: true,
+        formatter: (p: any) => {
+          const name = p.name.length > 12 ? p.name.slice(0, 12) + '...' : p.name;
+          return `{name|${name}}\n{value|${p.percent}%}`;
+        },
+        rich: {
+          name: { fontSize: 11, color: '#333', lineHeight: 16 },
+          value: { fontSize: 11, color: '#999', lineHeight: 16 },
+        },
+      },
+      labelLine: { length: 15, length2: 20, lineStyle: { color: '#e2e8f0' } },
+      itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+      data: pieData.map((item: any) => {
+        const share = totalSales > 0 ? item.value / totalSales : 0;
+        const showLabel = item.name === '其他店铺' || share >= 0.04;
+        return {
+          ...item,
+          label: { show: showLabel },
+          labelLine: { show: showLabel },
+        };
+      }),
+    }],
+  };
+
+  // 客单价对比 — 横向柱状图（按客单价排序，值标在柱子右边）
+  const avgPriceData = shops
+    .map((s: any) => ({ name: s.shopName, avgPrice: s.qty > 0 ? +(s.sales / s.qty).toFixed(2) : 0 }))
+    .sort((a: any, b: any) => b.avgPrice - a.avgPrice)
+    .slice(0, 20);
+  const avgPriceOption = {
+    ...baseOpt,
+    tooltip: { ...baseOpt.tooltip, trigger: 'axis' as const, formatter: (p: any) => `${p[0].name}<br/>客单价: ¥${p[0].value}` },
+    grid: { left: '40%', right: 60, top: 10, bottom: 20 },
+    xAxis: { ...baseOpt.xAxis, type: 'value' as const, show: false },
+    yAxis: { type: 'category' as const,
+      data: avgPriceData.map((d: any) => d.name).reverse(),
+      axisLabel: { ...baseOpt.yAxis.axisLabel, fontSize: 11 },
+    },
+    series: [{
+      type: 'bar', barWidth: 12,
+      data: avgPriceData.map((d: any) => d.avgPrice).reverse(),
+      ...barItemStyle('#faad14'),
+      label: { show: true, position: 'right', fontSize: 11, formatter: '¥{c}' },
+    }],
+  };
+
+  const statCards = [
+    { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
+    { title: '总货品数', value: totalQty, precision: 0, accentColor: '#10b981' },
+    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#8b5cf6' },
+    { title: '店铺数量', value: shops.length, precision: 0, suffix: '家', accentColor: '#f59e0b' },
+  ];
+
+  return (
+    <div>
+      <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
+      <Row gutter={[16, 16]}>
+        {statCards.map((card) => (
+          <Col xs={24} sm={6} key={card.title}>
+            <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
+              <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
+            </Card>
+          </Col>
+        ))}
+      </Row>
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} lg={14}>
+          <Card title={shops.length > pieTopCount ? `店铺销售额占比（TOP${pieTopCount}+其他）` : '店铺销售额占比'}>
+            <ReactECharts option={salesPieOption} lazyUpdate={true} style={{ height: 500 }} />
+          </Card>
+        </Col>
+        <Col xs={24} lg={10}>
+          <Card title="店铺客单价对比"><ReactECharts option={avgPriceOption} lazyUpdate={true} style={{ height: Math.max(300, avgPriceData.length * 24) }} /></Card>
+        </Col>
+      </Row>
+      <Card className="bi-table-card" title={`店铺排名（共${shops.length}家）`} style={{ marginTop: 16 }}>
+        <Table dataSource={indexedShops} columns={columns} rowKey="shopName" pagination={false} size="small" scroll={{ y: 500 }} />
+      </Card>
+    </div>
+  );
+};
+
+export default StorePreview;
