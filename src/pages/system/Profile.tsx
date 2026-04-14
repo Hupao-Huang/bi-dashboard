@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Avatar, Button, Card, Col, Descriptions, Form, Input, message, Row, Tag, Upload } from 'antd';
-import { CameraOutlined, LockOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons';
+import { Avatar, Button, Card, Col, Descriptions, Form, Input, message, Popconfirm, Row, Tag, Upload } from 'antd';
+import { CameraOutlined, DingtalkOutlined, LockOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 
 const Profile: React.FC = () => {
@@ -123,6 +123,46 @@ const Profile: React.FC = () => {
           <Descriptions column={1} size="small">
             <Descriptions.Item label="用户名">{profile.username}</Descriptions.Item>
             <Descriptions.Item label="最近登录">{profile.lastLoginAt || '-'}</Descriptions.Item>
+            <Descriptions.Item label="钉钉">
+              {profile.dingtalkBound ? (
+                <span>
+                  <Tag color="blue"><DingtalkOutlined /> 已绑定</Tag>
+                  <Button
+                    size="small"
+                    type="link"
+                    danger
+                    onClick={async () => {
+                      const res = await fetch(`${API_BASE}/api/user/dingtalk`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'unbind' }),
+                      });
+                      if (res.ok) {
+                        message.success('已解绑钉钉');
+                        fetchProfile();
+                      }
+                    }}
+                  >
+                    解绑
+                  </Button>
+                </span>
+              ) : (
+                <Button
+                  size="small"
+                  icon={<DingtalkOutlined />}
+                  onClick={async () => {
+                    const res = await fetch(`${API_BASE}/api/auth/dingtalk/url?state=bind`, { credentials: 'include' });
+                    const body = await res.json();
+                    if (body.data?.url) {
+                      window.location.href = body.data.url;
+                    }
+                  }}
+                >
+                  绑定钉钉
+                </Button>
+              )}
+            </Descriptions.Item>
           </Descriptions>
         </Card>
       </Col>
@@ -130,12 +170,12 @@ const Profile: React.FC = () => {
       <Col xs={24} md={16}>
         <Card title="个人信息">
           <Form form={form} layout="vertical" style={{ maxWidth: 500 }}>
-            <Form.Item name="realName" label="真实姓名">
-              <Input placeholder="请输入真实姓名" maxLength={20} />
+            <Form.Item name="realName" label="真实姓名" tooltip={profile.dingtalkBound ? '已绑定钉钉，姓名由钉钉同步' : undefined}>
+              <Input placeholder="请输入真实姓名" maxLength={20} disabled={profile.dingtalkBound} />
             </Form.Item>
-            <Form.Item name="phone" label="手机号"
+            <Form.Item name="phone" label="手机号" tooltip={profile.dingtalkBound ? '已绑定钉钉，手机号由钉钉同步' : undefined}
               rules={[{ pattern: /^1\d{10}$/, message: '请输入正确的手机号' }]}>
-              <Input placeholder="请输入手机号" maxLength={11} />
+              <Input placeholder="请输入手机号" maxLength={11} disabled={profile.dingtalkBound} />
             </Form.Item>
             <Form.Item name="email" label="邮箱"
               rules={[{ type: 'email', message: '请输入正确的邮箱' }]}>

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"io"
 	"image/color"
 	"image/png"
 	"log"
@@ -19,6 +20,7 @@ import (
 	mrand "math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -285,6 +287,45 @@ func verifyCaptcha(id string, answerX int) bool {
 	return diff <= tolerance
 }
 
+// preVerifyCaptcha 预验证验证码位置（不消耗captchaId）
+func preVerifyCaptcha(id string, answerX int) bool {
+	captchaMu.Lock()
+	defer captchaMu.Unlock()
+	entry, ok := captchaStore[id]
+	if !ok {
+		return false
+	}
+	if time.Now().After(entry.expiresAt) {
+		return false
+	}
+	diff := entry.targetX - answerX
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= tolerance
+}
+
+// VerifyCaptchaOnly 前端滑块验证接口（不消耗captcha，仅检查位置）
+func (h *DashboardHandler) VerifyCaptchaOnly(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	var req struct {
+		CaptchaID     string `json:"captchaId"`
+		CaptchaAnswer int    `json:"captchaAnswer"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, 400, "bad request")
+		return
+	}
+	if preVerifyCaptcha(req.CaptchaID, req.CaptchaAnswer) {
+		writeJSON(w, map[string]interface{}{"code": 200, "msg": "ok"})
+	} else {
+		writeError(w, 400, "验证失败")
+	}
+}
+
 // ==================== 登录频率限制 ====================
 
 type loginAttempt struct {
@@ -342,11 +383,12 @@ type authContextKey string
 const currentAuthPayloadKey authContextKey = "currentAuthPayload"
 
 type authPayload struct {
-	User         authUser       `json:"user"`
-	Roles        []string       `json:"roles"`
-	Permissions  []string       `json:"permissions"`
-	DataScopes   authDataScopes `json:"dataScopes"`
-	IsSuperAdmin bool           `json:"isSuperAdmin"`
+	User               authUser       `json:"user"`
+	Roles              []string       `json:"roles"`
+	Permissions        []string       `json:"permissions"`
+	DataScopes         authDataScopes `json:"dataScopes"`
+	IsSuperAdmin       bool           `json:"isSuperAdmin"`
+	MustChangePassword bool           `json:"mustChangePassword"`
 }
 
 type authUser struct {
@@ -855,6 +897,20 @@ func EnsureAuthSchemaAndSeed(db *sql.DB) error {
 		}
 	}
 
+	// 增量加列（忽略"列已存在"错误 MySQL 1060）
+	addCols := []string{
+		`ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0 COMMENT '首次登录须改密码'`,
+		`ALTER TABLE users ADD COLUMN department VARCHAR(100) DEFAULT '' COMMENT '所属部门'`,
+		`ALTER TABLE users ADD COLUMN employee_id VARCHAR(50) DEFAULT '' COMMENT '工号'`,
+		`ALTER TABLE users ADD COLUMN dingtalk_userid VARCHAR(64) DEFAULT '' COMMENT '钉钉用户ID'`,
+		`ALTER TABLE users ADD COLUMN remark TEXT COMMENT '注册备注(权限申请说明)'`,
+	}
+	for _, alter := range addCols {
+		if _, err := db.Exec(alter); err != nil && !strings.Contains(err.Error(), "1060") {
+			return err
+		}
+	}
+
 	if err := seedPermissions(db); err != nil {
 		return err
 	}
@@ -1151,7 +1207,7 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if _, err := h.DB.Exec("UPDATE users SET password_hash=? WHERE id=?", string(newHash), payload.User.ID); err != nil {
+	if _, err := h.DB.Exec("UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?", string(newHash), payload.User.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "更新密码失败")
 		return
 	}
@@ -1279,9 +1335,9 @@ func (h *DashboardHandler) loadAuthPayload(userID int64) (*authPayload, error) {
 
 	var realName sql.NullString
 	if err := h.DB.QueryRow(
-		`SELECT id, username, real_name FROM users WHERE id = ? AND status = 'active'`,
+		`SELECT id, username, real_name, must_change_password FROM users WHERE id = ? AND status = 'active'`,
 		userID,
-	).Scan(&payload.User.ID, &payload.User.Username, &realName); err != nil {
+	).Scan(&payload.User.ID, &payload.User.Username, &realName, &payload.MustChangePassword); err != nil {
 		return nil, err
 	}
 	payload.User.RealName = realName.String
@@ -1539,4 +1595,288 @@ func truncateString(value string, maxLen int) string {
 		return value
 	}
 	return value[:maxLen]
+}
+
+// ==================== 钉钉 OAuth ====================
+
+func (h *DashboardHandler) DingtalkAuthURL(w http.ResponseWriter, r *http.Request) {
+	if h.DingClientID == "" {
+		writeError(w, http.StatusBadRequest, "钉钉登录未配置")
+		return
+	}
+	referer := r.Header.Get("Referer")
+	if referer == "" {
+		referer = "http://192.168.200.48:3000"
+	}
+	parsed, _ := url.Parse(referer)
+	redirectURI := fmt.Sprintf("%s://%s/dingtalk/callback", parsed.Scheme, parsed.Host)
+
+	state := r.URL.Query().Get("state")
+	authURL := fmt.Sprintf(
+		"https://login.dingtalk.com/oauth2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid+corpid&prompt=consent&state=%s",
+		h.DingClientID, url.QueryEscape(redirectURI), url.QueryEscape(state),
+	)
+	writeJSON(w, map[string]string{"url": authURL})
+}
+
+func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		Code   string `json:"code"`
+		Remark string `json:"remark"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Code == "" {
+		writeError(w, http.StatusBadRequest, "code is required")
+		return
+	}
+
+	// 1. 用 code 换 access_token
+	tokenBody, _ := json.Marshal(map[string]string{
+		"clientId":     h.DingClientID,
+		"clientSecret": h.DingClientSecret,
+		"code":         req.Code,
+		"grantType":    "authorization_code",
+	})
+	tokenResp, err := http.Post("https://api.dingtalk.com/v1.0/oauth2/userAccessToken", "application/json", bytes.NewReader(tokenBody))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "钉钉服务器连接失败")
+		return
+	}
+	defer tokenResp.Body.Close()
+	tokenRespBody, _ := io.ReadAll(tokenResp.Body)
+
+	var tokenData struct {
+		AccessToken string `json:"accessToken"`
+	}
+	json.Unmarshal(tokenRespBody, &tokenData)
+	if tokenData.AccessToken == "" {
+		log.Printf("dingtalk token error: %s", string(tokenRespBody))
+		writeError(w, http.StatusBadRequest, "钉钉授权失败，请重试")
+		return
+	}
+
+	// 2. 用 access_token 获取用户信息
+	meReq, _ := http.NewRequest("GET", "https://api.dingtalk.com/v1.0/contact/users/me", nil)
+	meReq.Header.Set("x-acs-dingtalk-access-token", tokenData.AccessToken)
+	meResp, err := http.DefaultClient.Do(meReq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "获取钉钉用户信息失败")
+		return
+	}
+	defer meResp.Body.Close()
+	meRespBody, _ := io.ReadAll(meResp.Body)
+
+	var dtUser struct {
+		Nick    string `json:"nick"`
+		UnionId string `json:"unionId"`
+		OpenId  string `json:"openId"`
+		Mobile  string `json:"mobile"`
+	}
+	json.Unmarshal(meRespBody, &dtUser)
+	if dtUser.UnionId == "" && dtUser.OpenId == "" {
+		log.Printf("dingtalk user error: %s", string(meRespBody))
+		writeError(w, http.StatusBadRequest, "获取钉钉身份失败")
+		return
+	}
+	dtID := dtUser.UnionId
+	if dtID == "" {
+		dtID = dtUser.OpenId
+	}
+
+	// 3. 查 dingtalk_userid 是否已绑定
+	var userID int64
+	var userStatus string
+	err = h.DB.QueryRow(
+		`SELECT id, status FROM users WHERE dingtalk_userid = ? AND dingtalk_userid != ''`, dtID,
+	).Scan(&userID, &userStatus)
+
+	if err == nil {
+		// 已绑定
+		if userStatus == "pending" {
+			writeJSON(w, map[string]interface{}{"pending": true, "message": "账号正在审批中，请等待管理员开通"})
+			return
+		}
+		if userStatus != "active" {
+			writeError(w, http.StatusForbidden, "账号已被禁用")
+			return
+		}
+		h.createSessionAndRespond(w, r, userID)
+		return
+	}
+
+	// 4. 用手机号匹配已有账号
+	mobile := strings.TrimSpace(dtUser.Mobile)
+	if mobile != "" {
+		err = h.DB.QueryRow(
+			`SELECT id, status FROM users WHERE (phone = ? OR username = ?) AND dingtalk_userid = ''`, mobile, mobile,
+		).Scan(&userID, &userStatus)
+		if err == nil {
+			// 匹配到 → 自动绑定
+			h.DB.Exec(`UPDATE users SET dingtalk_userid = ? WHERE id = ?`, dtID, userID)
+			if userStatus != "active" {
+				writeError(w, http.StatusForbidden, "账号已被禁用")
+				return
+			}
+			h.createSessionAndRespond(w, r, userID)
+			return
+		}
+	}
+
+	// 5. 都没找到 → 新建待审批账号
+	username := mobile
+	if username == "" {
+		username = "dt_" + dtID[:12]
+	}
+	realName := dtUser.Nick
+	remark := strings.TrimSpace(req.Remark)
+
+	result, err := h.DB.Exec(
+		`INSERT INTO users (username, password_hash, real_name, phone, dingtalk_userid, status, remark) VALUES (?, '', ?, ?, ?, 'pending', ?)`,
+		username, realName, mobile, dtID, remark,
+	)
+	if err != nil {
+		// 可能 username 重复
+		writeError(w, http.StatusConflict, "该手机号已注册，请联系管理员")
+		return
+	}
+	newID, _ := result.LastInsertId()
+	log.Printf("dingtalk new user registered: id=%d name=%s phone=%s", newID, realName, mobile)
+
+	writeJSON(w, map[string]interface{}{
+		"pending": true,
+		"message": "注册申请已提交，请等待管理员审批",
+	})
+}
+
+func (h *DashboardHandler) createSessionAndRespond(w http.ResponseWriter, r *http.Request, userID int64) {
+	token, err := generateSessionToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "生成会话失败")
+		return
+	}
+	tokenHash := hashSessionToken(token)
+	expiresAt := time.Now().Add(sessionDuration)
+	ip := clientIP(r)
+
+	h.DB.Exec(
+		`INSERT INTO user_sessions (user_id, token_hash, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?)`,
+		userID, tokenHash, expiresAt, ip, r.UserAgent(),
+	)
+	h.DB.Exec(`UPDATE users SET last_login_at = NOW() WHERE id = ?`, userID)
+	setSessionCookie(w, token, expiresAt, isSecureRequest(r))
+
+	payload, err := h.loadAuthPayload(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "加载用户信息失败")
+		return
+	}
+	writeJSON(w, payload)
+}
+
+func (h *DashboardHandler) DingtalkBind(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	payload, ok := authPayloadFromContext(r)
+	if !ok || payload == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		Code   string `json:"code"`
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	// 解绑
+	if req.Action == "unbind" {
+		h.DB.Exec(`UPDATE users SET dingtalk_userid = '' WHERE id = ?`, payload.User.ID)
+		writeJSON(w, map[string]string{"message": "已解绑钉钉"})
+		return
+	}
+
+	// 绑定：用 code 换钉钉信息
+	if req.Code == "" {
+		writeError(w, http.StatusBadRequest, "code is required")
+		return
+	}
+
+	tokenBody, _ := json.Marshal(map[string]string{
+		"clientId":     h.DingClientID,
+		"clientSecret": h.DingClientSecret,
+		"code":         req.Code,
+		"grantType":    "authorization_code",
+	})
+	tokenResp, err := http.Post("https://api.dingtalk.com/v1.0/oauth2/userAccessToken", "application/json", bytes.NewReader(tokenBody))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "钉钉服务器连接失败")
+		return
+	}
+	defer tokenResp.Body.Close()
+	tokenRespBody, _ := io.ReadAll(tokenResp.Body)
+
+	var tokenData struct {
+		AccessToken string `json:"accessToken"`
+	}
+	json.Unmarshal(tokenRespBody, &tokenData)
+	if tokenData.AccessToken == "" {
+		writeError(w, http.StatusBadRequest, "钉钉授权失败")
+		return
+	}
+
+	meReq, _ := http.NewRequest("GET", "https://api.dingtalk.com/v1.0/contact/users/me", nil)
+	meReq.Header.Set("x-acs-dingtalk-access-token", tokenData.AccessToken)
+	meResp, err := http.DefaultClient.Do(meReq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "获取钉钉用户信息失败")
+		return
+	}
+	defer meResp.Body.Close()
+	meBody, _ := io.ReadAll(meResp.Body)
+
+	var dtUser struct {
+		Nick    string `json:"nick"`
+		UnionId string `json:"unionId"`
+		OpenId  string `json:"openId"`
+		Mobile  string `json:"mobile"`
+	}
+	json.Unmarshal(meBody, &dtUser)
+	dtID := dtUser.UnionId
+	if dtID == "" {
+		dtID = dtUser.OpenId
+	}
+	if dtID == "" {
+		writeError(w, http.StatusBadRequest, "获取钉钉身份失败")
+		return
+	}
+
+	// 检查是否已被其他账号绑定
+	var existID int64
+	err = h.DB.QueryRow(`SELECT id FROM users WHERE dingtalk_userid = ? AND id != ?`, dtID, payload.User.ID).Scan(&existID)
+	if err == nil {
+		writeError(w, http.StatusConflict, "该钉钉账号已绑定其他用户")
+		return
+	}
+
+	sets := []string{"dingtalk_userid = ?"}
+	args := []interface{}{dtID}
+	if strings.TrimSpace(dtUser.Nick) != "" {
+		sets = append(sets, "real_name = ?")
+		args = append(args, strings.TrimSpace(dtUser.Nick))
+	}
+	if strings.TrimSpace(dtUser.Mobile) != "" {
+		sets = append(sets, "phone = ?")
+		args = append(args, strings.TrimSpace(dtUser.Mobile))
+	}
+	args = append(args, payload.User.ID)
+	h.DB.Exec(`UPDATE users SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
+	writeJSON(w, map[string]string{"message": "钉钉绑定成功", "nick": dtUser.Nick, "mobile": dtUser.Mobile})
 }

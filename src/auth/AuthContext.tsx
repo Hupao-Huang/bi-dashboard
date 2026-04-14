@@ -18,6 +18,7 @@ type DataScopes = {
 type AuthPayload = {
   dataScopes: DataScopes;
   isSuperAdmin: boolean;
+  mustChangePassword: boolean;
   permissions: string[];
   roles: string[];
   user: AuthUser;

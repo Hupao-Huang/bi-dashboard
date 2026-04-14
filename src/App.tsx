@@ -52,6 +52,7 @@ const FeedbackPage = lazy(() => import('./pages/system/Feedback'));
 const NoticesPage = lazy(() => import('./pages/system/Notices'));
 const ProfilePage = lazy(() => import('./pages/system/Profile'));
 const ChannelManagementPage = lazy(() => import('./pages/system/ChannelManagement'));
+const DingtalkCallback = lazy(() => import('./pages/DingtalkCallback'));
 
 dayjs.locale('zh-cn');
 
@@ -77,6 +78,7 @@ const App: React.FC = () => (
         <Suspense fallback={routeFallback}>
           <Routes>
             <Route path="/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
+            <Route path="/dingtalk/callback" element={<DingtalkCallback />} />
             <Route element={<RequireAuth><MainLayout /></RequireAuth>}>
               <Route path="/" element={<LandingPage />} />
               <Route path="/forbidden" element={<ForbiddenPage />} />

@@ -74,14 +74,26 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
     const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX);
     const handleTouchMove = (e: TouchEvent) => handleMove(e.touches[0].clientX);
 
-    const handleEnd = () => {
+    const handleEnd = async () => {
       setDragging(false);
-      // 验证
-      if (sliderX > 10) {
-        setStatus('success');
-        setTimeout(() => {
-          onSuccess(captchaId, sliderX);
-        }, 400);
+      if (sliderX <= 10) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/captcha/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ captchaId, captchaAnswer: Math.round(sliderX) }),
+        });
+        const body = await res.json();
+        if (body.code === 200) {
+          setStatus('success');
+          setTimeout(() => onSuccess(captchaId, Math.round(sliderX)), 400);
+        } else {
+          setStatus('fail');
+          setTimeout(() => { loadCaptcha(); }, 800);
+        }
+      } catch {
+        setStatus('fail');
+        setTimeout(() => { loadCaptcha(); }, 800);
       }
     };
 
@@ -114,15 +126,7 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
       width={380}
       centered
       destroyOnClose
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span>安全验证</span>
-          <ReloadOutlined
-            onClick={loadCaptcha}
-            style={{ fontSize: 14, color: '#999', cursor: 'pointer', marginRight: 16 }}
-          />
-        </div>
-      }
+      title="安全验证"
     >
       {loading ? (
         <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
@@ -133,6 +137,10 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
           {/* 拼图区域 */}
           <div style={{ position: 'relative', width: SLIDER_W, height: 160, margin: '0 auto', borderRadius: 8, overflow: 'hidden' }}>
             {bgImage && <img src={bgImage} alt="" style={{ width: SLIDER_W, height: 160, display: 'block' }} draggable={false} />}
+            <ReloadOutlined
+              onClick={loadCaptcha}
+              style={{ position: 'absolute', top: 8, right: 8, fontSize: 16, color: '#fff', cursor: 'pointer', textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}
+            />
             {pieceImage && (
               <img
                 src={pieceImage}

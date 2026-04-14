@@ -38,9 +38,11 @@ func main() {
 	log.Println("Auth schema ready")
 
 	h := &handler.DashboardHandler{
-		DB:         db,
-		DingToken:  cfg.DingTalk.WebhookToken,
-		DingSecret: cfg.DingTalk.WebhookSecret,
+		DB:               db,
+		DingToken:        cfg.DingTalk.WebhookToken,
+		DingSecret:       cfg.DingTalk.WebhookSecret,
+		DingClientID:     cfg.DingTalk.ClientID,
+		DingClientSecret: cfg.DingTalk.ClientSecret,
 	}
 
 	mux := http.NewServeMux()
@@ -89,11 +91,16 @@ func main() {
 	}
 
 	mux.HandleFunc("/api/auth/captcha", corsHandler(h.GetCaptcha))
+	mux.HandleFunc("/api/auth/captcha/verify", corsHandler(h.VerifyCaptchaOnly))
 	mux.HandleFunc("/api/auth/login", corsHandler(h.Login))
 	mux.HandleFunc("/api/auth/logout", corsHandler(h.RequireAuth(h.Logout)))
 	mux.HandleFunc("/api/auth/me", corsHandler(h.RequireAuth(h.Me)))
 	mux.HandleFunc("/api/auth/change-password", corsHandler(h.RequireAuth(h.ChangePassword)))
+	mux.HandleFunc("/api/auth/dingtalk/url", corsHandler(h.DingtalkAuthURL))
+	mux.HandleFunc("/api/auth/dingtalk/login", corsHandler(h.DingtalkLogin))
+	mux.HandleFunc("/api/user/dingtalk", corsHandler(h.RequireAuth(h.DingtalkBind)))
 	mux.HandleFunc("/api/admin/meta", adminMeta(h.AdminMeta))
+	mux.HandleFunc("/api/admin/users/batch", adminUsers(h.AdminUsersBatchImport))
 	mux.HandleFunc("/api/admin/users", adminUsers(h.AdminUsers))
 	mux.HandleFunc("/api/admin/users/", adminUsers(h.AdminUserByPath))
 	mux.HandleFunc("/api/admin/roles", adminRoles(h.AdminRoles))
