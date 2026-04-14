@@ -806,6 +806,69 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	// 6. 平台销售额分布
+	type PlatSales struct {
+		Platform string  `json:"platform"`
+		Sales    float64 `json:"sales"`
+		Qty      float64 `json:"qty"`
+	}
+	var platformSales []PlatSales
+	platSalesRows, ok := queryRowsOrWriteError(w, h.DB, `
+		SELECT CASE
+			WHEN s.shop_name LIKE '%即时零售%' THEN '即时零售'
+			WHEN sc.online_plat_name IS NULL OR sc.online_plat_name = '' THEN '其他'
+			ELSE sc.online_plat_name
+		END AS plat,
+		ROUND(SUM(s.local_goods_amt),2), ROUND(SUM(s.goods_qty),0)
+		FROM sales_goods_summary s
+		LEFT JOIN sales_channel sc ON s.shop_name = sc.channel_name AND sc.department = s.department
+		WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?`+scopeCond+`
+		GROUP BY plat
+		ORDER BY SUM(s.local_goods_amt) DESC`, dept, start, end)
+	if !ok {
+		return
+	}
+	defer platSalesRows.Close()
+	platSalesMap := map[string]*PlatSales{}
+	for platSalesRows.Next() {
+		var rawPlat string
+		var sales, qty float64
+		if writeDatabaseError(w, platSalesRows.Scan(&rawPlat, &sales, &qty)) {
+			return
+		}
+		// 合并平台：通过 platformToPlats 反查分组
+		label := rawPlat
+		for key, plats := range platformToPlats {
+			for _, p := range plats {
+				if p == rawPlat {
+					for _, pt := range platTabDefs {
+						if pt.Key == key {
+							label = pt.Label
+							break
+						}
+					}
+					break
+				}
+			}
+		}
+		if ps, ok := platSalesMap[label]; ok {
+			ps.Sales += sales
+			ps.Qty += qty
+		} else {
+			platSalesMap[label] = &PlatSales{Platform: label, Sales: sales, Qty: qty}
+		}
+	}
+	if writeDatabaseError(w, platSalesRows.Err()) {
+		return
+	}
+	for _, ps := range platSalesMap {
+		platformSales = append(platformSales, *ps)
+	}
+	// 按销售额降序
+	sort.Slice(platformSales, func(i, j int) bool {
+		return platformSales[i].Sales > platformSales[j].Sales
+	})
+
 	writeJSON(w, map[string]interface{}{
 		"daily":         daily,
 		"shops":         shops,
@@ -814,6 +877,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		"brands":        brands,
 		"grades":        grades,
 		"platforms":     platforms,
+		"platformSales": platformSales,
 		"dateRange":     map[string]string{"start": start, "end": end},
 		"trendRange":    map[string]string{"start": trendStart, "end": trendEnd},
 	})
@@ -1986,7 +2050,7 @@ func (h *DashboardHandler) GetJdOps(w http.ResponseWriter, r *http.Request) {
 			IFNULL(SUM(browse_customers),0), IFNULL(SUM(cart_customers),0),
 			IFNULL(SUM(order_customers),0), IFNULL(SUM(pay_customers),0),
 			IFNULL(SUM(repurchase_customers),0), IFNULL(SUM(lost_customers),0)
-		FROM op_jd_custsvc_customer_daily
+		FROM op_jd_customer_daily
 		WHERE shop_name = ? AND stat_date BETWEEN ? AND ?
 		GROUP BY stat_date ORDER BY stat_date`, shop, trendStart, trendEnd)
 	if !ok {
@@ -2018,7 +2082,7 @@ func (h *DashboardHandler) GetJdOps(w http.ResponseWriter, r *http.Request) {
 	ctRows, ok := queryRowsOrWriteError(w, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'), customer_type, pay_customers,
 			pay_pct, conv_rate, unit_price
-		FROM op_jd_custsvc_customer_type_daily
+		FROM op_jd_customer_type_daily
 		WHERE shop_name = ? AND stat_date BETWEEN ? AND ?
 		ORDER BY stat_date, customer_type`, shop, trendStart, trendEnd)
 	if !ok {
@@ -3010,10 +3074,10 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 					WHEN IFNULL(ti.daily_conv_rate, 0) <= 1 THEN IFNULL(ti.daily_conv_rate, 0) * 100
 					ELSE IFNULL(ti.daily_conv_rate, 0)
 				END AS conv_rate
-			FROM op_tmall_custsvc_consult_daily tc
-			LEFT JOIN op_tmall_custsvc_inquiry_daily ti ON ti.stat_date = tc.stat_date AND ti.shop_name = tc.shop_name
-			LEFT JOIN op_tmall_custsvc_avgprice_daily ta ON ta.stat_date = tc.stat_date AND ta.shop_name = tc.shop_name
-			LEFT JOIN op_tmall_custsvc_evaluation_daily te ON te.stat_date = tc.stat_date AND te.shop_name = tc.shop_name
+			FROM op_tmall_service_consult tc
+			LEFT JOIN op_tmall_service_inquiry ti ON ti.stat_date = tc.stat_date AND ti.shop_name = tc.shop_name
+			LEFT JOIN op_tmall_service_avgprice ta ON ta.stat_date = tc.stat_date AND ta.shop_name = tc.shop_name
+			LEFT JOIN op_tmall_service_evaluation te ON te.stat_date = tc.stat_date AND te.shop_name = tc.shop_name
 			WHERE tc.stat_date BETWEEN ? AND ?
 
 			UNION ALL
@@ -3022,23 +3086,23 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				'拼多多' AS platform,
 				DATE_FORMAT(pbase.stat_date, '%Y-%m-%d') AS stat_date,
 				pbase.shop_name,
-				IFNULL(ps.consult_users, IFNULL(px.consult_users, 0)) AS consult_users,
+				IFNULL(ps.inquiry_users, 0) AS consult_users,
 				IFNULL(ps.final_group_users, 0) AS pay_users,
 				IFNULL(ps.cs_sales_amount, 0) AS sales_amount,
 				0 AS first_response_seconds,
 				0 AS response_seconds,
 				CASE
-					WHEN IFNULL(px.three_min_reply_rate_all, 0) <= 1 THEN IFNULL(px.three_min_reply_rate_all, 0) * 100
-					ELSE IFNULL(px.three_min_reply_rate_all, 0)
+					WHEN IFNULL(px.three_min_reply_rate_823, 0) <= 1 THEN IFNULL(px.three_min_reply_rate_823, 0) * 100
+					ELSE IFNULL(px.three_min_reply_rate_823, 0)
 				END AS satisfaction_rate,
 				IFNULL(ps.inquiry_conv_rate, 0) AS conv_rate
 			FROM (
-				SELECT stat_date, shop_name FROM op_pdd_custsvc_service_daily
+				SELECT stat_date, shop_name FROM op_pdd_cs_service_daily
 				UNION
-				SELECT stat_date, shop_name FROM op_pdd_custsvc_sales_daily
+				SELECT stat_date, shop_name FROM op_pdd_cs_sales_daily
 			) pbase
-			LEFT JOIN op_pdd_custsvc_service_daily px ON px.stat_date = pbase.stat_date AND px.shop_name = pbase.shop_name
-			LEFT JOIN op_pdd_custsvc_sales_daily ps ON ps.stat_date = pbase.stat_date AND ps.shop_name = pbase.shop_name
+			LEFT JOIN op_pdd_cs_service_daily px ON px.stat_date = pbase.stat_date AND px.shop_name = pbase.shop_name
+			LEFT JOIN op_pdd_cs_sales_daily ps ON ps.stat_date = pbase.stat_date AND ps.shop_name = pbase.shop_name
 			WHERE pbase.stat_date BETWEEN ? AND ?
 
 			UNION ALL
@@ -3050,8 +3114,8 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				IFNULL(js.presale_receive_users, IFNULL(jw.message_consult_count, IFNULL(jw.consult_count, 0))) AS consult_users,
 				IFNULL(js.order_users, 0) AS pay_users,
 				IFNULL(js.order_goods_amount, 0) AS sales_amount,
-				IFNULL(jw.first_avg_resp_minutes, 0) * 60 AS first_response_seconds,
-				IFNULL(jw.new_avg_resp_minutes, 0) * 60 AS response_seconds,
+				IFNULL(jw.first_avg_resp_seconds, 0) AS first_response_seconds,
+				IFNULL(jw.new_avg_resp_seconds, 0) AS response_seconds,
 				IFNULL(jw.satisfaction_rate, 0) AS satisfaction_rate,
 				IFNULL(js.consult_to_order_rate, 0) AS conv_rate
 			FROM (
@@ -3112,7 +3176,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				shop_name,
 				IFNULL(case_count, 0) AS consult_users,
 				IFNULL(inquiry_pay_pkg_count, 0) AS pay_users,
-				IFNULL(pay_gmv, 0) AS sales_amount,
+				IFNULL(inquiry_pay_gmv, 0) AS sales_amount,
 				0 AS first_response_seconds,
 				CASE
 					WHEN IFNULL(reply_in_3min_case_ratio, 0) <= 1 THEN IFNULL(reply_in_3min_case_ratio, 0) * 100

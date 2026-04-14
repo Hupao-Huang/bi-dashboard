@@ -153,6 +153,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/system/tasks', icon: <ClockCircleOutlined />, label: '任务监控', permission: 'role.manage' },
       { key: '/system/feedback', icon: <CommentOutlined />, label: '反馈管理', permission: 'feedback.manage' },
       { key: '/system/notices', icon: <AlertOutlined />, label: '公告管理', permission: 'notice.manage' },
+      { key: '/system/channels', icon: <ShopOutlined />, label: '渠道管理', permission: 'channel.manage' },
     ],
   },
 ];
@@ -203,6 +204,7 @@ export const pageTitleMap: Record<string, string> = {
   '/system/tasks': '任务监控',
   '/system/feedback': '反馈管理',
   '/system/notices': '公告管理',
+  '/system/channels': '渠道管理',
   '/profile': '个人中心',
   '/forbidden': '无权限',
 };
@@ -260,6 +262,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/system/tasks', permission: 'role.manage' },
   { path: '/system/feedback', permission: 'feedback.manage' },
   { path: '/system/notices', permission: 'notice.manage' },
+  { path: '/system/channels', permission: 'channel.manage' },
 ];
 
 const filterMenuDefinitions = (

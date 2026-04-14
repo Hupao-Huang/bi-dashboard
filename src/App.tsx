@@ -51,6 +51,7 @@ const TaskMonitorPage = lazy(() => import('./pages/system/TaskMonitor'));
 const FeedbackPage = lazy(() => import('./pages/system/Feedback'));
 const NoticesPage = lazy(() => import('./pages/system/Notices'));
 const ProfilePage = lazy(() => import('./pages/system/Profile'));
+const ChannelManagementPage = lazy(() => import('./pages/system/ChannelManagement'));
 
 dayjs.locale('zh-cn');
 
@@ -127,6 +128,7 @@ const App: React.FC = () => (
               <Route path="/system/tasks" element={guard('role.manage', <TaskMonitorPage />)} />
               <Route path="/system/feedback" element={guard('feedback.manage', <FeedbackPage />)} />
               <Route path="/system/notices" element={guard('notice.manage', <NoticesPage />)} />
+              <Route path="/system/channels" element={guard('channel.manage', <ChannelManagementPage />)} />
               <Route path="/profile" element={<ProfilePage />} />
             </Route>
           </Routes>

@@ -427,6 +427,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "role.manage", Name: "角色管理", Type: "action"},
 	{Code: "feedback.manage", Name: "反馈管理", Type: "action"},
 	{Code: "notice.manage", Name: "公告管理", Type: "action"},
+	{Code: "channel.manage", Name: "渠道管理", Type: "action"},
 }
 
 var roleSeeds = []roleSeed{
