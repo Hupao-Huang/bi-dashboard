@@ -21,24 +21,25 @@ func (h *DashboardHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var realName, avatar, phone, email string
+	var realName, avatar, phone, email, dingtalkUserid string
 	var lastLoginAt *string
 	err := h.DB.QueryRow(`SELECT IFNULL(real_name,''), IFNULL(avatar,''), IFNULL(phone,''), IFNULL(email,''),
-		DATE_FORMAT(last_login_at,'%Y-%m-%d %H:%i') FROM users WHERE id=?`, payload.User.ID).
-		Scan(&realName, &avatar, &phone, &email, &lastLoginAt)
+		DATE_FORMAT(last_login_at,'%Y-%m-%d %H:%i'), IFNULL(dingtalk_userid,'') FROM users WHERE id=?`, payload.User.ID).
+		Scan(&realName, &avatar, &phone, &email, &lastLoginAt, &dingtalkUserid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"username":    payload.User.Username,
-		"realName":    realName,
-		"avatar":      avatar,
-		"phone":       phone,
-		"email":       email,
-		"lastLoginAt": lastLoginAt,
-		"roles":       payload.Roles,
+		"username":       payload.User.Username,
+		"realName":       realName,
+		"avatar":         avatar,
+		"phone":          phone,
+		"email":          email,
+		"lastLoginAt":    lastLoginAt,
+		"roles":          payload.Roles,
+		"dingtalkBound":  dingtalkUserid != "",
 	})
 }
 

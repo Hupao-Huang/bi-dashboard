@@ -39,6 +39,8 @@ type JackYunConfig struct {
 type DingTalkConfig struct {
 	WebhookToken  string `json:"webhook_token"`
 	WebhookSecret string `json:"webhook_secret"`
+	ClientID      string `json:"client_id"`
+	ClientSecret  string `json:"client_secret"`
 }
 
 func Load(path string) (*Config, error) {

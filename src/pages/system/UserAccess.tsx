@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -7,16 +8,20 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Result,
   Row,
   Select,
   Space,
+  Steps,
   Switch,
   Table,
   Tag,
   Typography,
+  Upload,
   message,
 } from 'antd';
-import { DeleteOutlined } from '@ant-design/icons';
+import type { UploadFile } from 'antd';
+import { DeleteOutlined, UploadOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 
 type MetaOption = {
@@ -33,6 +38,7 @@ type UserItem = {
   id: number;
   lastLoginAt: string;
   realName: string;
+  remark?: string;
   roles: string[];
   status: string;
   username: string;
@@ -83,6 +89,16 @@ const UserAccessPage: React.FC = () => {
   const [createForm] = Form.useForm();
   const [accessForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
+
+  // 批量导入
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchStep, setBatchStep] = useState(0); // 0=上传配置 1=预览 2=结果
+  const [batchFile, setBatchFile] = useState<UploadFile[]>([]);
+  const [batchPassword, setBatchPassword] = useState('');
+  const [batchRoles, setBatchRoles] = useState<string[]>([]);
+  const [batchPreview, setBatchPreview] = useState<{ total: number; valid: number; errors: Array<{ row: number; realName: string; error: string }>; preview: Array<{ row: number; realName: string; phone: string; department: string; username: string; valid: boolean; error?: string }> } | null>(null);
+  const [batchResult, setBatchResult] = useState<{ imported: number; total: number; errors: Array<{ row: number; realName: string; error: string }> } | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
 
   const loadUsers = useCallback(async () => {
     const data = await parseData<{ list: UserItem[] }>(await fetch(`${API_BASE}/api/admin/users`));
@@ -259,6 +275,76 @@ const UserAccessPage: React.FC = () => {
     }
   };
 
+  const handleBatchPreview = async () => {
+    if (!batchFile.length || !batchFile[0].originFileObj) {
+      messageApi.error('请上传Excel文件');
+      return;
+    }
+    if (!batchPassword) {
+      messageApi.error('请设置初始密码');
+      return;
+    }
+    setBatchLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', batchFile[0].originFileObj);
+      formData.append('password', batchPassword);
+      formData.append('roleCodes', JSON.stringify(batchRoles));
+      formData.append('dryRun', 'true');
+      const res = await fetch(`${API_BASE}/api/admin/users/batch`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.msg || '校验失败');
+      setBatchPreview(body.data);
+      setBatchStep(1);
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : '校验失败');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const handleBatchImport = async () => {
+    if (!batchFile.length || !batchFile[0].originFileObj) return;
+    setBatchLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', batchFile[0].originFileObj);
+      formData.append('password', batchPassword);
+      formData.append('roleCodes', JSON.stringify(batchRoles));
+      formData.append('dryRun', 'false');
+      const res = await fetch(`${API_BASE}/api/admin/users/batch`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.msg || '导入失败');
+      setBatchResult(body.data);
+      setBatchStep(2);
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : '导入失败');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const handleBatchClose = () => {
+    setBatchOpen(false);
+    setBatchStep(0);
+    setBatchFile([]);
+    setBatchPassword('');
+    setBatchRoles([]);
+    setBatchPreview(null);
+    setBatchResult(null);
+    if (batchResult && batchResult.imported > 0) {
+      void loadUsers();
+    }
+  };
+
   const userColumns = [
     {
       title: '账号',
@@ -295,8 +381,8 @@ const UserAccessPage: React.FC = () => {
       key: 'status',
       width: 90,
       render: (status: string) => (
-        <Tag color={status === 'active' ? 'green' : 'default'} style={{ marginInlineEnd: 0 }}>
-          {status === 'active' ? '启用' : '停用'}
+        <Tag color={status === 'active' ? 'green' : status === 'pending' ? 'orange' : 'default'} style={{ marginInlineEnd: 0 }}>
+          {status === 'active' ? '启用' : status === 'pending' ? '待审批' : '停用'}
         </Tag>
       ),
     },
@@ -342,7 +428,7 @@ const UserAccessPage: React.FC = () => {
           <Card
             className="bi-card"
             title="用户列表"
-            extra={<Button type="primary" onClick={() => setCreateOpen(true)}>新增用户</Button>}
+            extra={<Space><Button onClick={() => setBatchOpen(true)} icon={<UploadOutlined />}>批量导入</Button><Button type="primary" onClick={() => setCreateOpen(true)}>新增用户</Button></Space>}
           >
             <Table
               rowKey="id"
@@ -366,6 +452,15 @@ const UserAccessPage: React.FC = () => {
                 <div style={{ marginBottom: 20 }}>
                   <Typography.Title level={5} style={{ marginBottom: 4 }}>{access.realName}</Typography.Title>
                   <Typography.Text type="secondary">@{access.username}</Typography.Text>
+                  {currentUser.status === 'pending' && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginTop: 12 }}
+                      message="待审批用户"
+                      description={currentUser.remark ? `权限申请说明：${currentUser.remark}` : '该用户通过钉钉扫码注册，请分配角色后启用账号'}
+                    />
+                  )}
                 </div>
 
                 <Form form={accessForm} layout="vertical" onFinish={handleSaveAccess}>
@@ -476,6 +571,129 @@ const UserAccessPage: React.FC = () => {
             <Switch checkedChildren="启用" unCheckedChildren="停用" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 批量导入 Modal */}
+      <Modal
+        open={batchOpen}
+        title="批量导入用户"
+        onCancel={handleBatchClose}
+        footer={null}
+        width={800}
+        destroyOnClose
+      >
+        <Steps current={batchStep} size="small" style={{ marginBottom: 24 }} items={[
+          { title: '上传配置' },
+          { title: '预览校验' },
+          { title: '导入结果' },
+        ]} />
+
+        {batchStep === 0 && (
+          <Form layout="vertical">
+            <Form.Item label="钉钉通讯录 Excel" required>
+              <Upload
+                accept=".xlsx,.xls"
+                maxCount={1}
+                fileList={batchFile}
+                onChange={({ fileList }) => setBatchFile(fileList)}
+                beforeUpload={() => false}
+              >
+                <Button icon={<UploadOutlined />}>选择文件</Button>
+              </Upload>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Excel需包含"姓名"和"手机号"列，手机号将作为登录账号
+              </Typography.Text>
+            </Form.Item>
+            <Form.Item label="统一初始密码" required>
+              <Input.Password
+                value={batchPassword}
+                onChange={e => setBatchPassword(e.target.value)}
+                placeholder="至少8位，含大小写字母和数字"
+              />
+            </Form.Item>
+            <Form.Item label="分配角色">
+              <Select
+                mode="multiple"
+                value={batchRoles}
+                onChange={setBatchRoles}
+                options={(meta?.roles || []).map(role => ({ label: role.name, value: role.code }))}
+                placeholder="选择要分配的角色（可多选）"
+              />
+            </Form.Item>
+            <div style={{ textAlign: 'right' }}>
+              <Space>
+                <Button onClick={handleBatchClose}>取消</Button>
+                <Button type="primary" loading={batchLoading} onClick={handleBatchPreview}
+                  disabled={!batchFile.length || !batchPassword}>
+                  预览校验
+                </Button>
+              </Space>
+            </div>
+          </Form>
+        )}
+
+        {batchStep === 1 && batchPreview && (
+          <>
+            <Alert
+              style={{ marginBottom: 16 }}
+              type={(batchPreview.errors?.length ?? 0) > 0 ? 'warning' : 'success'}
+              message={`共 ${batchPreview.total} 条数据，有效 ${batchPreview.valid} 条${(batchPreview.errors?.length ?? 0) > 0 ? `，错误 ${batchPreview.errors.length} 条` : ''}`}
+            />
+            <Table
+              rowKey="row"
+              size="small"
+              dataSource={batchPreview.preview}
+              pagination={{ pageSize: 10, size: 'small' }}
+              scroll={{ y: 320 }}
+              rowClassName={record => record.valid ? '' : 'batch-row-error'}
+              columns={[
+                { title: '行号', dataIndex: 'row', width: 60 },
+                { title: '姓名', dataIndex: 'realName', width: 80 },
+                { title: '手机号', dataIndex: 'phone', width: 120 },
+                { title: '部门', dataIndex: 'department', width: 120 },
+                { title: '登录账号', dataIndex: 'username', width: 120 },
+                { title: '状态', dataIndex: 'valid', width: 120, render: (valid: boolean, record: any) =>
+                  valid ? <Tag color="green">有效</Tag> : <Tag color="red">{record.error}</Tag>
+                },
+              ]}
+            />
+            <div style={{ textAlign: 'right', marginTop: 16 }}>
+              <Space>
+                <Button onClick={() => setBatchStep(0)}>返回修改</Button>
+                <Button type="primary" loading={batchLoading} onClick={handleBatchImport}
+                  disabled={batchPreview.valid === 0}>
+                  确认导入 {batchPreview.valid} 人
+                </Button>
+              </Space>
+            </div>
+          </>
+        )}
+
+        {batchStep === 2 && batchResult && (
+          <>
+            <Result
+              status={batchResult.imported > 0 ? 'success' : 'error'}
+              title={`成功导入 ${batchResult.imported} 个用户`}
+              subTitle={batchResult.errors?.length > 0 ? `${batchResult.errors.length} 条失败` : undefined}
+            />
+            {batchResult.errors?.length > 0 && (
+              <Table
+                rowKey="row"
+                size="small"
+                dataSource={batchResult.errors}
+                pagination={false}
+                columns={[
+                  { title: '行号', dataIndex: 'row', width: 60 },
+                  { title: '姓名', dataIndex: 'realName', width: 100 },
+                  { title: '错误', dataIndex: 'error' },
+                ]}
+              />
+            )}
+            <div style={{ textAlign: 'right', marginTop: 16 }}>
+              <Button type="primary" onClick={handleBatchClose}>完成</Button>
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   );

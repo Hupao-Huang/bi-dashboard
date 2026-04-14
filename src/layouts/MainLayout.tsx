@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Avatar, Button, Dropdown, Form, Input, Layout, Menu, Modal, Tooltip, Typography, message } from 'antd';
 import {
   CommentOutlined,
@@ -36,7 +36,7 @@ const MainLayout: React.FC = () => {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { hasPermission, logout, session } = useAuth();
+  const { hasPermission, logout, refresh, session } = useAuth();
 
   const currentPath = location.pathname === '/' ? '/overview' : location.pathname;
   const menuItems = useMemo(() => buildMenuItems(hasPermission), [hasPermission]);
@@ -52,6 +52,13 @@ const MainLayout: React.FC = () => {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [pwForm] = Form.useForm();
 
+  const forceChange = session?.mustChangePassword ?? false;
+
+  // 首次登录强制改密时自动弹窗
+  useEffect(() => {
+    if (forceChange) setPasswordOpen(true);
+  }, [forceChange]);
+
   const handleChangePassword = async () => {
     try {
       const values = await pwForm.validateFields();
@@ -66,9 +73,15 @@ const MainLayout: React.FC = () => {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.msg || '修改失败');
       }
-      message.success('密码修改成功');
-      setPasswordOpen(false);
-      pwForm.resetFields();
+      if (forceChange) {
+        message.success('密码修改成功');
+        pwForm.resetFields();
+        await refresh();
+      } else {
+        message.success('密码修改成功');
+        setPasswordOpen(false);
+        pwForm.resetFields();
+      }
     } catch (err: unknown) {
       if (err instanceof Error && err.message !== 'Validation failed') {
         message.error(err.message);
@@ -288,13 +301,19 @@ const MainLayout: React.FC = () => {
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
       <Watermark text={`松鲜鲜工作台 · ${displayName}`} subtext={new Date().toLocaleDateString('zh-CN')} />
       <Modal
-        title="修改密码"
+        title={forceChange ? '首次登录，请修改密码' : '修改密码'}
         open={passwordOpen}
-        onCancel={() => { setPasswordOpen(false); pwForm.resetFields(); }}
+        onCancel={forceChange ? undefined : () => { setPasswordOpen(false); pwForm.resetFields(); }}
         onOk={handleChangePassword}
         confirmLoading={passwordLoading}
         okText="确认修改"
-        cancelText="取消"
+        cancelText={forceChange ? undefined : '取消'}
+        closable={!forceChange}
+        maskClosable={!forceChange}
+        keyboard={!forceChange}
+        footer={forceChange ? [
+          <Button key="ok" type="primary" loading={passwordLoading} onClick={handleChangePassword}>确认修改</Button>,
+        ] : undefined}
         destroyOnClose
       >
         <Form form={pwForm} layout="vertical" style={{ marginTop: 16 }}>

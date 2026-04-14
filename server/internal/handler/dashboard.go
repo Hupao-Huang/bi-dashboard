@@ -13,9 +13,11 @@ import (
 )
 
 type DashboardHandler struct {
-	DB         *sql.DB
-	DingToken  string
-	DingSecret string
+	DB               *sql.DB
+	DingToken        string
+	DingSecret       string
+	DingClientID     string
+	DingClientSecret string
 }
 
 type overviewCacheEntry struct {

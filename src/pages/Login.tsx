@@ -10,6 +10,7 @@ import {
   Typography,
 } from 'antd';
 import {
+  DingtalkOutlined,
   LockOutlined,
   SafetyCertificateOutlined,
   UserOutlined,
@@ -17,6 +18,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { getFirstAllowedRoute } from '../navigation';
+import { API_BASE } from '../config';
 import SliderCaptcha from '../components/SliderCaptcha';
 
 const pageStyle: React.CSSProperties = {
@@ -184,6 +186,32 @@ const LoginPage: React.FC = () => {
                 style={{ height: 44, marginTop: 8 }}
               >
                 {submitting ? '登录中...' : '登 录'}
+              </Button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '16px 0 8px', color: '#d0d5dd' }}>
+                <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+                <span style={{ fontSize: 12 }}>其他登录方式</span>
+                <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+              </div>
+
+              <Button
+                block
+                size="large"
+                icon={<DingtalkOutlined style={{ color: '#3296fa' }} />}
+                style={{ height: 44 }}
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`${API_BASE}/api/auth/dingtalk/url`, { credentials: 'include' });
+                    const body = await res.json();
+                    if (body.data?.url) {
+                      window.location.href = body.data.url;
+                    }
+                  } catch {
+                    setError('获取钉钉登录地址失败');
+                  }
+                }}
+              >
+                钉钉扫码登录
               </Button>
             </Form>
           </Space>
