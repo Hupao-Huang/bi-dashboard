@@ -178,6 +178,14 @@ func main() {
 	mux.HandleFunc("/api/admin/notices/create", noticeAdmin(h.CreateNotice))
 	mux.HandleFunc("/api/admin/notices/", noticeAdmin(h.NoticeByPath))
 
+	// 渠道管理
+	channelAdmin := func(next http.HandlerFunc) http.HandlerFunc {
+		return corsHandler(h.RequirePermission("channel.manage", next))
+	}
+	mux.HandleFunc("/api/admin/channels", channelAdmin(h.AdminChannels))
+	mux.HandleFunc("/api/admin/channels/sync", channelAdmin(h.SyncChannels))
+	mux.HandleFunc("/api/admin/channels/", channelAdmin(h.ChannelByPath))
+
 	// 合思费控
 	mux.HandleFunc("/api/hesi/stats", pageProtected("finance.expense:view", h.GetHesiStats))
 	mux.HandleFunc("/api/hesi/flows", pageProtected("finance.expense:view", h.GetHesiFlows))

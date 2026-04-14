@@ -151,8 +151,8 @@ func ensureTables(db *sql.DB) error {
 			avg_reply_msg_count DECIMAL(10,4) DEFAULT 0,
 			timeout_reply_count INT DEFAULT 0,
 			avg_session_minutes DECIMAL(10,4) DEFAULT 0,
-			first_avg_resp_minutes DECIMAL(10,4) DEFAULT 0,
-			new_avg_resp_minutes DECIMAL(10,4) DEFAULT 0,
+			first_avg_resp_seconds DECIMAL(10,4) DEFAULT 0,
+			new_avg_resp_seconds DECIMAL(10,4) DEFAULT 0,
 			message_consult_count INT DEFAULT 0,
 			message_assign_count INT DEFAULT 0,
 			message_receive_count INT DEFAULT 0,
@@ -278,7 +278,7 @@ func importJDWorkload(db *sql.DB, path, date, shop string) (int, error) {
 	_, err = db.Exec(`INSERT INTO op_jd_cs_workload_daily
 		(stat_date, shop_name, on_duty_cs_count, login_hours, shop_service_hours, upv, consult_count, receive_count,
 		 connect_rate, reply_rate, resp_30s_rate, satisfaction_rate, invite_eval_rate, avg_reply_msg_count,
-		 timeout_reply_count, avg_session_minutes, first_avg_resp_minutes, new_avg_resp_minutes, message_consult_count,
+		 timeout_reply_count, avg_session_minutes, first_avg_resp_seconds, new_avg_resp_seconds, message_consult_count,
 		 message_assign_count, message_receive_count, message_reply_rate, message_resp_rate, merchant_message_rate, resolve_rate)
 		VALUES (?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?)
 		ON DUPLICATE KEY UPDATE
@@ -286,8 +286,8 @@ func importJDWorkload(db *sql.DB, path, date, shop string) (int, error) {
 		 upv=VALUES(upv), consult_count=VALUES(consult_count), receive_count=VALUES(receive_count), connect_rate=VALUES(connect_rate),
 		 reply_rate=VALUES(reply_rate), resp_30s_rate=VALUES(resp_30s_rate), satisfaction_rate=VALUES(satisfaction_rate),
 		 invite_eval_rate=VALUES(invite_eval_rate), avg_reply_msg_count=VALUES(avg_reply_msg_count), timeout_reply_count=VALUES(timeout_reply_count),
-		 avg_session_minutes=VALUES(avg_session_minutes), first_avg_resp_minutes=VALUES(first_avg_resp_minutes),
-		 new_avg_resp_minutes=VALUES(new_avg_resp_minutes), message_consult_count=VALUES(message_consult_count),
+		 avg_session_minutes=VALUES(avg_session_minutes), first_avg_resp_seconds=VALUES(first_avg_resp_seconds),
+		 new_avg_resp_seconds=VALUES(new_avg_resp_seconds), message_consult_count=VALUES(message_consult_count),
 		 message_assign_count=VALUES(message_assign_count), message_receive_count=VALUES(message_receive_count),
 		 message_reply_rate=VALUES(message_reply_rate), message_resp_rate=VALUES(message_resp_rate),
 		 merchant_message_rate=VALUES(merchant_message_rate), resolve_rate=VALUES(resolve_rate)`,
@@ -488,7 +488,10 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 		return 0, err
 	}
 
+	// 按blockKey分类提取数据
 	metrics := map[string]interface{}{}
+	var trendRows []map[string]interface{}
+	var excellentRows []map[string]interface{}
 	if dataArr, ok := root["data"].([]interface{}); ok {
 		for _, item := range dataArr {
 			m, ok := item.(map[string]interface{})
@@ -496,12 +499,25 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 				continue
 			}
 			blockKey := toString(m["blockKey"])
-			if blockKey != "sellerCSOverall" {
-				continue
-			}
-			if rows, ok := m["data"].([]interface{}); ok && len(rows) > 0 {
-				if row, ok := rows[0].(map[string]interface{}); ok {
-					metrics = row
+			rows, _ := m["data"].([]interface{})
+			switch blockKey {
+			case "sellerCSOverall":
+				if len(rows) > 0 {
+					if row, ok := rows[0].(map[string]interface{}); ok {
+						metrics = row
+					}
+				}
+			case "sellerCSTrend":
+				for _, r := range rows {
+					if row, ok := r.(map[string]interface{}); ok {
+						trendRows = append(trendRows, row)
+					}
+				}
+			case "sellerCSExcellentTrend":
+				for _, r := range rows {
+					if row, ok := r.(map[string]interface{}); ok {
+						excellentRows = append(excellentRows, row)
+					}
 				}
 			}
 		}
@@ -510,18 +526,23 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 	raw, _ := json.Marshal(root)
 	_, err = db.Exec(`INSERT INTO op_xhs_cs_analysis_daily
 		(stat_date, shop_name, case_count, reply_case_count, reply_case_ratio, avg_reply_duration_min,
-		 inquiry_pay_case_ratio, first_reply_45s_ratio, reply_in_3min_case_ratio, pay_gmv, inquiry_pay_gmv_ratio, pay_pkg_count,
+		 inquiry_pay_case_ratio, first_reply_45s_ratio, reply_in_3min_case_ratio, pay_gmv, inquiry_pay_gmv, inquiry_pay_gmv_ratio, pay_pkg_count,
 		 inquiry_pay_pkg_count, positive_case_count, positive_case_ratio, negative_case_count, negative_case_ratio,
-		 evaluate_case_count, evaluate_case_ratio, raw_json)
-		VALUES (?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?, ?,?,?)
+		 evaluate_case_count, evaluate_case_ratio,
+		 remove_na_case_count, reply_in_3min_case_count, reply_na_in_3min_case_count,
+		 raw_json)
+		VALUES (?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?, ?,?, ?,?,?, ?)
 		ON DUPLICATE KEY UPDATE
 		 case_count=VALUES(case_count), reply_case_count=VALUES(reply_case_count), reply_case_ratio=VALUES(reply_case_ratio),
 		 avg_reply_duration_min=VALUES(avg_reply_duration_min), inquiry_pay_case_ratio=VALUES(inquiry_pay_case_ratio),
 		 first_reply_45s_ratio=VALUES(first_reply_45s_ratio), reply_in_3min_case_ratio=VALUES(reply_in_3min_case_ratio),
-		 pay_gmv=VALUES(pay_gmv), inquiry_pay_gmv_ratio=VALUES(inquiry_pay_gmv_ratio),
+		 pay_gmv=VALUES(pay_gmv), inquiry_pay_gmv=VALUES(inquiry_pay_gmv), inquiry_pay_gmv_ratio=VALUES(inquiry_pay_gmv_ratio),
 		 pay_pkg_count=VALUES(pay_pkg_count), inquiry_pay_pkg_count=VALUES(inquiry_pay_pkg_count), positive_case_count=VALUES(positive_case_count),
 		 positive_case_ratio=VALUES(positive_case_ratio), negative_case_count=VALUES(negative_case_count), negative_case_ratio=VALUES(negative_case_ratio),
-		 evaluate_case_count=VALUES(evaluate_case_count), evaluate_case_ratio=VALUES(evaluate_case_ratio), raw_json=VALUES(raw_json)`,
+		 evaluate_case_count=VALUES(evaluate_case_count), evaluate_case_ratio=VALUES(evaluate_case_ratio),
+		 remove_na_case_count=VALUES(remove_na_case_count), reply_in_3min_case_count=VALUES(reply_in_3min_case_count),
+		 reply_na_in_3min_case_count=VALUES(reply_na_in_3min_case_count),
+		 raw_json=VALUES(raw_json)`,
 		date, shop,
 		nestedValue(metrics, "caseCnt"),
 		nestedValue(metrics, "replyCaseCnt"),
@@ -531,6 +552,7 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 		nestedValue(metrics, "firstReplyIn45sCaseRatio"),
 		nestedValue(metrics, "replyIn3minCaseRatio"),
 		nestedValue(metrics, "payGmv"),
+		nestedValue(metrics, "inquiryPayGmv"),
 		nestedValue(metrics, "inquiryPayGmvRatio"),
 		nestedValue(metrics, "payPkgCnt"),
 		nestedValue(metrics, "inquiryPayPkgCnt"),
@@ -540,11 +562,83 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 		nestedValue(metrics, "negativeCaseRatio"),
 		nestedValue(metrics, "evaluateCaseCnt"),
 		nestedValue(metrics, "evaluateCaseRatio"),
+		nestedValue(metrics, "removeNaCaseCnt"),
+		nestedValue(metrics, "replyIn3minCaseCnt"),
+		nestedValue(metrics, "replyNAIn3minCaseCnt"),
 		string(raw),
 	)
 	if err != nil {
 		return 0, err
 	}
+
+	// 导入客服趋势数据
+	for _, row := range trendRows {
+		dtmVal := xhsExtractDtm(row)
+		if dtmVal == "" {
+			continue
+		}
+		db.Exec(`INSERT INTO op_xhs_cs_trend_daily
+			(stat_date, report_date, shop_name, case_count, avg_reply_duration, reply_case_count, reply_case_ratio,
+			 reply_in_3min_case_ratio, first_reply_45s_ratio, evaluate_case_count, positive_case_count, negative_case_count,
+			 evaluate_case_ratio, negative_case_ratio, positive_case_ratio,
+			 inquiry_pay_pkg_count, inquiry_pay_gmv, inquiry_pay_case_ratio, inquiry_pay_gmv_ratio, remove_na_case_count)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			ON DUPLICATE KEY UPDATE
+			 case_count=VALUES(case_count), avg_reply_duration=VALUES(avg_reply_duration),
+			 reply_case_count=VALUES(reply_case_count), reply_case_ratio=VALUES(reply_case_ratio),
+			 reply_in_3min_case_ratio=VALUES(reply_in_3min_case_ratio), first_reply_45s_ratio=VALUES(first_reply_45s_ratio),
+			 evaluate_case_count=VALUES(evaluate_case_count), positive_case_count=VALUES(positive_case_count),
+			 negative_case_count=VALUES(negative_case_count), evaluate_case_ratio=VALUES(evaluate_case_ratio),
+			 negative_case_ratio=VALUES(negative_case_ratio), positive_case_ratio=VALUES(positive_case_ratio),
+			 inquiry_pay_pkg_count=VALUES(inquiry_pay_pkg_count), inquiry_pay_gmv=VALUES(inquiry_pay_gmv),
+			 inquiry_pay_case_ratio=VALUES(inquiry_pay_case_ratio), inquiry_pay_gmv_ratio=VALUES(inquiry_pay_gmv_ratio),
+			 remove_na_case_count=VALUES(remove_na_case_count)`,
+			dtmVal, date, shop,
+			nestedValue(row, "caseCnt"), nestedValue(row, "avgRplDur"),
+			nestedValue(row, "replyCaseCnt"), nestedValue(row, "replyCaseRatio"),
+			nestedValue(row, "replyIn3minCaseRatio"), nestedValue(row, "firstReplyIn45sCaseRatio"),
+			nestedValue(row, "evaluateCaseCnt"), nestedValue(row, "positiveCaseCnt"),
+			nestedValue(row, "negativeCaseCnt"), nestedValue(row, "evaluateCaseRatio"),
+			nestedValue(row, "negativeCaseRatio"), nestedValue(row, "positiveCaseRatio"),
+			nestedValue(row, "inquiryPayPkgCnt"), nestedValue(row, "inquiryPayGmv"),
+			nestedValue(row, "inquiryPayCaseRatio"), nestedValue(row, "inquiryPayGmvRatio"),
+			nestedValue(row, "removeNaCaseCnt"),
+		)
+	}
+
+	// 导入行业优秀趋势数据
+	for _, row := range excellentRows {
+		dtmVal := xhsExtractDtm(row)
+		if dtmVal == "" {
+			continue
+		}
+		db.Exec(`INSERT INTO op_xhs_cs_excellent_trend_daily
+			(stat_date, report_date, shop_name, case_count, avg_reply_duration, reply_case_ratio,
+			 reply_in_3min_case_ratio, first_reply_45s_ratio, evaluate_case_count, positive_case_count, negative_case_count,
+			 evaluate_case_ratio, negative_case_ratio, positive_case_ratio,
+			 inquiry_pay_pkg_count, inquiry_pay_gmv, inquiry_pay_case_ratio, inquiry_pay_gmv_ratio)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			ON DUPLICATE KEY UPDATE
+			 case_count=VALUES(case_count), avg_reply_duration=VALUES(avg_reply_duration),
+			 reply_case_ratio=VALUES(reply_case_ratio),
+			 reply_in_3min_case_ratio=VALUES(reply_in_3min_case_ratio), first_reply_45s_ratio=VALUES(first_reply_45s_ratio),
+			 evaluate_case_count=VALUES(evaluate_case_count), positive_case_count=VALUES(positive_case_count),
+			 negative_case_count=VALUES(negative_case_count), evaluate_case_ratio=VALUES(evaluate_case_ratio),
+			 negative_case_ratio=VALUES(negative_case_ratio), positive_case_ratio=VALUES(positive_case_ratio),
+			 inquiry_pay_pkg_count=VALUES(inquiry_pay_pkg_count), inquiry_pay_gmv=VALUES(inquiry_pay_gmv),
+			 inquiry_pay_case_ratio=VALUES(inquiry_pay_case_ratio), inquiry_pay_gmv_ratio=VALUES(inquiry_pay_gmv_ratio)`,
+			dtmVal, date, shop,
+			nestedValue(row, "caseCnt"), nestedValue(row, "avgRplDur"),
+			nestedValue(row, "replyCaseRatio"),
+			nestedValue(row, "replyIn3minCaseRatio"), nestedValue(row, "firstReplyIn45sCaseRatio"),
+			nestedValue(row, "evaluateCaseCnt"), nestedValue(row, "positiveCaseCnt"),
+			nestedValue(row, "negativeCaseCnt"), nestedValue(row, "evaluateCaseRatio"),
+			nestedValue(row, "negativeCaseRatio"), nestedValue(row, "positiveCaseRatio"),
+			nestedValue(row, "inquiryPayPkgCnt"), nestedValue(row, "inquiryPayGmv"),
+			nestedValue(row, "inquiryPayCaseRatio"), nestedValue(row, "inquiryPayGmvRatio"),
+		)
+	}
+
 	return 1, nil
 }
 
@@ -679,6 +773,39 @@ func anyToFloat(v interface{}) float64 {
 		return parseFloatText(t)
 	default:
 		return parseFloatText(fmt.Sprintf("%v", t))
+	}
+}
+
+// xhsExtractDtm 从趋势行中提取日期，返回 "2026-04-12" 格式
+func xhsExtractDtm(row map[string]interface{}) string {
+	dtmRaw, ok := row["dtm"]
+	if !ok {
+		return ""
+	}
+	switch v := dtmRaw.(type) {
+	case map[string]interface{}:
+		val := fmt.Sprintf("%v", v["value"])
+		val = strings.TrimSpace(val)
+		if len(val) == 8 {
+			return val[:4] + "-" + val[4:6] + "-" + val[6:8]
+		}
+		if len(val) == 10 && val[4] == '-' {
+			return val
+		}
+		return val
+	case float64:
+		s := fmt.Sprintf("%.0f", v)
+		if len(s) == 8 {
+			return s[:4] + "-" + s[4:6] + "-" + s[6:8]
+		}
+		return s
+	case string:
+		if len(v) == 8 {
+			return v[:4] + "-" + v[4:6] + "-" + v[6:8]
+		}
+		return v
+	default:
+		return fmt.Sprintf("%v", v)
 	}
 }
 

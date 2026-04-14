@@ -17,6 +17,7 @@ import { API_BASE } from '../config';
 import AIToolboxDrawer from '../components/AIToolboxDrawer';
 import FeedbackModal from '../components/FeedbackModal';
 import NoticeBell from '../components/Noticebell';
+import Watermark from '../components/Watermark';
 
 const { Sider, Header, Content } = Layout;
 
@@ -285,6 +286,7 @@ const MainLayout: React.FC = () => {
       </Layout>
       <AIToolboxDrawer open={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} />
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+      <Watermark text={`松鲜鲜工作台 · ${displayName}`} subtext={new Date().toLocaleDateString('zh-CN')} />
       <Modal
         title="修改密码"
         open={passwordOpen}

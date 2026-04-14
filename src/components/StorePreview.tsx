@@ -42,7 +42,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color }) => {
   const columns = [
     { title: '排名', dataIndex: '_rank', key: 'rank', width: 60, align: 'center' as const,
       render: (rank: number) => <span style={{ color: rank <= 3 ? color : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span> },
-    { title: '店铺名称', dataIndex: 'shopName', key: 'shopName', ellipsis: true },
+    { title: '店铺名称', dataIndex: 'shopName', key: 'shopName', ellipsis: true, width: 300 },
     { title: '销售额', dataIndex: 'sales', key: 'sales', width: 130, sorter: (a: any, b: any) => a.sales - b.sales,
       render: (v: number) => `¥${v?.toLocaleString()}` },
     { title: '货品数', dataIndex: 'qty', key: 'qty', width: 90, sorter: (a: any, b: any) => a.qty - b.qty,
@@ -68,30 +68,30 @@ const StorePreview: React.FC<Props> = ({ dept, title, color }) => {
     tooltip: { ...pieStyle.tooltip, trigger: 'item' as const, formatter: (p: any) => `${p.name}<br/>¥${p.value?.toLocaleString()}（${p.percent}%）` },
     legend: {
       ...pieStyle.legend,
-      orient: 'vertical' as const,
-      right: 8,
-      top: 'middle',
-      bottom: 'auto',
+      orient: 'horizontal' as const,
+      left: 'center',
+      bottom: 0,
+      top: 'auto',
       type: 'scroll' as const,
-      itemGap: 10,
-      formatter: (name: string) => (name.length > 16 ? name.slice(0, 16) + '...' : name),
+      itemGap: 14,
+      textStyle: { fontSize: 11 },
     },
     series: [{
       type: 'pie',
-      radius: ['35%', '62%'],
-      center: ['34%', '50%'],
+      radius: ['30%', '58%'],
+      center: ['50%', '42%'],
       label: {
         show: true,
-        formatter: (p: any) => {
-          const name = p.name.length > 12 ? p.name.slice(0, 12) + '...' : p.name;
-          return `{name|${name}}\n{value|${p.percent}%}`;
-        },
+        position: 'outside' as const,
+        formatter: (p: any) => `${p.name}\n{value|${p.percent}%}`,
         rich: {
-          name: { fontSize: 11, color: '#333', lineHeight: 16 },
-          value: { fontSize: 11, color: '#999', lineHeight: 16 },
+          value: { fontSize: 11, color: '#999', lineHeight: 18 },
         },
+        fontSize: 11,
+        color: '#333',
       },
-      labelLine: { length: 15, length2: 20, lineStyle: { color: '#e2e8f0' } },
+      labelLayout: { hideOverlap: true },
+      labelLine: { length: 12, length2: 16, lineStyle: { color: '#e2e8f0' } },
       itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
       data: pieData.map((item: any) => {
         const share = totalSales > 0 ? item.value / totalSales : 0;
@@ -113,17 +113,49 @@ const StorePreview: React.FC<Props> = ({ dept, title, color }) => {
   const avgPriceOption = {
     ...baseOpt,
     tooltip: { ...baseOpt.tooltip, trigger: 'axis' as const, formatter: (p: any) => `${p[0].name}<br/>客单价: ¥${p[0].value}` },
-    grid: { left: '40%', right: 60, top: 10, bottom: 20 },
+    grid: { left: '50%', right: 50, top: 10, bottom: 20 },
     xAxis: { ...baseOpt.xAxis, type: 'value' as const, show: false },
     yAxis: { type: 'category' as const,
       data: avgPriceData.map((d: any) => d.name).reverse(),
-      axisLabel: { ...baseOpt.yAxis.axisLabel, fontSize: 11 },
+      axisLabel: { ...baseOpt.yAxis.axisLabel, fontSize: 11, width: 180, overflow: 'truncate' as const },
     },
     series: [{
       type: 'bar', barWidth: 12,
       data: avgPriceData.map((d: any) => d.avgPrice).reverse(),
       ...barItemStyle('#faad14'),
       label: { show: true, position: 'right', fontSize: 11, formatter: '¥{c}' },
+    }],
+  };
+
+  // 平台销售额分布饼图
+  const platformSales = data.platformSales || [];
+  const platformPieOption = {
+    ...pieStyle,
+    color: CHART_COLORS,
+    tooltip: { ...pieStyle.tooltip, trigger: 'item' as const, formatter: (p: any) => `${p.name}<br/>¥${p.value?.toLocaleString()}（${p.percent}%）` },
+    legend: {
+      ...pieStyle.legend,
+      orient: 'horizontal' as const,
+      left: 'center',
+      bottom: 0,
+      type: 'scroll' as const,
+      itemGap: 14,
+      textStyle: { fontSize: 11 },
+    },
+    series: [{
+      type: 'pie',
+      radius: ['30%', '60%'],
+      center: ['50%', '42%'],
+      label: {
+        show: true,
+        formatter: '{b}\n{d}%',
+        fontSize: 11,
+        color: '#333',
+      },
+      labelLayout: { hideOverlap: true },
+      labelLine: { length: 10, length2: 14, lineStyle: { color: '#e2e8f0' } },
+      itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+      data: platformSales.map((p: any) => ({ value: p.sales, name: p.platform })),
     }],
   };
 
@@ -147,18 +179,31 @@ const StorePreview: React.FC<Props> = ({ dept, title, color }) => {
         ))}
       </Row>
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={14}>
+        <Col xs={24} lg={platformSales.length > 0 ? 14 : 24}>
           <Card title={shops.length > pieTopCount ? `店铺销售额占比（TOP${pieTopCount}+其他）` : '店铺销售额占比'}>
-            <ReactECharts option={salesPieOption} lazyUpdate={true} style={{ height: 500 }} />
+            <ReactECharts option={salesPieOption} lazyUpdate={true} style={{ height: 380 }} />
           </Card>
         </Col>
-        <Col xs={24} lg={10}>
-          <Card title="店铺客单价对比"><ReactECharts option={avgPriceOption} lazyUpdate={true} style={{ height: Math.max(300, avgPriceData.length * 24) }} /></Card>
+        {platformSales.length > 0 && (
+          <Col xs={24} lg={10}>
+            <Card title="平台销售额分布">
+              <ReactECharts option={platformPieOption} lazyUpdate={true} style={{ height: 380 }} />
+            </Card>
+          </Col>
+        )}
+      </Row>
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} lg={8}>
+          <Card title="店铺客单价对比">
+            <ReactECharts option={avgPriceOption} lazyUpdate={true} style={{ height: Math.max(400, Math.min(avgPriceData.length, 20) * 28) }} />
+          </Card>
+        </Col>
+        <Col xs={24} lg={16}>
+          <Card className="bi-table-card" title={`店铺排名（共${shops.length}家）`}>
+            <Table dataSource={indexedShops} columns={columns} rowKey="shopName" pagination={false} size="small" scroll={{ y: Math.max(400, Math.min(avgPriceData.length, 20) * 28 - 8) }} />
+          </Card>
         </Col>
       </Row>
-      <Card className="bi-table-card" title={`店铺排名（共${shops.length}家）`} style={{ marginTop: 16 }}>
-        <Table dataSource={indexedShops} columns={columns} rowKey="shopName" pagination={false} size="small" scroll={{ y: 500 }} />
-      </Card>
     </div>
   );
 };
