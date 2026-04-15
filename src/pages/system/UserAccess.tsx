@@ -37,6 +37,7 @@ type RoleOption = {
 type UserItem = {
   id: number;
   lastLoginAt: string;
+  phone?: string;
   realName: string;
   remark?: string;
   roles: string[];
@@ -362,6 +363,13 @@ const UserAccessPage: React.FC = () => {
       ),
     },
     {
+      title: '手机号',
+      dataIndex: 'phone',
+      key: 'phone',
+      width: 120,
+      render: (phone: string) => phone || '-',
+    },
+    {
       title: '角色',
       dataIndex: 'roles',
       key: 'roles',
@@ -386,6 +394,15 @@ const UserAccessPage: React.FC = () => {
         </Tag>
       ),
     },
+    ...(users.some(u => u.status === 'pending') ? [{
+      title: '申请备注',
+      dataIndex: 'remark',
+      key: 'remark',
+      ellipsis: true,
+      render: (remark: string, record: UserItem) => record.status === 'pending' && remark
+        ? <Typography.Text style={{ fontSize: 12, color: '#d46b08' }}>{remark}</Typography.Text>
+        : null,
+    }] : []),
     {
       title: '上次登录',
       dataIndex: 'lastLoginAt',
@@ -446,74 +463,51 @@ const UserAccessPage: React.FC = () => {
           </Card>
         </Col>
         <Col xs={24} xl={14}>
-          <Card className="bi-card" title="权限配置">
+          <Card className="bi-card" title="用户配置">
             {access && meta && currentUser ? (
               <>
-                <div style={{ marginBottom: 20 }}>
-                  <Typography.Title level={5} style={{ marginBottom: 4 }}>{access.realName}</Typography.Title>
-                  <Typography.Text type="secondary">@{access.username}</Typography.Text>
-                  {currentUser.status === 'pending' && (
-                    <Alert
-                      type="warning"
-                      showIcon
-                      style={{ marginTop: 12 }}
-                      message="待审批用户"
-                      description={currentUser.remark ? `权限申请说明：${currentUser.remark}` : '该用户通过钉钉扫码注册，请分配角色后启用账号'}
-                    />
-                  )}
+                {currentUser.status === 'pending' && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="待审批用户"
+                    description={currentUser.remark ? `权限申请说明：${currentUser.remark}` : '该用户通过钉钉扫码注册，请分配角色后启用账号'}
+                  />
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8, marginBottom: 20 }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #4f6bff 0%, #7aa2ff 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, flexShrink: 0 }}>
+                    {(access.realName || '?').slice(0, 1)}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <Typography.Title level={5} style={{ marginBottom: 0 }}>{access.realName}</Typography.Title>
+                    <Typography.Text type="secondary">@{access.username}{currentUser.phone ? ` · ${currentUser.phone}` : ''}</Typography.Text>
+                  </div>
+                  <Form form={accessForm} onFinish={handleSaveAccess} style={{ marginBottom: 0 }}>
+                    <Form.Item name="status" valuePropName="checked" style={{ marginBottom: 0 }}>
+                      <Switch checkedChildren="启用" unCheckedChildren="停用" />
+                    </Form.Item>
+                  </Form>
                 </div>
 
                 <Form form={accessForm} layout="vertical" onFinish={handleSaveAccess}>
-                  <Row gutter={16}>
-                    <Col span={16}>
-                      <Form.Item label="角色" name="roleCodes">
-                        <Select
-                          mode="multiple"
-                          options={meta.roles.map(role => ({ label: role.name, value: role.code }))}
-                          placeholder="请选择角色"
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label="账号启用" name="status" valuePropName="checked">
-                        <Switch checkedChildren="启用" unCheckedChildren="停用" />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-
-                  <Form.Item label="可见部门" name="depts">
-                    <Select mode="multiple" options={meta.depts} placeholder="不选表示不限制部门" maxTagCount="responsive" />
-                  </Form.Item>
-
-                  <Form.Item label="可见平台" name="platforms">
-                    <Select mode="multiple" options={meta.platforms} placeholder="不选表示不限制平台" maxTagCount="responsive" />
-                  </Form.Item>
-
-                  <Form.Item label="可见店铺" name="shops">
+                  <Form.Item label="分配角色" name="roleCodes">
                     <Select
                       mode="multiple"
-                      showSearch
-                      optionFilterProp="label"
-                      options={meta.shops}
-                      placeholder="不选表示不限制店铺"
-                      maxTagCount="responsive"
+                      options={meta.roles.map(role => ({ label: role.name, value: role.code }))}
+                      placeholder="请选择角色（可多选）"
                     />
                   </Form.Item>
-
-                  <Form.Item label="可见仓库" name="warehouses">
-                    <Select mode="multiple" options={meta.warehouses} placeholder="不选表示不限制仓库" maxTagCount="responsive" />
+                  <Form.Item style={{ marginBottom: 0 }}>
+                    <Button type="primary" htmlType="submit" loading={saving}>
+                      保存
+                    </Button>
                   </Form.Item>
-
-                  <Form.Item label="数据域" name="domains">
-                    <Select mode="multiple" options={meta.domains} placeholder="不选表示不限制数据域" maxTagCount="responsive" />
-                  </Form.Item>
-
-                  <Button type="primary" htmlType="submit" loading={saving}>
-                    保存权限
-                  </Button>
                 </Form>
 
-                <Card size="small" title="重置密码" style={{ marginTop: 16 }}>
+                <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+                  <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>重置密码</Typography.Text>
                   <Form form={passwordForm} layout="inline" onFinish={handleResetPassword}>
                     <Form.Item
                       name="password"
@@ -526,10 +520,10 @@ const UserAccessPage: React.FC = () => {
                     </Form.Item>
                     <Button htmlType="submit" loading={passwordSaving}>重置密码</Button>
                   </Form>
-                </Card>
+                </div>
               </>
             ) : (
-              <Typography.Text type="secondary">请选择左侧用户后再配置权限。</Typography.Text>
+              <Typography.Text type="secondary">请选择左侧用户。</Typography.Text>
             )}
           </Card>
         </Col>

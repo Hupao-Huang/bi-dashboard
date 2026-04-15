@@ -32,6 +32,7 @@ var (
 
 const (
 	overviewCacheTTL      = 30 * time.Second
+	deptCacheTTL          = 5 * time.Minute
 	overviewCacheMaxItems = 256
 )
 
@@ -47,6 +48,10 @@ func getOverviewCache(key string) (map[string]interface{}, bool) {
 }
 
 func setOverviewCache(key string, data map[string]interface{}) {
+	setCacheWithTTL(key, data, overviewCacheTTL)
+}
+
+func setCacheWithTTL(key string, data map[string]interface{}, ttl time.Duration) {
 	now := time.Now()
 
 	overviewCacheMu.Lock()
@@ -65,8 +70,50 @@ func setOverviewCache(key string, data map[string]interface{}) {
 
 	overviewCache[key] = overviewCacheEntry{
 		data:      data,
-		expiresAt: now.Add(overviewCacheTTL),
+		expiresAt: now.Add(ttl),
 	}
+}
+
+func (h *DashboardHandler) WithCache(ttl time.Duration, handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		payload, _ := authPayloadFromContext(r)
+		uid := int64(0)
+		if payload != nil {
+			uid = payload.User.ID
+		}
+		key := fmt.Sprintf("api|%s?%s|u:%d", r.URL.Path, r.URL.RawQuery, uid)
+		if cached, ok := getOverviewCache(key); ok {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(cached)
+			return
+		}
+		rec := &cacheResponseRecorder{ResponseWriter: w, statusCode: 200}
+		handler(rec, r)
+		if rec.statusCode == 200 && len(rec.body) > 0 {
+			var parsed map[string]interface{}
+			if json.Unmarshal(rec.body, &parsed) == nil {
+				setCacheWithTTL(key, parsed, ttl)
+			}
+		}
+	}
+}
+
+type cacheResponseRecorder struct {
+	http.ResponseWriter
+	statusCode int
+	body       []byte
+}
+
+func (r *cacheResponseRecorder) WriteHeader(code int) {
+	r.statusCode = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *cacheResponseRecorder) Write(b []byte) (int, error) {
+	if r.statusCode == 200 {
+		r.body = append(r.body, b...)
+	}
+	return r.ResponseWriter.Write(b)
 }
 
 func getOverviewTrendRange(r *http.Request, start, end string) (string, string) {
@@ -740,6 +787,75 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// 4.6 产品定位×平台销售分布（仅电商部门）
+	type GradePlatItem struct {
+		Grade    string  `json:"grade"`
+		Platform string  `json:"platform"`
+		Sales    float64 `json:"sales"`
+	}
+	var gradePlatSales []GradePlatItem
+	if dept == "ecommerce" {
+		gpRows, ok := queryRowsOrWriteError(w, h.DB, `
+			SELECT IFNULL(g.goods_field7,'未设置') as grade,
+			CASE
+				WHEN s.shop_name LIKE '%即时零售%' THEN '即时零售'
+				WHEN sc.online_plat_name IS NULL OR sc.online_plat_name = '' THEN '其他'
+				ELSE sc.online_plat_name
+			END AS plat,
+			ROUND(SUM(s.local_goods_amt),2) as sales
+			FROM sales_goods_summary s
+			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+			LEFT JOIN sales_channel sc ON s.shop_name = sc.channel_name AND sc.department = s.department
+			WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?`+scopeCond+`
+			GROUP BY grade, plat
+			ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`, dept, start, end)
+		if !ok {
+			return
+		}
+		defer gpRows.Close()
+		platLabelMap := map[string]string{
+			"天猫商城": "天猫", "天猫超市": "天猫超市", "京东": "京东",
+			"拼多多": "拼多多", "唯品会MP": "唯品会", "唯品会JIT": "唯品会",
+			"抖音超市": "即时零售", "淘宝": "淘宝",
+			"放心购（抖音小店）": "抖音", "快手小店": "快手",
+			"小红书": "小红书", "有赞": "有赞", "微店": "微店",
+			"微信视频号小店": "视频号",
+		}
+		gpKey := func(grade, plat string) string { return grade + "|" + plat }
+		gpMap := map[string]*GradePlatItem{}
+		for gpRows.Next() {
+			var grade, rawPlat string
+			var sales float64
+			if writeDatabaseError(w, gpRows.Scan(&grade, &rawPlat, &sales)) {
+				return
+			}
+			label := rawPlat
+			if l, ok := platLabelMap[rawPlat]; ok {
+				label = l
+			}
+			key := gpKey(grade, label)
+			if ps, ok := gpMap[key]; ok {
+				ps.Sales += sales
+			} else {
+				gpMap[key] = &GradePlatItem{Grade: grade, Platform: label, Sales: sales}
+			}
+		}
+		if writeDatabaseError(w, gpRows.Err()) {
+			return
+		}
+		for _, ps := range gpMap {
+			gradePlatSales = append(gradePlatSales, *ps)
+		}
+		sort.Slice(gradePlatSales, func(i, j int) bool {
+			gradeOrder := map[string]int{"S": 0, "A": 1, "B": 2, "C": 3, "D": 4, "未设置": 5}
+			gi, gj := gradeOrder[gradePlatSales[i].Grade], gradeOrder[gradePlatSales[j].Grade]
+			if gi != gj {
+				return gi < gj
+			}
+			return gradePlatSales[i].Sales > gradePlatSales[j].Sales
+		})
+	}
+
 	// 5. 平台列表（合并后，只返回有销售数据的）
 	// 先查有数据的原始平台名
 	platRows, ok := queryRowsOrWriteError(w, h.DB, `
@@ -872,16 +988,17 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	})
 
 	writeJSON(w, map[string]interface{}{
-		"daily":         daily,
-		"shops":         shops,
-		"goods":         goods,
-		"goodsChannels": goodsChannels,
-		"brands":        brands,
-		"grades":        grades,
-		"platforms":     platforms,
-		"platformSales": platformSales,
-		"dateRange":     map[string]string{"start": start, "end": end},
-		"trendRange":    map[string]string{"start": trendStart, "end": trendEnd},
+		"daily":           daily,
+		"shops":           shops,
+		"goods":           goods,
+		"goodsChannels":   goodsChannels,
+		"brands":          brands,
+		"grades":          grades,
+		"platforms":       platforms,
+		"platformSales":   platformSales,
+		"gradePlatSales":  gradePlatSales,
+		"dateRange":       map[string]string{"start": start, "end": end},
+		"trendRange":      map[string]string{"start": trendStart, "end": trendEnd},
 	})
 }
 
