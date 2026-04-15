@@ -53,11 +53,24 @@ const MainLayout: React.FC = () => {
   const [pwForm] = Form.useForm();
 
   const forceChange = session?.mustChangePassword ?? false;
+  const [noPassword, setNoPassword] = useState(false);
+  const needSetPassword = forceChange || noPassword;
 
-  // 首次登录强制改密时自动弹窗
   useEffect(() => {
-    if (forceChange) setPasswordOpen(true);
-  }, [forceChange]);
+    if (session) {
+      fetch(`${API_BASE}/api/user/profile`, { credentials: 'include' })
+        .then(res => res.json())
+        .then(res => {
+          const data = res.data || res;
+          if (data.hasPassword === false) setNoPassword(true);
+        })
+        .catch(() => {});
+    }
+  }, [session]);
+
+  useEffect(() => {
+    if (needSetPassword) setPasswordOpen(true);
+  }, [needSetPassword]);
 
   const handleChangePassword = async () => {
     try {
@@ -73,9 +86,10 @@ const MainLayout: React.FC = () => {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.msg || '修改失败');
       }
-      if (forceChange) {
-        message.success('密码修改成功');
+      if (needSetPassword) {
+        message.success('密码设置成功，现在可以用手机号+密码登录');
         pwForm.resetFields();
+        setNoPassword(false);
         await refresh();
       } else {
         message.success('密码修改成功');
@@ -301,25 +315,32 @@ const MainLayout: React.FC = () => {
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
       <Watermark text={`松鲜鲜工作台 · ${displayName}`} subtext={new Date().toLocaleDateString('zh-CN')} />
       <Modal
-        title={forceChange ? '首次登录，请修改密码' : '修改密码'}
+        title={noPassword ? '设置登录密码' : forceChange ? '首次登录，请修改密码' : '修改密码'}
         open={passwordOpen}
-        onCancel={forceChange ? undefined : () => { setPasswordOpen(false); pwForm.resetFields(); }}
+        onCancel={needSetPassword ? undefined : () => { setPasswordOpen(false); pwForm.resetFields(); }}
         onOk={handleChangePassword}
         confirmLoading={passwordLoading}
-        okText="确认修改"
-        cancelText={forceChange ? undefined : '取消'}
-        closable={!forceChange}
-        maskClosable={!forceChange}
-        keyboard={!forceChange}
-        footer={forceChange ? [
-          <Button key="ok" type="primary" loading={passwordLoading} onClick={handleChangePassword}>确认修改</Button>,
+        okText={noPassword ? '设置密码' : '确认修改'}
+        cancelText={needSetPassword ? undefined : '取消'}
+        closable={!needSetPassword}
+        maskClosable={!needSetPassword}
+        keyboard={!needSetPassword}
+        footer={needSetPassword ? [
+          <Button key="ok" type="primary" loading={passwordLoading} onClick={handleChangePassword}>{noPassword ? '设置密码' : '确认修改'}</Button>,
         ] : undefined}
         destroyOnClose
       >
-        <Form form={pwForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="oldPassword" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
-            <Input.Password placeholder="请输入当前密码" />
-          </Form.Item>
+        {noPassword && (
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
+            设置密码后即可使用手机号 + 密码登录，也可以继续使用钉钉扫码登录。
+          </Typography.Paragraph>
+        )}
+        <Form form={pwForm} layout="vertical" style={{ marginTop: noPassword ? 0 : 16 }}>
+          {!noPassword && (
+            <Form.Item name="oldPassword" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
+              <Input.Password placeholder="请输入当前密码" />
+            </Form.Item>
+          )}
           <Form.Item name="newPassword" label="新密码" rules={[{ required: true, message: '请输入新密码' }, { min: 8, message: '至少8位' }, { pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, message: '需包含大写字母、小写字母和数字' }]}>
             <Input.Password placeholder="请输入新密码" />
           </Form.Item>

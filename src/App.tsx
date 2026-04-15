@@ -123,7 +123,6 @@ const App: React.FC = () => (
               <Route path="/supply-chain/logistics-analysis" element={guard('supply_chain.logistics_analysis:view', <LogisticsAnalysis />)} />
               <Route path="/supply-chain/daily-alerts" element={guard('supply_chain.daily_alerts:view', <DailyAlerts />)} />
               <Route path="/supply-chain/monthly-billing" element={guard('supply_chain.monthly_billing:view', <MonthlyBilling />)} />
-              <Route path="/supply-chain/purchase-plan" element={guard('supply_chain.purchase_plan:view', <div style={{ textAlign: 'center', padding: 80, color: '#94a3b8' }}>采购计划 - 开发中</div>)} />
               <Route path="/brand" element={guard('brand:view', <div style={{ textAlign: 'center', padding: 80, color: '#94a3b8' }}>品牌中心 - 待开发</div>)} />
               <Route path="/system/access" element={guard('user.manage', <UserAccessPage />)} />
               <Route path="/system/roles" element={guard('role.manage', <RoleAccessPage />)} />

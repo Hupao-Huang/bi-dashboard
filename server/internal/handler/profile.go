@@ -21,11 +21,11 @@ func (h *DashboardHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var realName, avatar, phone, email, dingtalkUserid string
+	var realName, avatar, phone, email, dingtalkUserid, passwordHash string
 	var lastLoginAt *string
 	err := h.DB.QueryRow(`SELECT IFNULL(real_name,''), IFNULL(avatar,''), IFNULL(phone,''), IFNULL(email,''),
-		DATE_FORMAT(last_login_at,'%Y-%m-%d %H:%i'), IFNULL(dingtalk_userid,'') FROM users WHERE id=?`, payload.User.ID).
-		Scan(&realName, &avatar, &phone, &email, &lastLoginAt, &dingtalkUserid)
+		DATE_FORMAT(last_login_at,'%Y-%m-%d %H:%i'), IFNULL(dingtalk_userid,''), IFNULL(password_hash,'') FROM users WHERE id=?`, payload.User.ID).
+		Scan(&realName, &avatar, &phone, &email, &lastLoginAt, &dingtalkUserid, &passwordHash)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -40,6 +40,7 @@ func (h *DashboardHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		"lastLoginAt":    lastLoginAt,
 		"roles":          payload.Roles,
 		"dingtalkBound":  dingtalkUserid != "",
+		"hasPassword":    passwordHash != "",
 	})
 }
 

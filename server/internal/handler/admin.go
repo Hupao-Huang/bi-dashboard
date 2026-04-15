@@ -33,6 +33,7 @@ type adminUserListItem struct {
 	ID          int64    `json:"id"`
 	Username    string   `json:"username"`
 	RealName    string   `json:"realName"`
+	Phone       string   `json:"phone"`
 	Status      string   `json:"status"`
 	LastLoginAt string   `json:"lastLoginAt"`
 	Roles       []string `json:"roles"`
@@ -335,14 +336,14 @@ func (h *DashboardHandler) AdminRoles(w http.ResponseWriter, r *http.Request) {
 
 func (h *DashboardHandler) adminUsersList(w http.ResponseWriter) {
 	rows, ok := queryRowsOrWriteError(w, h.DB, `
-		SELECT u.id, u.username, IFNULL(u.real_name,''), u.status,
+		SELECT u.id, u.username, IFNULL(u.real_name,''), IFNULL(u.phone,''), u.status,
 			IFNULL(DATE_FORMAT(u.last_login_at, '%Y-%m-%d %H:%i:%s'),''),
 			IFNULL(GROUP_CONCAT(r.code ORDER BY r.code SEPARATOR ','), ''),
 			IFNULL(u.remark,'')
 		FROM users u
 		LEFT JOIN user_roles ur ON ur.user_id = u.id
 		LEFT JOIN roles r ON r.id = ur.role_id
-		GROUP BY u.id, u.username, u.real_name, u.status, u.last_login_at, u.remark
+		GROUP BY u.id, u.username, u.real_name, u.phone, u.status, u.last_login_at, u.remark
 		ORDER BY u.id`)
 	if !ok {
 		return
@@ -353,7 +354,7 @@ func (h *DashboardHandler) adminUsersList(w http.ResponseWriter) {
 	for rows.Next() {
 		var user adminUserListItem
 		var roleCodes string
-		if writeDatabaseError(w, rows.Scan(&user.ID, &user.Username, &user.RealName, &user.Status, &user.LastLoginAt, &roleCodes, &user.Remark)) {
+		if writeDatabaseError(w, rows.Scan(&user.ID, &user.Username, &user.RealName, &user.Phone, &user.Status, &user.LastLoginAt, &roleCodes, &user.Remark)) {
 			return
 		}
 		if roleCodes != "" {

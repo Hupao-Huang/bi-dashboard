@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"bi-dashboard/internal/config"
 	"bi-dashboard/internal/handler"
@@ -106,40 +107,42 @@ func main() {
 	mux.HandleFunc("/api/admin/roles", adminRoles(h.AdminRoles))
 	mux.HandleFunc("/api/admin/roles/", adminRoles(h.AdminRoleByPath))
 
-	mux.HandleFunc("/api/overview", pageAnyProtected(h.GetOverview,
+	cache5m := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(5*time.Minute, fn) }
+
+	mux.HandleFunc("/api/overview", pageAnyProtected(cache5m(h.GetOverview),
 		"overview:view", "finance.overview:view", "finance.monthly_profit:view",
 	))
-	mux.HandleFunc("/api/department", pageAnyProtected(h.GetDepartmentDetail,
+	mux.HandleFunc("/api/department", pageAnyProtected(cache5m(h.GetDepartmentDetail),
 		"ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view",
 		"social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view",
 		"offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view",
 		"distribution.store_preview:view", "distribution.store_dashboard:view", "distribution.product_dashboard:view",
 		"finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view",
 	))
-	mux.HandleFunc("/api/tmall/ops", pageAnyProtected(h.GetTmallOps,
+	mux.HandleFunc("/api/tmall/ops", pageAnyProtected(cache5m(h.GetTmallOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/vip/ops", pageAnyProtected(h.GetVipOps,
+	mux.HandleFunc("/api/vip/ops", pageAnyProtected(cache5m(h.GetVipOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/pdd/ops", pageAnyProtected(h.GetPddOps,
+	mux.HandleFunc("/api/pdd/ops", pageAnyProtected(cache5m(h.GetPddOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/jd/ops", pageAnyProtected(h.GetJdOps,
+	mux.HandleFunc("/api/jd/ops", pageAnyProtected(cache5m(h.GetJdOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/tmallcs/ops", pageAnyProtected(h.GetTmallcsOps,
+	mux.HandleFunc("/api/tmallcs/ops", pageAnyProtected(cache5m(h.GetTmallcsOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/feigua", pageProtected("social.feigua:view", h.GetFeiguaData))
-	mux.HandleFunc("/api/douyin/ops", pageProtected("social.marketing:view", h.GetDouyinOps))
-	mux.HandleFunc("/api/douyin-dist/ops", pageProtected("social.marketing:view", h.GetDouyinDistOps))
-	mux.HandleFunc("/api/marketing-cost", pageProtected("ecommerce.marketing_cost:view", h.GetMarketingCost))
-	mux.HandleFunc("/api/customer/overview", pageProtected("customer.overview:view", h.GetCustomerOverview))
-	mux.HandleFunc("/api/s-products", pageAnyProtected(h.GetSProducts,
+	mux.HandleFunc("/api/feigua", pageProtected("social.feigua:view", cache5m(h.GetFeiguaData)))
+	mux.HandleFunc("/api/douyin/ops", pageProtected("social.marketing:view", cache5m(h.GetDouyinOps)))
+	mux.HandleFunc("/api/douyin-dist/ops", pageProtected("social.marketing:view", cache5m(h.GetDouyinDistOps)))
+	mux.HandleFunc("/api/marketing-cost", pageProtected("ecommerce.marketing_cost:view", cache5m(h.GetMarketingCost)))
+	mux.HandleFunc("/api/customer/overview", pageProtected("customer.overview:view", cache5m(h.GetCustomerOverview)))
+	mux.HandleFunc("/api/s-products", pageAnyProtected(cache5m(h.GetSProducts),
 		"ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view",
 	))
-	mux.HandleFunc("/api/channels", pageAnyProtected(h.GetChannels,
+	mux.HandleFunc("/api/channels", pageAnyProtected(cache5m(h.GetChannels),
 		"ecommerce.store_preview:view", "ecommerce.store_dashboard:view",
 		"social.store_preview:view", "social.store_dashboard:view",
 		"offline.store_preview:view", "offline.store_dashboard:view",
@@ -147,8 +150,8 @@ func main() {
 	))
 	mux.HandleFunc("/api/webhook/sync-ops", corsHandler(h.SyncOps))
 	mux.HandleFunc("/api/webhook/sync-status", corsHandler(h.SyncStatus))
-	mux.HandleFunc("/api/stock/warning", pageProtected("supply_chain.inventory_warning:view", h.GetStockWarning))
-	mux.HandleFunc("/api/supply-chain/dashboard", pageProtected("supply_chain.plan_dashboard:view", h.GetSupplyChainDashboard))
+	mux.HandleFunc("/api/stock/warning", pageProtected("supply_chain.inventory_warning:view", cache5m(h.GetStockWarning)))
+	mux.HandleFunc("/api/supply-chain/dashboard", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetSupplyChainDashboard)))
 	mux.HandleFunc("/api/admin/tasks", adminRoles(h.GetTaskStatus))
 	mux.HandleFunc("/api/admin/tasks/run", adminRoles(h.RunManualTask))
 	mux.HandleFunc("/api/admin/tasks/running", adminRoles(h.GetRunningTasks))

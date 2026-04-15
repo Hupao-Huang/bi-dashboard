@@ -159,6 +159,81 @@ const StorePreview: React.FC<Props> = ({ dept, title, color }) => {
     }],
   };
 
+  // 产品定位分布 — 单圈饼图，hover展示平台明细（仅电商部门）
+  const gradePlatSales: any[] = data.gradePlatSales || [];
+  const gradeColors: Record<string, string> = { S: '#f5222d', A: '#fa8c16', B: '#1890ff', C: '#52c41a', D: '#999', '未设置': '#d9d9d9' };
+  const gradeOrder = ['S', 'A', 'B', 'C', 'D', '未设置'];
+
+  const gradePlatMap = new Map<string, { total: number; platforms: { platform: string; sales: number }[] }>();
+  gradePlatSales.forEach((item: any) => {
+    const entry = gradePlatMap.get(item.grade) || { total: 0, platforms: [] };
+    entry.total += item.sales;
+    entry.platforms.push({ platform: item.platform, sales: item.sales });
+    gradePlatMap.set(item.grade, entry);
+  });
+  gradePlatMap.forEach(entry => entry.platforms.sort((a, b) => b.sales - a.sales));
+
+  const gradePieData = gradeOrder
+    .filter(g => gradePlatMap.has(g))
+    .map(g => ({
+      value: gradePlatMap.get(g)!.total,
+      name: g + '品',
+      _grade: g,
+      _platforms: gradePlatMap.get(g)!.platforms,
+      itemStyle: { color: gradeColors[g] },
+    }));
+
+  const gradeDonutOption = dept === 'ecommerce' && totalSales > 0 && gradePieData.length > 0 ? {
+    ...pieStyle,
+    tooltip: {
+      ...pieStyle.tooltip,
+      trigger: 'item' as const,
+      formatter: (p: any) => {
+        const pct = (p.value / totalSales * 100).toFixed(1);
+        const platforms: { platform: string; sales: number }[] = p.data?._platforms || [];
+        let html = `<b>${p.name}</b>：¥${p.value?.toLocaleString()}（${pct}%）`;
+        if (platforms.length > 0) {
+          html += '<br/><div style="margin-top:6px;border-top:1px solid #eee;padding-top:6px">';
+          platforms.forEach(pt => {
+            const ptPct = (pt.sales / totalSales * 100).toFixed(1);
+            html += `${pt.platform}：¥${pt.sales.toLocaleString()}（${ptPct}%）<br/>`;
+          });
+          html += '</div>';
+        }
+        return html;
+      },
+    },
+    legend: {
+      orient: 'horizontal' as const,
+      left: 'center',
+      bottom: 0,
+      type: 'scroll' as const,
+      itemGap: 14,
+      textStyle: { fontSize: 11 },
+    },
+    series: [{
+      name: '产品定位',
+      type: 'pie',
+      radius: ['30%', '60%'],
+      center: ['50%', '45%'],
+      label: {
+        show: true,
+        position: 'outside' as const,
+        formatter: (p: any) => {
+          const pct = (p.value / totalSales * 100).toFixed(1);
+          return `${p.name}\n{value|${pct}%}`;
+        },
+        rich: { value: { fontSize: 11, color: '#999', lineHeight: 18 } },
+        fontSize: 12,
+        color: '#333',
+      },
+      labelLayout: { hideOverlap: true },
+      labelLine: { length: 15, length2: 18, lineStyle: { color: '#cbd5e1' } },
+      itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+      data: gradePieData,
+    }],
+  } : null;
+
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总货品数', value: totalQty, precision: 0, accentColor: '#10b981' },
@@ -179,18 +254,24 @@ const StorePreview: React.FC<Props> = ({ dept, title, color }) => {
         ))}
       </Row>
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={platformSales.length > 0 ? 14 : 24}>
+        <Col xs={24} lg={gradeDonutOption || platformSales.length > 0 ? 12 : 24}>
           <Card title={shops.length > pieTopCount ? `店铺销售额占比（TOP${pieTopCount}+其他）` : '店铺销售额占比'}>
             <ReactECharts option={salesPieOption} lazyUpdate={true} style={{ height: 380 }} />
           </Card>
         </Col>
-        {platformSales.length > 0 && (
-          <Col xs={24} lg={10}>
+        {gradeDonutOption ? (
+          <Col xs={24} lg={12}>
+            <Card title="产品定位 × 平台分布（hover查看平台明细）">
+              <ReactECharts option={gradeDonutOption} lazyUpdate={true} style={{ height: 380 }} />
+            </Card>
+          </Col>
+        ) : platformSales.length > 0 ? (
+          <Col xs={24} lg={12}>
             <Card title="平台销售额分布">
               <ReactECharts option={platformPieOption} lazyUpdate={true} style={{ height: 380 }} />
             </Card>
           </Col>
-        )}
+        ) : null}
       </Row>
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={8}>

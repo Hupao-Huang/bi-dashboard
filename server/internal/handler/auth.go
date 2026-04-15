@@ -42,6 +42,17 @@ const (
 
 var sessionDuration = 7 * 24 * time.Hour
 
+type dingtalkPendingUser struct {
+	Nick       string
+	UnionId    string
+	OpenId     string
+	Mobile     string
+	Department string
+	Expires    time.Time
+}
+
+var dingtalkPendingUsers = sync.Map{}
+
 // ==================== 验证码 ====================
 
 type captchaEntry struct {
@@ -1191,15 +1202,17 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 	}
 
 	var currentHash string
-	err := h.DB.QueryRow("SELECT password_hash FROM users WHERE id=?", payload.User.ID).Scan(&currentHash)
+	err := h.DB.QueryRow("SELECT IFNULL(password_hash,'') FROM users WHERE id=?", payload.User.ID).Scan(&currentHash)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "查询用户失败")
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(req.OldPassword)); err != nil {
-		writeError(w, http.StatusBadRequest, "当前密码错误")
-		return
+	if currentHash != "" {
+		if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(req.OldPassword)); err != nil {
+			writeError(w, http.StatusBadRequest, "当前密码错误")
+			return
+		}
 	}
 
 	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
@@ -1639,10 +1652,54 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req struct {
-		Code   string `json:"code"`
-		Remark string `json:"remark"`
+		Code        string `json:"code"`
+		Remark      string `json:"remark"`
+		PendingToken string `json:"pendingToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Code == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	if req.PendingToken != "" {
+		val, ok := dingtalkPendingUsers.LoadAndDelete(req.PendingToken)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "注册信息已过期，请重新扫码")
+			return
+		}
+		pending := val.(*dingtalkPendingUser)
+		if time.Now().After(pending.Expires) {
+			writeError(w, http.StatusBadRequest, "注册信息已过期，请重新扫码")
+			return
+		}
+		remark := strings.TrimSpace(req.Remark)
+		if pending.Department != "" {
+			remark = "【" + pending.Department + "】" + remark
+		}
+		dtID := pending.UnionId
+		if dtID == "" {
+			dtID = pending.OpenId
+		}
+		mobile := strings.TrimSpace(pending.Mobile)
+		username := mobile
+		if username == "" {
+			username = "dt_" + dtID[:12]
+		}
+		result, err := h.DB.Exec(
+			`INSERT INTO users (username, password_hash, real_name, phone, dingtalk_userid, status, remark) VALUES (?, '', ?, ?, ?, 'pending', ?)`,
+			username, pending.Nick, mobile, dtID, remark,
+		)
+		if err != nil {
+			writeError(w, http.StatusConflict, "该手机号已注册，请联系管理员")
+			return
+		}
+		newID, _ := result.LastInsertId()
+		log.Printf("dingtalk new user registered: id=%d name=%s phone=%s", newID, pending.Nick, mobile)
+		writeJSON(w, map[string]interface{}{"pending": true, "message": "注册申请已提交，请等待管理员审批开通"})
+		return
+	}
+
+	if req.Code == "" {
 		writeError(w, http.StatusBadRequest, "code is required")
 		return
 	}
@@ -1710,7 +1767,11 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 	if err == nil {
 		// 已绑定
 		if userStatus == "pending" {
-			writeJSON(w, map[string]interface{}{"pending": true, "message": "账号正在审批中，请等待管理员开通"})
+			remark := strings.TrimSpace(req.Remark)
+			if remark != "" {
+				h.DB.Exec(`UPDATE users SET remark = ? WHERE id = ?`, remark, userID)
+			}
+			writeJSON(w, map[string]interface{}{"pending": true, "message": "注册申请已提交，请等待管理员审批开通"})
 			return
 		}
 		if userStatus != "active" {
@@ -1739,30 +1800,116 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// 5. 都没找到 → 新建待审批账号
-	username := mobile
-	if username == "" {
-		username = "dt_" + dtID[:12]
-	}
-	realName := dtUser.Nick
-	remark := strings.TrimSpace(req.Remark)
-
-	result, err := h.DB.Exec(
-		`INSERT INTO users (username, password_hash, real_name, phone, dingtalk_userid, status, remark) VALUES (?, '', ?, ?, ?, 'pending', ?)`,
-		username, realName, mobile, dtID, remark,
-	)
-	if err != nil {
-		// 可能 username 重复
-		writeError(w, http.StatusConflict, "该手机号已注册，请联系管理员")
-		return
-	}
-	newID, _ := result.LastInsertId()
-	log.Printf("dingtalk new user registered: id=%d name=%s phone=%s", newID, realName, mobile)
-
-	writeJSON(w, map[string]interface{}{
-		"pending": true,
-		"message": "注册申请已提交，请等待管理员审批",
+	// 5. 都没找到 → 查部门 + 缓存信息等待填写备注
+	dept := h.getDingtalkDepartment(dtUser.UnionId)
+	pendingToken, _ := generateSessionToken()
+	dingtalkPendingUsers.Store(pendingToken, &dingtalkPendingUser{
+		Nick:       dtUser.Nick,
+		UnionId:    dtUser.UnionId,
+		OpenId:     dtUser.OpenId,
+		Mobile:     dtUser.Mobile,
+		Department: dept,
+		Expires:    time.Now().Add(10 * time.Minute),
 	})
+	writeJSON(w, map[string]interface{}{"needRemark": true, "nick": dtUser.Nick, "department": dept, "pendingToken": pendingToken})
+	return
+}
+
+func (h *DashboardHandler) getDingtalkDepartment(unionId string) string {
+	// 1. 获取企业 access_token
+	tokenBody, _ := json.Marshal(map[string]string{
+		"appKey":    h.DingClientID,
+		"appSecret": h.DingClientSecret,
+	})
+	tokenResp, err := http.Post("https://api.dingtalk.com/v1.0/oauth2/accessToken", "application/json", bytes.NewReader(tokenBody))
+	if err != nil {
+		log.Printf("dingtalk corp token error: %v", err)
+		return ""
+	}
+	defer tokenResp.Body.Close()
+	tokenRespBody, _ := io.ReadAll(tokenResp.Body)
+	var corpToken struct {
+		AccessToken string `json:"accessToken"`
+	}
+	json.Unmarshal(tokenRespBody, &corpToken)
+	if corpToken.AccessToken == "" {
+		log.Printf("dingtalk corp token empty: %s", string(tokenRespBody))
+		return ""
+	}
+
+	// 2. 通过 unionId 查 userid
+	unionBody, _ := json.Marshal(map[string]string{"unionid": unionId})
+	unionReq, _ := http.NewRequest("POST", "https://oapi.dingtalk.com/topapi/user/getbyunionid?access_token="+corpToken.AccessToken, bytes.NewReader(unionBody))
+	unionReq.Header.Set("Content-Type", "application/json")
+	unionResp, err := http.DefaultClient.Do(unionReq)
+	if err != nil {
+		log.Printf("dingtalk getbyunionid error: %v", err)
+		return ""
+	}
+	defer unionResp.Body.Close()
+	unionRespBody, _ := io.ReadAll(unionResp.Body)
+	var unionData struct {
+		ErrCode int `json:"errcode"`
+		Result  struct {
+			UserId string `json:"userid"`
+		} `json:"result"`
+	}
+	json.Unmarshal(unionRespBody, &unionData)
+	if unionData.Result.UserId == "" {
+		log.Printf("dingtalk getbyunionid empty: %s", string(unionRespBody))
+		return ""
+	}
+
+	// 3. 查用户详情获取部门ID
+	detailBody, _ := json.Marshal(map[string]string{"userid": unionData.Result.UserId})
+	detailReq, _ := http.NewRequest("POST", "https://oapi.dingtalk.com/topapi/v2/user/get?access_token="+corpToken.AccessToken, bytes.NewReader(detailBody))
+	detailReq.Header.Set("Content-Type", "application/json")
+	detailResp, err := http.DefaultClient.Do(detailReq)
+	if err != nil {
+		log.Printf("dingtalk user detail error: %v", err)
+		return ""
+	}
+	defer detailResp.Body.Close()
+	detailRespBody, _ := io.ReadAll(detailResp.Body)
+	var detailData struct {
+		ErrCode int `json:"errcode"`
+		Result  struct {
+			DeptIdList []int64 `json:"dept_id_list"`
+		} `json:"result"`
+	}
+	json.Unmarshal(detailRespBody, &detailData)
+	if len(detailData.Result.DeptIdList) == 0 {
+		log.Printf("dingtalk user detail no dept: %s", string(detailRespBody))
+		return ""
+	}
+
+	// 4. 查部门名称
+	deptNames := []string{}
+	for _, deptId := range detailData.Result.DeptIdList {
+		deptBody, _ := json.Marshal(map[string]interface{}{"dept_id": deptId})
+		deptReq, _ := http.NewRequest("POST", "https://oapi.dingtalk.com/topapi/v2/department/get?access_token="+corpToken.AccessToken, bytes.NewReader(deptBody))
+		deptReq.Header.Set("Content-Type", "application/json")
+		deptResp, err := http.DefaultClient.Do(deptReq)
+		if err != nil {
+			continue
+		}
+		deptRespBody, _ := io.ReadAll(deptResp.Body)
+		deptResp.Body.Close()
+		var deptData struct {
+			ErrCode int `json:"errcode"`
+			Result  struct {
+				Name string `json:"name"`
+			} `json:"result"`
+		}
+		json.Unmarshal(deptRespBody, &deptData)
+		if deptData.Result.Name != "" {
+			deptNames = append(deptNames, deptData.Result.Name)
+		}
+	}
+
+	result := strings.Join(deptNames, " / ")
+	log.Printf("dingtalk dept for %s: %s", unionId, result)
+	return result
 }
 
 func (h *DashboardHandler) createSessionAndRespond(w http.ResponseWriter, r *http.Request, userID int64) {

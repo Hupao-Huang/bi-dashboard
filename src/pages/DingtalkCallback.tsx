@@ -16,6 +16,9 @@ const DingtalkCallback: React.FC = () => {
   const [status, setStatus] = useState<'loading' | 'pending' | 'remark' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
   const [remark, setRemark] = useState('');
+  const [pendingToken, setPendingToken] = useState('');
+  const [department, setDepartment] = useState('');
+  const [nickName, setNickName] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const doLogin = useCallback(async (remarkText?: string) => {
@@ -104,8 +107,17 @@ const DingtalkCallback: React.FC = () => {
             return;
           }
 
-          if (body.data?.pending) {
+          if (body.data?.needRemark) {
+            if (body.data.pendingToken) setPendingToken(body.data.pendingToken);
+            if (body.data.department) setDepartment(body.data.department);
+            if (body.data.nick) setNickName(body.data.nick);
             setStatus('remark');
+            return;
+          }
+
+          if (body.data?.pending) {
+            setStatus('pending');
+            setMessage(body.data.message || '注册申请已提交');
             return;
           }
 
@@ -134,19 +146,19 @@ const DingtalkCallback: React.FC = () => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, remark }),
+        body: JSON.stringify({ pendingToken, remark }),
       });
       const body = await res.json();
-      if (body.data?.pending) {
-        setStatus('pending');
-        setMessage(body.data.message || '注册申请已提交');
-      } else {
-        setStatus('pending');
-        setMessage('注册申请已提交，请等待管理员审批');
+      if (!res.ok) {
+        setStatus('error');
+        setMessage(body.msg || '注册失败，请重新扫码');
+        return;
       }
-    } catch {
       setStatus('pending');
-      setMessage('注册申请已提交，请等待管理员审批');
+      setMessage(body.data?.message || '注册申请已提交，请等待管理员审批');
+    } catch {
+      setStatus('error');
+      setMessage('网络错误，请重试');
     } finally {
       setSubmitting(false);
     }
@@ -175,19 +187,25 @@ const DingtalkCallback: React.FC = () => {
           <div>
             <Result
               status="info"
-              title="欢迎使用松鲜鲜工作台"
-              subTitle="您是新用户，注册后需要管理员审批才能使用"
+              title={nickName ? `${nickName}，欢迎使用松鲜鲜工作台` : '欢迎使用松鲜鲜工作台'}
+              subTitle="您是新用户，请填写以下信息，提交后等待管理员审批"
             />
             <div style={{ maxWidth: 360, margin: '0 auto' }}>
-              <Typography.Text strong>权限申请说明（可选）</Typography.Text>
+              {department && (
+                <div style={{ padding: '10px 12px', borderRadius: 8, background: '#f0f5ff', border: '1px solid #d6e4ff', marginBottom: 16 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>钉钉通讯录部门</Typography.Text>
+                  <div style={{ fontWeight: 600, color: '#1d39c4', marginTop: 2 }}>{department}</div>
+                </div>
+              )}
+              <Typography.Text strong>岗位及数据需求 <Typography.Text type="danger">*</Typography.Text></Typography.Text>
               <Input.TextArea
                 rows={3}
                 value={remark}
                 onChange={e => setRemark(e.target.value)}
-                placeholder="例如：我是电商部运营，需要查看天猫和京东数据"
+                placeholder={"请填写你的岗位和需要查看的数据范围\n例如：运营岗，需要查看天猫和京东店铺数据"}
                 style={{ marginTop: 8, marginBottom: 16 }}
               />
-              <Button type="primary" block loading={submitting} onClick={handleSubmitRemark}>
+              <Button type="primary" block loading={submitting} disabled={!remark.trim()} onClick={handleSubmitRemark}>
                 提交注册申请
               </Button>
             </div>
