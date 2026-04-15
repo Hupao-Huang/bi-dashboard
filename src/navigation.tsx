@@ -1,9 +1,10 @@
 import React from 'react';
 import type { MenuProps } from 'antd';
 import {
+  AccountBookOutlined,
   AlertOutlined,
+  ApartmentOutlined,
   AppstoreOutlined,
-  AuditOutlined,
   BarChartOutlined,
   CalendarOutlined,
   CarOutlined,
@@ -11,22 +12,26 @@ import {
   CommentOutlined,
   CustomerServiceOutlined,
   CrownOutlined,
-  FireOutlined,
   DashboardOutlined,
-  DatabaseOutlined,
   DollarOutlined,
   EyeOutlined,
+  FileTextOutlined,
   FundOutlined,
   GlobalOutlined,
   InboxOutlined,
   LineChartOutlined,
+  NodeIndexOutlined,
+  NotificationOutlined,
   RiseOutlined,
+  SafetyCertificateOutlined,
   ScheduleOutlined,
   ShareAltOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
   SettingOutlined,
   SyncOutlined,
+  TeamOutlined,
+  TrademarkOutlined,
   VideoCameraOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
@@ -49,7 +54,7 @@ const deptMenuChildren = (prefix: string, permissions: { preview: string; store:
 
 export const menuDefinitions: MenuDefinition[] = [
   { key: '/overview', icon: <DashboardOutlined />, label: '综合看板', permission: 'overview:view' },
-  { key: '/brand', icon: <FireOutlined />, label: '品牌中心', permission: 'brand:view' },
+  { key: '/brand', icon: <TrademarkOutlined />, label: '品牌中心', permission: 'brand:view' },
   {
     key: '/ecommerce',
     icon: <ShoppingCartOutlined />,
@@ -116,7 +121,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/finance/department-profit', icon: <LineChartOutlined />, label: '部门利润分析', permission: 'finance.department_profit:view' },
       { key: '/finance/monthly-profit', icon: <CalendarOutlined />, label: '月度利润统计', permission: 'finance.monthly_profit:view' },
       { key: '/finance/product-profit', icon: <RiseOutlined />, label: '产品利润统计', permission: 'finance.product_profit:view' },
-      { key: '/finance/expense-control', icon: <AuditOutlined />, label: '费控管理', permission: 'finance.expense:view' },
+      { key: '/finance/expense-control', icon: <AccountBookOutlined />, label: '费控管理', permission: 'finance.expense:view' },
     ],
   },
   {
@@ -130,7 +135,7 @@ export const menuDefinitions: MenuDefinition[] = [
   },
   {
     key: '/supply-chain',
-    icon: <DatabaseOutlined />,
+    icon: <NodeIndexOutlined />,
     label: '供应链管理',
     permission: 'supply_chain:view',
     children: [
@@ -139,7 +144,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/supply-chain/purchase-plan', icon: <InboxOutlined />, label: '采购计划', permission: 'supply_chain.purchase_plan:view' },
       { key: '/supply-chain/logistics-analysis', icon: <CarOutlined />, label: '快递仓储分析', permission: 'supply_chain.logistics_analysis:view' },
       { key: '/supply-chain/daily-alerts', icon: <WarningOutlined />, label: '每日预警', permission: 'supply_chain.daily_alerts:view' },
-      { key: '/supply-chain/monthly-billing', icon: <AuditOutlined />, label: '月度账单分析', permission: 'supply_chain.monthly_billing:view' },
+      { key: '/supply-chain/monthly-billing', icon: <FileTextOutlined />, label: '月度账单分析', permission: 'supply_chain.monthly_billing:view' },
     ],
   },
   {
@@ -148,12 +153,12 @@ export const menuDefinitions: MenuDefinition[] = [
     label: '系统设置',
     permission: 'user.manage',
     children: [
-      { key: '/system/access', icon: <SettingOutlined />, label: '权限管理', permission: 'user.manage' },
-      { key: '/system/roles', icon: <AuditOutlined />, label: '角色管理', permission: 'role.manage' },
+      { key: '/system/access', icon: <TeamOutlined />, label: '权限管理', permission: 'user.manage' },
+      { key: '/system/roles', icon: <SafetyCertificateOutlined />, label: '角色管理', permission: 'role.manage' },
       { key: '/system/tasks', icon: <ClockCircleOutlined />, label: '任务监控', permission: 'role.manage' },
       { key: '/system/feedback', icon: <CommentOutlined />, label: '反馈管理', permission: 'feedback.manage' },
-      { key: '/system/notices', icon: <AlertOutlined />, label: '公告管理', permission: 'notice.manage' },
-      { key: '/system/channels', icon: <ShopOutlined />, label: '渠道管理', permission: 'channel.manage' },
+      { key: '/system/notices', icon: <NotificationOutlined />, label: '公告管理', permission: 'notice.manage' },
+      { key: '/system/channels', icon: <ApartmentOutlined />, label: '渠道管理', permission: 'channel.manage' },
     ],
   },
 ];

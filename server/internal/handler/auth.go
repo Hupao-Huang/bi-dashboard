@@ -37,6 +37,7 @@ const (
 	lockDuration         = 5 * time.Minute
 	captchaExpiry        = 5 * time.Minute
 	shortSessionDuration = 8 * time.Hour
+	idleTimeout          = 2 * time.Hour
 )
 
 var sessionDuration = 7 * 24 * time.Hour
@@ -1303,23 +1304,36 @@ func (h *DashboardHandler) authPayloadFromRequest(r *http.Request) (*authPayload
 		return nil, errors.New("missing session cookie")
 	}
 
+	tokenHash := hashSessionToken(cookie.Value)
+
 	var userID int64
+	var lastActiveAt time.Time
 	err = h.DB.QueryRow(
-		`SELECT user_id FROM user_sessions WHERE token_hash = ? AND expires_at > NOW()`,
-		hashSessionToken(cookie.Value),
-	).Scan(&userID)
+		`SELECT user_id, IFNULL(last_active_at, created_at) FROM user_sessions WHERE token_hash = ? AND expires_at > NOW()`,
+		tokenHash,
+	).Scan(&userID, &lastActiveAt)
 	if err != nil {
 		return nil, err
 	}
 
+	payload, err := h.loadAuthPayload(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !payload.IsSuperAdmin && time.Since(lastActiveAt) > idleTimeout {
+		h.DB.Exec(`DELETE FROM user_sessions WHERE token_hash = ?`, tokenHash)
+		return nil, errors.New("session idle timeout")
+	}
+
 	if _, execErr := h.DB.Exec(
 		`UPDATE user_sessions SET last_active_at = NOW() WHERE token_hash = ?`,
-		hashSessionToken(cookie.Value),
+		tokenHash,
 	); execErr != nil {
 		log.Printf("update session activity failed: %v", execErr)
 	}
 
-	return h.loadAuthPayload(userID)
+	return payload, nil
 }
 
 func (h *DashboardHandler) loadAuthPayload(userID int64) (*authPayload, error) {

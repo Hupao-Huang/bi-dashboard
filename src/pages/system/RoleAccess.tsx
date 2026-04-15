@@ -423,7 +423,7 @@ const RoleAccessPage: React.FC = () => {
       {contextHolder}
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={9}>
-          <Card className="bi-card" title="角色列表" extra={
+          <Card className="bi-card" title="角色列表" styles={{ body: { maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' } }} extra={
             <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
               新增
             </Button>
@@ -444,7 +444,7 @@ const RoleAccessPage: React.FC = () => {
           </Card>
         </Col>
         <Col xs={24} xl={15}>
-          <Card className="bi-card" title="角色配置">
+          <Card className="bi-card" title="角色配置" styles={{ body: { maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' } }}>
             {meta && roleDetail && currentRole ? (
               <>
                 <div style={{ marginBottom: 20 }}>
