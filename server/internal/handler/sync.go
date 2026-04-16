@@ -47,6 +47,14 @@ func (h *DashboardHandler) SyncOps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.WebhookSecret != "" {
+		token := r.Header.Get("X-Webhook-Secret")
+		if token != h.WebhookSecret {
+			writeError(w, 403, "unauthorized")
+			return
+		}
+	}
+
 	syncMu.Lock()
 	if syncRunning {
 		syncMu.Unlock()
@@ -102,6 +110,8 @@ func (h *DashboardHandler) runSync(date string) {
 		"import-tmall.exe",
 		"import-pdd.exe",
 		"import-jd.exe",
+		"import-douyin.exe",
+		"import-douyin-dist.exe",
 		"import-customer.exe",
 		"import-vip.exe",
 		"import-tmallcs.exe",

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Row, Col, Table } from 'antd';
-import ReactECharts from 'echarts-for-react';
+import ReactECharts from './Chart';
 
 const pieColors = ['#f59e0b', '#8b5cf6', '#10b981', '#f43f5e', '#3b82f6', '#06b6d4', '#ec4899', '#84cc16', '#14b8a6', '#a855f7'];
 

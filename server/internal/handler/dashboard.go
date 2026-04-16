@@ -18,6 +18,9 @@ type DashboardHandler struct {
 	DingSecret       string
 	DingClientID     string
 	DingClientSecret string
+	HesiAppKey       string
+	HesiSecret       string
+	WebhookSecret    string
 }
 
 type overviewCacheEntry struct {

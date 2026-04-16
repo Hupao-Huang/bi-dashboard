@@ -2039,3 +2039,37 @@ func (h *DashboardHandler) DingtalkBind(w http.ResponseWriter, r *http.Request) 
 	h.DB.Exec(`UPDATE users SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
 	writeJSON(w, map[string]string{"message": "钉钉绑定成功", "nick": dtUser.Nick, "mobile": dtUser.Mobile})
 }
+
+func (h *DashboardHandler) StartCleanupRoutines() {
+	ticker := time.NewTicker(10 * time.Minute)
+	for range ticker.C {
+		now := time.Now()
+
+		captchaMu.Lock()
+		for id, entry := range captchaStore {
+			if now.After(entry.expiresAt) {
+				delete(captchaStore, id)
+			}
+		}
+		captchaMu.Unlock()
+
+		loginMu.Lock()
+		for ip, attempt := range loginAttempts {
+			if !attempt.lockedAt.IsZero() && now.Sub(attempt.lockedAt) > 30*time.Minute {
+				delete(loginAttempts, ip)
+			}
+		}
+		loginMu.Unlock()
+
+		dingtalkPendingUsers.Range(func(key, value interface{}) bool {
+			if entry, ok := value.(*dingtalkPendingUser); ok {
+				if now.After(entry.Expires) {
+					dingtalkPendingUsers.Delete(key)
+				}
+			}
+			return true
+		})
+
+		h.DB.Exec("DELETE FROM user_sessions WHERE expires_at < ?", now)
+	}
+}

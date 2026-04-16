@@ -5,18 +5,12 @@ import DateFilter from './DateFilter';
 import PageLoading from './PageLoading';
 import GoodsChannelExpand from './GoodsChannelExpand';
 import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../config';
-import { barItemStyle, CHART_COLORS, getBaseOption, pieStyle } from '../chartTheme';
+import { barItemStyle, CHART_COLORS, DEPT_COLORS, getBaseOption, pieStyle } from '../chartTheme';
 
 interface Props {
   dept: string;
 }
 
-const deptColorMap: Record<string, string> = {
-  ecommerce: '#4f46e5',
-  social: '#10b981',
-  offline: '#faad14',
-  distribution: '#8b5cf6',
-};
 
 const ProductDashboard: React.FC<Props> = ({ dept }) => {
   const [data, setData] = useState<any>(null);
@@ -24,7 +18,7 @@ const ProductDashboard: React.FC<Props> = ({ dept }) => {
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
-  const color = deptColorMap[dept] || '#4f46e5';
+  const color = DEPT_COLORS[dept] || '#4f46e5';
   const baseOpt = getBaseOption();
 
   const fetchData = useCallback((s: string, e: string) => {

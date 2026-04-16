@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -171,11 +172,12 @@ func (h *DashboardHandler) UpdateNotice(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	args = append(args, id)
+	args = append(args, time.Now(), id)
 	_, err = h.DB.Exec("UPDATE notices SET "+strings.Join(sets, ",")+",updated_at=? WHERE id=?",
-		append([]interface{}{time.Now()}, args...)...)
+		args...)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		log.Printf("[notice] 更新公告失败 id=%d: %v", id, err)
+		writeError(w, 500, "更新公告失败")
 		return
 	}
 	writeJSON(w, map[string]interface{}{"message": "更新成功"})
