@@ -34,6 +34,7 @@ const fmtSeconds = (v: number) => `${v.toFixed(1)}s`;
 const platformTabs = ['天猫', '抖音', '京东', '拼多多', '快手', '小红书'];
 
 const CustomerOverview: React.FC = () => {
+  const abortRef = useRef<AbortController | null>(null);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<OverviewData | null>(null);
   const [startDate, setStartDate] = useState(DATA_START_DATE);
@@ -51,6 +52,9 @@ const CustomerOverview: React.FC = () => {
 
   const fetchData = useCallback(async (start: string, end: string, platform: string) => {
     const reqId = ++requestSeqRef.current;
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     try {
       const query = `${API_BASE}/api/customer/overview?start=${start}&end=${end}&platform=${encodeURIComponent(platform)}&_ts=${Date.now()}`;

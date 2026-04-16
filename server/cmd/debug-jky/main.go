@@ -3,11 +3,13 @@ package main
 // 调试工具：复现3月3日报错，打印请求参数和原始HTTP响应
 
 import (
+	"bi-dashboard/internal/config"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -15,9 +17,12 @@ import (
 	"time"
 )
 
+var (
+	appKey string
+	secret string
+)
+
 const (
-	appKey   = "73983197"
-	secret   = "607f395d615d452abade78e3241b2433"
 	apiURL   = "https://open.jackyun.com/open/openapi/do"
 	method   = "jackyun.tradenotsensitiveinfos.list.get"
 	startDay = "2026-03-03 16:07:00"
@@ -45,6 +50,13 @@ func sign(params map[string]string) string {
 }
 
 func main() {
+	cfg, err := config.Load("config.json")
+	if err != nil {
+		log.Fatalf("加载配置失败: %v", err)
+	}
+	appKey = cfg.JackYunTrade.AppKey
+	secret = cfg.JackYunTrade.Secret
+
 	// 模拟翻页直到报错
 	scrollId := ""
 	pageIndex := 0

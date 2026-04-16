@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Row, Col, Card, Table, Statistic } from 'antd';
 
 import ReactECharts from './Chart';
@@ -20,18 +20,22 @@ interface Props {
   color: string;
 }
 
-const DepartmentPage: React.FC<Props> = ({ dept, title, color }) => {
+const DepartmentPage: React.FC<Props> = ({ dept, title, color  }) => {
+  const abortRef = useRef<AbortController | null>(null);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
   const fetchData = useCallback((s: string, e: string) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
-    fetch(`${API_BASE}/api/department?dept=${dept}&start=${s}&end=${e}`)
+    fetch(`${API_BASE}/api/department?dept=${dept}&start=${s}&end=${e}`, { signal: ctrl.signal })
       .then(res => res.json())
       .then(res => { setData(res.data); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, [dept]);
 
   useEffect(() => { fetchData(startDate, endDate); }, [fetchData, startDate, endDate]);

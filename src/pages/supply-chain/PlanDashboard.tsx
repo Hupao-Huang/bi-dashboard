@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Row, Col, Card, Table } from 'antd';
 import {
   DollarOutlined,
@@ -15,6 +15,7 @@ import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../../config';
 import { getBaseOption, barItemStyle, formatMoney, CHART_COLORS } from '../../chartTheme';
 
 const PlanDashboard: React.FC = () => {
+  const abortRef = useRef<AbortController | null>(null);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
   const [startDate, setStartDate] = useState(DATA_START_DATE);
@@ -22,13 +23,16 @@ const PlanDashboard: React.FC = () => {
   const [warehouse] = useState('');
 
   const fetchData = useCallback((s: string, e: string, wh: string) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     const params = new URLSearchParams({ start: s, end: e });
     if (wh) params.set('warehouse', wh);
-    fetch(`${API_BASE}/api/supply-chain/dashboard?${params}`)
+    fetch(`${API_BASE}/api/supply-chain/dashboard?${params}`, { signal: ctrl.signal })
       .then(res => res.json())
       .then(res => { if (res.code === 200) setData(res.data); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, []);
 
   useEffect(() => { fetchData(startDate, endDate, warehouse); }, [fetchData, startDate, endDate, warehouse]);
