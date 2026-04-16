@@ -44,6 +44,9 @@ func main() {
 		DingSecret:       cfg.DingTalk.WebhookSecret,
 		DingClientID:     cfg.DingTalk.ClientID,
 		DingClientSecret: cfg.DingTalk.ClientSecret,
+		HesiAppKey:       cfg.Hesi.AppKey,
+		HesiSecret:       cfg.Hesi.Secret,
+		WebhookSecret:    cfg.Webhook.Secret,
 	}
 
 	mux := http.NewServeMux()
@@ -61,12 +64,15 @@ func main() {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Vary", "Origin")
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			}
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(200)
 				return
+			}
+			if r.Method == "POST" || r.Method == "PUT" {
+				r.Body = http.MaxBytesReader(w, r.Body, 2<<20) // 2MB
 			}
 			next(w, r)
 		}
@@ -207,6 +213,9 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.Printf("Server starting on %s", addr)
+
+	go h.StartCleanupRoutines()
+
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("server: %v", err)
 	}

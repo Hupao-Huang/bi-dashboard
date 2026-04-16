@@ -21,14 +21,16 @@ import (
 )
 
 const (
-	hesiAPIBase  = "https://app.ekuaibao.com"
-	hesiAppKey   = "4b7bb534-d6be-4dde-953f-6cf7f9077272"
-	hesiSecret   = "efdb8e9c-b93e-47ca-af75-cdaf289336d4"
-	pageSize     = 100
-	attachBatch  = 50 // 附件接口每次最多100个，保守用50
+	hesiAPIBase = "https://app.ekuaibao.com"
+	pageSize    = 100
+	attachBatch = 50
 )
 
-var httpClient = &http.Client{Timeout: 60 * time.Second}
+var (
+	httpClient = &http.Client{Timeout: 60 * time.Second}
+	hesiAppKey string
+	hesiSecret string
+)
 
 // 获取accessToken
 func getAccessToken() (string, error) {
@@ -586,10 +588,12 @@ func syncAttachments(db *sql.DB, token string, flowIds []string) int {
 }
 
 func main() {
-	cfg, err := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
+	cfg, err := config.Load("config.json")
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
+	hesiAppKey = cfg.Hesi.AppKey
+	hesiSecret = cfg.Hesi.Secret
 	db, err := sql.Open("mysql", cfg.Database.DSN())
 	if err != nil {
 		log.Fatalf("连接数据库失败: %v", err)

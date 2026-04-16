@@ -15,9 +15,10 @@ export const CHART_COLORS = [
 ];
 
 export const DEPT_COLORS: Record<string, string> = {
+  all: '#1e293b',
   ecommerce: '#4f46e5',
   social: '#10b981',
-  offline: '#f59e0b',
+  offline: '#faad14',
   distribution: '#8b5cf6',
 };
 

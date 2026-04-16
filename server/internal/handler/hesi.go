@@ -12,14 +12,12 @@ import (
 
 const (
 	hesiAPIBase = "https://app.ekuaibao.com"
-	hesiAppKey  = "4b7bb534-d6be-4dde-953f-6cf7f9077272"
-	hesiSecret  = "efdb8e9c-b93e-47ca-af75-cdaf289336d4"
 )
 
 var hesiHTTP = &http.Client{Timeout: 30 * time.Second}
 
-func getHesiToken() (string, error) {
-	body := map[string]string{"appKey": hesiAppKey, "appSecurity": hesiSecret}
+func (h *DashboardHandler) getHesiToken() (string, error) {
+	body := map[string]string{"appKey": h.HesiAppKey, "appSecurity": h.HesiSecret}
 	b, err := json.Marshal(body)
 	if err != nil {
 		return "", err
@@ -361,7 +359,7 @@ func (h *DashboardHandler) GetHesiAttachmentURLs(w http.ResponseWriter, r *http.
 		return
 	}
 
-	token, err := getHesiToken()
+	token, err := h.getHesiToken()
 	if err != nil {
 		writeError(w, 500, "获取合思授权失败: "+err.Error())
 		return

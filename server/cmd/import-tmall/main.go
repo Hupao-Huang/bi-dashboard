@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -149,7 +148,7 @@ func processShopDir(dir, dateStr, shopName string, isLatest bool) {
 			err = importGoodsDaily(fullPath, dateStr, shopName)
 		case source == "万象台" && dataType == "营销场景数据" && (ext == "xlsx" || ext == "xls"):
 			err = importCampaignDaily(fullPath, dateStr, shopName)
-		case source == "淘宝联盟" && dataType == "营销场景数据" && ext == "csv":
+		case source == "淘宝联盟" && dataType == "营销场景数据" && (ext == "xlsx" || ext == "xls"):
 			err = importCPSDaily(fullPath, dateStr, shopName)
 		case source == "生意参谋" && dataType == "业绩询单" && ext == "xlsx":
 			err = importServiceInquiry(fullPath, dateStr, shopName)
@@ -482,30 +481,30 @@ func importCampaignDaily(path, dateStr, shopName string) error {
 // ==================== 淘宝联盟-CPS推广 ====================
 
 func importCPSDaily(path, dateStr, shopName string) error {
-	file, err := os.Open(path)
+	f, err := excelize.OpenFile(path)
 	if err != nil {
-		return fmt.Errorf("打开csv失败: %w", err)
+		return fmt.Errorf("打开xlsx失败: %w", err)
 	}
-	defer file.Close()
+	defer f.Close()
 
-	reader := csv.NewReader(file)
-	records, err := reader.ReadAll()
+	sheet := f.GetSheetName(0)
+	rows, err := f.GetRows(sheet)
 	if err != nil {
-		return fmt.Errorf("解析csv失败: %w", err)
+		return fmt.Errorf("读取xlsx失败: %w", err)
 	}
 
-	if len(records) < 2 {
+	if len(rows) < 2 {
 		return nil
 	}
 
-	header := records[0]
+	header := rows[0]
 	colMap := make(map[string]int)
 	for i, h := range header {
 		colMap[strings.TrimSpace(h)] = i
 	}
 
 	count := 0
-	for _, row := range records[1:] {
+	for _, row := range rows[1:] {
 		get := func(name string) string {
 			idx, ok := colMap[name]
 			if !ok || idx >= len(row) {

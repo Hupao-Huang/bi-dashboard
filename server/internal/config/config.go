@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 type Config struct {
-	Server   ServerConfig   `json:"server"`
-	Database DatabaseConfig `json:"database"`
-	JackYun  JackYunConfig  `json:"jackyun"`
-	JackYunTrade JackYunConfig `json:"jackyun_trade"`
-	DingTalk DingTalkConfig `json:"dingtalk"`
+	Server       ServerConfig   `json:"server"`
+	Database     DatabaseConfig `json:"database"`
+	JackYun      JackYunConfig  `json:"jackyun"`
+	JackYunTrade JackYunConfig  `json:"jackyun_trade"`
+	DingTalk     DingTalkConfig `json:"dingtalk"`
+	Hesi         HesiConfig     `json:"hesi"`
+	Webhook      WebhookConfig  `json:"webhook"`
 }
 
 type ServerConfig struct {
@@ -27,7 +30,7 @@ type DatabaseConfig struct {
 }
 
 func (d *DatabaseConfig) DSN() string {
-	return d.User + ":" + d.Password + "@tcp(" + d.Host + ":" + itoa(d.Port) + ")/" + d.DBName + "?charset=utf8mb4&parseTime=True&loc=Local"
+	return d.User + ":" + d.Password + "@tcp(" + d.Host + ":" + strconv.Itoa(d.Port) + ")/" + d.DBName + "?charset=utf8mb4&parseTime=True&loc=Local"
 }
 
 type JackYunConfig struct {
@@ -41,6 +44,15 @@ type DingTalkConfig struct {
 	WebhookSecret string `json:"webhook_secret"`
 	ClientID      string `json:"client_id"`
 	ClientSecret  string `json:"client_secret"`
+}
+
+type HesiConfig struct {
+	AppKey string `json:"appkey"`
+	Secret string `json:"secret"`
+}
+
+type WebhookConfig struct {
+	Secret string `json:"secret"`
 }
 
 func Load(path string) (*Config, error) {
@@ -66,16 +78,4 @@ func Load(path string) (*Config, error) {
 		cfg.Database.Port = 3306
 	}
 	return &cfg, nil
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	s := ""
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	return s
 }

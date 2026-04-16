@@ -220,7 +220,7 @@ const Profile: React.FC = () => {
                 try {
                   const values = await pwForm.validateFields();
                   setPwSaving(true);
-                  const res = await fetch(`${API_BASE}/api/change-password`, {
+                  const res = await fetch(`${API_BASE}/api/auth/change-password`, {
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { DEPT_COLORS } from '../chartTheme';
 import { Row, Col, Card, Table, Statistic, Spin } from 'antd';
 import dayjs from 'dayjs';
 import ReactECharts from './Chart';
@@ -10,12 +11,6 @@ interface Props {
   dept: string;
 }
 
-const deptColorMap: Record<string, string> = {
-  ecommerce: '#4f46e5',
-  social: '#10b981',
-  offline: '#faad14',
-  distribution: '#8b5cf6',
-};
 
 const ProductProfit: React.FC<Props> = ({ dept }) => {
   const [data, setData] = useState<any>(null);
@@ -23,7 +18,7 @@ const ProductProfit: React.FC<Props> = ({ dept }) => {
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
-  const color = deptColorMap[dept] || '#4f46e5';
+  const color = DEPT_COLORS[dept] || '#4f46e5';
 
   const fetchData = useCallback((s: string, e: string) => {
     setLoading(true);

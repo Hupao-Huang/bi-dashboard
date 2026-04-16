@@ -1,14 +1,26 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 
 interface WatermarkProps {
-  text: string;   // 第一行：用户名
-  subtext?: string; // 第二行：时间或角色
+  text: string;
+  subtext?: string;
 }
+
+const WATERMARK_STYLE: React.CSSProperties = {
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
+  zIndex: 9999,
+  userSelect: 'none',
+};
 
 const Watermark: React.FC<WatermarkProps> = ({ text, subtext }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<MutationObserver | null>(null);
 
-  useEffect(() => {
+  const renderWatermark = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
 
@@ -18,8 +30,6 @@ const Watermark: React.FC<WatermarkProps> = ({ text, subtext }) => {
     const h = 160;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
 
     const ctx = canvas.getContext('2d')!;
     ctx.scale(dpr, dpr);
@@ -27,7 +37,7 @@ const Watermark: React.FC<WatermarkProps> = ({ text, subtext }) => {
 
     ctx.save();
     ctx.translate(w / 2, h / 2);
-    ctx.rotate(-Math.PI / 6); // -30度倾斜
+    ctx.rotate(-Math.PI / 6);
 
     ctx.globalAlpha = 0.10;
     ctx.fillStyle = '#1e293b';
@@ -49,21 +59,40 @@ const Watermark: React.FC<WatermarkProps> = ({ text, subtext }) => {
     container.style.backgroundSize = `${w}px ${h}px`;
   }, [text, subtext]);
 
-  return (
-    <div
-      ref={containerRef}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 9999,
-        userSelect: 'none',
-      }}
-    />
-  );
+  useEffect(() => {
+    renderWatermark();
+
+    const container = containerRef.current;
+    if (!container || !container.parentNode) return;
+
+    observerRef.current = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type === 'childList') {
+          for (const node of Array.from(m.removedNodes)) {
+            if (node === container) {
+              container.parentNode?.appendChild(container);
+              renderWatermark();
+              return;
+            }
+          }
+        }
+        if (m.type === 'attributes' && m.target === container) {
+          renderWatermark();
+          Object.assign(container.style, WATERMARK_STYLE);
+          return;
+        }
+      }
+    });
+
+    observerRef.current.observe(container.parentNode, { childList: true });
+    observerRef.current.observe(container, { attributes: true, attributeFilter: ['style', 'class'] });
+
+    return () => {
+      observerRef.current?.disconnect();
+    };
+  }, [renderWatermark]);
+
+  return <div ref={containerRef} style={WATERMARK_STYLE} />;
 };
 
 export default Watermark;
