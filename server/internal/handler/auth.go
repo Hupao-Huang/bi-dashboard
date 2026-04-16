@@ -1619,7 +1619,11 @@ func truncateString(value string, maxLen int) string {
 	if len(value) <= maxLen {
 		return value
 	}
-	return value[:maxLen]
+	runes := []rune(value)
+	for len(string(runes)) > maxLen {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes)
 }
 
 // ==================== 钉钉 OAuth ====================
@@ -1637,6 +1641,9 @@ func (h *DashboardHandler) DingtalkAuthURL(w http.ResponseWriter, r *http.Reques
 	redirectURI := fmt.Sprintf("%s://%s/dingtalk/callback", parsed.Scheme, parsed.Host)
 
 	state := r.URL.Query().Get("state")
+	if state != "login" && state != "bind" {
+		state = "login"
+	}
 	authURL := fmt.Sprintf(
 		"https://login.dingtalk.com/oauth2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid+corpid&prompt=consent&state=%s",
 		h.DingClientID, url.QueryEscape(redirectURI), url.QueryEscape(state),
@@ -1922,7 +1929,7 @@ func (h *DashboardHandler) createSessionAndRespond(w http.ResponseWriter, r *htt
 
 	h.DB.Exec(
 		`INSERT INTO user_sessions (user_id, token_hash, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?)`,
-		userID, tokenHash, expiresAt, ip, r.UserAgent(),
+		userID, tokenHash, expiresAt, ip, truncateString(r.UserAgent(), 255),
 	)
 	h.DB.Exec(`UPDATE users SET last_login_at = NOW() WHERE id = ?`, userID)
 	setSessionCookie(w, token, expiresAt, isSecureRequest(r))

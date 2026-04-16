@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Row, Col, Card, Table, Statistic, Select, Empty, Tabs } from 'antd';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
@@ -26,6 +26,7 @@ const PLATFORM_SOURCES: Record<string, string> = {
 };
 
 const MarketingCostPage: React.FC = () => {
+  const abortRef = useRef<AbortController | null>(null);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [platform, setPlatform] = useState('all');
@@ -34,12 +35,15 @@ const MarketingCostPage: React.FC = () => {
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
   const fetchData = useCallback((s: string, e: string, plat: string, shop: string) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     const shopParam = shop !== 'all' ? `&shop=${encodeURIComponent(shop)}` : '';
-    fetch(`${API_BASE}/api/marketing-cost?start=${s}&end=${e}&platform=${plat}${shopParam}`)
+    fetch(`${API_BASE}/api/marketing-cost?start=${s}&end=${e}&platform=${plat}${shopParam}`, { signal: ctrl.signal })
       .then(res => res.json())
       .then(res => { setData(res.data); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, []);
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Row, Col, Card, Table, Statistic, Tabs, Empty } from 'antd';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
@@ -23,6 +23,7 @@ const PLATFORM_COLORS: Record<string, string> = {
 };
 
 const FeiguaDashboard: React.FC = () => {
+  const abortRef = useRef<AbortController | null>(null);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [platform, setPlatform] = useState('all');
@@ -30,12 +31,15 @@ const FeiguaDashboard: React.FC = () => {
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
   const fetchData = useCallback((s: string, e: string, plat: string) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     const platParam = plat !== 'all' ? `&platform=${encodeURIComponent(plat)}` : '';
-    fetch(`${API_BASE}/api/feigua?start=${s}&end=${e}${platParam}`)
+    fetch(`${API_BASE}/api/feigua?start=${s}&end=${e}${platParam}`, { signal: ctrl.signal })
       .then(res => res.json())
       .then(res => { setData(res.data); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, []);
 
   useEffect(() => { fetchData(startDate, endDate, platform); }, [fetchData, startDate, endDate, platform]);

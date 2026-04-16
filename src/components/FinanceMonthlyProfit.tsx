@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { DEPT_COLORS } from '../chartTheme';
 import { Row, Col, Card, Table, Statistic, Select, Tag } from 'antd';
 import ReactECharts from './Chart';
@@ -22,6 +22,7 @@ const profitRateColor = (rate: number) => {
 };
 
 const FinanceMonthlyProfit: React.FC = () => {
+  const abortRef = useRef<AbortController | null>(null);
   const [dept, setDept] = useState('all');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,9 @@ const FinanceMonthlyProfit: React.FC = () => {
   const color = DEPT_COLORS[dept] || '#4f46e5';
 
   const fetchData = useCallback((d: string, s: string, e: string) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     const url = d === 'all'
       ? `${API_BASE}/api/overview?start=${s}&end=${e}`
@@ -38,7 +42,7 @@ const FinanceMonthlyProfit: React.FC = () => {
     fetch(url)
       .then(res => res.json())
       .then(res => { setData({ ...res.data, _mode: d }); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, []);
 
   useEffect(() => { fetchData(dept, startDate, endDate); }, [fetchData, dept, startDate, endDate]);

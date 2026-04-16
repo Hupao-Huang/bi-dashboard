@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Row, Col, Card, Table, Select, Input, Tag } from 'antd';
 import {
   StopOutlined,
@@ -64,6 +64,7 @@ const getWarningTag = (days: number, monthQty: number, currentQty: number) => {
 };
 
 const InventoryWarning: React.FC = () => {
+  const abortRef = useRef<AbortController | null>(null);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<StockItem[]>([]);
   const [summary, setSummary] = useState<Summary>({ total: 0, stockout: 0, urgent: 0, low: 0, overstock: 0, dead: 0 });
@@ -73,13 +74,16 @@ const InventoryWarning: React.FC = () => {
   const [keyword, setKeyword] = useState('');
 
   const fetchData = useCallback((w: string, f: string, kw: string) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     const params = new URLSearchParams();
     if (w) params.set('warehouse', w);
     if (f && f !== 'all') params.set('warning', f);
     if (kw) params.set('keyword', kw);
 
-    fetch(`${API_BASE}/api/stock/warning?${params}`)
+    fetch(`${API_BASE}/api/stock/warning?${params}`, { signal: ctrl.signal })
       .then(res => res.json())
       .then(res => {
         if (res.code === 200 && res.data) {
@@ -89,7 +93,7 @@ const InventoryWarning: React.FC = () => {
         }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, []);
 
   useEffect(() => { fetchData(warehouse, filter, keyword); }, [fetchData, warehouse, filter, keyword]);

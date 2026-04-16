@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { DEPT_COLORS } from '../chartTheme';
 import { Row, Col, Card, Table, Statistic, Spin, Tag } from 'antd';
 import dayjs from 'dayjs';
@@ -12,7 +12,8 @@ interface Props {
 }
 
 
-const MonthlyProfit: React.FC<Props> = ({ dept }) => {
+const MonthlyProfit: React.FC<Props> = ({ dept  }) => {
+  const abortRef = useRef<AbortController | null>(null);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(DATA_START_DATE);
@@ -21,11 +22,14 @@ const MonthlyProfit: React.FC<Props> = ({ dept }) => {
   const color = DEPT_COLORS[dept] || '#4f46e5';
 
   const fetchData = useCallback((s: string, e: string) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
-    fetch(`${API_BASE}/api/department?dept=${dept}&start=${s}&end=${e}`)
+    fetch(`${API_BASE}/api/department?dept=${dept}&start=${s}&end=${e}`, { signal: ctrl.signal })
       .then(res => res.json())
       .then(res => { setData(res.data); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, [dept]);
 
   useEffect(() => { fetchData(startDate, endDate); }, [fetchData, startDate, endDate]);
