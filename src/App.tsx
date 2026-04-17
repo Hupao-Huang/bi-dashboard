@@ -52,6 +52,9 @@ const FeedbackPage = lazy(() => import('./pages/system/Feedback'));
 const NoticesPage = lazy(() => import('./pages/system/Notices'));
 const ProfilePage = lazy(() => import('./pages/system/Profile'));
 const ChannelManagementPage = lazy(() => import('./pages/system/ChannelManagement'));
+const RPAMappingPage = lazy(() => import('./pages/system/RPAMapping'));
+const DBDictionaryPage = lazy(() => import('./pages/system/DBDictionary'));
+const RPAMonitorPage = lazy(() => import('./pages/system/RPAMonitor'));
 const DingtalkCallback = lazy(() => import('./pages/DingtalkCallback'));
 
 dayjs.locale('zh-cn');
@@ -130,6 +133,9 @@ const App: React.FC = () => (
               <Route path="/system/feedback" element={guard('feedback.manage', <FeedbackPage />)} />
               <Route path="/system/notices" element={guard('notice.manage', <NoticesPage />)} />
               <Route path="/system/channels" element={guard('channel.manage', <ChannelManagementPage />)} />
+              <Route path="/system/rpa-mapping" element={guard('role.manage', <RPAMappingPage />)} />
+              <Route path="/system/db-dict" element={guard('role.manage', <DBDictionaryPage />)} />
+              <Route path="/system/rpa-monitor" element={guard('role.manage', <RPAMonitorPage />)} />
               <Route path="/profile" element={<ProfilePage />} />
             </Route>
           </Routes>

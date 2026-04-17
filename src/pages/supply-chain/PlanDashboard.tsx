@@ -51,7 +51,7 @@ const PlanDashboard: React.FC = () => {
   const kpiCards = [
     { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#4f46e5', icon: <DollarOutlined />, desc: '销售出库销售额', animated: true },
     { title: '库存成本', num: kpi.stockCost || 0, fmt: fmtYuan, color: '#06b6d4', icon: <DatabaseOutlined />, desc: '当前库存金额', tag: '实时' },
-    { title: '库存周转', num: kpi.turnoverDays || 0, fmt: fmtDay, color: '#f59e0b', icon: <SyncOutlined />, desc: '库存成本÷日均销售额', animated: true },
+    { title: '库存周转', num: kpi.turnoverDays || 0, fmt: fmtDay, color: '#f59e0b', icon: <SyncOutlined />, desc: '库存成本÷日均销售成本', animated: true },
     { title: '高库存占比', num: kpi.highStockRate || 0, fmt: fmtPct, color: '#8b5cf6', icon: <WarningOutlined />, desc: '周转>50天的库存占比', tag: '实时' },
     { title: '缺货率', num: kpi.stockoutRate || 0, fmt: fmtPct, color: '#ef4444', icon: <StopOutlined />, desc: `${kpi.stockoutSKU || 0}/${kpi.salesSKU || 0} SKU`, tag: '实时' },
     { title: '库龄>90天', num: kpi.agedStockValue || 0, fmt: fmtWan, color: '#f97316', icon: <WarningOutlined />, desc: '生产日期超90天的库存金额', tag: '实时' },
@@ -118,6 +118,7 @@ const PlanDashboard: React.FC = () => {
 
   // ========== 高库存产品明细 ==========
   const highStockCols = [
+    { title: '#', key: 'index', width: 45, render: (_: any, __: any, i: number) => i + 1 },
     { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
     { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 200, ellipsis: true },
     { title: '仓库', dataIndex: 'warehouse', key: 'warehouse', width: 160, ellipsis: true },
@@ -133,6 +134,7 @@ const PlanDashboard: React.FC = () => {
 
   // ========== 缺货产品明细 ==========
   const stockoutCols = [
+    { title: '#', key: 'index', width: 45, render: (_: any, __: any, i: number) => i + 1 },
     { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
     { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 200, ellipsis: true },
     { title: '仓库', dataIndex: 'warehouse', key: 'warehouse', width: 160, ellipsis: true },
@@ -223,10 +225,11 @@ const PlanDashboard: React.FC = () => {
       </Card>
 
       {/* 第3行：品类库存健康度 + 渠道销售占比 */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 16, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
         <div style={{ flex: 55, minWidth: 0 }}>
-          <Card title="品类库存健康度">
+          <Card title="品类库存健康度" styles={{ body: { padding: 0 } }}>
             <Table
+              style={{ borderRadius: 0 }}
               dataSource={data.categories || []}
               columns={cateCols}
               rowKey="category"
@@ -287,12 +290,16 @@ const PlanDashboard: React.FC = () => {
       <div style={{ display: 'flex', gap: 16, marginTop: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: 55, minWidth: 0 }}>
           <Card title={`高库存产品明细（周转>50天）· ${(data.highStockItems || []).length}个`}>
-            <Table dataSource={data.highStockItems || []} columns={highStockCols} rowKey={(r: any) => r.goodsNo + r.warehouse} pagination={{ pageSize: 10, size: 'small' }} size="small" scroll={{ x: 840 }} />
+            <div style={{ minHeight: 420 }}>
+              <Table dataSource={data.highStockItems || []} columns={highStockCols} rowKey={(r: any) => r.goodsNo + r.warehouse} pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 885, y: 420 }} />
+            </div>
           </Card>
         </div>
         <div style={{ flex: 45, minWidth: 0 }}>
           <Card title={`缺货产品明细 · ${(data.stockoutItems || []).length}个`}>
-            <Table dataSource={data.stockoutItems || []} columns={stockoutCols} rowKey={(r: any) => r.goodsNo + r.warehouse} pagination={{ pageSize: 10, size: 'small' }} size="small" scroll={{ x: 650 }} />
+            <div style={{ minHeight: 420 }}>
+              <Table dataSource={data.stockoutItems || []} columns={stockoutCols} rowKey={(r: any) => r.goodsNo + r.warehouse} pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 695, y: 420 }} />
+            </div>
           </Card>
         </div>
       </div>
@@ -300,7 +307,9 @@ const PlanDashboard: React.FC = () => {
       {/* 第6行：库龄>90天产品明细（全宽，8列需要） */}
       {(data.agedItems || []).length > 0 && (
         <Card title={`库龄>90天产品明细 · ${(data.agedItems || []).length}个`} style={{ marginTop: 16 }}>
-          <Table dataSource={data.agedItems || []} columns={[
+          <div style={{ minHeight: 420 }}>
+            <Table dataSource={data.agedItems || []} columns={[
+            { title: '#', key: 'index', width: 45, render: (_: any, __: any, i: number) => i + 1 },
             { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
             { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 200, ellipsis: true },
             { title: '仓库', dataIndex: 'warehouse', key: 'warehouse', width: 180, ellipsis: true },
@@ -309,7 +318,8 @@ const PlanDashboard: React.FC = () => {
             { title: '批次', dataIndex: 'batchNo', key: 'batchNo', width: 120 },
             { title: '生产日期', dataIndex: 'productionDate', key: 'productionDate', width: 100, render: (v: string) => v ? v.slice(0, 10) : '-' },
             { title: '库龄(天)', dataIndex: 'ageDays', key: 'ageDays', width: 90, align: 'right' as const, sorter: (a: any, b: any) => a.ageDays - b.ageDays, render: (v: number) => <span style={{ color: v > 180 ? '#ef4444' : '#f97316', fontWeight: 600 }}>{v}</span> },
-          ]} rowKey={(r: any) => r.goodsNo + r.warehouse + r.batchNo} pagination={{ pageSize: 10, size: 'small' }} size="small" scroll={{ x: 1000 }} />
+          ]} rowKey={(r: any) => r.goodsNo + r.warehouse + r.batchNo} pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 1045, y: 420 }} />
+          </div>
         </Card>
       )}
 

@@ -162,6 +162,10 @@ func main() {
 	mux.HandleFunc("/api/admin/tasks/run", adminRoles(h.RunManualTask))
 	mux.HandleFunc("/api/admin/tasks/running", adminRoles(h.GetRunningTasks))
 	mux.HandleFunc("/api/admin/tasks/stop", adminRoles(h.StopManualTask))
+	mux.HandleFunc("/api/admin/docs/rpa-mapping", adminRoles(h.GetRPAMapping))
+	mux.HandleFunc("/api/admin/docs/db-dict", adminRoles(h.GetDBDictionary))
+	mux.HandleFunc("/api/admin/rpa-scan", adminRoles(h.ScanRPAFiles))
+	mux.HandleFunc("/api/admin/rpa-scan/refresh", adminRoles(h.RefreshRPAScan))
 
 	// 反馈
 	feedbackAdmin := func(next http.HandlerFunc) http.HandlerFunc {
