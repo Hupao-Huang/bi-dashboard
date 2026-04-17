@@ -58,7 +58,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	}
 
 	// ========== 1. KPI 卡片 ==========
-	var salesGMV, stockCost, dailySales, turnoverDays, agedStockValue float64
+	var salesGMV, stockCost, dailyCost, turnoverDays, agedStockValue float64
 	var highStockValue, totalStockValue, highStockRate, stockoutRate float64
 	var stockoutSKU, salesSKU int
 
@@ -68,21 +68,17 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		salesGMVArgs := append([]interface{}{start, end}, salesScopeArgs...)
 		if err := h.DB.QueryRow(`SELECT IFNULL(SUM(local_goods_amt),0) FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+salesScopeCond, salesGMVArgs...).Scan(&salesGMV); err != nil {
 			setQueryErr(err)
-			return
-		}
-		dailySalesArgs := append([]interface{}{end, start, start, end}, salesScopeArgs...)
-		if err := h.DB.QueryRow(`SELECT IFNULL(SUM(local_goods_amt),0)/GREATEST(DATEDIFF(?,?),1) FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+salesScopeCond,
-			dailySalesArgs...).Scan(&dailySales); err != nil {
-			setQueryErr(err)
 		}
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		stockCostQ := `SELECT IFNULL(SUM(current_qty * cost_price),0) FROM stock_quantity WHERE goods_attr=1 AND warehouse_name!=''` + warehouseCond
 		stockCostArgs := append([]interface{}{}, warehouseArgs...)
-		if err := h.DB.QueryRow(stockCostQ, stockCostArgs...).Scan(&stockCost); err != nil {
+		if err := h.DB.QueryRow(
+			`SELECT IFNULL(SUM(current_qty * cost_price),0), IFNULL(SUM(month_qty * cost_price / 30),0)
+			 FROM stock_quantity WHERE goods_attr=1 AND warehouse_name!=''`+warehouseCond,
+			stockCostArgs...).Scan(&stockCost, &dailyCost); err != nil {
 			setQueryErr(err)
 		}
 	}()
@@ -300,7 +296,9 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 			FROM stock_quantity s
 			LEFT JOIN goods g ON s.goods_no = g.goods_no AND g.is_delete=0
 			WHERE s.goods_attr=1 AND s.warehouse_name!=''`+warehouseCondS+`
-			GROUP BY category HAVING SUM(s.current_qty * s.cost_price) > 0
+			GROUP BY category
+			HAVING SUM(s.current_qty * s.cost_price) > 0
+				AND category IN ('调味料','酱油','调味汁','干制面','素蚝油','酱类','醋','汤底','番茄沙司','糖')
 			ORDER BY SUM(s.current_qty * s.cost_price) DESC`, warehouseArgsS...)
 		if !ok {
 			return
@@ -589,8 +587,8 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	if totalStockValue > 0 {
 		highStockRate = highStockValue / totalStockValue * 100
 	}
-	if dailySales > 0 {
-		turnoverDays = stockCost / dailySales
+	if dailyCost > 0 {
+		turnoverDays = stockCost / dailyCost
 	}
 
 	// 组装渠道环比数据
