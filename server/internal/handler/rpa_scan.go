@@ -48,6 +48,7 @@ type rpaDateInfo struct {
 	FormattedDate string         `json:"formatted_date"`
 	Completeness  float64        `json:"completeness"`
 	Status        string         `json:"status"`
+	DBImported    bool           `json:"db_imported"`
 	Stores        []rpaStoreInfo `json:"stores"`
 }
 
@@ -208,10 +209,19 @@ func scanPlatform(platform string, dataItems map[string]struct {
 		for _, store := range storeNames {
 			items := storeItems[store]
 			storeDir := filepath.Join(yearDir, date, store)
+			dateDir := filepath.Join(yearDir, date)
 
-			// 读取该 store 目录下的文件名列表（如果目录不存在则为空）
+			// 读取该 store 目录下的文件名列表
+			// 同时检查日期根目录（飞瓜等平台文件可能直接放在日期目录下）
 			var fileNames []string
 			if dirEntries, err := os.ReadDir(storeDir); err == nil {
+				for _, fe := range dirEntries {
+					if !fe.IsDir() {
+						fileNames = append(fileNames, fe.Name())
+					}
+				}
+			}
+			if dirEntries, err := os.ReadDir(dateDir); err == nil {
 				for _, fe := range dirEntries {
 					if !fe.IsDir() {
 						fileNames = append(fileNames, fe.Name())
@@ -319,17 +329,62 @@ func clearRPAScanCache() {
 
 // ScanRPAFiles GET /api/admin/rpa-scan
 // 返回 RPA 文件完整性扫描结果（5分钟缓存）
+// 平台 → 用于检查导入状态的代表性表名
+var platformDBTable = map[string]string{
+	"天猫":   "op_tmall_shop_daily",
+	"天猫超市": "op_tmall_cs_shop_daily",
+	"京东":   "op_jd_shop_daily",
+	"京东自营": "op_jd_cs_workload_daily",
+	"拼多多":  "op_pdd_shop_daily",
+	"唯品会":  "op_vip_shop_daily",
+	"抖音":   "op_douyin_goods_daily",
+	"抖音分销": "op_douyin_dist_product_daily",
+	"快手":   "op_kuaishou_cs_assessment_daily",
+	"小红书":  "op_xhs_cs_analysis_daily",
+	"飞瓜":   "fg_creator_daily",
+}
+
+func (h *DashboardHandler) enrichDBStatus(result *rpaScanResult) {
+	for i := range result.Platforms {
+		p := &result.Platforms[i]
+		tableName, ok := platformDBTable[p.Name]
+		if !ok {
+			continue
+		}
+
+		// 一次查出该表所有有数据的日期
+		dateCol := "stat_date"
+		rows, err := h.DB.Query("SELECT DISTINCT DATE_FORMAT("+dateCol+",'%Y-%m-%d') FROM "+tableName+" WHERE "+dateCol+" >= '2026-01-01'")
+		if err != nil {
+			continue
+		}
+		importedDates := map[string]bool{}
+		for rows.Next() {
+			var d string
+			rows.Scan(&d)
+			importedDates[d] = true
+		}
+		rows.Close()
+
+		for j := range p.Dates {
+			// 转换日期格式 20260416 → 2026-04-16
+			formatted := p.Dates[j].FormattedDate
+			p.Dates[j].DBImported = importedDates[formatted]
+		}
+	}
+}
+
 func (h *DashboardHandler) ScanRPAFiles(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	result := getRPAScanCached()
+	h.enrichDBStatus(result)
 	writeJSON(w, result)
 }
 
 // RefreshRPAScan POST /api/admin/rpa-scan/refresh
-// 清除缓存并立即触发新一轮扫描，返回最新结果
 func (h *DashboardHandler) RefreshRPAScan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -337,5 +392,6 @@ func (h *DashboardHandler) RefreshRPAScan(w http.ResponseWriter, r *http.Request
 	}
 	clearRPAScanCache()
 	result := getRPAScanCached()
+	h.enrichDBStatus(result)
 	writeJSON(w, result)
 }

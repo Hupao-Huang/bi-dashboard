@@ -156,10 +156,10 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 	}
 
 	// 同步更新 sales_goods_summary 中对应渠道的 department
-	var channelName string
-	h.DB.QueryRow("SELECT channel_name FROM sales_channel WHERE id = ?", id).Scan(&channelName)
-	if channelName != "" {
-		h.DB.Exec("UPDATE sales_goods_summary SET department = ? WHERE shop_name = ?", req.Department, channelName)
+	var channelID string
+	h.DB.QueryRow("SELECT channel_id FROM sales_channel WHERE id = ?", id).Scan(&channelID)
+	if channelID != "" {
+		h.DB.Exec("UPDATE sales_goods_summary SET department = ? WHERE shop_id = ?", req.Department, channelID)
 	}
 
 	writeJSON(w, map[string]interface{}{"message": "更新成功"})

@@ -13,6 +13,8 @@ import {
   Progress,
   Radio,
   Input,
+  Modal,
+  message,
 } from 'antd';
 import { ReloadOutlined, CheckCircleOutlined, WarningOutlined, CloseCircleOutlined, MinusCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
@@ -41,12 +43,18 @@ interface DateStoreEntry {
   items: DataItem[];
 }
 
+interface DateMeta {
+  dbImported: boolean;
+  fileStatus: ItemStatus; // complete / partial / missing
+}
+
 interface PlatformData {
   name: string;
   stores: string[];
   dates: string[];
   /** grid[date][store] = DateStoreEntry */
   grid: Record<string, Record<string, DateStoreEntry>>;
+  dateMeta: Record<string, DateMeta>;
   completeness: number; // 0-100
 }
 
@@ -107,9 +115,10 @@ const StatusCell: React.FC<CellProps> = ({ entry, onClick }) => {
 
 interface PlatformPanelProps {
   platform: PlatformData;
+  onImport: (date: string, platform: string) => void;
 }
 
-const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform }) => {
+const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [cellDetail, setCellDetail] = useState<CellDetail | null>(null);
 
@@ -120,7 +129,7 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform }) => {
     setDrawerOpen(true);
   };
 
-  // Build columns: first col = date, then one col per store
+  // Build columns: first col = date, then DB status, then one col per store
   const columns = [
     {
       title: '日期',
@@ -129,6 +138,31 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform }) => {
       fixed: 'left' as const,
       width: 110,
       render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text>,
+    },
+    {
+      title: '导入状态',
+      key: 'dbImported',
+      fixed: 'left' as const,
+      width: 110,
+      align: 'center' as const,
+      render: (_: any, row: { date: string }) => {
+        const meta = platform.dateMeta[row.date];
+        const imported = meta?.dbImported;
+        const fileComplete = meta?.fileStatus === 'complete';
+        if (imported && fileComplete) return <Tag color="success" style={{ fontSize: 11, margin: 0 }}>已导入</Tag>;
+        if (imported && !fileComplete) return (
+          <Space size={4}>
+            <Tag color="warning" style={{ fontSize: 11, margin: 0 }}>需更新</Tag>
+            <Button type="link" size="small" onClick={() => onImport(row.date, platform.name)} style={{ fontSize: 11, padding: 0 }}>导入</Button>
+          </Space>
+        );
+        return (
+          <Space size={4}>
+            <Tag color="error" style={{ fontSize: 11, margin: 0 }}>未导入</Tag>
+            <Button type="link" size="small" onClick={() => onImport(row.date, platform.name)} style={{ fontSize: 11, padding: 0 }}>导入</Button>
+          </Space>
+        );
+      },
     },
     ...platform.stores.map(store => ({
       title: (
@@ -194,7 +228,7 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform }) => {
         rowKey="date"
         size="small"
         pagination={false}
-        scroll={{ x: Math.max(500, 110 + platform.stores.length * 100), y: 520 }}
+        scroll={{ x: Math.max(500, 220 + platform.stores.length * 100), y: 520 }}
         bordered
       />
 
@@ -269,11 +303,13 @@ function transformData(raw: any): ScanResult {
     const storeSet = new Set<string>();
     const dates: string[] = [];
     const grid: Record<string, Record<string, DateStoreEntry>> = {};
+    const dateMeta: Record<string, DateMeta> = {};
 
     for (const d of (p.dates || [])) {
       const dateKey = d.formatted_date || d.date;
       dates.push(dateKey);
       grid[dateKey] = {};
+      dateMeta[dateKey] = { dbImported: !!d.db_imported, fileStatus: (d.status || 'missing') as ItemStatus };
       for (const s of (d.stores || [])) {
         storeSet.add(s.name);
         const items: DataItem[] = [
@@ -292,6 +328,7 @@ function transformData(raw: any): ScanResult {
       stores: Array.from(storeSet),
       dates,
       grid,
+      dateMeta,
       completeness: Math.round((p.completeness || 0) * 100),
     };
   });
@@ -362,18 +399,57 @@ const RPAMonitor: React.FC = () => {
   const [keyword, setKeyword] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importProg, setImportProg] = useState<any>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startImport = async (dateStr: string, platformName: string) => {
+    const d = dateStr.replace(/-/g, '');
+    setImportProg({ running: true, date: d, platform: platformName, total: 0, current: 0, results: [] });
+    setImportModalOpen(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/rpa-scan/import`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: d, platform: platformName }),
+      });
+      const json = await res.json();
+      if (json.error) { message.error(json.error); setImportModalOpen(false); return; }
+      pollRef.current = setInterval(async () => {
+        try {
+          const pr = await fetch(`${API_BASE}/api/admin/rpa-scan/import-progress`, { credentials: 'include' });
+          const prog = await pr.json();
+          setImportProg(prog);
+          if (!prog.running) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            message.success('导入完成');
+            fetchData();
+          }
+        } catch { /* ignore */ }
+      }, 1000);
+    } catch {
+      message.error('导入请求失败');
+      setImportModalOpen(false);
+    }
+  };
+
+  useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
 
   // 问题汇总：把所有平台/日期/店铺/缺失文件展平
   const issueRows = useMemo(() => {
-    const rows: { platform: string; date: string; store: string; status: ItemStatus; missingItems: string[] }[] = [];
+    const rows: { platform: string; date: string; store: string; status: ItemStatus; missingItems: string[]; dbImported: boolean; fileStatus: ItemStatus }[] = [];
     for (const p of platforms) {
       for (const date of p.dates) {
+        const meta = p.dateMeta[date];
+        const imported = meta?.dbImported ?? false;
+        const fileStatus = meta?.fileStatus ?? 'missing';
         for (const store of p.stores) {
           const entry = p.grid[date]?.[store];
           if (!entry) continue;
-          if (entry.status === 'complete') continue;
+          if (entry.status === 'complete' && imported && fileStatus === 'complete') continue;
           const missingItems = entry.items.filter(i => i.status !== 'complete').map(i => i.name);
-          rows.push({ platform: p.name, date, store, status: entry.status, missingItems });
+          rows.push({ platform: p.name, date, store, status: entry.status, missingItems, dbImported: imported, fileStatus });
         }
       }
     }
@@ -405,10 +481,32 @@ const RPAMonitor: React.FC = () => {
       ),
     },
     {
-      title: '缺失文件', dataIndex: 'missingItems', key: 'missingItems',
-      render: (items: string[]) => items.length === 0
-        ? <span style={{ color: '#94a3b8', fontSize: 12 }}>无目录</span>
-        : <span style={{ fontSize: 12, color: '#ef4444' }}>{items.join('、')}</span>,
+      title: '导入状态', key: 'dbImported', width: 120,
+      render: (_: any, row: any) => {
+        const imported = row.dbImported;
+        const fileComplete = row.fileStatus === 'complete';
+        if (imported && fileComplete) return <Tag color="success" style={{ fontSize: 11 }}>已导入</Tag>;
+        if (imported && !fileComplete) return (
+          <Space size={4}>
+            <Tag color="warning" style={{ fontSize: 11, margin: 0 }}>需更新</Tag>
+            <Button type="link" size="small" onClick={() => startImport(row.date, row.platform)} style={{ fontSize: 11, padding: 0 }}>导入</Button>
+          </Space>
+        );
+        return (
+          <Space size={4}>
+            <Tag color="error" style={{ fontSize: 11, margin: 0 }}>未导入</Tag>
+            <Button type="link" size="small" onClick={() => startImport(row.date, row.platform)} style={{ fontSize: 11, padding: 0 }}>导入</Button>
+          </Space>
+        );
+      },
+    },
+    {
+      title: '缺失文件', key: 'missingItems',
+      render: (_: any, row: any) => {
+        if (row.missingItems.length === 0 && row.status === 'complete') return <span style={{ color: '#10b981', fontSize: 12 }}>文件完整</span>;
+        if (row.missingItems.length === 0) return <span style={{ color: '#94a3b8', fontSize: 12 }}>无文件信息</span>;
+        return <span style={{ fontSize: 12, color: '#ef4444' }}>{row.missingItems.join('、')}</span>;
+      },
     },
   ];
 
@@ -473,7 +571,7 @@ const RPAMonitor: React.FC = () => {
         </Tag>
       </Space>
     ),
-    children: <PlatformPanel platform={p} />,
+    children: <PlatformPanel platform={p} onImport={startImport} />,
   })),
 ];
 
@@ -540,6 +638,47 @@ const RPAMonitor: React.FC = () => {
           padding: 4px 12px;
         }
       `}</style>
+
+      {/* 导入进度弹窗 */}
+      <Modal
+        title={importProg ? `导入 ${importProg.platform || ''} ${importProg.date ? `${importProg.date.slice(0,4)}-${importProg.date.slice(4,6)}-${importProg.date.slice(6)}` : ''}` : '导入进度'}
+        open={importModalOpen}
+        footer={importProg?.running ? null : <Button type="primary" onClick={() => setImportModalOpen(false)}>关闭</Button>}
+        closable={!importProg?.running}
+        onCancel={() => { if (!importProg?.running) setImportModalOpen(false); }}
+        width={480}
+      >
+        {importProg && (
+          <div>
+            <Progress
+              percent={importProg.total > 0 ? Math.round((importProg.current / importProg.total) * 100) : 0}
+              status={importProg.running ? 'active' : 'success'}
+              style={{ marginBottom: 16 }}
+            />
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+              {importProg.running
+                ? `正在执行: ${importProg.current_tool || ''} (${importProg.current}/${importProg.total})`
+                : `全部完成 (${importProg.total}个工具)`
+              }
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(importProg.results || []).map((r: any, i: number) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', borderRadius: 4,
+                  background: r.status === '成功' ? '#f0fdf4' : r.status === 'running' ? '#eff6ff' : r.status === 'pending' ? '#f8fafc' : '#fef2f2',
+                }}>
+                  {r.status === '成功' && <CheckCircleOutlined style={{ color: '#10b981' }} />}
+                  {r.status === 'running' && <Spin size="small" />}
+                  {r.status === 'pending' && <MinusCircleOutlined style={{ color: '#94a3b8' }} />}
+                  {(r.status === '失败' || r.status === '超时') && <CloseCircleOutlined style={{ color: '#ef4444' }} />}
+                  <span style={{ flex: 1, fontSize: 12 }}>{r.tool}</span>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>{r.detail || r.status}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

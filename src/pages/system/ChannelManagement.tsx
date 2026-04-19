@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Card, Table, Select, Input, Button, Tag, message, Space, Row, Col, Statistic, Modal } from 'antd';
-import { SyncOutlined, SearchOutlined, WarningOutlined } from '@ant-design/icons';
+import { SyncOutlined, SearchOutlined, WarningOutlined, SaveOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 
 const DEPT_OPTIONS = [
@@ -29,6 +29,8 @@ const ChannelManagement: React.FC = () => {
   const [filterDept, setFilterDept] = useState<string | undefined>(undefined);
   const [filterPlat, setFilterPlat] = useState<string | undefined>(undefined);
   const [pageSize, setPageSize] = useState(50);
+  const [editingDepts, setEditingDepts] = useState<Record<number, string>>({});
+  const [savingIds, setSavingIds] = useState<Set<number>>(new Set());
 
   const fetchData = useCallback(() => {
     setLoading(true);
@@ -51,7 +53,14 @@ const ChannelManagement: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const handleDeptChange = (id: number, dept: string) => {
+  const handleDeptEdit = (id: number, dept: string) => {
+    setEditingDepts(prev => ({ ...prev, [id]: dept }));
+  };
+
+  const handleSave = (id: number) => {
+    const dept = editingDepts[id];
+    if (dept === undefined) return;
+    setSavingIds(prev => new Set(prev).add(id));
     fetch(`${API_BASE}/api/admin/channels/${id}`, {
       method: 'PUT',
       credentials: 'include',
@@ -61,13 +70,15 @@ const ChannelManagement: React.FC = () => {
       .then(res => res.json())
       .then(res => {
         if (res.data?.message || res.message) {
-          message.success('部门更新成功');
+          message.success('保存成功');
+          setEditingDepts(prev => { const n = { ...prev }; delete n[id]; return n; });
           fetchData();
         } else {
-          message.error(res.error || '更新失败');
+          message.error(res.error || '保存失败');
         }
       })
-      .catch(() => message.error('更新失败'));
+      .catch(() => message.error('保存失败'))
+      .finally(() => setSavingIds(prev => { const n = new Set(prev); n.delete(id); return n; }));
   };
 
   const handleSync = () => {
@@ -111,17 +122,35 @@ const ChannelManagement: React.FC = () => {
     { title: '公司', dataIndex: 'companyName', key: 'company', width: 160, ellipsis: true },
     { title: '负责人', dataIndex: 'responsibleUser', key: 'user', width: 100 },
     {
-      title: 'BI部门', dataIndex: 'department', key: 'dept', width: 140,
-      render: (v: string, r: any) => (
-        <Select
-          size="small"
-          value={v || ''}
-          style={{ width: 120 }}
-          onChange={(val: string) => handleDeptChange(r.id, val)}
-          options={DEPT_OPTIONS}
-          status={!v ? 'warning' : undefined}
-        />
-      ),
+      title: 'BI部门', dataIndex: 'department', key: 'dept', width: 200,
+      render: (v: string, r: any) => {
+        const editVal = editingDepts[r.id];
+        const isEdited = editVal !== undefined && editVal !== (v || '');
+        const displayVal = editVal !== undefined ? editVal : (v || '');
+        return (
+          <Space size={4}>
+            <Select
+              size="small"
+              value={displayVal}
+              style={{ width: 100 }}
+              onChange={(val: string) => handleDeptEdit(r.id, val)}
+              options={DEPT_OPTIONS}
+              status={!displayVal ? 'warning' : undefined}
+            />
+            {isEdited && (
+              <Button
+                type="primary"
+                size="small"
+                icon={<SaveOutlined />}
+                loading={savingIds.has(r.id)}
+                onClick={() => handleSave(r.id)}
+              >
+                保存
+              </Button>
+            )}
+          </Space>
+        );
+      },
       filters: [
         { text: '电商', value: 'ecommerce' },
         { text: '社媒', value: 'social' },

@@ -166,6 +166,8 @@ func main() {
 	mux.HandleFunc("/api/admin/docs/db-dict", adminRoles(h.GetDBDictionary))
 	mux.HandleFunc("/api/admin/rpa-scan", adminRoles(h.ScanRPAFiles))
 	mux.HandleFunc("/api/admin/rpa-scan/refresh", adminRoles(h.RefreshRPAScan))
+	mux.HandleFunc("/api/admin/rpa-scan/import", adminRoles(h.ManualImport))
+	mux.HandleFunc("/api/admin/rpa-scan/import-progress", adminRoles(h.ImportProgress))
 
 	// 反馈
 	feedbackAdmin := func(next http.HandlerFunc) http.HandlerFunc {
