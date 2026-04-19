@@ -110,10 +110,15 @@ func main() {
 		dayGoods := 0
 
 		for {
+			isTableSwitch := 1
+			if os.Getenv("TRADE_ARCHIVE") == "1" {
+				isTableSwitch = 2
+			}
 			biz := map[string]interface{}{
 				"startConsignTime": ds,
 				"endConsignTime":   de,
 				"isDelete":         "0",
+				"isTableSwitch":    isTableSwitch,
 				"pageSize":         200,
 				"scrollId":         scrollId,
 				"fields":           fields,
@@ -367,6 +372,10 @@ func main() {
 				}
 			}
 
+			log.Printf("  本页返回 %d 条, TotalResults=%d, wrapperScrollId=%q, resultScrollId=%q",
+				len(result.Trades), result.TotalResults,
+				truncStr(wrapper.ScrollId, 20), truncStr(result.ScrollId, 20))
+
 			if len(result.Trades) < 200 {
 				break
 			}
@@ -392,6 +401,11 @@ func main() {
 
 	fmt.Printf("\n同步完成！共 %d 笔订单, %d 条明细\n", totalTrades, totalGoods)
 	} // end months loop
+}
+
+func truncStr(s string, n int) string {
+	if len(s) <= n { return s }
+	return s[:n] + "..."
 }
 
 func loadSyncWindows() ([]syncWindow, error) {

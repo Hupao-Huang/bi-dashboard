@@ -25,6 +25,28 @@ var (
 	syncLastAt  string
 )
 
+// 手动导入进度
+type importProgress struct {
+	Running  bool             `json:"running"`
+	Date     string           `json:"date"`
+	Platform string           `json:"platform"`
+	Total    int              `json:"total"`
+	Current  int              `json:"current"`
+	CurrTool string           `json:"current_tool"`
+	Results  []importToolInfo `json:"results"`
+}
+
+type importToolInfo struct {
+	Tool   string `json:"tool"`
+	Status string `json:"status"` // running / 成功 / 失败 / 超时 / pending
+	Detail string `json:"detail"`
+}
+
+var (
+	importProgressMu   sync.RWMutex
+	currentImportProgress *importProgress
+)
+
 const (
 	dingWebhook = "https://oapi.dingtalk.com/robot/send"
 	toolTimeout = 5 * time.Minute
@@ -264,6 +286,126 @@ func (dh *DashboardHandler) sendDingTalk(content string) {
 	} else {
 		log.Println("[钉钉通知] 发送成功")
 	}
+}
+
+// ManualImport 管理员手动导入指定日期的运营数据
+// POST /api/admin/rpa-scan/import  {"date":"20260210"}
+func (h *DashboardHandler) ManualImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+
+	var req struct {
+		Date     string `json:"date"`
+		Platform string `json:"platform"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Date) != 8 {
+		writeError(w, 400, "请传入8位日期和平台，如 {\"date\":\"20260210\",\"platform\":\"京东\"}")
+		return
+	}
+
+	// 平台 → 对应的导入工具
+	platformTools := map[string][]string{
+		"天猫":   {"import-tmall.exe"},
+		"天猫超市": {"import-tmallcs.exe"},
+		"京东":   {"import-jd.exe", "import-promo.exe"},
+		"京东自营": {"import-customer.exe"},
+		"拼多多":  {"import-pdd.exe"},
+		"唯品会":  {"import-vip.exe"},
+		"抖音":   {"import-douyin.exe"},
+		"抖音分销": {"import-douyin-dist.exe"},
+		"快手":   {"import-customer.exe"},
+		"小红书":  {"import-customer.exe"},
+		"飞瓜":   {"import-feigua.exe"},
+	}
+
+	tools := platformTools[req.Platform]
+	if len(tools) == 0 && req.Platform == "" {
+		// 不传平台则跑全部
+		tools = []string{
+			"import-tmall.exe", "import-pdd.exe", "import-jd.exe",
+			"import-douyin.exe", "import-douyin-dist.exe", "import-customer.exe",
+			"import-vip.exe", "import-tmallcs.exe", "import-promo.exe", "import-feigua.exe",
+		}
+	} else if len(tools) == 0 {
+		writeError(w, 400, "未知平台: "+req.Platform)
+		return
+	}
+
+	syncMu.Lock()
+	if syncRunning {
+		syncMu.Unlock()
+		writeError(w, 409, "有同步任务正在进行中，请稍后再试")
+		return
+	}
+	syncRunning = true
+	syncMu.Unlock()
+
+	// 初始化进度
+	progress := &importProgress{
+		Running:  true,
+		Date:     req.Date,
+		Platform: req.Platform,
+		Total:    len(tools),
+		Current:  0,
+		Results:  make([]importToolInfo, len(tools)),
+	}
+	for i, t := range tools {
+		progress.Results[i] = importToolInfo{Tool: t, Status: "pending"}
+	}
+	importProgressMu.Lock()
+	currentImportProgress = progress
+	importProgressMu.Unlock()
+
+	go func() {
+		defer func() {
+			syncMu.Lock()
+			syncRunning = false
+			syncMu.Unlock()
+			clearRPAScanCache()
+			importProgressMu.Lock()
+			progress.Running = false
+			progress.CurrTool = ""
+			importProgressMu.Unlock()
+		}()
+
+		exeDir := filepath.Dir(getExePath())
+		for i, tool := range tools {
+			importProgressMu.Lock()
+			progress.Current = i + 1
+			progress.CurrTool = tool
+			progress.Results[i].Status = "running"
+			importProgressMu.Unlock()
+
+			result := runSyncTool(exeDir, tool, req.Date)
+
+			importProgressMu.Lock()
+			progress.Results[i].Status = result.Status
+			progress.Results[i].Detail = result.OutputDigest
+			importProgressMu.Unlock()
+		}
+		displayDate := fmt.Sprintf("%s-%s-%s", req.Date[:4], req.Date[4:6], req.Date[6:8])
+		log.Printf("[manual-import] %s [%s] 导入完成", displayDate, req.Platform)
+	}()
+
+	writeJSON(w, map[string]interface{}{
+		"date":     req.Date,
+		"platform": req.Platform,
+		"total":    len(tools),
+		"message":  fmt.Sprintf("%s 正在导入，共%d个工具", req.Platform, len(tools)),
+	})
+}
+
+// ImportProgress GET /api/admin/rpa-scan/import-progress
+func (h *DashboardHandler) ImportProgress(w http.ResponseWriter, r *http.Request) {
+	importProgressMu.RLock()
+	defer importProgressMu.RUnlock()
+	if currentImportProgress == nil {
+		writeJSON(w, map[string]interface{}{"running": false})
+		return
+	}
+	writeJSON(w, currentImportProgress)
 }
 
 func getExePath() string {
