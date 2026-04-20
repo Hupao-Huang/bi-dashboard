@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -82,17 +83,26 @@ func (h *DashboardHandler) AdminChannels(w http.ResponseWriter, r *http.Request)
 
 	// 统计信息
 	var total, unmappedCount int
-	h.DB.QueryRow("SELECT COUNT(*) FROM sales_channel").Scan(&total)
-	h.DB.QueryRow("SELECT COUNT(*) FROM sales_channel WHERE department IS NULL OR department = ''").Scan(&unmappedCount)
+	if err := h.DB.QueryRow("SELECT COUNT(*) FROM sales_channel").Scan(&total); err != nil {
+		log.Printf("channel stats total 查询失败: %v", err)
+	}
+	if err := h.DB.QueryRow("SELECT COUNT(*) FROM sales_channel WHERE department IS NULL OR department = ''").Scan(&unmappedCount); err != nil {
+		log.Printf("channel stats unmapped 查询失败: %v", err)
+	}
 
 	// 平台列表（用于筛选下拉）
-	platRows, _ := h.DB.Query("SELECT DISTINCT online_plat_name FROM sales_channel WHERE online_plat_name IS NOT NULL AND online_plat_name != '' ORDER BY online_plat_name")
+	platRows, err := h.DB.Query("SELECT DISTINCT online_plat_name FROM sales_channel WHERE online_plat_name IS NOT NULL AND online_plat_name != '' ORDER BY online_plat_name")
 	var platforms []string
-	if platRows != nil {
+	if err != nil {
+		log.Printf("平台列表查询失败: %v", err)
+	} else if platRows != nil {
 		defer platRows.Close()
 		for platRows.Next() {
 			var p string
-			platRows.Scan(&p)
+			if err := platRows.Scan(&p); err != nil {
+				log.Printf("平台名扫描失败: %v", err)
+				continue
+			}
 			platforms = append(platforms, p)
 		}
 	}
@@ -157,9 +167,13 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 
 	// 同步更新 sales_goods_summary 中对应渠道的 department
 	var channelID string
-	h.DB.QueryRow("SELECT channel_id FROM sales_channel WHERE id = ?", id).Scan(&channelID)
+	if err := h.DB.QueryRow("SELECT channel_id FROM sales_channel WHERE id = ?", id).Scan(&channelID); err != nil {
+		log.Printf("查询channel_id失败 id=%d: %v", id, err)
+	}
 	if channelID != "" {
-		h.DB.Exec("UPDATE sales_goods_summary SET department = ? WHERE shop_id = ?", req.Department, channelID)
+		if _, err := h.DB.Exec("UPDATE sales_goods_summary SET department = ? WHERE shop_id = ?", req.Department, channelID); err != nil {
+			log.Printf("同步sales_goods_summary部门失败 channel_id=%s: %v", channelID, err)
+		}
 	}
 
 	writeJSON(w, map[string]interface{}{"message": "更新成功"})

@@ -308,7 +308,7 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
           </span>
         }
         placement="right"
-        width={720}
+        size={720}
         open={open}
         onClose={onClose}
         styles={{ body: { padding: '12px 20px' } }}

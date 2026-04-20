@@ -145,8 +145,9 @@ func importDistProduct(db *sql.DB, path, sqlDate, accountName string) int {
 		if productID == "" {
 			continue
 		}
-		// 跳过"全部"汇总行
-		if get("日期") == "全部" {
+		// 日期取 Excel "日期" 列(业务日)，文件名日期只是 RPA 采集日
+		rowDate := get("日期")
+		if rowDate == "" || rowDate == "全部" {
 			continue
 		}
 
@@ -157,7 +158,7 @@ func importDistProduct(db *sql.DB, path, sqlDate, accountName string) int {
 			user_pay_amount, subsidy_amount,
 			net_roi, net_amount, net_order_cost, net_settle_rate, refund_1h_rate
 		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			sqlDate, accountName, productID, get("商品名称"),
+			rowDate, accountName, productID, get("商品名称"),
 			getI("整体展示次数"), getI("整体点击次数"),
 			getF("整体点击率")/100, getF("整体转化率")/100,
 			getF("整体消耗"), getF("整体成交金额"), getF("整体支付ROI"), getF("整体成交订单成本"),
@@ -222,7 +223,9 @@ func importDistAccount(db *sql.DB, path, sqlDate, accountName string) int {
 		if douyinName == "" {
 			continue
 		}
-		if get("日期") == "全部" {
+		// 日期取 Excel "日期" 列(业务日)
+		rowDate := get("日期")
+		if rowDate == "" || rowDate == "全部" {
 			continue
 		}
 
@@ -232,7 +235,7 @@ func importDistAccount(db *sql.DB, path, sqlDate, accountName string) int {
 			user_pay_amount, subsidy_amount,
 			net_roi, net_amount, net_settle_rate, refund_1h_rate
 		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			sqlDate, accountName, douyinName, get("抖音号ID"),
+			rowDate, accountName, douyinName, get("抖音号ID"),
 			getF("整体消耗"), getI("整体成交订单数"), getF("整体成交金额"),
 			getF("整体支付ROI"), getF("整体成交订单成本"),
 			getF("用户实际支付金额"), getF("电商平台补贴金额"),
@@ -295,19 +298,23 @@ func importDistMaterial(db *sql.DB, path, sqlDate, accountName string) int {
 		}
 
 		materialID := get("素材ID")
-		if materialID == "" || materialID == "-" || get("日期") == "全部" {
+		if materialID == "" || materialID == "-" {
+			continue
+		}
+		// 日期取 Excel "日期" 列(业务日)
+		rowDate := get("日期")
+		if rowDate == "" || rowDate == "全部" {
 			continue
 		}
 
-		db.Exec(`INSERT INTO op_douyin_dist_material_daily (
+		db.Exec(`REPLACE INTO op_douyin_dist_material_daily (
 			stat_date, account_name, material_id, material_name,
 			impressions, clicks, click_rate, conv_rate,
 			cost, order_count, pay_amount, roi, order_cost,
 			user_pay_amount, cpm, cpc,
 			net_roi, net_amount, net_order_count, net_settle_rate, refund_1h_rate
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON DUPLICATE KEY UPDATE cost=VALUES(cost), pay_amount=VALUES(pay_amount)`,
-			sqlDate, accountName, materialID, get("素材视频名称"),
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			rowDate, accountName, materialID, get("素材视频名称"),
 			getI("整体展示次数"), getI("整体点击次数"), getF("整体点击率")/100, getF("整体转化率")/100,
 			getF("整体消耗"), getI("整体成交订单数"), getF("整体成交金额"), getF("整体支付ROI"), getF("整体成交订单成本"),
 			getF("用户实际支付金额"), getF("整体千次展现费用"), getF("整体点击单价"),
@@ -345,10 +352,14 @@ func importDistPromote(db *sql.DB, path, sqlDate, accountName string) int {
 
 	count := 0
 	for _, row := range raw.Data.StatsData.Rows {
+		// "2026-04-01 23:00" → date="2026-04-01" hour="23:00"
+		statDate := sqlDate
 		hour := ""
 		if dim, ok := row.Dimensions["stat_time_hour"]; ok {
-			// "2026-04-01 23:00" → "23:00"
 			parts := strings.Split(dim.ValueStr, " ")
+			if len(parts) >= 1 && parts[0] != "" {
+				statDate = parts[0]
+			}
 			if len(parts) >= 2 {
 				hour = parts[1]
 			}
@@ -362,7 +373,7 @@ func importDistPromote(db *sql.DB, path, sqlDate, accountName string) int {
 			stat_date, account_name, stat_hour,
 			cost, settle_amount, settle_count, roi, refund_rate
 		) VALUES (?,?,?,?,?,?,?,?)`,
-			sqlDate, accountName, hour,
+			statDate, accountName, hour,
 			m["stat_cost_for_roi2"].Value,
 			m["total_order_settle_amount_for_roi2_1h"].Value,
 			int(m["total_order_settle_count_for_roi2_1h"].Value),

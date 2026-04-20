@@ -242,8 +242,8 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport }) => 
         }
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={360}
-        destroyOnClose
+        size={360}
+        destroyOnHidden
       >
         {cellDetail && (
           <div>
@@ -402,22 +402,27 @@ const RPAMonitor: React.FC = () => {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importProg, setImportProg] = useState<any>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const importCtrlRef = useRef<AbortController | null>(null);
 
   const startImport = async (dateStr: string, platformName: string) => {
     const d = dateStr.replace(/-/g, '');
     setImportProg({ running: true, date: d, platform: platformName, total: 0, current: 0, results: [] });
     setImportModalOpen(true);
+    importCtrlRef.current?.abort();
+    importCtrlRef.current = new AbortController();
+    const signal = importCtrlRef.current.signal;
     try {
       const res = await fetch(`${API_BASE}/api/admin/rpa-scan/import`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: d, platform: platformName }),
+        signal,
       });
       const json = await res.json();
       if (json.error) { message.error(json.error); setImportModalOpen(false); return; }
       pollRef.current = setInterval(async () => {
         try {
-          const pr = await fetch(`${API_BASE}/api/admin/rpa-scan/import-progress`, { credentials: 'include' });
+          const pr = await fetch(`${API_BASE}/api/admin/rpa-scan/import-progress`, { credentials: 'include', signal });
           const prog = await pr.json();
           setImportProg(prog);
           if (!prog.running) {
@@ -426,15 +431,25 @@ const RPAMonitor: React.FC = () => {
             message.success('导入完成');
             fetchData();
           }
-        } catch { /* ignore */ }
+        } catch (err) {
+          if ((err as Error)?.name === 'AbortError' && pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+        }
       }, 1000);
-    } catch {
-      message.error('导入请求失败');
+    } catch (err) {
+      if ((err as Error)?.name !== 'AbortError') message.error('导入请求失败');
       setImportModalOpen(false);
     }
   };
 
-  useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      importCtrlRef.current?.abort();
+    };
+  }, []);
 
   // 问题汇总：把所有平台/日期/店铺/缺失文件展平
   const issueRows = useMemo(() => {
@@ -550,7 +565,7 @@ const RPAMonitor: React.FC = () => {
           <Table
             dataSource={filteredIssues}
             columns={issueCols}
-            rowKey={(r, i) => `${r.platform}-${r.date}-${r.store}-${i}`}
+            rowKey={(r: any) => `${r.platform}-${r.date}-${r.store}-${r.status}-${r.fileStatus}`}
             size="small"
             pagination={false}
             scroll={{ y: 500 }}
@@ -607,7 +622,7 @@ const RPAMonitor: React.FC = () => {
             刷新
           </Button>
         }
-        bodyStyle={{ paddingTop: 12 }}
+        styles={{ body: { paddingTop: 12 } }}
       >
         {/* Legend */}
         <div style={{ marginBottom: 16 }}>

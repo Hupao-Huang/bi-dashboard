@@ -119,7 +119,7 @@ const LoginPage: React.FC = () => {
     <div style={pageStyle}>
       <div style={wrapStyle}>
         <Card styles={{ body: { padding: 28 } }} style={cardStyle}>
-          <Space direction="vertical" size={18} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={18} style={{ width: '100%' }}>
             <Space size={14} align="start">
               <div style={brandStyle}>BI</div>
               <div>

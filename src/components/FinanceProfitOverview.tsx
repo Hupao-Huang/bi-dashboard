@@ -109,17 +109,22 @@ const FinanceProfitOverview: React.FC = () => {
   }));
   const pieOption = {
     tooltip: { trigger: 'item' as const, formatter: '{b}: ¥{c} ({d}%)' },
-    legend: { bottom: 0 },
+    legend: { bottom: 0, type: 'scroll' as const },
     series: [{
       type: 'pie',
-      radius: ['40%', '70%'],
+      radius: ['40%', '65%'],
+      center: ['50%', '45%'],
+      avoidLabelOverlap: true,
+      minShowLabelAngle: 8,
       label: {
         show: true,
         formatter: '{b}\n{d}%',
         fontSize: 12,
         lineHeight: 16,
+        overflow: 'truncate' as const,
+        width: 80,
       },
-      labelLine: { length: 20, length2: 15 },
+      labelLine: { length: 12, length2: 10 },
       data: pieData,
     }],
   };

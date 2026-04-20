@@ -39,7 +39,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ open, onClose }) => {
       });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
+        const body = await res.json().catch(err => { console.warn('FeedbackModal json:', err); return {}; });
         throw new Error(body.msg || '提交失败');
       }
 
@@ -78,7 +78,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ open, onClose }) => {
         okText="提交"
         cancelText="取消"
         confirmLoading={submitting}
-        destroyOnClose
+        destroyOnHidden
         width={520}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>

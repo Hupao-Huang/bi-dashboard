@@ -58,6 +58,7 @@ var dingtalkPendingUsers = sync.Map{}
 type captchaEntry struct {
 	targetX   int
 	expiresAt time.Time
+	verified  bool // preVerify 通过后置 true，阻止同一 captcha 被反复爆破
 }
 
 var (
@@ -281,6 +282,7 @@ func (h *DashboardHandler) GetCaptcha(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// verifyCaptcha login 消耗 captchaId：必须已经通过 preVerify 才放行
 func verifyCaptcha(id string, answerX int) bool {
 	captchaMu.Lock()
 	defer captchaMu.Unlock()
@@ -292,6 +294,9 @@ func verifyCaptcha(id string, answerX int) bool {
 	if time.Now().After(entry.expiresAt) {
 		return false
 	}
+	if !entry.verified {
+		return false
+	}
 	diff := entry.targetX - answerX
 	if diff < 0 {
 		diff = -diff
@@ -299,7 +304,8 @@ func verifyCaptcha(id string, answerX int) bool {
 	return diff <= tolerance
 }
 
-// preVerifyCaptcha 预验证验证码位置（不消耗captchaId）
+// preVerifyCaptcha 预验证：失败立即销毁 captchaId，成功则 mark verified（等 login 再消耗）
+// 这样同一 captchaId 无法被反复爆破：猜错一次就作废
 func preVerifyCaptcha(id string, answerX int) bool {
 	captchaMu.Lock()
 	defer captchaMu.Unlock()
@@ -308,13 +314,20 @@ func preVerifyCaptcha(id string, answerX int) bool {
 		return false
 	}
 	if time.Now().After(entry.expiresAt) {
+		delete(captchaStore, id)
 		return false
 	}
 	diff := entry.targetX - answerX
 	if diff < 0 {
 		diff = -diff
 	}
-	return diff <= tolerance
+	if diff > tolerance {
+		delete(captchaStore, id) // 防爆破：失败即销毁
+		return false
+	}
+	entry.verified = true
+	captchaStore[id] = entry
+	return true
 }
 
 // VerifyCaptchaOnly 前端滑块验证接口（不消耗captcha，仅检查位置）
@@ -470,7 +483,6 @@ var permissionSeeds = []permissionSeed{
 	{Code: "supply_chain:view", Name: "供应链管理", Type: "menu"},
 	{Code: "supply_chain.plan_dashboard:view", Name: "供应链-计划看板", Type: "page"},
 	{Code: "supply_chain.inventory_warning:view", Name: "供应链-库存预警", Type: "page"},
-	{Code: "supply_chain.purchase_plan:view", Name: "供应链-采购计划", Type: "page"},
 	{Code: "supply_chain.logistics_analysis:view", Name: "供应链-快递仓储分析", Type: "page"},
 	{Code: "supply_chain.daily_alerts:view", Name: "供应链-每日预警", Type: "page"},
 	{Code: "supply_chain.monthly_billing:view", Name: "供应链-月度账单分析", Type: "page"},
@@ -502,7 +514,7 @@ var roleDefaultPermissions = map[string][]string{
 		"offline:view", "offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view", "offline.high_value_customers:view", "offline.turnover_expiry:view", "offline.ka_monthly:view",
 		"distribution:view", "distribution.store_preview:view", "distribution.store_dashboard:view", "distribution.product_dashboard:view",
 		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view",		"customer:view", "customer.overview:view",
-		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.purchase_plan:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view",
+		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view",
 		"profit:view", "cost:view", "gross_margin:view",
 	},
 	"dept_manager": {
@@ -529,7 +541,7 @@ var roleDefaultPermissions = map[string][]string{
 	},
 	"supply_chain": {
 		"brand:view",
-		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.purchase_plan:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view",
+		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view",
 	},
 }
 

@@ -57,7 +57,7 @@ const RPAMapping: React.FC = () => {
         setPlatforms(platSet);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(err => { console.warn('RPAMapping fetch:', err); setLoading(false); });
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -145,7 +145,7 @@ const RPAMapping: React.FC = () => {
       <Table
         dataSource={filtered}
         columns={columns}
-        rowKey={(r, i) => r.id ?? i ?? Math.random()}
+        rowKey={(r: RPAMappingRow) => r.id ?? `${r.platform}-${r.table_name}-${r.rpa_file_keyword}`}
         loading={loading}
         size="small"
         pagination={false}

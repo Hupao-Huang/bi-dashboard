@@ -71,7 +71,7 @@ func (h *DashboardHandler) SyncOps(w http.ResponseWriter, r *http.Request) {
 
 	if h.WebhookSecret != "" {
 		token := r.Header.Get("X-Webhook-Secret")
-		if token != h.WebhookSecret {
+		if !hmac.Equal([]byte(token), []byte(h.WebhookSecret)) {
 			writeError(w, 403, "unauthorized")
 			return
 		}

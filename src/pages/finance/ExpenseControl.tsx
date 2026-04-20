@@ -434,7 +434,7 @@ const ExpenseControl: React.FC = () => {
         }}
         footer={null}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         {detailLoading ? <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div> : detailData && (
           <Tabs defaultActiveKey="basic" items={[
@@ -473,7 +473,7 @@ const ExpenseControl: React.FC = () => {
                 <Table
                   size="small"
                   dataSource={detailData.details || []}
-                  rowKey={(_, i) => String(i)}
+                  rowKey={(r: any) => r.detailId || `${r.detailNo}-${r.amount}-${r.feeDate}`}
                   pagination={false}
                   columns={[
                     { title: '序号', dataIndex: 'detailNo', width: 60 },
@@ -503,7 +503,7 @@ const ExpenseControl: React.FC = () => {
                 <Table
                   size="small"
                   dataSource={detailData.invoices || []}
-                  rowKey={(_, i) => String(i)}
+                  rowKey={(r: any) => r.invoiceId || r.invoiceNumber || `${r.invoiceCode}-${r.totalAmount}`}
                   pagination={false}
                   scroll={{ x: 1200 }}
                   columns={[
@@ -560,7 +560,7 @@ const ExpenseControl: React.FC = () => {
                     <Table
                       size="small"
                       dataSource={detailData.attachments || []}
-                      rowKey={(_, i) => String(i)}
+                      rowKey={(r: any) => r.fileId || `${r.attachmentType}-${r.fileName}`}
                       pagination={false}
                       columns={[
                         {

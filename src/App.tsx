@@ -8,6 +8,7 @@ import MainLayout from './layouts/MainLayout';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { PublicOnlyRoute, RequireAuth } from './auth/RouteGuards';
 import { getFirstAllowedRoute } from './navigation';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const OverviewPage = lazy(() => import('./pages/overview'));
 const EcommercePage = lazy(() => import('./pages/ecommerce'));
@@ -45,6 +46,7 @@ const DailyAlerts = lazy(() => import('./pages/supply-chain/DailyAlerts'));
 const MonthlyBilling = lazy(() => import('./pages/supply-chain/MonthlyBilling'));
 const LoginPage = lazy(() => import('./pages/Login'));
 const ForbiddenPage = lazy(() => import('./pages/Forbidden'));
+const NotFoundPage = lazy(() => import('./pages/NotFound'));
 const UserAccessPage = lazy(() => import('./pages/system/UserAccess'));
 const RoleAccessPage = lazy(() => import('./pages/system/RoleAccess'));
 const TaskMonitorPage = lazy(() => import('./pages/system/TaskMonitor'));
@@ -76,6 +78,7 @@ const guard = (permission: string, element: React.ReactNode) => (
 
 const App: React.FC = () => (
   <ConfigProvider locale={zhCN}>
+    <ErrorBoundary>
     <BrowserRouter>
       <AuthProvider>
         <Suspense fallback={routeFallback}>
@@ -137,11 +140,13 @@ const App: React.FC = () => (
               <Route path="/system/db-dict" element={guard('role.manage', <DBDictionaryPage />)} />
               <Route path="/system/rpa-monitor" element={guard('role.manage', <RPAMonitorPage />)} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
         </Suspense>
       </AuthProvider>
     </BrowserRouter>
+    </ErrorBoundary>
   </ConfigProvider>
 );
 

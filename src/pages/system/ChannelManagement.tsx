@@ -48,7 +48,7 @@ const ChannelManagement: React.FC = () => {
         setUnmappedCount(d.unmappedCount || 0);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(err => { console.warn('ChannelManagement fetch:', err); setLoading(false); });
   }, [keyword, filterDept, filterPlat]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -77,7 +77,7 @@ const ChannelManagement: React.FC = () => {
           message.error(res.error || '保存失败');
         }
       })
-      .catch(() => message.error('保存失败'))
+      .catch(err => { console.warn('ChannelManagement save:', err); message.error('保存失败'); })
       .finally(() => setSavingIds(prev => { const n = new Set(prev); n.delete(id); return n; }));
   };
 
@@ -98,7 +98,7 @@ const ChannelManagement: React.FC = () => {
               message.error(res.error || '同步失败');
             }
           })
-          .catch(() => { setSyncing(false); message.error('同步失败'); });
+          .catch(err => { console.warn('ChannelManagement sync:', err); setSyncing(false); message.error('同步失败'); });
       },
     });
   };

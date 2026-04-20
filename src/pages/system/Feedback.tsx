@@ -100,7 +100,7 @@ const Feedback: React.FC = () => {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json().catch(err => { console.warn('Feedback reply json:', err); return {}; });
         throw new Error(data.msg || `HTTP ${res.status}`);
       }
       message.success('更新成功');

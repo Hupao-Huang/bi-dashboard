@@ -31,19 +31,25 @@ const NoticeBell: React.FC = () => {
     } catch { return []; }
   });
 
-  const fetchNotices = useCallback(() => {
-    fetch(`${API_BASE}/api/notices`, { credentials: 'include' })
+  const fetchNotices = useCallback((signal?: AbortSignal) => {
+    fetch(`${API_BASE}/api/notices`, { credentials: 'include', signal })
       .then(res => res.json())
       .then(res => {
         if (res.data?.notices) setNotices(res.data.notices);
       })
-      .catch(() => {});
+      .catch(err => {
+        if (err?.name !== 'AbortError') console.warn('公告加载失败:', err);
+      });
   }, []);
 
   useEffect(() => {
-    fetchNotices();
-    const timer = setInterval(fetchNotices, 5 * 60 * 1000);
-    return () => clearInterval(timer);
+    const ctrl = new AbortController();
+    fetchNotices(ctrl.signal);
+    const timer = setInterval(() => fetchNotices(ctrl.signal), 5 * 60 * 1000);
+    return () => {
+      clearInterval(timer);
+      ctrl.abort();
+    };
   }, [fetchNotices]);
 
   // 首次登录弹窗：显示最新一条未读公告
@@ -95,7 +101,7 @@ const NoticeBell: React.FC = () => {
         </div>}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={400}
+        size={400}
       >
         {notices.length === 0 ? (
           <Empty description="暂无公告" />

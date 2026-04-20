@@ -24,7 +24,7 @@ const Profile: React.FC = () => {
         });
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(err => { console.warn('Profile fetch:', err); setLoading(false); });
   }, [form]);
 
   useEffect(() => { fetchProfile(); }, [fetchProfile]);

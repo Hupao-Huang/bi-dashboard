@@ -52,7 +52,7 @@ const DBDictionary: React.FC = () => {
         }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(err => { console.warn('DBDictionary fetch:', err); setLoading(false); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchData(); }, [fetchData]);

@@ -134,7 +134,7 @@ const PermissionMatrix: React.FC<{
   const selected = useMemo(() => new Set(value), [value]);
 
   return (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <Space orientation="vertical" size={12} style={{ width: '100%' }}>
       {groups.map(group => (
         <Card key={group.key} size="small" title={group.label} styles={{ body: { padding: '12px 16px' } }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
@@ -265,7 +265,7 @@ const RoleAccessPage: React.FC = () => {
         body: JSON.stringify(values),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
+        const body = await res.json().catch(err => { console.warn('RoleAccess json:', err); return {}; });
         throw new Error(body.msg || `HTTP ${res.status}`);
       }
       messageApi.success('角色创建成功');
@@ -293,7 +293,7 @@ const RoleAccessPage: React.FC = () => {
         credentials: 'include',
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
+        const body = await res.json().catch(err => { console.warn('RoleAccess json:', err); return {}; });
         throw new Error(body.msg || `HTTP ${res.status}`);
       }
       messageApi.success('角色已删除');
@@ -568,7 +568,7 @@ const RoleAccessPage: React.FC = () => {
         confirmLoading={creating}
         okText="创建"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={createForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="角色名称" rules={[{ required: true, message: '请输入角色名称' }]}>

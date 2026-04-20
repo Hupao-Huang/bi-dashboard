@@ -124,12 +124,68 @@
   - BI-SyncHesi（每天 10:30，合思费控）
   - BI-APIServer（开机自启）
 
-## v0.16.0 — 数据口径修正与补全（当前版本）
+## v0.16.0 — 数据口径修正与补全
 - 销售额口径统一为 `goods_amt`（销售额），不再使用 `sell_total`（货款金额）
 - 综合看板总销售额包含所有渠道（未映射部门归入"其他"）
 - 销售单数据补拉（4/8~4/10 API 异常恢复后补全）
 - 汇总帐 4/1~4/10 全量重新同步
 - CPS 口径修正：成交额用 settle_amount，佣金用 settle_total_cost
+
+> v0.17 ~ v0.23 的变更直接以 git commit 记录，未展开到本文档；简述：
+> - v0.17 渠道管理、平台分布、水印、数据修正
+> - v0.18 钉钉扫码登录/绑定、用户自动注册审批、批量导入
+> - v0.19 产品定位平台分布图、全接口缓存、钉钉注册优化
+> - v0.20 安全加固与代码质量优化（合思密钥外移、webhook 认证、请求体限制、内存泄漏清理等）
+> - v0.21 剩余安全与质量修复
+> - v0.22 采购需求、RPA文件映射、数据库字典、RPA数据监控
+> - v0.23 RPA监控优化、归档数据支持（isTableSwitch=2）、渠道管理改进
+
+## v0.24 — 安全修复、前端容错与 RPA 数据对齐
+
+### 安全与稳定性
+- **滑块验证码防爆破**：preVerify 失败即销毁 captchaId，成功标记 `verified` 后由 login 消耗（阻止同一 captcha 反复试错）
+- webhook 鉴权改 `hmac.Equal` 常量时间比较（避免计时侧信道）
+- 合思 API 密钥、MySQL 备份脚本中的硬编码密码移出 git 追踪（通过 gitignore 排除）
+
+### 前端容错
+- 新增全局 `ErrorBoundary`，任何渲染异常都兜住不白屏
+- 新增 `NotFoundPage` 和 `path="*"` 兜底路由（未匹配 URL 不再渲染空白布局）
+- 17 处 `.catch(() => {})` 改为 `catch(err => console.warn(...))`（错误不再静默吞掉）
+- 15 个组件加 `AbortController`（RPAMonitor/TaskMonitor/Noticebell 等，卸载后不再 setState）
+- antd v6 废弃 API 批量迁移：`destroyOnClose→destroyOnHidden`、`maskClosable→mask.closable`、`Space.direction`、`Drawer.width`、`Card.bodyStyle`（共 10 处）
+- 财务总览饼图 label 溢出修复（`avoidLabelOverlap`、`minShowLabelAngle`、legend 滚动）
+- `SliderCaptcha` 用 ref 解决 `useEffect` 依赖闭包问题
+- 5 处 Table `rowKey` 删除 `index` 参数（避免 React key 抖动）
+- 清除孤儿权限 `supply_chain.purchase_plan`
+
+### RPA 数据对齐（大工程）
+- **抖音分销** 4 个导入函数 `stat_date` 改用 Excel 日期列（原先用文件名日期，对不上业务日），并重导 2026-02-19~04-18
+- **京东联盟双导入冲突修复**：`import-jd.importAffiliate` 删除，统一由 `import-promo.importJDAffiliate` 处理（遍历 Excel 日期列，支持多天）
+- 飞鸽客服 170 天补齐（`import-customer` 全量重跑）
+- 4 个导入工具全量重跑（jd/douyin/pdd/vip）补齐历史漏跑
+- 运营表补 `UNIQUE KEY`（material/industry_keyword/promo_sku），修复 UPSERT 失效
+- 新增 RPA 探针工具：`probe-rpa-integrity`、`probe-rpa-deepcheck`、`probe-rpa-vs-db`、`probe-excel-dates`
+
+### 数据库优化
+- 45 张月份表注释修正（`trade_*` / `trade_goods_*` / `trade_package_*`）
+- 删除 38 个冗余索引（`sales_goods_summary` + `trade_goods_*` + `op_*` 等）
+- 15 张 `trade_*` 删除 `idx_trade_status`（cardinality=1 无区分度）
+- `hesi_flow.title` 缩到 VARCHAR(1024)，`notices.id` 升到 BIGINT
+- `stock_quantity` 删除冗余 `idx_goods_id`
+- DROP 12 张 `_unused_*` 备份表（释放约 200MB）
+- 新增 SQL 脚本留档：`fix-table-comments.sql`、`fix-redundant-idx.sql`、`fix-drop-useless-idx.sql`
+
+### 运维加固
+- 新增定时任务 `BI-BackupMySQL`（每天 02:00，`mysqldump + gzip` 到 `Z:\信息部\bi-backup\`，保留 30 天）
+- 新增定时任务 `BI-RotateLogs`（周日 03:00，>10MB 活跃日志轮转，30 天前 `manual-*` 归档，90 天前清理）
+- 新增定时任务 `BI-SyncOpsFallback`（每天 13:00 兜底跑 10 个 import 工具，RPA webhook 优先）
+- `sync-ops-daily.bat` 扩充到 10 个平台（补 douyin/douyin-dist 等）
+- `channel.go` 所有 silent error 加日志
+- 归档 29 个旧 server 日志 + 103 个桌面截图/临时 JSON
+
+### 已知待修（吉客云 API）
+以下日期 API 返回异常，等吉客云修复后用 `TRADE_ARCHIVE=1 sync-trades-v2.exe` 重跑：
+2025-01-18、2026-01-05、02-07、03-03、03-11、03-13
 
 ---
 
