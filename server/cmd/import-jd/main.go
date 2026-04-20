@@ -88,9 +88,8 @@ func main() {
 					case strings.Contains(name, "销售数据") && !strings.HasSuffix(name, ".xls"):
 						cnt, err = importShopDaily(db, fpath, sqlDate, shopName)
 						total["shop_daily"] += cnt
-					case strings.Contains(name, "京东联盟"):
-						cnt, err = importAffiliate(db, fpath, sqlDate, shopName)
-						total["affiliate"] += cnt
+					// 京东联盟由 import-promo/importJDAffiliate 处理（遍历 Excel 日期列，支持多天数据）
+					// 这里移除 importAffiliate 调用，避免双工具冲突写入 op_jd_affiliate_daily
 					case strings.Contains(name, "洞察"):
 						cnt, err = importCustomerDaily(db, fpath, sqlDate, shopName)
 						total["customer_daily"] += cnt
@@ -195,35 +194,6 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		toFloat2(d, 29),           // 退款金额
 		toInt2(d, 10),             // 加购客户数
 		0)                         // collect_customers(无对应列)
-	if err != nil {
-		return 0, err
-	}
-	return 1, nil
-}
-
-func importAffiliate(db *sql.DB, fpath, date, shop string) (int, error) {
-	f, err := excelize.OpenFile(fpath)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-	sheet := f.GetSheetName(0)
-	rows, _ := f.GetRows(sheet)
-	if len(rows) < 2 {
-		return 0, nil
-	}
-	d := rows[1] // 第一行数据（跳过表头）
-	if len(d) < 15 {
-		return 0, fmt.Errorf("列数不足: %d", len(d))
-	}
-
-	_, err = db.Exec(`INSERT INTO op_jd_affiliate_daily
-		(stat_date, shop_name, referral_count, order_buyers, order_amount,
-		 est_commission, complete_buyers, complete_amount, actual_commission)
-		VALUES (?,?,?,?,?,?,?,?,?)
-		ON DUPLICATE KEY UPDATE referral_count=VALUES(referral_count), order_amount=VALUES(order_amount)`,
-		date, shop, toInt(d[1]), toInt(d[3]), toFloat(d[5]),
-		toFloat(d[7]), toInt(d[9]), toFloat(d[11]), toFloat(d[13]))
 	if err != nil {
 		return 0, err
 	}

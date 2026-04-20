@@ -64,7 +64,7 @@ const MainLayout: React.FC = () => {
           const data = res.data || res;
           if (data.hasPassword === false) setNoPassword(true);
         })
-        .catch(() => {});
+        .catch(err => console.warn('MainLayout profile:', err));
     }
   }, [session]);
 
@@ -83,7 +83,7 @@ const MainLayout: React.FC = () => {
         body: JSON.stringify({ oldPassword: values.oldPassword, newPassword: values.newPassword }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
+        const body = await res.json().catch(err => { console.warn('MainLayout change-password json:', err); return {}; });
         throw new Error(body.msg || '修改失败');
       }
       if (needSetPassword) {
@@ -323,12 +323,12 @@ const MainLayout: React.FC = () => {
         okText={noPassword ? '设置密码' : '确认修改'}
         cancelText={needSetPassword ? undefined : '取消'}
         closable={!needSetPassword}
-        maskClosable={!needSetPassword}
+        mask={{ closable: !needSetPassword }}
         keyboard={!needSetPassword}
         footer={needSetPassword ? [
           <Button key="ok" type="primary" loading={passwordLoading} onClick={handleChangePassword}>{noPassword ? '设置密码' : '确认修改'}</Button>,
         ] : undefined}
-        destroyOnClose
+        destroyOnHidden
       >
         {noPassword && (
           <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>

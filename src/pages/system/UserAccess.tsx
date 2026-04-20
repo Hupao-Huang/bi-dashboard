@@ -535,7 +535,7 @@ const UserAccessPage: React.FC = () => {
         onCancel={() => setCreateOpen(false)}
         onOk={() => createForm.submit()}
         okText="创建"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={createForm}
@@ -574,7 +574,7 @@ const UserAccessPage: React.FC = () => {
         onCancel={handleBatchClose}
         footer={null}
         width={800}
-        destroyOnClose
+        destroyOnHidden
       >
         <Steps current={batchStep} size="small" style={{ marginBottom: 24 }} items={[
           { title: '上传配置' },

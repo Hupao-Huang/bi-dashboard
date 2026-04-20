@@ -28,7 +28,7 @@ const MarketingDashboard: React.FC = () => {
     fetch(`${API_BASE}/api/douyin-dist/ops?start=${s}&end=${e}${acctParam}`, { credentials: 'include' })
       .then(r => r.json())
       .then(res => setDistData(res.data || res))
-      .catch(() => {});
+      .catch(err => console.warn('MarketingDashboard fetchDist:', err));
   }, []);
 
   useEffect(() => {
@@ -40,7 +40,7 @@ const MarketingDashboard: React.FC = () => {
       setDouyinData(dy.data || dy);
       setDistData(dist.data || dist);
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch(err => { console.warn('MarketingDashboard fetch:', err); setLoading(false); });
   }, [startDate, endDate]);
 
   useEffect(() => {

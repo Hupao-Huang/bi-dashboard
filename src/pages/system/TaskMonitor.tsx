@@ -122,15 +122,17 @@ const TaskMonitor: React.FC = () => {
   // 日志自动滚到底部的 ref map
   const logRefs = useRef<Record<string, HTMLPreElement | null>>({});
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch(`${API_BASE}/api/admin/tasks`, {
         credentials: 'include',
+        signal,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setTasks(json.data || []);
     } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError') return;
       const msg = err instanceof Error ? err.message : String(err);
       message.error(`获取任务数据失败: ${msg}`);
     } finally {
@@ -138,10 +140,11 @@ const TaskMonitor: React.FC = () => {
     }
   }, []);
 
-  const fetchRunning = useCallback(async () => {
+  const fetchRunning = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch(`${API_BASE}/api/admin/tasks/running`, {
         credentials: 'include',
+        signal,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
@@ -149,19 +152,24 @@ const TaskMonitor: React.FC = () => {
       setManualConfigs(d.configs || []);
       setRunningTasks(d.running || {});
     } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError') return;
       const msg = err instanceof Error ? err.message : String(err);
       message.error(`获取手动任务数据失败: ${msg}`);
     }
   }, []);
 
-  const fetchAll = useCallback(async () => {
-    await Promise.all([fetchTasks(), fetchRunning()]);
+  const fetchAll = useCallback(async (signal?: AbortSignal) => {
+    await Promise.all([fetchTasks(signal), fetchRunning(signal)]);
   }, [fetchTasks, fetchRunning]);
 
   useEffect(() => {
-    fetchAll();
-    const timer = setInterval(fetchAll, REFRESH_INTERVAL);
-    return () => clearInterval(timer);
+    const ctrl = new AbortController();
+    fetchAll(ctrl.signal);
+    const timer = setInterval(() => fetchAll(ctrl.signal), REFRESH_INTERVAL);
+    return () => {
+      clearInterval(timer);
+      ctrl.abort();
+    };
   }, [fetchAll]);
 
   // 初始化手动任务参数默认值

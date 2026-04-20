@@ -25,10 +25,19 @@ yarn-error.log*
 
 # server binaries
 server/*.exe
+server/*.exe~
 server/*.log
+server/*.log.old
+server/archive/
 
 # server config (contains passwords)
 server/config.json
+
+# backup scripts (hardcoded DB password)
+server/backup-mysql.bat
+server/backup-mysql.ps1
+server/test_backup.bat
+server/test_backup.*
 
 # go cache
 server/.gocache/

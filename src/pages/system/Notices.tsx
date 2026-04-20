@@ -35,7 +35,7 @@ const NoticesPage: React.FC = () => {
     fetch(`${API_BASE}/api/admin/notices`, { credentials: 'include' })
       .then(res => res.json())
       .then(res => { setNotices(res.data?.notices || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(err => { console.warn('Notices fetch:', err); setLoading(false); });
   };
 
   useEffect(() => { fetchNotices(); }, []);

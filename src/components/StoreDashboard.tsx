@@ -204,7 +204,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
     fetch(`${API_BASE}/api/s-products?dept=${dept}&start=${s}&end=${e}${platParam}${shopParam}`)
       .then(res => res.json())
       .then(res => setSProducts(res.data))
-      .catch(() => setSProducts(null));
+      .catch(err => { console.warn('StoreDashboard s-products:', err); setSProducts(null); });
   }, [dept]);
 
   // 加载天猫超市运营数据

@@ -45,7 +45,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const parseResponse = async (response: Response) => {
-  const body = await response.json().catch(() => ({}));
+  const body = await response.json().catch(err => { console.warn('parseResponse json:', err); return {}; });
   if (!response.ok) {
     throw new Error(body.msg || '请求失败');
   }

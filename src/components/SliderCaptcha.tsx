@@ -23,6 +23,12 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
   const [status, setStatus] = useState<'' | 'success' | 'fail'>('');
   const trackRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
+  const sliderXRef = useRef(0);
+  const captchaIdRef = useRef('');
+  const onSuccessRef = useRef(onSuccess);
+  useEffect(() => { sliderXRef.current = sliderX; }, [sliderX]);
+  useEffect(() => { captchaIdRef.current = captchaId; }, [captchaId]);
+  useEffect(() => { onSuccessRef.current = onSuccess; }, [onSuccess]);
 
   const loadCaptcha = useCallback(async () => {
     setLoading(true);
@@ -51,13 +57,13 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
     if (status) return;
     e.preventDefault();
     setDragging(true);
-    startXRef.current = e.clientX - sliderX;
+    startXRef.current = e.clientX - sliderXRef.current;
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (status) return;
     setDragging(true);
-    startXRef.current = e.touches[0].clientX - sliderX;
+    startXRef.current = e.touches[0].clientX - sliderXRef.current;
   };
 
   useEffect(() => {
@@ -76,17 +82,19 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
 
     const handleEnd = async () => {
       setDragging(false);
-      if (sliderX <= 10) return;
+      const finalX = sliderXRef.current;
+      const cid = captchaIdRef.current;
+      if (finalX <= 10) return;
       try {
         const res = await fetch(`${API_BASE}/api/auth/captcha/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ captchaId, captchaAnswer: Math.round(sliderX) }),
+          body: JSON.stringify({ captchaId: cid, captchaAnswer: Math.round(finalX) }),
         });
         const body = await res.json();
         if (body.code === 200) {
           setStatus('success');
-          setTimeout(() => onSuccess(captchaId, Math.round(sliderX)), 400);
+          setTimeout(() => onSuccessRef.current(cid, Math.round(finalX)), 400);
         } else {
           setStatus('fail');
           setTimeout(() => { loadCaptcha(); }, 800);
@@ -108,7 +116,7 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleEnd);
     };
-  }, [dragging, sliderX, captchaId, onSuccess]);
+  }, [dragging, loadCaptcha]);
 
   const trackBg = status === 'success'
     ? 'linear-gradient(90deg, #52c41a33, #52c41a22)'
@@ -125,7 +133,7 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
       footer={null}
       width={380}
       centered
-      destroyOnClose
+      destroyOnHidden
       title="安全验证"
     >
       {loading ? (
