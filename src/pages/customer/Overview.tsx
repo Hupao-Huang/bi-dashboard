@@ -9,6 +9,7 @@ interface ShopStat {
   platform: string;
   shopName: string;
   consultUsers: number;
+  inquiryUsers: number;
   salesAmount: number;
   avgFirstRespSeconds: number;
   avgResponseSeconds: number;
@@ -45,6 +46,7 @@ const CustomerOverview: React.FC = () => {
   const isPDD = activePlatform === '拼多多';
   const isXHS = activePlatform === '小红书';
   const isKS = activePlatform === '快手';
+  const isTmall = activePlatform === '天猫';
   const responseLabel = isJD ? '平响(秒)' : '新平响(秒)';
   const satisfactionLabel = isJD ? '客服满意率' : '满意率';
   const consultLabel = isJD ? '售前接待人数' : '询单人数';
@@ -117,6 +119,18 @@ const CustomerOverview: React.FC = () => {
         { title: '询单转化率', dataIndex: 'avgConvRate', key: 'avgConvRate', render: (v: number) => fmtRate(v || 0) },
       ];
     }
+    if (isTmall) {
+      return [
+        { title: '店铺', dataIndex: 'shopName', key: 'shopName', width: 260, ellipsis: true },
+        { title: '首响(秒)', dataIndex: 'avgFirstRespSeconds', key: 'avgFirstRespSeconds', render: (v: number) => fmtSeconds(v || 0) },
+        { title: responseLabel, dataIndex: 'avgResponseSeconds', key: 'avgResponseSeconds', render: (v: number) => fmtSeconds(v || 0) },
+        { title: satisfactionLabel, dataIndex: 'avgSatisfactionRate', key: 'avgSatisfactionRate', render: (v: number) => fmtRate(v || 0) },
+        { title: '客服销售额', dataIndex: 'salesAmount', key: 'salesAmount', render: (v: number) => fmtCurrency(v || 0) },
+        { title: '咨询人数', dataIndex: 'consultUsers', key: 'consultUsers', render: (v: number) => fmtNum(v || 0) },
+        { title: '询单人数', dataIndex: 'inquiryUsers', key: 'inquiryUsers', render: (v: number) => fmtNum(v || 0) },
+        { title: convLabel, dataIndex: 'avgConvRate', key: 'avgConvRate', render: (v: number) => fmtRate(v || 0) },
+      ];
+    }
     return [
       { title: '店铺', dataIndex: 'shopName', key: 'shopName', width: 280, ellipsis: true },
       { title: '首响(秒)', dataIndex: 'avgFirstRespSeconds', key: 'avgFirstRespSeconds', render: (v: number) => fmtSeconds(v || 0) },
@@ -126,7 +140,7 @@ const CustomerOverview: React.FC = () => {
       { title: consultLabel, dataIndex: 'consultUsers', key: 'consultUsers', render: (v: number) => fmtNum(v || 0) },
       { title: convLabel, dataIndex: 'avgConvRate', key: 'avgConvRate', render: (v: number) => fmtRate(v || 0) },
     ];
-  }, [consultLabel, convLabel, isKS, isPDD, isXHS, responseLabel, satisfactionLabel]);
+  }, [consultLabel, convLabel, isKS, isPDD, isTmall, isXHS, responseLabel, satisfactionLabel]);
 
   if (loading && !data) return <PageLoading />;
 

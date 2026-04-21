@@ -189,6 +189,49 @@
 
 ---
 
+## v0.26 — RPA stat_date 来源修正 + 客服总览咨询/询单拆列
+
+### 核心问题
+RPA 文件名日期 ≠ 文件内部业务日期。部分 RPA 产出的文件**滞后 T-N 天**（如天猫生意参谋业绩询单 T-3、抖音推广直播间 T≥4），代码里将文件名日期作为 `stat_date` 入库导致数据错位；多天滚动 Excel（如抖音推广直播间 30 天滚动）如果只取第一行 + 文件名日期，还会覆盖丢失其他 29 天的数据。
+
+### 审计工具
+- 新增 `server/cmd/probe-rpa-date-lag/`：遍历所有 RPA Excel，对比"文件名日期 vs 文件内第一个业务日期"的 delta，按文件类型分组统计 delta 分布，一眼看出哪些类型有滞后、哪些是多天滚动。
+- 新增 `server/cmd/check-sku-diff/` / `server/cmd/check-api-fields/`：吉客云接口字段对比调研工具。
+
+### 真 bug 修复（probe 证实有滞后）
+- **import-tmall.importServiceInquiry** — 天猫业绩询单 T-3 滞后（193/220 样本），`stat_date` 改用 Excel 第 0 列"日期"，新增 `parseExcelDate` helper 兼容 YYYY-MM-DD / YYYY/M/D / 20260417 等格式
+- **import-tmall.importServiceConsult / importServiceAvgPrice / importServiceEvaluation** — 天猫其他 3 个客服文件，同模式修复（实测都是 T-0，但按统一规则预防性修复）
+- **import-douyin.importAdLiveDaily** — 抖音推广直播间画面（多天滚动 Excel），`stat_date` 改用 `get("日期")` 行级业务日，**16 条→69 条**（还原 30 天滚动数据）
+- **import-jd.importShopDaily** — 京东店铺销售 T-1 零星滞后（4/222），读 Excel 第 0 列"时间"
+- **import-vip.importShopDaily** — 唯品会店铺销售 T-1 零星滞后（10/183），读 Excel 第 0 列
+
+### 历史数据清洗
+- TRUNCATE 4 张天猫客服表（`op_tmall_service_*`）+ DELETE 4 月 `op_jd_shop_daily` / `op_vip_shop_daily` / `op_douyin_ad_live_daily`
+- 用新 exe 重跑 2026-04 全月，`stat_date` 全部按业务日对齐
+
+### 客服总览「咨询 / 询单」拆列
+- 暴露真相后发现前端"询单人数"字段其实拉的是 `op_tmall_service_consult.consult_users`（咨询人数），跟"询单转化率"（`op_tmall_service_inquiry.daily_conv_rate`）数据源错位，字段名误导
+- 后端 `dashboard.go` 新增 `inquiry_users` 字段（天猫=`ti.inquiry_users`，其他平台兼容为同 `consult_users`），贯穿 `customerMetricRecord` / `customerMetricAgg` / `customerPlatformStat` / `customerTrendPoint` / `customerShopStat` 5 个结构体
+- 前端 `Overview.tsx` 天猫 tab 拆成 **咨询人数**（consultUsers）+ **询单人数**（inquiryUsers）两列，其他平台（抖音/京东/拼多多/快手/小红书）保持单列"询单人数"向后兼容
+- 实测效果：松鲜鲜调味品旗舰店 4-01~4-20 咨询 5,833 → 询单 1,298（~22% 漏斗转化）→ 41.71% 付款转化率
+
+### probe 排除的假警报
+以下 probe 曾报"d>0 滞后"但实为多天滚动 Excel + import 已正确遍历处理，**代码无需改动**：
+- 天猫超市_销售数据_经营概况 / 淘客诊断 / 销售数据_商品（`importBusinessOverview` / `importTaoke` / `importGoods` 已用 `d[0]` / `get("日期")` / `get("统计日期")`）
+- 抖音分销投放推商品 / 推抖音号 / 推素材（v0.24 已修为遍历 rows 用 `get("日期")`）
+
+### 严重 RPA 异常（待联系 RPA 同事）
+- 京东推广京东联盟：样本中发现 `20260110` 文件内含 `2026-03-14` 数据（delta=-63 天），文件名与内容完全不符，疑 RPA 抓错文件
+
+### 剩余待改（保留 v0.27 处理）
+Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 日期列"要求还需批量改：
+- import-customer 5 个函数（JDWorkload / JDSalesPerf / DouyinFeige / KuaishouAssessment / XHSAnalysis）
+- import-douyin 另外 6 个函数（live/goods/channel/funnel/anchor/admaterial）— 多数 Excel 无日期列，实际可能不适用
+- import-feigua 2 个函数（CreatorDaily / CreatorRoster）
+- import-pdd 3 个函数（ShopDaily / GoodsDaily / ServiceOverview，Excel 第 0 列"统计时间"）
+
+---
+
 ## v0.25 — 天猫超市推广重做、视觉主题重置与凌晨误报消除
 
 ### 天猫超市推广模块彻底重做（双店支持）

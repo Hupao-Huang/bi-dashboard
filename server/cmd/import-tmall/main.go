@@ -238,6 +238,38 @@ func formatDate(dateStr string) string {
 	return dateStr
 }
 
+// parseExcelDate 兼容 Excel 日期列各种格式：2026-04-17 / 2026/4/17 / 2026年4月17日 / 20260417
+// 为空返回空串（调用方自行 fallback）
+func parseExcelDate(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, "年", "-")
+	s = strings.ReplaceAll(s, "月", "-")
+	s = strings.ReplaceAll(s, "日", "")
+	// YYYYMMDD（无分隔符）
+	if len(s) == 8 && !strings.Contains(s, "-") {
+		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
+	}
+	// YYYY-M-D / YYYY-MM-DD 补 0
+	parts := strings.Split(s, "-")
+	if len(parts) == 3 {
+		y, m, d := parts[0], parts[1], parts[2]
+		if len(m) == 1 {
+			m = "0" + m
+		}
+		if len(d) == 1 {
+			d = "0" + d
+		}
+		if len(y) == 4 {
+			return y + "-" + m + "-" + d
+		}
+	}
+	return s
+}
+
 // ==================== 生意参谋-店铺销售 ====================
 
 func importShopDaily(path, dateStr, shopName string) error {
@@ -1013,7 +1045,7 @@ func importIndustryMonthly(path, shopName string) error {
 // ==================== 客服-业绩询单 ====================
 
 // 客服4个文件结构相同：行0表头，行1当日店铺数据，后面是汇总/全店/同行
-// 我们只取行1（当日数据），日期列就是 dateStr
+// stat_date 取 Excel 第 0 列"日期"（业务日），文件名日期只是 RPA 采集日
 func importServiceInquiry(path, dateStr, shopName string) error {
 	f, err := excelize.OpenFile(path)
 	if err != nil {
@@ -1025,12 +1057,16 @@ func importServiceInquiry(path, dateStr, shopName string) error {
 		return nil
 	}
 	d := rows[1]
+	statDate := parseExcelDate(cellStr(d, 0))
+	if statDate == "" {
+		statDate = formatDate(dateStr)
+	}
 	// 行1: [日期 询单人数 当日询单人数 当日付款人数 当日付款金额 最终付款人数 最终付款金额 询单当日付款转化率 询单最终付款转化率]
 	_, err = db.Exec(`REPLACE INTO op_tmall_service_inquiry
 		(stat_date, shop_name, inquiry_users, daily_inquiry_users, daily_pay_users, daily_pay_amount,
 		 final_pay_users, final_pay_amount, daily_conv_rate, final_conv_rate)
 		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		formatDate(dateStr), shopName,
+		statDate, shopName,
 		parseInt(cellStr(d, 1)), parseInt(cellStr(d, 2)), parseInt(cellStr(d, 3)), parseFloat(cellStr(d, 4)),
 		parseInt(cellStr(d, 5)), parseFloat(cellStr(d, 6)), parseFloat(cellStr(d, 7)), parseFloat(cellStr(d, 8)),
 	)
@@ -1038,6 +1074,7 @@ func importServiceInquiry(path, dateStr, shopName string) error {
 }
 
 // ==================== 客服-咨询接待 ====================
+// stat_date 取 Excel 第 0 列"日期"（业务日），文件名日期只是 RPA 采集日
 func importServiceConsult(path, dateStr, shopName string) error {
 	f, err := excelize.OpenFile(path)
 	if err != nil {
@@ -1049,6 +1086,10 @@ func importServiceConsult(path, dateStr, shopName string) error {
 		return nil
 	}
 	d := rows[1]
+	statDate := parseExcelDate(cellStr(d, 0))
+	if statDate == "" {
+		statDate = formatDate(dateStr)
+	}
 	// 行1: [日期 咨询人数 接待人数 未回复人数 有效接待人数 平均响应时长 3分钟人工响应率 咨询客服人次 客服回复人次 客服未回复人次 旺旺回复率 首次响应时长 慢响应人数 长接待人数 买家发起人数 客服主动跟进人数 总消息数 买家消息条数 客服消息条数 答问比 客服字数 平均接待时长]
 	_, err = db.Exec(`REPLACE INTO op_tmall_service_consult
 		(stat_date, shop_name, consult_users, receive_users, no_reply_users, effective_users,
@@ -1056,7 +1097,7 @@ func importServiceConsult(path, dateStr, shopName string) error {
 		 first_resp_sec, slow_resp_users, long_receive_users, buyer_initiated, cs_followed,
 		 total_msgs, buyer_msgs, cs_msgs, qa_ratio, cs_words, avg_receive_time)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		formatDate(dateStr), shopName,
+		statDate, shopName,
 		parseInt(cellStr(d, 1)), parseInt(cellStr(d, 2)), parseInt(cellStr(d, 3)), parseInt(cellStr(d, 4)),
 		parseFloat(cellStr(d, 5)), parseFloat(cellStr(d, 6)), parseInt(cellStr(d, 7)), parseInt(cellStr(d, 8)),
 		parseInt(cellStr(d, 9)), parseFloat(cellStr(d, 10)), parseFloat(cellStr(d, 11)),
@@ -1068,6 +1109,7 @@ func importServiceConsult(path, dateStr, shopName string) error {
 }
 
 // ==================== 客服-客单价 ====================
+// stat_date 取 Excel 第 0 列"日期"（业务日），文件名日期只是 RPA 采集日
 func importServiceAvgPrice(path, dateStr, shopName string) error {
 	f, err := excelize.OpenFile(path)
 	if err != nil {
@@ -1079,11 +1121,15 @@ func importServiceAvgPrice(path, dateStr, shopName string) error {
 		return nil
 	}
 	d := rows[1]
+	statDate := parseExcelDate(cellStr(d, 0))
+	if statDate == "" {
+		statDate = formatDate(dateStr)
+	}
 	// 行1: [日期 销售额 销售量 销售人数 客单价 客件数 件均价]
 	_, err = db.Exec(`REPLACE INTO op_tmall_service_avgprice
 		(stat_date, shop_name, sales_amount, sales_qty, sales_users, avg_price, avg_qty, unit_price)
 		VALUES (?,?,?,?,?,?,?,?)`,
-		formatDate(dateStr), shopName,
+		statDate, shopName,
 		parseFloat(cellStr(d, 1)), parseInt(cellStr(d, 2)), parseInt(cellStr(d, 3)),
 		parseFloat(cellStr(d, 4)), parseFloat(cellStr(d, 5)), parseFloat(cellStr(d, 6)),
 	)
@@ -1091,6 +1137,7 @@ func importServiceAvgPrice(path, dateStr, shopName string) error {
 }
 
 // ==================== 客服-接待评价 ====================
+// stat_date 取 Excel 第 0 列"日期"（业务日），文件名日期只是 RPA 采集日
 func importServiceEvaluation(path, dateStr, shopName string) error {
 	f, err := excelize.OpenFile(path)
 	if err != nil {
@@ -1103,6 +1150,10 @@ func importServiceEvaluation(path, dateStr, shopName string) error {
 		return nil
 	}
 	d := rows[2]
+	statDate := parseExcelDate(cellStr(d, 0))
+	if statDate == "" {
+		statDate = formatDate(dateStr)
+	}
 	// 行2字段顺序: [日期 接待人数 总-发出 总-收到 总-很满意 总-满意 总-一般 总-不满 总-很不满 总-发送率 总-返回率 总-满意率 总-服务度 邀请-发出 邀请-收到 邀请-很满意 邀请-满意 邀请-一般 邀请-不满 邀请-很不满 邀请-发送率 邀请-返回率 邀请-满意率 邀请-服务度 自主-发出 自主-收到 自主-很满意 自主-满意 自主-一般 自主-不满 自主-很不满 自主-发送率 自主-返回率 自主-满意率 自主-服务度]
 	_, err = db.Exec(`REPLACE INTO op_tmall_service_evaluation
 		(stat_date, shop_name, receive_users,
@@ -1113,7 +1164,7 @@ func importServiceEvaluation(path, dateStr, shopName string) error {
 		 selfdone_send_eval, selfdone_recv_eval, selfdone_very_satisfied, selfdone_satisfied, selfdone_normal, selfdone_unsatisfied, selfdone_very_unsatisfied,
 		 selfdone_send_rate, selfdone_return_rate, selfdone_satisfaction_rate, selfdone_service_score)
 		VALUES (?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?)`,
-		formatDate(dateStr), shopName, parseInt(cellStr(d, 1)),
+		statDate, shopName, parseInt(cellStr(d, 1)),
 		parseInt(cellStr(d, 2)), parseInt(cellStr(d, 3)), parseInt(cellStr(d, 4)), parseInt(cellStr(d, 5)),
 		parseInt(cellStr(d, 6)), parseInt(cellStr(d, 7)), parseInt(cellStr(d, 8)),
 		parseFloat(cellStr(d, 9)), parseFloat(cellStr(d, 10)), parseFloat(cellStr(d, 11)), parseFloat(cellStr(d, 12)),
