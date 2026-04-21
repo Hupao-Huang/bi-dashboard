@@ -1,25 +1,38 @@
 // ECharts 全局主题配置 - BI Dashboard
 // 统一图表配色、字体、网格线、tooltip 等样式
 
+// BI 经典调色盘 - 深青蓝主色 + 高对比度多色
+// 参考 ECharts/Tableau/Power BI 业界标准，优先保证系列在图表中清晰可辨
 export const CHART_COLORS = [
-  '#4f46e5', // indigo (primary)
-  '#10b981', // green
-  '#f59e0b', // amber
-  '#8b5cf6', // purple
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#ef4444', // red
-  '#6366f1', // indigo-light
-  '#14b8a6', // teal
-  '#f97316', // orange
+  '#1e40af', // 深青蓝（主色）
+  '#f59e0b', // 金黄
+  '#059669', // 翡翠绿
+  '#dc2626', // 辣红
+  '#06b6d4', // 青瓷蓝
+  '#7c3aed', // 紫
+  '#ea580c', // 橙红
+  '#65a30d', // 松柏绿
+  '#be123c', // 玫红
+  '#64748b', // 石板灰
 ];
 
 export const DEPT_COLORS: Record<string, string> = {
   all: '#1e293b',
-  ecommerce: '#4f46e5',
-  social: '#10b981',
-  offline: '#faad14',
-  distribution: '#8b5cf6',
+  ecommerce: '#1e40af',    // 电商 → 深青蓝（主）
+  social: '#f59e0b',       // 社媒 → 金黄
+  offline: '#059669',      // 线下 → 翡翠绿
+  distribution: '#7c3aed', // 分销 → 紫
+};
+
+// 产品定位等级色（S→D BI 经典热力渐变：最红→最灰）
+// S=辣红（顶级强调）/ A=金黄（主打）/ B=青瓷（中档）/ C=翡翠（稳定）/ D=冷灰（淡化）
+export const GRADE_COLORS: Record<string, string> = {
+  S: '#dc2626',
+  A: '#f59e0b',
+  B: '#06b6d4',
+  C: '#059669',
+  D: '#94a3b8',
+  '未设置': '#cbd5e1',
 };
 
 // 格式化金额
@@ -67,18 +80,18 @@ const gridStyle = {
 
 // 通用坐标轴样式
 const axisCommon = {
-  axisLine: { lineStyle: { color: '#e2e8f0' } },
-  axisTick: { lineStyle: { color: '#e2e8f0' }, length: 3 },
+  axisLine: { lineStyle: { color: '#cbd5e1' } },
+  axisTick: { lineStyle: { color: '#cbd5e1' }, length: 3 },
   axisLabel: {
-    color: '#94a3b8',
+    color: '#64748b',
     fontSize: 11,
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   },
   splitLine: {
-    lineStyle: { color: '#f1f5f9', type: 'dashed' as const },
+    lineStyle: { color: '#e2e8f0', type: 'dashed' as const },
   },
   nameTextStyle: {
-    color: '#94a3b8',
+    color: '#64748b',
     fontSize: 11,
     padding: [0, 0, 0, 0],
   },
@@ -92,7 +105,7 @@ export const getBaseOption = () => ({
   xAxis: { ...axisCommon },
   yAxis: { ...axisCommon },
   legend: {
-    textStyle: { color: '#64748b', fontSize: 12 },
+    textStyle: { color: '#475569', fontSize: 12 },
     itemWidth: 12,
     itemHeight: 8,
     itemGap: 16,
@@ -133,7 +146,7 @@ export const pieStyle = {
   tooltip: { ...tooltipStyle, trigger: 'item' as const, formatter: '{b}: ¥{c} ({d}%)' },
   legend: {
     bottom: 0,
-    textStyle: { color: '#64748b', fontSize: 12 },
+    textStyle: { color: '#475569', fontSize: 12 },
     itemWidth: 10,
     itemHeight: 10,
     itemGap: 12,

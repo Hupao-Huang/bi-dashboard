@@ -215,12 +215,12 @@ const ExpenseControl: React.FC = () => {
     setPage(1);
   };
   const statCards = [
-    { title: '单据总数', value: stats?.totalFlows || 0, prefix: <FileTextOutlined />, accentColor: '#4f46e5', onClick: () => quickFilter('', '', '') },
+    { title: '单据总数', value: stats?.totalFlows || 0, prefix: <FileTextOutlined />, accentColor: '#1e40af', onClick: () => quickFilter('', '', '') },
     { title: '报销单', value: stats?.totalExpense || 0, prefix: <DollarOutlined />, accentColor: '#10b981', onClick: () => quickFilter('expense', '', '') },
     { title: '款付票未到', value: stats?.paidNoInvoice || 0, prefix: <WarningOutlined />, accentColor: '#ef4444', onClick: () => quickFilter('', 'paid', 'noExist') },
-    { title: '审批中', value: stats?.approving || 0, prefix: <ClockCircleOutlined />, accentColor: '#1890ff', onClick: () => quickFilter('', 'approving', '') },
+    { title: '审批中', value: stats?.approving || 0, prefix: <ClockCircleOutlined />, accentColor: '#06b6d4', onClick: () => quickFilter('', 'approving', '') },
     { title: '待支付', value: stats?.paying || 0, prefix: <ClockCircleOutlined />, accentColor: '#faad14', onClick: () => quickFilter('', 'paying', '') },
-    { title: '发票文件', value: stats?.totalInvoiceFiles || 0, prefix: <FileImageOutlined />, accentColor: '#8b5cf6' },
+    { title: '发票文件', value: stats?.totalInvoiceFiles || 0, prefix: <FileImageOutlined />, accentColor: '#7c3aed' },
   ];
 
   const columns: ColumnsType<FlowItem> = [
@@ -278,7 +278,7 @@ const ExpenseControl: React.FC = () => {
     },
     {
       title: '附件', dataIndex: 'attachmentCount', width: 70, align: 'center',
-      render: (v) => v > 0 ? <Badge count={v} style={{ backgroundColor: '#1890ff' }} /> : '-',
+      render: (v) => v > 0 ? <Badge count={v} style={{ backgroundColor: '#06b6d4' }} /> : '-',
     },
     {
       title: '创建时间', dataIndex: 'createTime', width: 150,
@@ -310,7 +310,7 @@ const ExpenseControl: React.FC = () => {
     };
     return list.map((att: any, idx: number) => (
       <div key={idx} style={{ marginBottom: 16 }}>
-        <h4 style={{ margin: '0 0 8px', color: '#1890ff' }}>{typeLabels[att.type] || att.type}</h4>
+        <h4 style={{ margin: '0 0 8px', color: '#06b6d4' }}>{typeLabels[att.type] || att.type}</h4>
         {att.attachmentUrls?.map((f: any, i: number) => (
           <div key={`a-${i}`} style={{ marginLeft: 16, marginBottom: 4 }}>
             <PaperClipOutlined style={{ marginRight: 4 }} />

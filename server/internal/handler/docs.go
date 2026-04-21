@@ -27,6 +27,7 @@ func (h *DashboardHandler) GetRPAMapping(w http.ResponseWriter, r *http.Request)
 		{"天猫", "op_tmall_shop_daily", "生意参谋_店铺销售数据", "xlsx", "import-tmall"},
 		{"天猫", "op_tmall_goods_daily", "生意参谋_商品销售数据", "xlsx", "import-tmall"},
 		{"天猫", "op_tmall_campaign_daily", "万象台_营销场景数据", "xlsx", "import-tmall"},
+		{"天猫", "op_tmall_campaign_detail_daily", "万象台_营销明细数据", "xlsx", "import-tmall"},
 		{"天猫", "op_tmall_cps_daily", "淘宝联盟_营销场景数据", "xlsx", "import-tmall"},
 		{"天猫", "op_tmall_service_inquiry", "生意参谋_业绩询单", "xlsx", "import-tmall"},
 		{"天猫", "op_tmall_service_consult", "生意参谋_咨询接待", "xlsx", "import-tmall"},
@@ -38,10 +39,15 @@ func (h *DashboardHandler) GetRPAMapping(w http.ResponseWriter, r *http.Request)
 		{"天猫", "op_tmall_repurchase_monthly", "集客_复购数据", "xlsx", "import-tmall"},
 		{"天猫", "op_tmall_industry_monthly", "集客_行业数据", "xlsx", "import-tmall"},
 		// 天猫超市
-		{"天猫超市", "op_tmall_cs_shop_daily", "经营概况", "xlsx", "import-tmallcs"},
-		{"天猫超市", "op_tmall_cs_campaign_daily", "无界场景_智多星_淘客", "xlsx", "import-tmallcs"},
+		{"天猫超市", "op_tmall_cs_shop_daily", "销售数据_经营概况", "xlsx", "import-tmallcs"},
+		{"天猫超市", "op_tmall_cs_goods_daily", "销售数据_商品", "xlsx", "import-tmallcs"},
 		{"天猫超市", "op_tmall_cs_industry_keyword", "市场_行业热词", "xlsx", "import-tmallcs"},
-		{"天猫超市", "op_tmall_cs_market_rank", "市场排名数据", "xlsx", "import-tmallcs"},
+		{"天猫超市", "op_tmall_cs_market_rank", "市场排名数据_/市场数据_排名", "xlsx", "import-tmallcs"},
+		{"天猫超市", "op_tmall_cs_wujie_scene_daily", "推广_无界场景数据", "xlsx", "import-tmallcs"},
+		{"天猫超市", "op_tmall_cs_wujie_detail_daily", "推广_无界明细数据", "xlsx", "import-tmallcs"},
+		{"天猫超市", "op_tmall_cs_smart_plan_daily", "推广_智多星", "xlsx", "import-tmallcs"},
+		{"天猫超市", "op_tmall_cs_smart_plan_detail_daily", "推广_智多星_明细", "xlsx", "import-tmallcs"},
+		{"天猫超市", "op_tmall_cs_taoke_daily", "推广_淘客诊断", "xlsx", "import-tmallcs"},
 		// 京东
 		{"京东", "op_jd_shop_daily", "销售数据", "xlsx", "import-jd"},
 		{"京东", "op_jd_affiliate_daily", "推广_京东联盟", "xlsx", "import-jd"},
@@ -91,7 +97,8 @@ func (h *DashboardHandler) GetRPAMapping(w http.ResponseWriter, r *http.Request)
 		{"小红书", "op_xhs_cs_trend_daily", "从客服分析json解析", "json", "import-customer"},
 		{"小红书", "op_xhs_cs_excellent_trend_daily", "从客服分析json解析", "json", "import-customer"},
 		// 飞瓜
-		{"飞瓜", "fg_creator_roster", "飞瓜_达人数据_达人归属", "xlsx", "import-feigua"},
+		{"飞瓜", "fg_creator_daily", "飞瓜_{抖音/快手/小红书}_达人数据", "xlsx", "import-feigua"},
+		{"飞瓜", "fg_creator_roster", "飞瓜_{抖音/快手/小红书}_达人归属", "xlsx", "import-feigua"},
 	}
 
 	writeJSON(w, items)

@@ -4,7 +4,7 @@ import ReactECharts from './Chart';
 import DateFilter from './DateFilter';
 import PageLoading from './PageLoading';
 import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../config';
-import { barItemStyle, CHART_COLORS, getBaseOption, pieStyle } from '../chartTheme';
+import { barItemStyle, CHART_COLORS, GRADE_COLORS, getBaseOption, pieStyle } from '../chartTheme';
 
 interface Props {
   dept: string;
@@ -165,7 +165,6 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
 
   // 产品定位分布 — 单圈饼图，hover展示平台明细（仅电商部门）
   const gradePlatSales: any[] = data.gradePlatSales || [];
-  const gradeColors: Record<string, string> = { S: '#f5222d', A: '#fa8c16', B: '#1890ff', C: '#52c41a', D: '#999', '未设置': '#d9d9d9' };
   const gradeOrder = ['S', 'A', 'B', 'C', 'D', '未设置'];
 
   const gradePlatMap = new Map<string, { total: number; platforms: { platform: string; sales: number }[] }>();
@@ -184,7 +183,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       name: g + '品',
       _grade: g,
       _platforms: gradePlatMap.get(g)!.platforms,
-      itemStyle: { color: gradeColors[g] },
+      itemStyle: { color: GRADE_COLORS[g] },
     }));
 
   const gradeDonutOption = dept === 'ecommerce' && totalSales > 0 && gradePieData.length > 0 ? {
@@ -241,7 +240,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总货品数', value: totalQty, precision: 0, accentColor: '#10b981' },
-    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#8b5cf6' },
+    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#7c3aed' },
     { title: '店铺数量', value: shops.length, precision: 0, suffix: '家', accentColor: '#f59e0b' },
   ];
 

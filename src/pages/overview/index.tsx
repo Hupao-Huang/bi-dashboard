@@ -20,6 +20,7 @@ import {
   formatMoney,
   getNiceAxisInterval,
   DEPT_COLORS,
+  GRADE_COLORS,
 } from '../../chartTheme';
 
 const deptConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -226,7 +227,7 @@ const OverviewPage: React.FC = () => {
         type: 'line',
         smooth: true,
         data: trendAvgPrice,
-        ...lineAreaStyle('#8b5cf6'),
+        ...lineAreaStyle(activeCfg.color),
         symbol: isLongRange ? 'none' : 'circle',
         symbolSize: 4,
         markLine: {
@@ -279,7 +280,6 @@ const OverviewPage: React.FC = () => {
   }), [isLongRange, pieData]);
 
   const grades = data?.grades || [];
-  const gradeColors: Record<string, string> = { S: '#f5222d', A: '#fa8c16', B: '#1890ff', C: '#52c41a', D: '#999', '未设置': '#d9d9d9' };
   const gradePieOption = {
     ...pieStyle,
     animation: !isLongRange,
@@ -290,7 +290,7 @@ const OverviewPage: React.FC = () => {
       label: { show: true, formatter: '{b}\n{d}%', fontSize: 11, lineHeight: 15, color: '#64748b' },
       labelLine: { length: 14, length2: 10, lineStyle: { color: '#e2e8f0' } },
       itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 },
-      data: grades.map((g: any) => ({ value: g.sales, name: g.grade, itemStyle: { color: gradeColors[g.grade] || '#8c8c8c' } })),
+      data: grades.map((g: any) => ({ value: g.sales, name: g.grade, itemStyle: { color: GRADE_COLORS[g.grade] || '#94a3b8' } })),
     }],
   };
 
@@ -303,15 +303,14 @@ const OverviewPage: React.FC = () => {
       key: 'rank',
       width: 40,
       render: (v: number) => (
-        <span style={{ color: v <= 3 ? '#4f46e5' : '#94a3b8', fontWeight: v <= 3 ? 700 : 400 }}>{v}</span>
+        <span style={{ color: v <= 3 ? '#1e40af' : '#94a3b8', fontWeight: v <= 3 ? 700 : 400 }}>{v}</span>
       ),
     },
     { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 100 },
     { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', ellipsis: true },
     { title: '产品定位', dataIndex: 'grade', key: 'grade', width: 80,
       render: (v: string) => {
-        const colors: Record<string, string> = { S: '#f43f5e', A: '#f59e0b', B: '#3b82f6', C: '#10b981', D: '#94a3b8' };
-        return v ? <span style={{ color: colors[v] || '#999', fontWeight: 600 }}>{v}</span> : <span style={{ color: '#ccc' }}>-</span>;
+        return v ? <span style={{ color: GRADE_COLORS[v] || '#94a3b8', fontWeight: 600 }}>{v}</span> : <span style={{ color: '#cbd5e1' }}>-</span>;
       },
     },
     { title: '分类', dataIndex: 'category', key: 'category', width: 100, ellipsis: true },
@@ -345,14 +344,14 @@ const OverviewPage: React.FC = () => {
       data: shopNames,
       axisLabel: { color: '#334155', fontSize: 12, width: 220, overflow: 'none' as const },
     },
-    series: [{ type: 'bar', data: shopSales, ...barItemStyle('#4f46e5'), barWidth: 16 }],
+    series: [{ type: 'bar', data: shopSales, ...barItemStyle('#1e40af'), barWidth: 16 }],
   }), [baseOpt, isLongRange, shopNames, shopSales]);
 
   const totalSales = currentDepts.reduce((s: number, d: any) => s + d.sales, 0);
   const totalQty = currentDepts.reduce((s: number, d: any) => s + d.qty, 0);
   const avgOrderValue = totalQty > 0 ? totalSales / totalQty : 0;
 
-  const statColors = ['#4f46e5', '#10b981', '#8b5cf6'];
+  const statColors = ['#1e40af', '#f59e0b', '#06b6d4'];
   const summaryCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', color: statColors[0] },
     { title: '总货品数', value: totalQty, precision: 0, prefix: '', color: statColors[1] },

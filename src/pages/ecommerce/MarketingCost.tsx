@@ -46,14 +46,11 @@ const MarketingCostPage: React.FC = () => {
       .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, []);
 
+  // 统一 effect: 任何筛选项（平台/店铺/日期）变化都触发 fetch，
+  // 不再因为"shop === all"跳过，避免从具体店铺切回全部时不刷新
   useEffect(() => {
-    setSelectedShop('all');
-    fetchData(startDate, endDate, platform, 'all');
-  }, [fetchData, startDate, endDate, platform]);
-
-  useEffect(() => {
-    if (selectedShop !== 'all') fetchData(startDate, endDate, platform, selectedShop);
-  }, [fetchData, selectedShop, startDate, endDate, platform]);
+    fetchData(startDate, endDate, platform, selectedShop);
+  }, [fetchData, startDate, endDate, platform, selectedShop]);
 
   const cpcDaily = data?.cpcDaily || [];
   const cpsDaily = data?.cpsDaily || [];
@@ -91,8 +88,8 @@ const MarketingCostPage: React.FC = () => {
     { title: '推广总花费', value: summary.totalCost, precision: 2, prefix: '¥', accentColor: '#ef4444' },
     { title: 'CPC花费', value: summary.cpcCost, precision: 2, prefix: '¥', accentColor: '#f59e0b' },
     { title: 'CPC成交额', value: summary.cpcPay, precision: 2, prefix: '¥', accentColor: '#10b981' },
-    { title: 'CPC ROI', value: summary.cpcROI, precision: 2, accentColor: '#4f46e5' },
-    { title: 'CPC点击数', value: summary.cpcClicks, precision: 0, accentColor: '#8b5cf6' },
+    { title: 'CPC ROI', value: summary.cpcROI, precision: 2, accentColor: '#1e40af' },
+    { title: 'CPC点击数', value: summary.cpcClicks, precision: 0, accentColor: '#7c3aed' },
     { title: '平均CPC', value: summary.avgCpc, precision: 2, prefix: '¥', accentColor: '#06b6d4' },
     ...(hasCps
       ? [
@@ -124,7 +121,7 @@ const MarketingCostPage: React.FC = () => {
       { name: 'CPC花费', type: 'bar', data: cpcDaily.map((c: any, i: number) => ({ value: c.cost, itemStyle: { color: cpcCostColors[i] } })), barMaxWidth: 8 },
       { name: 'CPC成交额', type: 'bar', data: cpcDaily.map((c: any, i: number) => ({ value: c.payAmount, itemStyle: { color: cpcPayColors[i] } })), barMaxWidth: 8 },
       { name: 'ROI', type: 'line', yAxisIndex: 1, smooth: true, data: cpcDaily.map((c: any) => c.roi),
-        itemStyle: { color: '#4f46e5' }, lineStyle: { width: 2 } },
+        itemStyle: { color: '#1e40af' }, lineStyle: { width: 2 } },
     ],
   };
 
@@ -184,7 +181,7 @@ const MarketingCostPage: React.FC = () => {
       <Card className="bi-filter-card" style={{ marginBottom: 16 }}>
         <Tabs
           activeKey={platform}
-          onChange={setPlatform}
+          onChange={p => { setPlatform(p); setSelectedShop('all'); }}
           items={PLATFORM_TABS.map(t => ({ key: t.key, label: t.label }))}
           style={{ marginBottom: 12 }}
         />

@@ -402,7 +402,11 @@ func (h *DashboardHandler) ImportProgress(w http.ResponseWriter, r *http.Request
 	importProgressMu.RLock()
 	defer importProgressMu.RUnlock()
 	if currentImportProgress == nil {
-		writeJSON(w, map[string]interface{}{"running": false})
+		// 无进行中任务：返回完整空对象，避免前端拿到 undefined 字段
+		writeJSON(w, &importProgress{
+			Running: false,
+			Results: []importToolInfo{},
+		})
 		return
 	}
 	writeJSON(w, currentImportProgress)

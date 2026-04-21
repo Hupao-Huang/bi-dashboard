@@ -25,7 +25,7 @@ const ProfitDisplay: React.FC<Props> = ({ dept  }) => {
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
-  const color = DEPT_COLORS[dept] || '#4f46e5';
+  const color = DEPT_COLORS[dept] || '#1e40af';
 
   const fetchData = useCallback((s: string, e: string) => {
     abortRef.current?.abort();
@@ -59,8 +59,8 @@ const ProfitDisplay: React.FC<Props> = ({ dept  }) => {
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总销量', value: totalQty, suffix: '件', accentColor: '#10b981' },
-    { title: '客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#4f46e5' },
-    { title: '日均销售额', value: dailyAvgSales, precision: 2, prefix: '¥', accentColor: '#8b5cf6' },
+    { title: '客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#1e40af' },
+    { title: '日均销售额', value: dailyAvgSales, precision: 2, prefix: '¥', accentColor: '#7c3aed' },
   ];
 
   // 每日销售趋势（销售额柱 + 销量折线）
@@ -95,7 +95,7 @@ const ProfitDisplay: React.FC<Props> = ({ dept  }) => {
         yAxisIndex: 1,
         smooth: true,
         data: daily.map((d: any) => d.qty),
-        itemStyle: { color: '#f97316' },
+        itemStyle: { color: '#ea580c' },
       },
     ],
   };

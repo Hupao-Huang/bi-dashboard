@@ -19,7 +19,7 @@ const MonthlyProfit: React.FC<Props> = ({ dept  }) => {
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
-  const color = DEPT_COLORS[dept] || '#4f46e5';
+  const color = DEPT_COLORS[dept] || '#1e40af';
 
   const fetchData = useCallback((s: string, e: string) => {
     abortRef.current?.abort();
@@ -109,7 +109,7 @@ const MonthlyProfit: React.FC<Props> = ({ dept  }) => {
         yAxisIndex: 1,
         smooth: true,
         data: monthlyWithMoM.map(m => m.qty),
-        itemStyle: { color: '#f97316' },
+        itemStyle: { color: '#ea580c' },
       },
     ],
   };
@@ -128,7 +128,7 @@ const MonthlyProfit: React.FC<Props> = ({ dept  }) => {
       type: 'line',
       smooth: true,
       data: monthlyWithMoM.map(m => m.avgSales),
-      itemStyle: { color: '#4f46e5' },
+      itemStyle: { color: '#1e40af' },
       areaStyle: { color: 'rgba(24,144,255,0.1)' },
       label: { show: true, formatter: (p: any) => p.value >= 10000 ? (p.value / 10000).toFixed(1) + '万' : p.value },
     }],

@@ -4,18 +4,19 @@ import ReactECharts from './Chart';
 import DateFilter from './DateFilter';
 import PageLoading from './PageLoading';
 import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../config';
+import { CHART_COLORS, DEPT_COLORS, barItemStyle, formatMoney, getBaseOption, pieStyle } from '../chartTheme';
 
 const deptConfig: Record<string, { label: string; color: string }> = {
-  ecommerce: { label: '电商部门', color: '#4f46e5' },
-  social: { label: '社媒部门', color: '#10b981' },
-  offline: { label: '线下部门', color: '#faad14' },
-  distribution: { label: '分销部门', color: '#8b5cf6' },
+  ecommerce: { label: '电商部门', color: DEPT_COLORS.ecommerce },
+  social: { label: '社媒部门', color: DEPT_COLORS.social },
+  offline: { label: '线下部门', color: DEPT_COLORS.offline },
+  distribution: { label: '分销部门', color: DEPT_COLORS.distribution },
 };
 
 const profitRateColor = (rate: number) => {
-  if (rate >= 0.5) return '#10b981';
-  if (rate >= 0.3) return '#faad14';
-  return '#f5222d';
+  if (rate >= 0.5) return '#059669';
+  if (rate >= 0.3) return '#f59e0b';
+  return '#dc2626';
 };
 
 const FinanceProfitOverview: React.FC = () => {
@@ -53,50 +54,46 @@ const FinanceProfitOverview: React.FC = () => {
   const totalProfit = depts.reduce((s: number, d: any) => s + (d.profit || 0), 0);
   const overallProfitRate = totalSales > 0 ? totalProfit / totalSales : 0;
   const statCards = [
-    { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: '#4f46e5' },
-    { title: '总成本', value: totalCost, precision: 2, prefix: '¥', accentColor: '#f97316' },
-    { title: '总毛利', value: totalProfit, precision: 2, prefix: '¥', accentColor: '#10b981' },
+    { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: CHART_COLORS[0] },
+    { title: '总成本', value: totalCost, precision: 2, prefix: '¥', accentColor: CHART_COLORS[1] },
+    { title: '总毛利', value: totalProfit, precision: 2, prefix: '¥', accentColor: '#059669' },
     { title: '综合毛利率', value: overallProfitRate * 100, precision: 1, suffix: '%', accentColor: profitRateColor(overallProfitRate) },
   ];
 
   // Bar chart: sales vs profit vs cost per dept
   const deptNames = depts.map((d: any) => deptConfig[d.department]?.label || d.department);
+  const base = getBaseOption();
+  const moneyFmt = (v: number) => formatMoney(v);
   const barOption = {
-    tooltip: { trigger: 'axis' as const },
-    legend: { data: ['销售额', '毛利', '成本'], top: 0 },
-    grid: { left: 80, right: 40, top: 50, bottom: 30 },
-    xAxis: {
-      type: 'category' as const,
-      data: deptNames,
-    },
-    yAxis: {
-      type: 'value' as const,
-      axisLabel: { formatter: (v: number) => v >= 10000 ? (v / 10000).toFixed(0) + '万' : String(v) },
-    },
+    ...base,
+    legend: { ...base.legend, data: ['销售额', '毛利', '成本'], top: 0 },
+    grid: { ...base.grid, left: 64, right: 32, top: 48, bottom: 32 },
+    xAxis: { ...base.xAxis, type: 'category' as const, data: deptNames },
+    yAxis: { ...base.yAxis, type: 'value' as const, axisLabel: { ...base.yAxis.axisLabel, formatter: moneyFmt } },
     series: [
       {
         name: '销售额',
         type: 'bar',
         data: depts.map((d: any) => d.sales || 0),
-        itemStyle: { color: '#4f46e5' },
+        itemStyle: barItemStyle(CHART_COLORS[0]),
         barWidth: 20,
-        label: { show: true, position: 'top' as const, formatter: (p: any) => p.value >= 10000 ? (p.value / 10000).toFixed(1) + '万' : p.value },
+        label: { show: true, position: 'top' as const, formatter: (p: any) => moneyFmt(p.value), color: '#475569', fontSize: 11 },
       },
       {
         name: '毛利',
         type: 'bar',
         data: depts.map((d: any) => d.profit || 0),
-        itemStyle: { color: '#10b981' },
+        itemStyle: barItemStyle('#059669'),
         barWidth: 20,
-        label: { show: true, position: 'top' as const, formatter: (p: any) => p.value >= 10000 ? (p.value / 10000).toFixed(1) + '万' : p.value },
+        label: { show: true, position: 'top' as const, formatter: (p: any) => moneyFmt(p.value), color: '#475569', fontSize: 11 },
       },
       {
         name: '成本',
         type: 'bar',
         data: depts.map((d: any) => d.cost || 0),
-        itemStyle: { color: '#f97316' },
+        itemStyle: barItemStyle(CHART_COLORS[1]),
         barWidth: 20,
-        label: { show: true, position: 'top' as const, formatter: (p: any) => p.value >= 10000 ? (p.value / 10000).toFixed(1) + '万' : p.value },
+        label: { show: true, position: 'top' as const, formatter: (p: any) => moneyFmt(p.value), color: '#475569', fontSize: 11 },
       },
     ],
   };
@@ -108,8 +105,9 @@ const FinanceProfitOverview: React.FC = () => {
     itemStyle: { color: deptConfig[d.department]?.color },
   }));
   const pieOption = {
-    tooltip: { trigger: 'item' as const, formatter: '{b}: ¥{c} ({d}%)' },
-    legend: { bottom: 0, type: 'scroll' as const },
+    ...pieStyle,
+    color: CHART_COLORS,
+    legend: { ...pieStyle.legend, type: 'scroll' as const },
     series: [{
       type: 'pie',
       radius: ['40%', '65%'],
@@ -121,6 +119,7 @@ const FinanceProfitOverview: React.FC = () => {
         formatter: '{b}\n{d}%',
         fontSize: 12,
         lineHeight: 16,
+        color: '#475569',
         overflow: 'truncate' as const,
         width: 80,
       },

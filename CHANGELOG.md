@@ -189,6 +189,52 @@
 
 ---
 
+## v0.25 — 天猫超市推广重做、视觉主题重置与凌晨误报消除
+
+### 天猫超市推广模块彻底重做（双店支持）
+- 2025-12-31 起天猫超市拆分为**一盘货 + 寄售**两家店，`shop_daily` UK 改 `(stat_date, shop_name)`；`shop_name` 统一存简称（"天猫超市一盘货" / "天猫超市寄售"）
+- 原 `op_tmall_cs_campaign_daily` 单表硬编码 "天猫超市" + 字段混装三种推广文件问题严重，**DROP 并改为兼容 VIEW**（UNION ALL 三张新表）
+- 新建 6 张推广表：`wujie_scene_daily` / `wujie_detail_daily` / `smart_plan_daily` / `smart_plan_detail_daily` / `taoke_daily` / `goods_daily`
+- `import-tmallcs.exe` 完全重写：`rpaShopToName` 原名→简称映射、9 个 import 函数覆盖 11 种文件类型
+- 110 天 × 2 店全量重导
+- `dashboard.go` `tmall_cs` case 补"店铺CPC分组"query，营销费用页恢复"各店铺推广投入对比"图
+
+### 万象台营销明细接入
+- 新表 `op_tmall_campaign_detail_daily`（71 列），`import-tmall.exe` 扩展支持万象台明细 Excel
+- 7 天滚动 × 24 商品，161 条入库
+
+### 定时同步优化（凌晨误报消除）
+- `sync-daily-trades` / `sync-trades-v2`：吉客云对空时段返回空 body 时，老代码按解析失败 retry 3 次导致凌晨红字
+- 改为空 body 直接 `break`，下次定时任务不再刷告警
+- 经补拉确认凌晨本就几乎无订单（04-16 凌晨 0~7 时合计仅 1 条），历史凌晨"失败"实为正常空时段
+
+### 后端 Bug 修复
+- **费控管理 `/api/hesi/flows` 500**：`SUM(invoice_status='exist')` 在没有匹配 `hesi_flow_detail` 行时返回 NULL，Scan 到 `int` 失败；加 `COALESCE(SUM(...),0)` 修复
+
+### 前端容错修复
+- RPA 监控：后端 `ImportProgress` nil 返回完整默认对象 + 前端 `merge state` 兼容 undefined
+- 营销费用页：切换平台再切回"全部店铺"数据不刷新 → 合并 `useEffect`、移除 `if selectedShop !== 'all'` guard、`Tabs.onChange` 同时 reset shop
+- 店铺看板：`platform` 初始 `''` → `'all'`，消除首次 mount 时 antd Tabs 激活 tab `.focus()` 导致的**光标闪烁**
+
+### 飞瓜数据映射修正
+- `docs.go` 飞瓜映射从 1 条拆成 2 条（`fg_creator_daily` 达人数据 + `fg_creator_roster` 达人归属）
+- 飞瓜数据本身完整，不需重抓
+
+### 视觉主题重置（BI 专业配色）
+- **主色**：`#4f46e5` 靛紫 → **`#1e40af` 深青蓝**（BI 看板经典主色）
+- **`chartTheme.ts` 统一**：新增 BI 经典 10 色调色盘（青蓝/金黄/翡翠/辣红/青瓷/紫/橙红/松柏/玫红/石板灰）、`DEPT_COLORS`（电商青蓝/社媒金黄/线下翡翠/分销紫）、`GRADE_COLORS` 产品定位 SABCD 热力渐变（辣红→金黄→青瓷→翡翠→冷灰）
+- **消除所有旧色硬编码**：6 处 SABCD `gradeColors` 抽成常量 `GRADE_COLORS` 共享；60+ 处旧主色 `#4f46e5` 批量换成 sage → 最终深青蓝；套装色 `#8b5cf6 / #f97316 / #ec4899 / #1890ff / #d9a45c / #4a8a85 / #c88b3a` 同系替换到新调色盘；毛利率阈值色 `#5f9c68 / #c97a7a` 改 BI 热力 `#059669 / #dc2626`
+- **`App.tsx`**：`ConfigProvider` 全局主题 token 改青蓝 + 圆角 10 + Space Grotesk 字体
+- **`index.css`**：CSS 变量重置，引入 Space Grotesk，数字字段加 `tabular-nums` 对齐
+- **`MainLayout`**：SXX logo 渐变改青蓝→金黄
+- 业务语义色（涨跌红绿 `#10b981 / #ef4444`、风险阈值三段、库龄告警）保留原值不动
+
+### 数据库变更留档
+- `server/fix-tmallcs-rebuild.sql` — 6 张天猫超市新表建表
+- `server/fix-tmallcs-campaign-view.sql` — 兼容 VIEW（UNION ALL）定义
+
+---
+
 ## 后续规划（通往 v1.0）
 - [ ] 天猫超市两店数据分开存储（一盘货 vs 寄售）
 - [ ] 10个未映射渠道归属部门

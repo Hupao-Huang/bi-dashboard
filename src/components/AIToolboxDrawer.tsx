@@ -25,14 +25,14 @@ const skillCategories = ['全部', '办公协同', '文档处理', '信息搜索
 const skills: Skill[] = [
   { name: '会议自动驾驶', skillId: 'wXBeEZcwzToe', desc: '基于钉钉日历和会议口令，自动完成会议前后流程，包括议程提醒、纪要生成和待办创建。', category: '办公协同', tags: ['办公协同', 'A1', '待办', '日程管理'], color: '#3b82f6' },
   { name: '抖音短视频爆款文案', skillId: '9O3lDFGPbFzU', desc: '本技能运行时会访问先进数据库和创意海报大模型的一站式数据驱动MCP服务，帮你自动完成爆款内容创作。', category: '营销推广', tags: ['短视频', '内容创作', '营销推广'], color: '#ef4444' },
-  { name: 'AI视觉工坊', skillId: 'Z8cMjQPIhyi7', desc: '基于通义万相多模型+创意海报大模型的一站式图文创作技能。支持文生图、图生图、创意海报生成、参考图搜索。', category: 'AI创作', tags: ['AI创作', '设计'], color: '#8b5cf6' },
+  { name: 'AI视觉工坊', skillId: 'Z8cMjQPIhyi7', desc: '基于通义万相多模型+创意海报大模型的一站式图文创作技能。支持文生图、图生图、创意海报生成、参考图搜索。', category: 'AI创作', tags: ['AI创作', '设计'], color: '#7c3aed' },
   { name: '技术方案文档', skillId: 'Tn9604jQigkd', desc: '帮用户撰写完整的技术方案文档，输出到钉钉文档。涵盖需求分析、现有系统调研、技术选型、架构设计、模块设计。', category: '文档处理', tags: ['开发者工具', '文档处理'], color: '#0ea5e9' },
   { name: 'AI 听记-灵感捕手', skillId: 'DdTJuLomevxi', desc: '从你的所有对话中自动识别、组装、培育灵感碎片，发现你自己都没注意到的好想法。支持听记URL触发。', category: '效率工具', tags: ['效率工具'], color: '#f59e0b' },
   { name: '教案助手', skillId: 'enFNXG4WglPh', desc: '生成符合《义务教育课程标准（2022年版）》的专业教案，基于教学评一致性原则设计。', category: '教育', tags: ['教育'], color: '#10b981' },
   { name: '链接速读', skillId: 'CUEVpnSo0LTh', desc: '为智能体提供链接速读能力，当用户传入URL后分析其中内容给出简洁摘要。', category: '效率工具', tags: ['信息搜索', '效率工具'], color: '#6366f1' },
   { name: '企业信用智能尽调', skillId: 'cI1OvpK6R0h6', desc: '本技能运行时会访问先进的数据服务和企业信用数据库，帮你自动完成企业信用调查和风险评估。', category: '信息搜索', tags: ['财务审计', '财务', '信息搜索'], color: '#14b8a6' },
-  { name: '智能全网搜索', skillId: 'NuhzMxvGP903', desc: '本技能需要联网搜索，为智能体提供搜索先进数据的能力，帮你搜索最新、最全面的数据信息。', category: '信息搜索', tags: ['信息搜索', '效率工具'], color: '#ec4899' },
-  { name: '群聊内容摘要', skillId: 'hPBr83ckN0oi', desc: '将钉钉群聊消息提取、分析并生成结构化钉钉云文档摘要，涵盖议题、决策、行动项与风险。', category: '办公协同', tags: ['办公协同', '效率工具'], color: '#f97316' },
+  { name: '智能全网搜索', skillId: 'NuhzMxvGP903', desc: '本技能需要联网搜索，为智能体提供搜索先进数据的能力，帮你搜索最新、最全面的数据信息。', category: '信息搜索', tags: ['信息搜索', '效率工具'], color: '#be123c' },
+  { name: '群聊内容摘要', skillId: 'hPBr83ckN0oi', desc: '将钉钉群聊消息提取、分析并生成结构化钉钉云文档摘要，涵盖议题、决策、行动项与风险。', category: '办公协同', tags: ['办公协同', '效率工具'], color: '#ea580c' },
   { name: '审批催办提醒', skillId: 'nlAYVAyw1ye6', desc: '识别用户已发起但仍待审批的流程，定位当前审批人，发送催办提醒。', category: '办公协同', tags: ['办公协同', '效率工具'], color: '#d946ef' },
   { name: 'AI 听记-面试评估助手', skillId: 'ZW8G5OR4NEHn', desc: '自动从钉钉AI听记中深度评估候选人表现，支持简历预分析、面试指南生成、多轮面试串联和候选人对比。', category: '效率工具', tags: ['效率工具'], color: '#0891b2' },
   { name: '互动学习卡片', skillId: 'hXGX16grvUfg', desc: '为教师创建课堂专用的交互式学习应用，包含闪卡、测验和浏览模式。基于记忆科学原理设计。', category: '教育', tags: ['教育'], color: '#059669' },
@@ -46,15 +46,15 @@ const skills: Skill[] = [
   { name: '行业研究报告', skillId: 'OgAqeTRgxzRk', desc: '行业研究、赛道分析、市场规模、竞争格局、技术趋势、政策环境或投融资动态报告，输出为钉钉文档。', category: '信息搜索', tags: ['信息搜索', '文档处理'], color: '#3b82f6' },
   { name: '产品发布会材料', skillId: 'NFXo2NbOdg12', desc: '围绕产品发布会或产品上市节点，提炼核心卖点与叙事主线，设计发布会流程与环节节奏。', category: '营销推广', tags: ['营销推广', '文档处理'], color: '#eab308' },
   { name: '竞品分析', skillId: 'vhzrPXVHGJJC', desc: '针对目标产品与竞争对手进行系统性竞品研究，输出结构化钉钉在线文档。', category: '信息搜索', tags: ['信息搜索', '营销推广'], color: '#ef4444' },
-  { name: '公司调研', skillId: 'S3zhKB006SuL', desc: '基于公开信息和企业工商数据进行全维度公司研究，覆盖公司概况、业务产品、竞争格局、经营财务。', category: '信息搜索', tags: ['信息搜索', '文档处理'], color: '#8b5cf6' },
+  { name: '公司调研', skillId: 'S3zhKB006SuL', desc: '基于公开信息和企业工商数据进行全维度公司研究，覆盖公司概况、业务产品、竞争格局、经营财务。', category: '信息搜索', tags: ['信息搜索', '文档处理'], color: '#7c3aed' },
   { name: '商业计划书', skillId: 'Vp0ulf4jfnhF', desc: '覆盖市场机会验证、竞品对比、商业模式画布、财务预测与融资需求，输出结构化商业计划书。', category: '文档处理', tags: ['文档处理', '营销推广'], color: '#0ea5e9' },
   { name: '社媒内容生成', skillId: 'TkWLzrVHiuEp', desc: '社交媒体内容创作，支持单条文案、多平台改写、内容日历排期、互动优化。', category: '营销推广', tags: ['内容创作', '营销推广'], color: '#10b981' },
   { name: '一句话发邮件', skillId: 'BcdzEzN8LpJF', desc: '用一句自然语言发送邮件：自动解析收件人和邮件内容，匹配钉钉通讯录获取邮箱，生成正式邮件。', category: '办公协同', tags: ['办公协同', '效率工具'], color: '#f59e0b' },
-  { name: '群聊转待办', skillId: 'qqlkjeRj4GEO', desc: '从钉钉群聊消息中识别与我相关的任务类内容，自动创建钉钉待办。', category: '办公协同', tags: ['办公协同', '效率工具'], color: '#ec4899' },
+  { name: '群聊转待办', skillId: 'qqlkjeRj4GEO', desc: '从钉钉群聊消息中识别与我相关的任务类内容，自动创建钉钉待办。', category: '办公协同', tags: ['办公协同', '效率工具'], color: '#be123c' },
   { name: '审批进度查询', skillId: 'LTfWOdJar7ZK', desc: '审批流程链路回溯：查询审批进度、获取完整审批链路、分析当前节点状态、提供催办建议。', category: '办公协同', tags: ['办公协同', '效率工具'], color: '#14b8a6' },
   { name: '会前材料准备', skillId: 'WLni3fJPr3WB', desc: '围绕会议议题、决策点与材料清单，结合历史会议纪要、群聊讨论，生成结构化会前材料文档。', category: '会议', tags: ['会议', '办公协同', '文档处理'], color: '#6366f1' },
   { name: '项目启动报告', skillId: 'K45xzo2C7dkL', desc: '明确目标与成功标准、范围与不在范围、里程碑与交付节奏、角色分工与RACI、风险与依赖。', category: '文档处理', tags: ['项目管理', '文档处理'], color: '#d946ef' },
-  { name: '知识库审计', skillId: '85tLKDSjGUwV', desc: '对钉钉知识库进行系统性诊断审计，支持轻量级审计和深度审计两种模式。', category: '文档处理', tags: ['文档处理', '办公协同'], color: '#f97316' },
+  { name: '知识库审计', skillId: '85tLKDSjGUwV', desc: '对钉钉知识库进行系统性诊断审计，支持轻量级审计和深度审计两种模式。', category: '文档处理', tags: ['文档处理', '办公协同'], color: '#ea580c' },
   { name: '论文深度解读', skillId: 'LeisNyOsgAXN', desc: '对学术论文或研究话题进行深度解读，覆盖核心论文方法与定理细节、研究脉络梳理。', category: '教育', tags: ['教育', '信息搜索'], color: '#0891b2' },
   { name: '新闻动态总结', skillId: 'yd5gDteQ5Kig', desc: '根据用户指定的主题和时间范围，多源检索新闻动态，生成结构化钉钉云文档动态报告。', category: '信息搜索', tags: ['信息搜索', '内容创作'], color: '#059669' },
 ];
@@ -77,10 +77,10 @@ const mcpItems: McpItem[] = [
   { name: '机器人消息', mcpId: 9595, desc: '钉钉机器人消息MCP服务，支持创建企业机器人、搜索群会话、发送群消息和单聊消息、取消发送等能力。', category: '办公协同', free: true, type: 'Remote', color: '#3b82f6' },
   { name: '钉钉日志', mcpId: 9639, desc: '包含获取日志模板、读取日志内容、写日志等功能。', category: '办公协同', free: true, type: 'Remote', color: '#0ea5e9' },
   { name: '钉钉 AI 表格', mcpId: 9555, desc: '让AI直接操作表格数据与字段，快速打通查询、维护与自动化办公流程。', category: '文档处理', free: true, type: 'Remote', color: '#10b981' },
-  { name: '钉钉文档', mcpId: 9629, desc: '支持查找、创建文档，助力高效协同与内容管理。', category: '文档处理', free: true, type: 'Remote', color: '#8b5cf6' },
+  { name: '钉钉文档', mcpId: 9629, desc: '支持查找、创建文档，助力高效协同与内容管理。', category: '文档处理', free: true, type: 'Remote', color: '#7c3aed' },
   { name: '钉钉通讯录', mcpId: 2400, desc: '支持搜索人员/部门、查询成员详情及部门结构，快速获取组织架构信息。', category: '办公协同', free: true, type: 'Remote', color: '#f59e0b' },
   { name: '钉钉日历', mcpId: 1050, desc: '支持创建日程，查询日程，约空闲会议室等能力。', category: '办公协同', free: true, type: 'Remote', color: '#ef4444' },
-  { name: '钉钉待办', mcpId: 2034, desc: '提供高效的任务管理能力，支持创建待办事项、更新任务状态、按条件查询待办列表。', category: '办公协同', free: true, type: 'Remote', color: '#ec4899' },
+  { name: '钉钉待办', mcpId: 2034, desc: '提供高效的任务管理能力，支持创建待办事项、更新任务状态、按条件查询待办列表。', category: '办公协同', free: true, type: 'Remote', color: '#be123c' },
   { name: '钉钉表格', mcpId: 9704, desc: '支持新建、编辑等操作，助力高效协同与内容管理。', category: '文档处理', free: true, type: 'Remote', color: '#14b8a6' },
   { name: '高德地图', mcpId: 1031, desc: '包含搜索周边服务、骑行、公交、驾车、步行路径规划，地理编码查询和天气查询功能。', category: '地图服务', free: false, type: 'Remote', color: '#22c55e' },
   { name: '钉钉群聊', mcpId: 2396, desc: '支持通过自然语言快速创建内部群，高效启动团队协作。', category: '办公协同', free: true, type: 'Remote', color: '#6366f1' },
@@ -93,7 +93,7 @@ const mcpItems: McpItem[] = [
   { name: '通义千问-大模型翻译', mcpId: 2419, desc: '使用qwen-mt-turbo大模型，按指定语种翻译文本。', category: 'AI模型', free: false, type: 'Remote', color: '#7c3aed' },
   { name: '创意海报生成', mcpId: 9436, desc: '调用qwen-image-max大模型，根据自然语言生成高质量海报。', category: 'AI模型', free: true, type: 'Remote', color: '#eab308' },
   { name: '钉钉Teambition 项目管理', mcpId: 2013, desc: 'Teambition MCP助您高效管理项目与任务，支持创建/更新任务、设置截止日期、分配执行人。', category: '项目管理', free: true, type: 'Remote', color: '#1e293b' },
-  { name: '通义千问-视频理解', mcpId: 1079, desc: '调用qwen3-vl-plus大模型，根据文字描述和视频进行解读。', category: 'AI模型', free: false, type: 'Remote', color: '#f97316' },
+  { name: '通义千问-视频理解', mcpId: 1079, desc: '调用qwen3-vl-plus大模型，根据文字描述和视频进行解读。', category: 'AI模型', free: false, type: 'Remote', color: '#ea580c' },
   { name: '海螺-文生视频', mcpId: 1074, desc: '海螺文生视频能力，根据文字描述生成视频。', category: 'AI模型', free: false, type: 'Remote', color: '#06b6d4' },
   { name: '百度地图路径规划', mcpId: 2486, desc: '支持百度地图的公交、步行、驾车等路径规划和路程计算。', category: '地图服务', free: false, type: 'Remote', color: '#f59e0b' },
   { name: '专利信息查询', mcpId: 9355, desc: '根据专利号或关键词获取专利信息，提供AI驱动的摘要和战略分析。', category: '办公协同', free: true, type: 'Remote', color: '#3b82f6' },
@@ -303,7 +303,7 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
       <Drawer
         title={
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <RocketOutlined style={{ color: '#4f46e5' }} />
+            <RocketOutlined style={{ color: '#1e40af' }} />
             <span>AI 工具箱</span>
           </span>
         }

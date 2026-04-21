@@ -28,7 +28,7 @@ const FinanceDepartmentProfit: React.FC = () => {
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
-  const color = DEPT_COLORS[dept] || '#4f46e5';
+  const color = DEPT_COLORS[dept] || '#1e40af';
 
   const fetchData = useCallback((d: string, s: string, e: string) => {
     abortRef.current?.abort();
@@ -65,7 +65,7 @@ const FinanceDepartmentProfit: React.FC = () => {
   const profitRate = totalSales > 0 ? totalProfit / totalSales : 0;
   const statCards = [
     { title: '销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
-    { title: '成本', value: totalCost, precision: 2, prefix: '¥', accentColor: '#f97316' },
+    { title: '成本', value: totalCost, precision: 2, prefix: '¥', accentColor: '#ea580c' },
     { title: '毛利', value: totalProfit, precision: 2, prefix: '¥', accentColor: '#10b981' },
     { title: '毛利率', value: profitRate * 100, precision: 1, suffix: '%', accentColor: profitRateColor(profitRate) },
   ];
@@ -127,7 +127,7 @@ const FinanceDepartmentProfit: React.FC = () => {
           const p = d.profit || 0;
           return s > 0 ? parseFloat((p / s * 100).toFixed(2)) : 0;
         }),
-        itemStyle: { color: '#8b5cf6' },
+        itemStyle: { color: '#7c3aed' },
         lineStyle: { type: 'dashed' as const },
       },
     ],

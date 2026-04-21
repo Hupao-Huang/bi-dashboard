@@ -424,7 +424,8 @@ const RPAMonitor: React.FC = () => {
         try {
           const pr = await fetch(`${API_BASE}/api/admin/rpa-scan/import-progress`, { credentials: 'include', signal });
           const prog = await pr.json();
-          setImportProg(prog);
+          // 后端若返回只含 running 的空对象（服务重启等场景），合并进当前 state 保留 total/platform/results
+          setImportProg((prev: any) => ({ ...(prev || {}), ...prog }));
           if (!prog.running) {
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
@@ -666,14 +667,14 @@ const RPAMonitor: React.FC = () => {
         {importProg && (
           <div>
             <Progress
-              percent={importProg.total > 0 ? Math.round((importProg.current / importProg.total) * 100) : 0}
+              percent={(importProg.total || 0) > 0 ? Math.round(((importProg.current || 0) / importProg.total) * 100) : 0}
               status={importProg.running ? 'active' : 'success'}
               style={{ marginBottom: 16 }}
             />
             <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
               {importProg.running
-                ? `正在执行: ${importProg.current_tool || ''} (${importProg.current}/${importProg.total})`
-                : `全部完成 (${importProg.total}个工具)`
+                ? `正在执行: ${importProg.current_tool || ''} (${importProg.current || 0}/${importProg.total || 0})`
+                : `全部完成 (${importProg.total || 0}个工具)`
               }
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

@@ -12,7 +12,7 @@ import DateFilter from '../../components/DateFilter';
 import AnimatedNumber from '../../components/AnimatedNumber';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../../config';
-import { getBaseOption, barItemStyle, formatMoney, CHART_COLORS } from '../../chartTheme';
+import { getBaseOption, barItemStyle, formatMoney, CHART_COLORS, GRADE_COLORS } from '../../chartTheme';
 
 const PlanDashboard: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
@@ -49,12 +49,12 @@ const PlanDashboard: React.FC = () => {
   const fmtPct = (v: number) => `${v.toFixed(1)}%`;
 
   const kpiCards = [
-    { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#4f46e5', icon: <DollarOutlined />, desc: '销售出库销售额', animated: true },
+    { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#1e40af', icon: <DollarOutlined />, desc: '销售出库销售额', animated: true },
     { title: '库存成本', num: kpi.stockCost || 0, fmt: fmtYuan, color: '#06b6d4', icon: <DatabaseOutlined />, desc: '当前库存金额', tag: '实时' },
     { title: '库存周转', num: kpi.turnoverDays || 0, fmt: fmtDay, color: '#f59e0b', icon: <SyncOutlined />, desc: '库存成本÷日均销售成本', animated: true },
-    { title: '高库存占比', num: kpi.highStockRate || 0, fmt: fmtPct, color: '#8b5cf6', icon: <WarningOutlined />, desc: '周转>50天的库存占比', tag: '实时' },
+    { title: '高库存占比', num: kpi.highStockRate || 0, fmt: fmtPct, color: '#7c3aed', icon: <WarningOutlined />, desc: '周转>50天的库存占比', tag: '实时' },
     { title: '缺货率', num: kpi.stockoutRate || 0, fmt: fmtPct, color: '#ef4444', icon: <StopOutlined />, desc: `${kpi.stockoutSKU || 0}/${kpi.salesSKU || 0} SKU`, tag: '实时' },
-    { title: '库龄>90天', num: kpi.agedStockValue || 0, fmt: fmtWan, color: '#f97316', icon: <WarningOutlined />, desc: '生产日期超90天的库存金额', tag: '实时' },
+    { title: '库龄>90天', num: kpi.agedStockValue || 0, fmt: fmtWan, color: '#ea580c', icon: <WarningOutlined />, desc: '生产日期超90天的库存金额', tag: '实时' },
   ];
 
   // ========== 月度销售趋势 ==========
@@ -66,7 +66,7 @@ const PlanDashboard: React.FC = () => {
     xAxis: { ...baseOpt.xAxis, type: 'category' as const, data: monthly.map((d: any) => d.month) },
     yAxis: { ...baseOpt.yAxis, type: 'value' as const, axisLabel: { ...baseOpt.yAxis.axisLabel, formatter: formatMoney } },
     series: [{
-      type: 'bar', data: monthly.map((d: any) => d.value), ...barItemStyle('#4f46e5'), barWidth: 20,
+      type: 'bar', data: monthly.map((d: any) => d.value), ...barItemStyle('#1e40af'), barWidth: 20,
       label: { show: true, position: 'top', fontSize: 10, color: '#64748b', formatter: (p: any) => formatMoney(p.value) },
     }],
   };
@@ -144,14 +144,13 @@ const PlanDashboard: React.FC = () => {
 
   // ========== 销售TOP20 ==========
   const topCols = [
-    { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#4f46e5' : '#94a3b8', fontWeight: i < 3 ? 700 : 400 }}>{i + 1}</span> },
+    { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#1e40af' : '#94a3b8', fontWeight: i < 3 ? 700 : 400 }}>{i + 1}</span> },
     { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
     { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 200, ellipsis: true },
     { title: '分类', dataIndex: 'category', key: 'category', width: 80, ellipsis: true, render: (v: string) => v ? v.replace(/^成品\//, '') : '-' },
     { title: '定位', dataIndex: 'grade', key: 'grade', width: 70, render: (v: string) => {
       if (!v) return '-';
-      const colors: Record<string, string> = { S: '#ef4444', A: '#f59e0b', B: '#4f46e5', C: '#10b981', D: '#94a3b8' };
-      return <span style={{ color: colors[v] || '#64748b', fontWeight: 600, fontSize: 12 }}>{v}</span>;
+      return <span style={{ color: GRADE_COLORS[v] || '#64748b', fontWeight: 600, fontSize: 12 }}>{v}</span>;
     }},
     { title: '销售额', dataIndex: 'sales', key: 'sales', width: 120, align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600 }}>¥{v?.toLocaleString()}</span> },
     { title: '数量', dataIndex: 'qty', key: 'qty', width: 80, align: 'right' as const, render: (v: number) => v?.toLocaleString() },
@@ -317,7 +316,7 @@ const PlanDashboard: React.FC = () => {
             { title: '库存金额', dataIndex: 'stockValue', key: 'stockValue', width: 110, align: 'right' as const, render: (v: number) => `¥${v?.toLocaleString()}` },
             { title: '批次', dataIndex: 'batchNo', key: 'batchNo', width: 120 },
             { title: '生产日期', dataIndex: 'productionDate', key: 'productionDate', width: 100, render: (v: string) => v ? v.slice(0, 10) : '-' },
-            { title: '库龄(天)', dataIndex: 'ageDays', key: 'ageDays', width: 90, align: 'right' as const, sorter: (a: any, b: any) => a.ageDays - b.ageDays, render: (v: number) => <span style={{ color: v > 180 ? '#ef4444' : '#f97316', fontWeight: 600 }}>{v}</span> },
+            { title: '库龄(天)', dataIndex: 'ageDays', key: 'ageDays', width: 90, align: 'right' as const, sorter: (a: any, b: any) => a.ageDays - b.ageDays, render: (v: number) => <span style={{ color: v > 180 ? '#ef4444' : '#ea580c', fontWeight: 600 }}>{v}</span> },
           ]} rowKey={(r: any) => r.goodsNo + r.warehouse + r.batchNo} pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 1045, y: 420 }} />
           </div>
         </Card>
@@ -333,14 +332,13 @@ const PlanDashboard: React.FC = () => {
         <div style={{ flex: 1, minWidth: 0 }}>
           <Card title="销售数量 TOP20">
             <Table dataSource={data.topQtyProducts || []} columns={[
-              { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#4f46e5' : '#94a3b8', fontWeight: i < 3 ? 700 : 400 }}>{i + 1}</span> },
+              { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#1e40af' : '#94a3b8', fontWeight: i < 3 ? 700 : 400 }}>{i + 1}</span> },
               { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
               { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 200, ellipsis: true },
               { title: '分类', dataIndex: 'category', key: 'category', width: 80, ellipsis: true, render: (v: string) => v ? v.replace(/^成品\//, '') : '-' },
               { title: '定位', dataIndex: 'grade', key: 'grade', width: 70, render: (v: string) => {
                 if (!v) return '-';
-                const colors: Record<string, string> = { S: '#ef4444', A: '#f59e0b', B: '#4f46e5', C: '#10b981', D: '#94a3b8' };
-                return <span style={{ color: colors[v] || '#64748b', fontWeight: 600, fontSize: 12 }}>{v}</span>;
+                return <span style={{ color: GRADE_COLORS[v] || '#64748b', fontWeight: 600, fontSize: 12 }}>{v}</span>;
               }},
               { title: '数量', dataIndex: 'qty', key: 'qty', width: 80, align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600 }}>{v?.toLocaleString()}</span> },
               { title: '销售额', dataIndex: 'sales', key: 'sales', width: 110, align: 'right' as const, render: (v: number) => `¥${v?.toLocaleString()}` },

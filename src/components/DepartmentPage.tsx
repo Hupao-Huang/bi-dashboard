@@ -65,9 +65,9 @@ const DepartmentPage: React.FC<Props> = ({ dept, title, color  }) => {
 
   // 统计卡片配置 - 白底+左侧色条
   const statCards = [
-    { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: '#4f46e5' },
+    { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: '#1e40af' },
     { title: '总货品数', value: totalQty, precision: 0, prefix: '', accentColor: '#10b981' },
-    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#8b5cf6' },
+    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#7c3aed' },
     { title: '日均销售额', value: dailyAvgSales, precision: 2, prefix: '¥', accentColor: '#f59e0b' },
   ];
 

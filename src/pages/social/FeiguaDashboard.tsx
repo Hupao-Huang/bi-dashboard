@@ -124,7 +124,7 @@ const FeiguaDashboard: React.FC = () => {
       type: 'bar',
       barWidth: 14,
       data: (followers || []).map((f: any) => f.gmv).reverse(),
-      ...barItemStyle('#4f46e5'),
+      ...barItemStyle('#1e40af'),
       label: {
         show: true,
         position: 'right',
@@ -138,7 +138,7 @@ const FeiguaDashboard: React.FC = () => {
   const creatorColumns = [
     { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => {
       const rank = i + 1;
-      return <span style={{ color: rank <= 3 ? '#4f46e5' : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span>;
+      return <span style={{ color: rank <= 3 ? '#1e40af' : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span>;
     } },
     { title: '达人昵称', dataIndex: 'creatorName', key: 'creatorName', ellipsis: true, width: 150 },
     { title: '平台', dataIndex: 'platform', key: 'platform', width: 70,
@@ -158,7 +158,7 @@ const FeiguaDashboard: React.FC = () => {
   const followerColumns = [
     { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => {
       const rank = i + 1;
-      return <span style={{ color: rank <= 3 ? '#4f46e5' : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span>;
+      return <span style={{ color: rank <= 3 ? '#1e40af' : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span>;
     } },
     { title: '跟进人', dataIndex: 'follower', key: 'follower', width: 100 },
     { title: 'GMV', dataIndex: 'gmv', key: 'gmv', width: 110, sorter: (a: any, b: any) => a.gmv - b.gmv,
@@ -171,10 +171,10 @@ const FeiguaDashboard: React.FC = () => {
 
   const statCards = [
     { title: '总GMV', value: summary?.totalGmv || 0, precision: 2, prefix: '¥', accentColor: '#ef4444' },
-    { title: '成交订单数', value: summary?.totalOrders || 0, accentColor: '#4f46e5' },
+    { title: '成交订单数', value: summary?.totalOrders || 0, accentColor: '#1e40af' },
     { title: '出单达人数', value: summary?.totalCreators || 0, accentColor: '#10b981' },
     { title: '佣金支出', value: summary?.commission || 0, precision: 2, prefix: '¥', accentColor: '#f59e0b' },
-    { title: '达人资源总数', value: totalRoster, accentColor: '#8b5cf6' },
+    { title: '达人资源总数', value: totalRoster, accentColor: '#7c3aed' },
     { title: '已建联达人', value: totalConnected, accentColor: '#06b6d4' },
   ];
 
