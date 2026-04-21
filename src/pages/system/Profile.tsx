@@ -88,7 +88,7 @@ const Profile: React.FC = () => {
               size={100}
               src={profile.avatar ? `${API_BASE}${profile.avatar}` : undefined}
               icon={!profile.avatar ? <UserOutlined /> : undefined}
-              style={{ backgroundColor: profile.avatar ? undefined : '#4f46e5' }}
+              style={{ backgroundColor: profile.avatar ? undefined : '#1e40af' }}
             />
             <Upload
               showUploadList={false}

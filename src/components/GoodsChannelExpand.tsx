@@ -1,8 +1,7 @@
 import React from 'react';
 import { Row, Col, Table } from 'antd';
 import ReactECharts from './Chart';
-
-const pieColors = ['#f59e0b', '#8b5cf6', '#10b981', '#f43f5e', '#3b82f6', '#06b6d4', '#ec4899', '#84cc16', '#14b8a6', '#a855f7'];
+import { CHART_COLORS, pieStyle } from '../chartTheme';
 
 function getPlatform(shopName: string): string {
   if (shopName.startsWith('ds-天猫超市')) return '天猫超市';
@@ -36,7 +35,7 @@ interface Channel {
 
 // mode: 'platform' 按平台聚合（电商/货品看板），'department' 按部门聚合（综合看板）
 const GoodsChannelExpand: React.FC<{ channels: Channel[]; mode?: 'platform' | 'department' }> = ({ channels, mode = 'platform' }) => {
-  if (channels.length === 0) return <span style={{ color: '#999' }}>暂无渠道数据</span>;
+  if (channels.length === 0) return <span style={{ color: '#64748b' }}>暂无渠道数据</span>;
   const totalSales = channels.reduce((s, c) => s + c.sales, 0);
 
   // 聚合
@@ -74,12 +73,12 @@ const GoodsChannelExpand: React.FC<{ channels: Channel[]; mode?: 'platform' | 'd
           <div style={{ fontWeight: 600, marginBottom: 8 }}>&nbsp;</div>
           <ReactECharts
             option={{
-              tooltip: { trigger: 'item' as const, formatter: '{b}: ¥{c} ({d}%)' },
-              legend: { bottom: 0, type: 'scroll' as const },
+              ...pieStyle,
+              legend: { ...pieStyle.legend, type: 'scroll' as const },
               series: [{
                 type: 'pie', radius: ['30%', '60%'],
-                label: { show: true, formatter: '{b}\n{d}%', fontSize: 11 },
-                data: platData.map((p, i) => ({ value: p.sales, name: p.name, itemStyle: { color: pieColors[i % pieColors.length] } })),
+                label: { show: true, formatter: '{b}\n{d}%', fontSize: 11, color: '#475569' },
+                data: platData.map((p, i) => ({ value: p.sales, name: p.name, itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] } })),
               }],
             }}
             style={{ height: Math.max(200, platData.length * 28) }}
@@ -105,11 +104,12 @@ const GoodsChannelExpand: React.FC<{ channels: Channel[]; mode?: 'platform' | 'd
           <div style={{ fontWeight: 600, marginBottom: 8 }}>&nbsp;</div>
           <ReactECharts
             option={{
-              tooltip: { trigger: 'item' as const, formatter: '{b}: ¥{c} ({d}%)' },
-              legend: { bottom: 0, type: 'scroll' as const },
+              ...pieStyle,
+              color: CHART_COLORS,
+              legend: { ...pieStyle.legend, type: 'scroll' as const },
               series: [{
                 type: 'pie', radius: ['30%', '60%'],
-                label: { show: true, formatter: '{b}\n{d}%', fontSize: 11 },
+                label: { show: true, formatter: '{b}\n{d}%', fontSize: 11, color: '#475569' },
                 data: channels.map((c) => ({ value: c.sales, name: c.shopName })),
               }],
             }}

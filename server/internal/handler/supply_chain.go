@@ -131,7 +131,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		rows, ok := queryRows(`
 			SELECT DATE_FORMAT(stat_date,'%Y-%m') AS m, ROUND(SUM(local_goods_amt),2)
 			FROM sales_goods_summary
-			WHERE stat_date >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)`+salesScopeCond+`
+			WHERE stat_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 15 MONTH),'%%Y-%%m-01')`+salesScopeCond+`
 			GROUP BY m ORDER BY m`, monthlyArgs...)
 		if !ok {
 			return

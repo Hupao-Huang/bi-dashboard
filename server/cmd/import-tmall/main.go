@@ -148,6 +148,8 @@ func processShopDir(dir, dateStr, shopName string, isLatest bool) {
 			err = importGoodsDaily(fullPath, dateStr, shopName)
 		case source == "万象台" && dataType == "营销场景数据" && (ext == "xlsx" || ext == "xls"):
 			err = importCampaignDaily(fullPath, dateStr, shopName)
+		case source == "万象台" && dataType == "营销明细数据" && (ext == "xlsx" || ext == "xls"):
+			err = importCampaignDetailDaily(fullPath, dateStr, shopName)
 		case source == "淘宝联盟" && dataType == "营销场景数据" && (ext == "xlsx" || ext == "xls"):
 			err = importCPSDaily(fullPath, dateStr, shopName)
 		case source == "生意参谋" && dataType == "业绩询单" && ext == "xlsx":
@@ -475,6 +477,121 @@ func importCampaignDaily(path, dateStr, shopName string) error {
 		count++
 	}
 	log.Printf("  万象台: %d条", count)
+	return nil
+}
+
+// ==================== 万象台-营销明细(商品级) ====================
+// 文件: 天猫_{date}_{shop}_万象台_营销明细数据.xlsx
+// 粒度: 日期 × 店铺 × 商品(主体ID)
+// stat_date 取 Excel "日期" 列(业务日期)，文件名日期只是 RPA 采集日
+func importCampaignDetailDaily(path, dateStr, shopName string) error {
+	f, err := excelize.OpenFile(path)
+	if err != nil {
+		return fmt.Errorf("打开xlsx失败: %w", err)
+	}
+	defer f.Close()
+
+	sheet := f.GetSheetName(0)
+	rows, err := f.GetRows(sheet)
+	if err != nil {
+		return fmt.Errorf("读取sheet失败: %w", err)
+	}
+	if len(rows) < 2 {
+		return nil
+	}
+
+	header := rows[0]
+	colMap := make(map[string]int)
+	for i, h := range header {
+		colMap[strings.TrimSpace(h)] = i
+	}
+
+	count := 0
+	for _, row := range rows[1:] {
+		if len(row) == 0 {
+			continue
+		}
+		get := func(name string) string {
+			idx, ok := colMap[name]
+			if !ok || idx >= len(row) {
+				return ""
+			}
+			return strings.TrimSpace(row[idx])
+		}
+		getF := func(name string) float64 { return parseFloat(get(name)) }
+		getI := func(name string) int { return parseInt(get(name)) }
+
+		productID := get("主体ID")
+		if productID == "" {
+			continue
+		}
+		statDate := get("日期")
+		if statDate == "" {
+			statDate = formatDate(dateStr)
+		}
+
+		_, err := db.Exec(`REPLACE INTO op_tmall_campaign_detail_daily (
+			stat_date, shop_name, product_id, entity_type, product_name,
+			impressions, clicks, cost, click_rate, avg_click_cost, cpm,
+			presale_total_amount, presale_total_count,
+			presale_direct_amount, presale_direct_count,
+			presale_indirect_amount, presale_indirect_count,
+			direct_pay_amount, indirect_pay_amount, total_pay_amount, total_pay_count,
+			direct_pay_count, indirect_pay_count,
+			click_conv_rate, roi, roi_with_presale, total_pay_cost,
+			total_cart, direct_cart, indirect_cart, cart_rate, cart_cost,
+			goods_collect_count, shop_collect_count, shop_collect_cost,
+			total_cart_collect, total_cart_collect_cost,
+			goods_cart_collect, goods_cart_collect_cost,
+			total_collect, goods_collect_cost, goods_collect_rate,
+			direct_goods_collect, indirect_goods_collect,
+			place_order_count, place_order_amount,
+			coupon_claim_count,
+			shop_money_recharge_count, shop_money_recharge_amount,
+			wangwang_consult_count,
+			guide_visit_count, guide_visit_users, guide_visit_potential,
+			guide_visit_potential_rate, member_join_rate, member_join_count,
+			guide_visit_rate, deep_visit_count, avg_page_views,
+			new_customer_count, new_customer_rate,
+			member_first_buy, member_pay_amount, member_pay_count,
+			buyer_count, avg_pay_count_per_user, avg_pay_amount_per_user,
+			natural_flow_pay_amount, natural_flow_impressions,
+			platform_total_pay, platform_direct_pay, platform_clicks
+		) VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?, ?,?, ?,?, ?,?,?,?, ?,?, ?,?,?,?, ?,?,?,?,?, ?,?,?, ?,?, ?,?, ?,?,?, ?,?, ?,?, ?, ?,?, ?, ?,?,?, ?,?,?, ?,?,?, ?,?, ?,?,?, ?,?,?, ?,?, ?,?,?)`,
+			statDate, shopName, productID, get("主体类型"), get("主体名称"),
+			getI("展现量"), getI("点击量"), getF("花费"), getF("点击率"), getF("平均点击花费"), getF("千次展现花费"),
+			getF("总预售成交金额"), getI("总预售成交笔数"),
+			getF("直接预售成交金额"), getI("直接预售成交笔数"),
+			getF("间接预售成交金额"), getI("间接预售成交笔数"),
+			getF("直接成交金额"), getF("间接成交金额"), getF("总成交金额"), getI("总成交笔数"),
+			getI("直接成交笔数"), getI("间接成交笔数"),
+			getF("点击转化率"), getF("投入产出比"), getF("含预售投产比"), getF("总成交成本"),
+			getI("总购物车数"), getI("直接购物车数"), getI("间接购物车数"), getF("加购率"), getF("加购成本"),
+			getI("收藏宝贝数"), getI("收藏店铺数"), getF("店铺收藏成本"),
+			getI("总收藏加购数"), getF("总收藏加购成本"),
+			getI("宝贝收藏加购数"), getF("宝贝收藏加购成本"),
+			getI("总收藏数"), getF("宝贝收藏成本"), getF("宝贝收藏率"),
+			getI("直接收藏宝贝数"), getI("间接收藏宝贝数"),
+			getI("拍下订单笔数"), getF("拍下订单金额"),
+			getI("优惠券领取量"),
+			getI("购物金充值笔数"), getF("购物金充值金额"),
+			getI("旺旺咨询量"),
+			getI("引导访问量"), getI("引导访问人数"), getI("引导访问潜客数"),
+			getF("引导访问潜客占比"), getF("入会率"), getI("入会量"),
+			getF("引导访问率"), getI("深度访问量"), getF("平均访问页面数"),
+			getI("成交新客数"), getF("成交新客占比"),
+			getI("会员首购人数"), getF("会员成交金额"), getI("会员成交笔数"),
+			getI("成交人数"), getF("人均成交笔数"), getF("人均成交金额"),
+			getF("自然流量转化金额"), getI("自然流量曝光量"),
+			getF("平台助推总成交"), getF("平台助推直接成交"), getI("平台助推点击"),
+		)
+		if err != nil {
+			log.Printf("插入campaign_detail_daily失败 [%s]: %v", productID, err)
+			continue
+		}
+		count++
+	}
+	log.Printf("  万象台明细: %d条", count)
 	return nil
 }
 

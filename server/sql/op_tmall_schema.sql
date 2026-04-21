@@ -327,3 +327,98 @@ CREATE TABLE IF NOT EXISTS op_tmall_industry_monthly (
     UNIQUE INDEX uk_month_shop_type (stat_month, shop_name, value_type),
     INDEX idx_shop (shop_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='天猫运营-集客行业对比月数据';
+
+-- =============================================
+-- 12. 万象台-CPC推广商品级明细日数据
+-- 来源: 天猫_{date}_{shop}_万象台_营销明细数据.xlsx
+-- 粒度: 日期 × 店铺 × 商品(主体ID)
+-- =============================================
+CREATE TABLE IF NOT EXISTS op_tmall_campaign_detail_daily (
+    id                          BIGINT PRIMARY KEY AUTO_INCREMENT,
+    stat_date                   DATE           NOT NULL COMMENT '统计日期',
+    shop_name                   VARCHAR(100)   NOT NULL COMMENT '店铺名称',
+    product_id                  VARCHAR(32)    NOT NULL COMMENT '商品ID(Excel主体ID)',
+    entity_type                 VARCHAR(20)    DEFAULT '商品' COMMENT '主体类型(通常为"商品")',
+    product_name                VARCHAR(500)   DEFAULT NULL COMMENT '商品名称(主体名称)',
+    -- 曝光点击
+    impressions                 BIGINT         DEFAULT 0 COMMENT '展现量',
+    clicks                      INT            DEFAULT 0 COMMENT '点击量',
+    cost                        DECIMAL(14,2)  DEFAULT 0 COMMENT '花费',
+    click_rate                  DECIMAL(8,6)   DEFAULT 0 COMMENT '点击率',
+    avg_click_cost              DECIMAL(10,4)  DEFAULT 0 COMMENT '平均点击花费',
+    cpm                         DECIMAL(10,4)  DEFAULT 0 COMMENT '千次展现花费',
+    -- 预售成交
+    presale_total_amount        DECIMAL(14,2)  DEFAULT 0 COMMENT '总预售成交金额',
+    presale_total_count         INT            DEFAULT 0 COMMENT '总预售成交笔数',
+    presale_direct_amount       DECIMAL(14,2)  DEFAULT 0 COMMENT '直接预售成交金额',
+    presale_direct_count        INT            DEFAULT 0 COMMENT '直接预售成交笔数',
+    presale_indirect_amount     DECIMAL(14,2)  DEFAULT 0 COMMENT '间接预售成交金额',
+    presale_indirect_count      INT            DEFAULT 0 COMMENT '间接预售成交笔数',
+    -- 成交
+    direct_pay_amount           DECIMAL(14,2)  DEFAULT 0 COMMENT '直接成交金额',
+    indirect_pay_amount         DECIMAL(14,2)  DEFAULT 0 COMMENT '间接成交金额',
+    total_pay_amount            DECIMAL(14,2)  DEFAULT 0 COMMENT '总成交金额',
+    total_pay_count             INT            DEFAULT 0 COMMENT '总成交笔数',
+    direct_pay_count            INT            DEFAULT 0 COMMENT '直接成交笔数',
+    indirect_pay_count          INT            DEFAULT 0 COMMENT '间接成交笔数',
+    click_conv_rate             DECIMAL(8,6)   DEFAULT 0 COMMENT '点击转化率',
+    roi                         DECIMAL(10,4)  DEFAULT 0 COMMENT '投入产出比',
+    roi_with_presale            DECIMAL(10,4)  DEFAULT 0 COMMENT '含预售投产比',
+    total_pay_cost              DECIMAL(14,2)  DEFAULT 0 COMMENT '总成交成本',
+    -- 购物车
+    total_cart                  INT            DEFAULT 0 COMMENT '总购物车数',
+    direct_cart                 INT            DEFAULT 0 COMMENT '直接购物车数',
+    indirect_cart               INT            DEFAULT 0 COMMENT '间接购物车数',
+    cart_rate                   DECIMAL(8,6)   DEFAULT 0 COMMENT '加购率',
+    cart_cost                   DECIMAL(14,2)  DEFAULT 0 COMMENT '加购成本',
+    -- 收藏
+    goods_collect_count         INT            DEFAULT 0 COMMENT '收藏宝贝数',
+    shop_collect_count          INT            DEFAULT 0 COMMENT '收藏店铺数',
+    shop_collect_cost           DECIMAL(14,2)  DEFAULT 0 COMMENT '店铺收藏成本',
+    total_cart_collect          INT            DEFAULT 0 COMMENT '总收藏加购数',
+    total_cart_collect_cost     DECIMAL(14,2)  DEFAULT 0 COMMENT '总收藏加购成本',
+    goods_cart_collect          INT            DEFAULT 0 COMMENT '宝贝收藏加购数',
+    goods_cart_collect_cost     DECIMAL(14,2)  DEFAULT 0 COMMENT '宝贝收藏加购成本',
+    total_collect               INT            DEFAULT 0 COMMENT '总收藏数',
+    goods_collect_cost          DECIMAL(14,2)  DEFAULT 0 COMMENT '宝贝收藏成本',
+    goods_collect_rate          DECIMAL(8,6)   DEFAULT 0 COMMENT '宝贝收藏率',
+    direct_goods_collect        INT            DEFAULT 0 COMMENT '直接收藏宝贝数',
+    indirect_goods_collect      INT            DEFAULT 0 COMMENT '间接收藏宝贝数',
+    -- 订单 / 其他互动
+    place_order_count           INT            DEFAULT 0 COMMENT '拍下订单笔数',
+    place_order_amount          DECIMAL(14,2)  DEFAULT 0 COMMENT '拍下订单金额',
+    coupon_claim_count          INT            DEFAULT 0 COMMENT '优惠券领取量',
+    shop_money_recharge_count   INT            DEFAULT 0 COMMENT '购物金充值笔数',
+    shop_money_recharge_amount  DECIMAL(14,2)  DEFAULT 0 COMMENT '购物金充值金额',
+    wangwang_consult_count      INT            DEFAULT 0 COMMENT '旺旺咨询量',
+    -- 引导访问
+    guide_visit_count           INT            DEFAULT 0 COMMENT '引导访问量',
+    guide_visit_users           INT            DEFAULT 0 COMMENT '引导访问人数',
+    guide_visit_potential       INT            DEFAULT 0 COMMENT '引导访问潜客数',
+    guide_visit_potential_rate  DECIMAL(8,6)   DEFAULT 0 COMMENT '引导访问潜客占比',
+    member_join_rate            DECIMAL(8,6)   DEFAULT 0 COMMENT '入会率',
+    member_join_count           INT            DEFAULT 0 COMMENT '入会量',
+    guide_visit_rate            DECIMAL(8,6)   DEFAULT 0 COMMENT '引导访问率',
+    deep_visit_count            INT            DEFAULT 0 COMMENT '深度访问量',
+    avg_page_views              DECIMAL(10,4)  DEFAULT 0 COMMENT '平均访问页面数',
+    -- 成交人群
+    new_customer_count          INT            DEFAULT 0 COMMENT '成交新客数',
+    new_customer_rate           DECIMAL(8,6)   DEFAULT 0 COMMENT '成交新客占比',
+    member_first_buy            INT            DEFAULT 0 COMMENT '会员首购人数',
+    member_pay_amount           DECIMAL(14,2)  DEFAULT 0 COMMENT '会员成交金额',
+    member_pay_count            INT            DEFAULT 0 COMMENT '会员成交笔数',
+    buyer_count                 INT            DEFAULT 0 COMMENT '成交人数',
+    avg_pay_count_per_user      DECIMAL(10,4)  DEFAULT 0 COMMENT '人均成交笔数',
+    avg_pay_amount_per_user     DECIMAL(14,2)  DEFAULT 0 COMMENT '人均成交金额',
+    -- 自然流量 / 平台助推
+    natural_flow_pay_amount     DECIMAL(14,2)  DEFAULT 0 COMMENT '自然流量转化金额',
+    natural_flow_impressions    BIGINT         DEFAULT 0 COMMENT '自然流量曝光量',
+    platform_total_pay          DECIMAL(14,2)  DEFAULT 0 COMMENT '平台助推总成交',
+    platform_direct_pay         DECIMAL(14,2)  DEFAULT 0 COMMENT '平台助推直接成交',
+    platform_clicks             INT            DEFAULT 0 COMMENT '平台助推点击',
+    created_at                  DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                  DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_date_shop_product (stat_date, shop_name, product_id),
+    KEY idx_date (stat_date),
+    KEY idx_product (product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='天猫万象台CPC推广-商品级明细(来源: 万象台_营销明细数据.xlsx)';

@@ -77,7 +77,30 @@ const guard = (permission: string, element: React.ReactNode) => (
 );
 
 const App: React.FC = () => (
-  <ConfigProvider locale={zhCN}>
+  <ConfigProvider
+    locale={zhCN}
+    theme={{
+      token: {
+        colorPrimary: '#1e40af',
+        colorInfo: '#1e40af',
+        colorSuccess: '#059669',
+        colorWarning: '#f59e0b',
+        colorError: '#dc2626',
+        colorLink: '#1e40af',
+        borderRadius: 10,
+        fontFamily: "'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif",
+      },
+      components: {
+        Button: { colorPrimary: '#1e40af', colorPrimaryHover: '#2563eb', colorPrimaryActive: '#1e3a8a' },
+        Menu: { itemSelectedBg: 'rgba(30, 64, 175, 0.1)', itemSelectedColor: '#1e3a8a' },
+        Tabs: { itemSelectedColor: '#1e40af', inkBarColor: '#1e40af' },
+        Checkbox: { colorPrimary: '#1e40af' },
+        Radio: { colorPrimary: '#1e40af' },
+        Switch: { colorPrimary: '#1e40af' },
+        DatePicker: { colorPrimary: '#1e40af' },
+      },
+    }}
+  >
     <ErrorBoundary>
     <BrowserRouter>
       <AuthProvider>

@@ -150,8 +150,8 @@ const MainLayout: React.FC = () => {
           <div style={{
             width: 32,
             height: 32,
-            borderRadius: 8,
-            background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+            borderRadius: 10,
+            background: 'linear-gradient(135deg, #1e40af 0%, #f59e0b 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -160,6 +160,7 @@ const MainLayout: React.FC = () => {
             color: '#fff',
             letterSpacing: -0.5,
             flexShrink: 0,
+            boxShadow: '0 6px 14px rgba(30, 64, 175, 0.22)',
           }}>
             SXX
           </div>
@@ -193,7 +194,7 @@ const MainLayout: React.FC = () => {
             transition: 'color 0.2s',
             flexShrink: 0,
           }}
-          onMouseEnter={e => (e.currentTarget.style.color = '#4f46e5')}
+          onMouseEnter={e => (e.currentTarget.style.color = '#1e40af')}
           onMouseLeave={e => (e.currentTarget.style.color = '#94a3b8')}
         >
           {collapsed ? <MenuUnfoldOutlined style={{ fontSize: 16 }} /> : <MenuFoldOutlined style={{ fontSize: 16 }} />}

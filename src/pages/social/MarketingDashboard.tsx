@@ -118,7 +118,7 @@ const MarketingDashboard: React.FC = () => {
         yAxisIndex: 1,
         smooth: true,
         data: liveTrend.map((d: any) => d.watchUV),
-        ...lineAreaStyle('#4f46e5'),
+        ...lineAreaStyle('#1e40af'),
         symbol: 'circle',
         symbolSize: 4,
       },
@@ -200,7 +200,7 @@ const MarketingDashboard: React.FC = () => {
         yAxisIndex: 1,
         smooth: true,
         data: distTrend.map((d: any) => d.roi),
-        ...lineAreaStyle('#4f46e5'),
+        ...lineAreaStyle('#1e40af'),
         symbol: 'circle',
         symbolSize: 4,
       },
@@ -209,17 +209,17 @@ const MarketingDashboard: React.FC = () => {
 
   const liveStatCards = [
     { title: '直播场次', value: liveSummary.sessions, prefix: <VideoCameraOutlined />, accentColor: '#ef4444' },
-    { title: '观看人数', value: liveSummary.watchUV, prefix: <EyeOutlined />, accentColor: '#4f46e5' },
+    { title: '观看人数', value: liveSummary.watchUV, prefix: <EyeOutlined />, accentColor: '#1e40af' },
     { title: '成交金额', value: liveSummary.payAmount, precision: 0, prefix: '¥', accentColor: '#10b981' },
-    { title: '平均在线', value: liveSummary.avgOnline, prefix: <TeamOutlined />, accentColor: '#8b5cf6' },
+    { title: '平均在线', value: liveSummary.avgOnline, prefix: <TeamOutlined />, accentColor: '#7c3aed' },
     { title: '退款率', value: liveSummary.refundRate, suffix: '%', accentColor: liveSummary.refundRate > 10 ? '#ef4444' : '#06b6d4' },
   ];
 
   const distStatCards = [
     { title: '总消耗', value: distSummary.cost, precision: 2, prefix: '¥', accentColor: '#f59e0b' },
     { title: '总成交额', value: distSummary.payAmount, precision: 2, prefix: '¥', accentColor: '#10b981' },
-    { title: '整体ROI', value: distSummary.roi, precision: 2, accentColor: '#4f46e5' },
-    { title: '达人总数', value: distSummary.talents, prefix: <TeamOutlined />, accentColor: '#8b5cf6' },
+    { title: '整体ROI', value: distSummary.roi, precision: 2, accentColor: '#1e40af' },
+    { title: '达人总数', value: distSummary.talents, prefix: <TeamOutlined />, accentColor: '#7c3aed' },
   ];
 
   return (
@@ -356,9 +356,9 @@ const MarketingDashboard: React.FC = () => {
                         {[
                           { title: '推广消耗', value: totalCost, precision: 2, prefix: '¥', accentColor: '#f59e0b' },
                           { title: '成交金额', value: totalPay, precision: 2, prefix: '¥', accentColor: '#10b981' },
-                          { title: 'ROI', value: overallROI, precision: 2, accentColor: '#4f46e5' },
+                          { title: 'ROI', value: overallROI, precision: 2, accentColor: '#1e40af' },
                           { title: '净成交', value: totalNet, precision: 2, prefix: '¥', accentColor: '#06b6d4' },
-                          { title: '净ROI', value: netROI, precision: 2, accentColor: '#8b5cf6' },
+                          { title: '净ROI', value: netROI, precision: 2, accentColor: '#7c3aed' },
                         ].map((card) => (
                           <Col xs={12} sm={4} key={card.title}>
                             <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
@@ -400,8 +400,8 @@ const MarketingDashboard: React.FC = () => {
                         series: [
                           { name: '消耗', type: 'bar', data: adTrend.map((d: any) => ({ value: d.cost, itemStyle: { color: inRange(d.date) ? '#f59e0b' : 'rgba(245,158,11,0.25)' } })), barMaxWidth: 8 },
                           { name: '成交金额', type: 'bar', data: adTrend.map((d: any) => ({ value: d.payAmount, itemStyle: { color: inRange(d.date) ? '#10b981' : 'rgba(16,185,129,0.25)' } })), barMaxWidth: 8 },
-                          { name: 'ROI', type: 'line', yAxisIndex: 1, smooth: true, data: adTrend.map((d: any) => d.roi), ...lineAreaStyle('#4f46e5'), symbol: 'circle', symbolSize: 4 },
-                          { name: '净ROI', type: 'line', yAxisIndex: 1, smooth: true, data: adTrend.map((d: any) => d.netROI), ...lineAreaStyle('#8b5cf6'), symbol: 'circle', symbolSize: 4, lineStyle: { type: 'dashed' as const } },
+                          { name: 'ROI', type: 'line', yAxisIndex: 1, smooth: true, data: adTrend.map((d: any) => d.roi), ...lineAreaStyle('#1e40af'), symbol: 'circle', symbolSize: 4 },
+                          { name: '净ROI', type: 'line', yAxisIndex: 1, smooth: true, data: adTrend.map((d: any) => d.netROI), ...lineAreaStyle('#7c3aed'), symbol: 'circle', symbolSize: 4, lineStyle: { type: 'dashed' as const } },
                         ],
                       }} />
                     </Card>

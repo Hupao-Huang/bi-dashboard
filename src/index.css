@@ -1,14 +1,20 @@
 /* ========================================
-   BI Dashboard - White Theme Design System
-   参考: Dribbble/Muzli 2026趋势 + AdminLTE配色规范
+   BI Dashboard - 松鲜鲜品牌主题 (v0.25)
+   Sage Green × 鲜橙 - 调味品品牌视觉
    ======================================== */
 
+/* 中文字体回退链（系统字体 + 数字 tabular） */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
 :root {
-  /* === 品牌色 === */
-  --color-primary: #4f46e5;
-  --color-primary-light: #818cf8;
-  --color-primary-dark: #4338ca;
-  --color-primary-bg: rgba(79, 70, 229, 0.06);
+  /* === 品牌色（松鲜鲜 sage × 鲜橙） === */
+  --color-primary: #1e40af;
+  --color-primary-light: #60a5fa;
+  --color-primary-dark: #1e3a8a;
+  --color-primary-bg: rgba(30, 64, 175, 0.08);
+  --color-accent: #f59e0b;
+  --color-accent-light: #e8c389;
+  --color-accent-bg: rgba(217, 164, 92, 0.1);
 
   /* === 侧边栏（白色主题） === */
   --sidebar-bg: #ffffff;
@@ -38,24 +44,24 @@
 
   /* === 文字 === */
   --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --text-tertiary: #94a3b8;
+  --text-secondary: #475569;
+  --text-tertiary: #64748b;
 
-  /* === 数据可视化色板 === */
-  --chart-blue: #4f46e5;
-  --chart-green: #10b981;
-  --chart-orange: #f59e0b;
-  --chart-purple: #8b5cf6;
-  --chart-pink: #ec4899;
-  --chart-cyan: #06b6d4;
-  --chart-red: #ef4444;
-  --chart-indigo: #6366f1;
+  /* === 数据可视化色板（松鲜鲜品牌调色盘） === */
+  --chart-sage: #1e40af;        /* 松鲜鲜绿 */
+  --chart-orange: #f59e0b;      /* 鲜橙 */
+  --chart-olive: #56725c;       /* 深橄榄 */
+  --chart-amber: #7c3aed;       /* 深琥珀 */
+  --chart-teal: #06b6d4;        /* 青茶 */
+  --chart-rose: #dc2626;        /* 陶土 */
+  --chart-wheat: #b89968;       /* 麦色 */
+  --chart-moss: #8aa68e;        /* 苔藓 */
 
   /* === 部门色 === */
-  --dept-ecommerce: #4f46e5;
-  --dept-social: #10b981;
-  --dept-offline: #f59e0b;
-  --dept-distribution: #8b5cf6;
+  --dept-ecommerce: #1e40af;    /* 电商 → sage */
+  --dept-social: #f59e0b;       /* 社媒 → 鲜橙 */
+  --dept-offline: #06b6d4;      /* 线下 → 青茶 */
+  --dept-distribution: #7c3aed; /* 分销 → 深琥珀 */
 
   /* === 间距系统 (8dp) === */
   --space-1: 4px;
@@ -92,12 +98,22 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-size: var(--font-base);
   color: var(--text-primary);
   background: var(--content-bg);
+  font-feature-settings: 'tnum' on, 'lnum' on;
+}
+
+/* 数字专用（KPI/金额） - tabular-nums 保证对齐 */
+.ant-statistic-content,
+.ant-statistic-content-value,
+.bi-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' on, 'lnum' on;
+  letter-spacing: -0.02em;
 }
 
 #root { min-height: 100vh; }
@@ -275,8 +291,8 @@ body {
 .bi-dept-card.active {
   border-color: var(--active-color, var(--color-primary)) !important;
   border-left: 3px solid var(--active-color, var(--color-primary)) !important;
-  box-shadow: 0 0 0 1px var(--active-glow, rgba(79,70,229,0.1)), var(--card-shadow-hover) !important;
-  background: var(--active-bg, rgba(79,70,229,0.02)) !important;
+  box-shadow: 0 0 0 1px var(--active-glow, rgba(110,143,114,0.12)), var(--card-shadow-hover) !important;
+  background: var(--active-bg, rgba(110,143,114,0.04)) !important;
 }
 
 /* ==========================================
@@ -330,7 +346,7 @@ body {
   border-bottom: 1px solid #f5f5f5 !important;
 }
 .ant-table-wrapper .ant-table-tbody > tr:hover > td {
-  background: rgba(79, 70, 229, 0.02) !important;
+  background: rgba(30, 64, 175, 0.04) !important;
 }
 
 /* ==========================================
@@ -399,7 +415,7 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: linear-gradient(135deg, #6f8f72 0%, #9ab99f 100%);
+  background: linear-gradient(135deg, #1e40af 0%, #60a5fa 100%);
   color: #ffffff;
   font-size: 17px;
   font-weight: 800;
@@ -513,7 +529,7 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #6f8f72 0%, #dca35b 100%);
+  background: linear-gradient(135deg, #1e40af 0%, #dca35b 100%);
 }
 
 .sxbi-float-card {
@@ -879,7 +895,7 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 18px;
-  background: linear-gradient(135deg, #6f8f72 0%, #dca35b 100%);
+  background: linear-gradient(135deg, #1e40af 0%, #dca35b 100%);
   color: #ffffff;
   font-size: 18px;
   font-weight: 800;
@@ -1063,11 +1079,11 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  background: linear-gradient(135deg, #6e8f72 0%, #d9a45c 100%);
+  background: linear-gradient(135deg, #1e40af 0%, #f59e0b 100%);
   color: #ffffff;
   font-size: 18px;
   font-weight: 800;
-  box-shadow: 0 12px 24px rgba(110, 143, 114, 0.2);
+  box-shadow: 0 12px 24px rgba(30, 64, 175, 0.2);
 }
 
 .sxbi-brand-title {
@@ -1110,14 +1126,14 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #6e8f72;
-  box-shadow: 0 0 0 4px rgba(110, 143, 114, 0.12);
+  background: #1e40af;
+  box-shadow: 0 0 0 4px rgba(30, 64, 175, 0.12);
 }
 
 .sxbi-live-state.active {
-  color: #546b56;
-  border-color: rgba(110, 143, 114, 0.3);
-  background: rgba(110, 143, 114, 0.08);
+  color: #1e3a8a;
+  border-color: rgba(30, 64, 175, 0.3);
+  background: rgba(30, 64, 175, 0.08);
 }
 
 .sxbi-live-state.privacy {
@@ -1127,7 +1143,7 @@ body {
 }
 
 .sxbi-live-state.privacy i {
-  background: #d9a45c;
+  background: #f59e0b;
   box-shadow: 0 0 0 4px rgba(217, 164, 92, 0.12);
 }
 
@@ -1203,8 +1219,8 @@ body {
 
 .sxbi-module-item.active,
 .sxbi-rule-item.active {
-  border-color: rgba(110, 143, 114, 0.28);
-  background: rgba(110, 143, 114, 0.07);
+  border-color: rgba(30, 64, 175, 0.28);
+  background: rgba(30, 64, 175, 0.07);
   transform: translateY(-1px);
 }
 
@@ -1268,9 +1284,9 @@ body {
 }
 
 .sxbi-stage-tabs .active {
-  background: rgba(110, 143, 114, 0.1);
-  border-color: rgba(110, 143, 114, 0.28);
-  color: #546b56;
+  background: rgba(30, 64, 175, 0.1);
+  border-color: rgba(30, 64, 175, 0.28);
+  color: #1e3a8a;
 }
 
 .sxbi-stage-kpis {
@@ -1406,9 +1422,9 @@ body {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: #6e8f72;
+  background: #1e40af;
   border: 2px solid #ffffff;
-  box-shadow: 0 8px 18px rgba(110, 143, 114, 0.18);
+  box-shadow: 0 8px 18px rgba(30, 64, 175, 0.18);
 }
 
 .sxbi-trend-line i:nth-child(1) { left: 2%; top: 58px; }
@@ -1433,7 +1449,7 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: conic-gradient(#7f9a7f 0 68%, #d9a45c 68% 84%, #56725c 84% 100%);
+  background: conic-gradient(#7f9a7f 0 68%, #f59e0b 68% 84%, #56725c 84% 100%);
 }
 
 .sxbi-ring-center {
@@ -1479,7 +1495,7 @@ body {
 }
 
 .sxbi-simple-legend .tone-sage { background: #7f9a7f; }
-.sxbi-simple-legend .tone-orange { background: #d9a45c; }
+.sxbi-simple-legend .tone-orange { background: #f59e0b; }
 .sxbi-simple-legend .tone-olive { background: #56725c; }
 
 .sxbi-queue-list {
@@ -1543,8 +1559,8 @@ body {
 }
 
 .sxbi-auth-frame.user {
-  border-color: rgba(110, 143, 114, 0.28);
-  box-shadow: 0 20px 42px rgba(110, 143, 114, 0.08);
+  border-color: rgba(30, 64, 175, 0.28);
+  box-shadow: 0 20px 42px rgba(30, 64, 175, 0.08);
 }
 
 .sxbi-auth-frame.privacy {
@@ -1566,12 +1582,12 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 16px;
-  background: linear-gradient(135deg, #6e8f72 0%, #d9a45c 100%);
+  background: linear-gradient(135deg, #1e40af 0%, #f59e0b 100%);
   color: #ffffff;
   font-size: 18px;
   font-weight: 800;
   flex-shrink: 0;
-  box-shadow: 0 14px 30px rgba(110, 143, 114, 0.18);
+  box-shadow: 0 14px 30px rgba(30, 64, 175, 0.18);
 }
 
 .sxbi-auth-title {

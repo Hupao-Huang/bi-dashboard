@@ -35,7 +35,7 @@ const supportsOpsShop = (shopName: string) => {
 
 const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
   const [platformTabs, setPlatformTabs] = useState<{key: string; label: string}[]>([]);
-  const [platform, setPlatform] = useState('');
+  const [platform, setPlatform] = useState('all');
   const [shopList, setShopList] = useState<any[]>([]);
   const [selectedShop, setSelectedShop] = useState<string>('');
   const [shopDetail, setShopDetail] = useState<any>(null);
@@ -328,7 +328,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
       { name: '销售额', type: 'bar', barMaxWidth: 20, barGap: '30%',
         data: daily.map((d: any) => ({ value: d.sales, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? color + '40' : color } })),
       },
-      { name: '销量', type: 'line', yAxisIndex: 1, smooth: true, data: daily.map((d: any) => d.qty), itemStyle: { color: '#f97316' } },
+      { name: '销量', type: 'line', yAxisIndex: 1, smooth: true, data: daily.map((d: any) => d.qty), itemStyle: { color: '#ea580c' } },
     ],
   };
 
@@ -398,7 +398,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
     ],
     series: [
       { name: '访客数', type: 'bar', barWidth: 8,
-        data: traffic.map((t: any) => ({ value: t.visitors, itemStyle: { color: isExpanded && !inSelectedRange(t.date) ? 'rgba(24,144,255,0.25)' : '#4f46e5' } })) },
+        data: traffic.map((t: any) => ({ value: t.visitors, itemStyle: { color: isExpanded && !inSelectedRange(t.date) ? 'rgba(24,144,255,0.25)' : '#1e40af' } })) },
       { name: '支付买家数', type: 'bar', barWidth: 8,
         data: traffic.map((t: any) => ({ value: t.payBuyers, itemStyle: { color: isExpanded && !inSelectedRange(t.date) ? 'rgba(82,196,26,0.25)' : '#10b981' } })) },
       { name: '转化率', type: 'line', yAxisIndex: 1, smooth: true, data: traffic.map((t: any) => (t.payConvRate * 100).toFixed(2)),
@@ -435,8 +435,8 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
     ],
     series: [
       { name: '会员支付额', type: 'bar', barWidth: 8,
-        data: members.map((m: any) => ({ value: m.memberPayAmt, itemStyle: { color: isExpanded && !inSelectedRange(m.date) ? 'rgba(114,46,209,0.25)' : '#8b5cf6' } })) },
-      { name: '支付会员数', type: 'line', data: members.map((m: any) => m.paidMemberCnt), itemStyle: { color: '#4f46e5' } },
+        data: members.map((m: any) => ({ value: m.memberPayAmt, itemStyle: { color: isExpanded && !inSelectedRange(m.date) ? 'rgba(114,46,209,0.25)' : '#7c3aed' } })) },
+      { name: '支付会员数', type: 'line', data: members.map((m: any) => m.paidMemberCnt), itemStyle: { color: '#1e40af' } },
       { name: '复购率', type: 'line', yAxisIndex: 1, smooth: true, data: members.map((m: any) => (m.repurchaseRate * 100).toFixed(2)),
         itemStyle: { color: '#faad14' }, lineStyle: { type: 'dashed' as const } },
     ],
@@ -531,8 +531,8 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               {[
                 { title: '销售额', value: currentShop.sales, precision: 2, prefix: '¥', accentColor: color },
                 { title: '货品数', value: currentShop.qty, accentColor: '#10b981' },
-                { title: '客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#4f46e5' },
-                { title: '店铺数量', value: shopList.length, suffix: '家', accentColor: '#8b5cf6' },
+                { title: '客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#1e40af' },
+                { title: '店铺数量', value: shopList.length, suffix: '家', accentColor: '#7c3aed' },
               ].map((card) => (
                 <Col xs={12} sm={6} key={card.title}>
                   <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
@@ -583,12 +583,12 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 <>
                   <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                     {[
-                      { title: '访客数', value: trafficSummary.visitors, accentColor: '#4f46e5' },
+                      { title: '访客数', value: trafficSummary.visitors, accentColor: '#1e40af' },
                       { title: '支付买家数', value: trafficSummary.payBuyers, accentColor: '#10b981' },
                       { title: '支付金额', value: trafficSummary.payAmount, precision: 2, prefix: '¥', accentColor: '#ef4444' },
                       { title: '加购人数', value: trafficSummary.cartBuyers, accentColor: '#06b6d4' },
                       { title: '支付转化率', value: trafficSummary.convRate, precision: 2, suffix: '%', accentColor: '#f59e0b' },
-                      { title: 'UV价值', value: trafficSummary.uvValue, precision: 2, prefix: '¥', accentColor: '#8b5cf6' },
+                      { title: 'UV价值', value: trafficSummary.uvValue, precision: 2, prefix: '¥', accentColor: '#7c3aed' },
                     ].map((card) => (
                       <Col xs={12} sm={4} key={card.title}>
                         <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
@@ -613,7 +613,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                   {[
                     { title: 'CPC花费', value: adSummary.cpcCost, precision: 2, prefix: '¥', accentColor: '#ef4444' },
                     { title: 'CPC成交额', value: adSummary.cpcPayAmount, precision: 2, prefix: '¥', accentColor: '#10b981' },
-                    { title: 'CPC ROI', value: adSummary.cpcROI, precision: 2, accentColor: '#4f46e5' },
+                    { title: 'CPC ROI', value: adSummary.cpcROI, precision: 2, accentColor: '#1e40af' },
                     { title: 'CPS佣金', value: adSummary.cpsCommission, precision: 2, prefix: '¥', accentColor: '#f59e0b' },
                     { title: 'CPS成交额', value: adSummary.cpsPayAmount, precision: 2, prefix: '¥', accentColor: '#06b6d4' },
                     { title: '推广总花费', value: adSummary.totalCost, precision: 2, prefix: '¥', accentColor: '#dc2626' },
@@ -637,8 +637,8 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 <>
                   <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                     {[
-                      { title: '会员总数', value: memberSummary.totalMember, accentColor: '#8b5cf6' },
-                      { title: '会员支付额', value: memberSummary.payAmt, precision: 2, prefix: '¥', accentColor: '#4f46e5' },
+                      { title: '会员总数', value: memberSummary.totalMember, accentColor: '#7c3aed' },
+                      { title: '会员支付额', value: memberSummary.payAmt, precision: 2, prefix: '¥', accentColor: '#1e40af' },
                       { title: '支付会员数', value: memberSummary.paidCnt, accentColor: '#10b981' },
                       { title: '平均复购率', value: memberSummary.avgRepurchase, precision: 2, suffix: '%', accentColor: '#f59e0b' },
                     ].map((card) => (
@@ -687,7 +687,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                   { type: 'value', name: '人数', position: 'right' },
                 ],
                 series: [
-                  { name: '会员成交额', type: 'bar', data: tmallBrandDaily.map((d: any) => d.memberPayAmt), itemStyle: { color: '#4f46e5' } },
+                  { name: '会员成交额', type: 'bar', data: tmallBrandDaily.map((d: any) => d.memberPayAmt), itemStyle: { color: '#1e40af' } },
                   { name: '客户量', type: 'line', yAxisIndex: 1, data: tmallBrandDaily.map((d: any) => d.customerVolume), itemStyle: { color: '#10b981' } },
                   { name: '忠诚量', type: 'line', yAxisIndex: 1, data: tmallBrandDaily.map((d: any) => d.loyalVolume), itemStyle: { color: '#f59e0b' } },
                   { name: '兴趣量', type: 'line', yAxisIndex: 1, data: tmallBrandDaily.map((d: any) => d.interestVolume), itemStyle: { color: '#ef4444' } },
@@ -710,8 +710,8 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                   { type: 'value', name: '金额', position: 'right' },
                 ],
                 series: [
-                  { name: '覆盖人数', type: 'bar', data: tmallCrowdDaily.map((d: any) => d.coverage), itemStyle: { color: '#8b5cf6' } },
-                  { name: 'TA浓度', type: 'line', data: tmallCrowdDaily.map((d: any) => d.concentrate), itemStyle: { color: '#ec4899' } },
+                  { name: '覆盖人数', type: 'bar', data: tmallCrowdDaily.map((d: any) => d.coverage), itemStyle: { color: '#7c3aed' } },
+                  { name: 'TA浓度', type: 'line', data: tmallCrowdDaily.map((d: any) => d.concentrate), itemStyle: { color: '#be123c' } },
                   { name: '成交额', type: 'line', yAxisIndex: 1, data: tmallCrowdDaily.map((d: any) => d.payAmount), itemStyle: { color: '#10b981' } },
                 ],
               }} />
@@ -780,8 +780,8 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               yAxis: [{ type: 'value' as const, name: '人数', min: 0 }],
               series: [
                 { name: '曝光流量', type: 'bar', barWidth: 8,
-                  data: vipDaily.map((d: any) => ({ value: d.impressions, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? 'rgba(114,46,209,0.25)' : '#8b5cf6' } })) },
-                { name: '商详UV', type: 'line', data: vipDaily.map((d: any) => d.detailUv), itemStyle: { color: '#4f46e5' } },
+                  data: vipDaily.map((d: any) => ({ value: d.impressions, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? 'rgba(114,46,209,0.25)' : '#7c3aed' } })) },
+                { name: '商详UV', type: 'line', data: vipDaily.map((d: any) => d.detailUv), itemStyle: { color: '#1e40af' } },
                 { name: '加购人数', type: 'line', data: vipDaily.map((d: any) => d.cartBuyers), itemStyle: { color: '#10b981' } },
               ],
             };
@@ -791,8 +791,8 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 headStyle={{ background: 'linear-gradient(90deg, #f9f0ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
                 <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                   {[
-                    { title: '曝光流量', value: vipSummary.impressions, accentColor: '#8b5cf6' },
-                    { title: '商详UV', value: vipSummary.detailUv, accentColor: '#4f46e5' },
+                    { title: '曝光流量', value: vipSummary.impressions, accentColor: '#7c3aed' },
+                    { title: '商详UV', value: vipSummary.detailUv, accentColor: '#1e40af' },
                     { title: '加购人数', value: vipSummary.cartBuyers, accentColor: '#10b981' },
                     { title: '销售额', value: vipSummary.payAmount, precision: 2, prefix: '¥', accentColor: '#ef4444' },
                     { title: '客户数', value: vipSummary.visitors, accentColor: '#06b6d4' },
@@ -855,7 +855,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               series: [
                 { name: '成交金额', type: 'bar', barWidth: 8,
                   data: jdShop.map((d: any) => ({ value: d.payAmount, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? 'rgba(245,34,45,0.25)' : '#f5222d' } })) },
-                { name: '访客数', type: 'line', data: jdShop.map((d: any) => d.visitors), itemStyle: { color: '#4f46e5' } },
+                { name: '访客数', type: 'line', data: jdShop.map((d: any) => d.visitors), itemStyle: { color: '#1e40af' } },
                 { name: '转化率', type: 'line', yAxisIndex: 1, smooth: true, data: jdShop.map((d: any) => d.convRate.toFixed(2)),
                   itemStyle: { color: '#faad14' }, lineStyle: { type: 'dashed' as const } },
               ],
@@ -871,7 +871,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               yAxis: [{ type: 'value' as const, name: '人数', min: 0 }],
               series: [
                 { name: '浏览客户', type: 'bar', barWidth: 8,
-                  data: jdCustomer.map((d: any) => ({ value: d.browseCustomers, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? 'rgba(24,144,255,0.25)' : '#4f46e5' } })) },
+                  data: jdCustomer.map((d: any) => ({ value: d.browseCustomers, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? 'rgba(24,144,255,0.25)' : '#1e40af' } })) },
                 { name: '加购客户', type: 'line', data: jdCustomer.map((d: any) => d.cartCustomers), itemStyle: { color: '#faad14' } },
                 { name: '成交客户', type: 'line', data: jdCustomer.map((d: any) => d.payCustomers), itemStyle: { color: '#f5222d' } },
                 { name: '复购客户', type: 'line', data: jdCustomer.map((d: any) => d.repurchaseCustomers), itemStyle: { color: '#10b981' } },
@@ -885,13 +885,13 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                     headStyle={{ background: 'linear-gradient(90deg, #fff1f0 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                       {[
-                        { title: '访客数', value: shopSum.visitors, accentColor: '#4f46e5' },
+                        { title: '访客数', value: shopSum.visitors, accentColor: '#1e40af' },
                         { title: '浏览量', value: shopSum.pageViews, accentColor: '#06b6d4' },
                         { title: '成交客户', value: shopSum.payCustomers, accentColor: '#ef4444' },
                         { title: '成交金额', value: shopSum.payAmount, precision: 2, prefix: '¥', accentColor: '#dc2626' },
                         { title: '成交单量', value: shopSum.payCount, accentColor: '#10b981' },
                         { title: '转化率', value: shopSum.avgConvRate, precision: 2, suffix: '%', accentColor: '#f59e0b' },
-                        { title: '客单价', value: shopSum.avgUnitPrice, precision: 2, prefix: '¥', accentColor: '#8b5cf6' },
+                        { title: '客单价', value: shopSum.avgUnitPrice, precision: 2, prefix: '¥', accentColor: '#7c3aed' },
                         { title: 'UV价值', value: shopSum.avgUvValue, precision: 2, prefix: '¥', accentColor: '#14b8a6' },
                       ].map((card) => (
                         <Col xs={12} sm={3} key={card.title}>
@@ -909,7 +909,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                     headStyle={{ background: 'linear-gradient(90deg, #e6f7ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                       {[
-                        { title: '浏览客户', value: custSum.browse, accentColor: '#4f46e5' },
+                        { title: '浏览客户', value: custSum.browse, accentColor: '#1e40af' },
                         { title: '加购客户', value: custSum.cart, accentColor: '#f59e0b' },
                         { title: '成交客户', value: custSum.pay, accentColor: '#ef4444' },
                         { title: '复购客户', value: custSum.repurchase, accentColor: '#10b981' },
@@ -1065,7 +1065,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               series: [
                 { name: '成交金额', type: 'bar', barWidth: 8,
                   data: pddShop.map((d: any) => ({ value: d.payAmount, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? 'rgba(245,34,45,0.25)' : '#f5222d' } })) },
-                { name: '成交订单数', type: 'line', data: pddShop.map((d: any) => d.payOrders), itemStyle: { color: '#4f46e5' } },
+                { name: '成交订单数', type: 'line', data: pddShop.map((d: any) => d.payOrders), itemStyle: { color: '#1e40af' } },
                 { name: '转化率', type: 'line', yAxisIndex: 1, smooth: true, data: pddShop.map((d: any) => d.convRate.toFixed(2)),
                   itemStyle: { color: '#faad14' }, lineStyle: { type: 'dashed' as const } },
               ],
@@ -1082,7 +1082,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               series: [
                 { name: '商品访客', type: 'bar', barWidth: 8,
                   data: pddGoods.map((d: any) => ({ value: d.goodsVisitors, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? 'rgba(245,34,45,0.25)' : '#f5222d' } })) },
-                { name: '商品浏览', type: 'line', data: pddGoods.map((d: any) => d.goodsViews), itemStyle: { color: '#4f46e5' } },
+                { name: '商品浏览', type: 'line', data: pddGoods.map((d: any) => d.goodsViews), itemStyle: { color: '#1e40af' } },
                 { name: '收藏', type: 'line', data: pddGoods.map((d: any) => d.goodsCollect), itemStyle: { color: '#10b981' } },
               ],
             } : null;
@@ -1101,7 +1101,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               series: [
                 { name: 'GMV', type: 'bar', barWidth: 8,
                   data: pddVideo.map((d: any) => ({ value: d.totalGmv, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? 'rgba(245,34,45,0.25)' : '#f5222d' } })) },
-                { name: '播放量', type: 'line', yAxisIndex: 1, data: pddVideo.map((d: any) => d.videoViewCnt), itemStyle: { color: '#8b5cf6' } },
+                { name: '播放量', type: 'line', yAxisIndex: 1, data: pddVideo.map((d: any) => d.videoViewCnt), itemStyle: { color: '#7c3aed' } },
                 { name: '商品点击', type: 'line', yAxisIndex: 1, data: pddVideo.map((d: any) => d.goodsClickCnt), itemStyle: { color: '#10b981' } },
               ],
             } : null;
@@ -1117,7 +1117,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                         { title: '成交件数', value: shopSum.payCount, accentColor: '#10b981' },
                         { title: '成交订单数', value: shopSum.payOrders, accentColor: '#06b6d4' },
                         { title: '平均转化率', value: shopSum.avgConvRate, precision: 2, suffix: '%', accentColor: '#f59e0b' },
-                        { title: '平均客单价', value: shopSum.avgUnitPrice, precision: 2, prefix: '¥', accentColor: '#4f46e5' },
+                        { title: '平均客单价', value: shopSum.avgUnitPrice, precision: 2, prefix: '¥', accentColor: '#1e40af' },
                       ].map((card) => (
                         <Col xs={12} sm={4} key={card.title}>
                           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
@@ -1135,9 +1135,9 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                       {[
                         { title: '商品访客', value: goodsSum.visitors, accentColor: '#ef4444' },
-                        { title: '商品浏览量', value: goodsSum.views, accentColor: '#4f46e5' },
+                        { title: '商品浏览量', value: goodsSum.views, accentColor: '#1e40af' },
                         { title: '收藏用户', value: goodsSum.collect, accentColor: '#10b981' },
-                        { title: '日均动销商品', value: goodsSum.saleGoods, accentColor: '#8b5cf6' },
+                        { title: '日均动销商品', value: goodsSum.saleGoods, accentColor: '#7c3aed' },
                       ].map((card) => (
                         <Col xs={12} sm={4} key={card.title}>
                           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
@@ -1155,9 +1155,9 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                       {[
                         { title: '视频GMV', value: videoSum.gmv, precision: 2, prefix: '¥', accentColor: '#ef4444' },
-                        { title: '订单数', value: videoSum.orders, accentColor: '#4f46e5' },
+                        { title: '订单数', value: videoSum.orders, accentColor: '#1e40af' },
                         { title: '发布作品', value: videoSum.feedCount, accentColor: '#06b6d4' },
-                        { title: '播放量', value: videoSum.videoViews, accentColor: '#8b5cf6' },
+                        { title: '播放量', value: videoSum.videoViews, accentColor: '#7c3aed' },
                         { title: '商品点击', value: videoSum.goodsClicks, accentColor: '#10b981' },
                       ].map((card) => (
                         <Col xs={12} sm={4} key={card.title}>
@@ -1189,7 +1189,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
 
             // 平台/渠道排行图
             const shopChartData = shopRank.slice(0, 15);
-            const pieColors = ['#f59e0b', '#8b5cf6', '#10b981', '#f43f5e', '#3b82f6', '#06b6d4', '#ec4899', '#84cc16'];
+            const pieColors = ['#f59e0b', '#7c3aed', '#10b981', '#f43f5e', '#3b82f6', '#06b6d4', '#be123c', '#84cc16'];
             const shopBarOption = shopChartData.length > 0 ? {
               tooltip: { trigger: 'item' as const, formatter: '{b}: ¥{c} ({d}%)' },
               legend: { bottom: 0, type: 'scroll' as const },
@@ -1224,7 +1224,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               series: [
                 { name: '销售额', type: 'bar', barWidth: 8,
                   data: sTrend.map((t: any) => ({ value: t.sales, itemStyle: { color: isExpanded && !inSelectedRange(t.date) ? 'rgba(245,158,11,0.25)' : '#f59e0b' } })) },
-                { name: '销量', type: 'line', yAxisIndex: 1, data: sTrend.map((t: any) => t.qty), itemStyle: { color: '#8b5cf6' } },
+                { name: '销量', type: 'line', yAxisIndex: 1, data: sTrend.map((t: any) => t.qty), itemStyle: { color: '#7c3aed' } },
               ],
             } : null;
 
@@ -1241,9 +1241,9 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                   headStyle={{ background: 'linear-gradient(90deg, #fffbeb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
                   <Row gutter={16} style={{ marginBottom: 16 }}>
                     {[
-                      { title: 'S品总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: '#4f46e5' },
+                      { title: 'S品总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: '#1e40af' },
                       { title: 'S品总销量', value: totalQty, accentColor: '#10b981' },
-                      { title: 'S品SKU数', value: skuCount, accentColor: '#8b5cf6' },
+                      { title: 'S品SKU数', value: skuCount, accentColor: '#7c3aed' },
                     ].map((card) => (
                       <Col span={8} key={card.title}>
                         <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
@@ -1325,7 +1325,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               series: [
                 { name: '支付金额', type: 'bar', barWidth: 8,
                   data: business.map((d: any) => ({ value: d.payAmount, itemStyle: { color: isExpanded && !inSelectedRange(d.date) ? 'rgba(19,194,194,0.25)' : '#13c2c2' } })) },
-                { name: '支付用户数', type: 'line', data: business.map((d: any) => d.payUsers), itemStyle: { color: '#4f46e5' } },
+                { name: '支付用户数', type: 'line', data: business.map((d: any) => d.payUsers), itemStyle: { color: '#1e40af' } },
                 { name: '转化率', type: 'line', yAxisIndex: 1, smooth: true,
                   data: business.map((d: any) => (d.convRate * 100).toFixed(2)),
                   itemStyle: { color: '#faad14' }, lineStyle: { type: 'dashed' as const } },
@@ -1347,10 +1347,10 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                     <Row gutter={16} style={{ marginBottom: 16 }}>
                       {[
                         { title: '支付金额', value: bSum.payAmount, precision: 2, prefix: '¥', accentColor: '#14b8a6' },
-                        { title: '支付用户数', value: bSum.payUsers, accentColor: '#4f46e5' },
+                        { title: '支付用户数', value: bSum.payUsers, accentColor: '#1e40af' },
                         { title: '支付子订单', value: bSum.paySubOrders, accentColor: '#06b6d4' },
                         { title: '支付件数', value: bSum.payQty, accentColor: '#10b981' },
-                        { title: '客单价', value: bSum.avgPrice, precision: 2, prefix: '¥', accentColor: '#8b5cf6' },
+                        { title: '客单价', value: bSum.avgPrice, precision: 2, prefix: '¥', accentColor: '#7c3aed' },
                         { title: '平均转化率', value: (bSum.avgConvRate * 100).toFixed(2), suffix: '%', accentColor: '#f59e0b' },
                       ].map((card) => (
                         <Col span={4} key={card.title}>

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -138,6 +139,11 @@ func main() {
 					dataBytes = []byte(dataStr)
 				} else {
 					dataBytes = wrapper.Data
+				}
+
+				// 吉客云对凌晨空时段会返回空 body/空字符串，不是真错误，直接视为空结果 break
+				if len(bytes.TrimSpace(dataBytes)) == 0 || strings.TrimSpace(string(dataBytes)) == "\"\"" {
+					break
 				}
 
 				var result struct {

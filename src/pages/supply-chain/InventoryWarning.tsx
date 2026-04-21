@@ -102,9 +102,9 @@ const InventoryWarning: React.FC = () => {
 
   const statCards = [
     { key: 'stockout', title: '断货', value: summary.stockout, color: '#ef4444', icon: <StopOutlined />, bg: '#fef2f2', desc: '可用库存≤0 且有销量' },
-    { key: 'urgent', title: '即将断货', value: summary.urgent, color: '#f97316', icon: <AlertOutlined />, bg: '#fff7ed', desc: '可售天数 < 7天' },
+    { key: 'urgent', title: '即将断货', value: summary.urgent, color: '#ea580c', icon: <AlertOutlined />, bg: '#fff7ed', desc: '可售天数 < 7天' },
     { key: 'low', title: '库存偏低', value: summary.low, color: '#f59e0b', icon: <ExclamationCircleOutlined />, bg: '#fffbeb', desc: '可售天数 7~14天' },
-    { key: 'overstock', title: '库存积压', value: summary.overstock, color: '#8b5cf6', icon: <InboxOutlined />, bg: '#f5f3ff', desc: '可售天数 > 90天' },
+    { key: 'overstock', title: '库存积压', value: summary.overstock, color: '#7c3aed', icon: <InboxOutlined />, bg: '#f5f3ff', desc: '可售天数 > 90天' },
     { key: 'dead', title: '滞销品', value: summary.dead, color: '#94a3b8', icon: <PauseCircleOutlined />, bg: '#f8fafc', desc: '30天零销量 但有库存' },
   ];
 
@@ -125,7 +125,7 @@ const InventoryWarning: React.FC = () => {
         render: (v: number, r: StockChild) => {
           if (r.monthQty === 0) return <span style={{ color: '#94a3b8' }}>-</span>;
           if (v <= 0) return <span style={{ color: '#ef4444', fontWeight: 700 }}>0</span>;
-          const color = v < 7 ? '#ef4444' : v < 14 ? '#f59e0b' : v > 90 ? '#8b5cf6' : '#1e293b';
+          const color = v < 7 ? '#ef4444' : v < 14 ? '#f59e0b' : v > 90 ? '#7c3aed' : '#1e293b';
           return <span style={{ fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{v}</span>;
         },
       },
@@ -167,7 +167,7 @@ const InventoryWarning: React.FC = () => {
       title: '仓库', key: 'whCount', width: 120, align: 'center' as const,
       render: (_: any, r: StockItem) => r.whCount && r.whCount > 1
         ? <span style={{ fontSize: 12 }}>
-          <span style={{ color: '#4f46e5' }}>{r.whCount}个仓</span>
+          <span style={{ color: '#1e40af' }}>{r.whCount}个仓</span>
           {(r.whStockout || 0) > 0 && <span style={{ color: '#ef4444', marginLeft: 4 }}>{r.whStockout}仓缺货</span>}
         </span>
         : <span style={{ color: '#94a3b8', fontSize: 12 }}>{r.warehouses?.[0]?.warehouse || '1个仓'}</span>,
@@ -190,7 +190,7 @@ const InventoryWarning: React.FC = () => {
         if (r.monthQty === 0 && (r.currentQty || 0) === 0 && r.usableQty <= 0) return '-';
         if (r.monthQty === 0) return <span style={{ color: '#94a3b8' }}>无销量</span>;
         if (r.sellableDays <= 0) return <span style={{ color: '#ef4444', fontWeight: 700 }}>0</span>;
-        const color = r.sellableDays < 7 ? '#ef4444' : r.sellableDays < 14 ? '#f59e0b' : r.sellableDays > 90 ? '#8b5cf6' : '#1e293b';
+        const color = r.sellableDays < 7 ? '#ef4444' : r.sellableDays < 14 ? '#f59e0b' : r.sellableDays > 90 ? '#7c3aed' : '#1e293b';
         return <span style={{ fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{r.sellableDays}</span>;
       },
     },
@@ -236,9 +236,9 @@ const InventoryWarning: React.FC = () => {
           </Col>
         ))}
         <Col xs={12} sm={8} lg={4} xl={4}>
-          <Card style={{ borderLeft: '3px solid #4f46e5' }}>
+          <Card style={{ borderLeft: '3px solid #1e40af' }}>
             <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>成品SKU总数</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: '#4f46e5', fontVariantNumeric: 'tabular-nums' }}>
+            <div style={{ fontSize: 24, fontWeight: 700, color: '#1e40af', fontVariantNumeric: 'tabular-nums' }}>
               {summary.total}
             </div>
             <div style={{ fontSize: 11, color: '#b0b8c4', marginTop: 4, lineHeight: '14px' }}>货品属性为成品的SKU</div>

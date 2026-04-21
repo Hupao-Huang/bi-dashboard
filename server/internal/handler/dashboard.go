@@ -2866,6 +2866,30 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 				}
 				rows.Close()
 			}
+			// 天猫超市店铺CPC(一盘货/寄售双店对比)
+			sArgs := append([]interface{}{start, end}, shopArgs...)
+			sRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT shop_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
+				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END, SUM(clicks)
+				FROM op_tmall_cs_campaign_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
+				GROUP BY shop_name ORDER BY SUM(cost) DESC`, sArgs...)
+			if !ok {
+				return
+			}
+			if sRows != nil {
+				for sRows.Next() {
+					var s ShopCost
+					if writeDatabaseError(w, sRows.Scan(&s.ShopName, &s.Cost, &s.PayAmount, &s.ROI, &s.Clicks)) {
+						sRows.Close()
+						return
+					}
+					shopCosts = append(shopCosts, s)
+				}
+				if writeDatabaseError(w, sRows.Err()) {
+					sRows.Close()
+					return
+				}
+				sRows.Close()
+			}
 			// 天猫超市推广类型明细
 			dArgs := append([]interface{}{start, end}, shopArgs...)
 			dRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT promo_type, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),

@@ -29,7 +29,7 @@ const FinanceMonthlyProfit: React.FC = () => {
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
-  const color = DEPT_COLORS[dept] || '#4f46e5';
+  const color = DEPT_COLORS[dept] || '#1e40af';
 
   const fetchData = useCallback((d: string, s: string, e: string) => {
     abortRef.current?.abort();
@@ -186,7 +186,7 @@ const FinanceMonthlyProfit: React.FC = () => {
       type: 'line',
       smooth: true,
       data: monthlyWithMoM.map(m => parseFloat((m.profitRate * 100).toFixed(2))),
-      itemStyle: { color: '#8b5cf6' },
+      itemStyle: { color: '#7c3aed' },
       areaStyle: { color: 'rgba(114,46,209,0.1)' },
       label: { show: true, formatter: (p: any) => p.value.toFixed(1) + '%' },
     }],

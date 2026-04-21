@@ -19,7 +19,7 @@ const ProductProfit: React.FC<Props> = ({ dept  }) => {
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
 
-  const color = DEPT_COLORS[dept] || '#4f46e5';
+  const color = DEPT_COLORS[dept] || '#1e40af';
 
   const fetchData = useCallback((s: string, e: string) => {
     abortRef.current?.abort();
@@ -126,8 +126,8 @@ const ProductProfit: React.FC<Props> = ({ dept  }) => {
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总销量', value: totalQty, suffix: '件', accentColor: '#10b981' },
-    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#4f46e5' },
-    { title: 'SKU种类数', value: goods.length, suffix: '种', accentColor: '#8b5cf6' },
+    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#1e40af' },
+    { title: 'SKU种类数', value: goods.length, suffix: '种', accentColor: '#7c3aed' },
   ];
 
   return (

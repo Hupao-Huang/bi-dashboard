@@ -173,7 +173,7 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 
 	// 批量查明细和附件统计
 	for i := range items {
-		if writeDatabaseError(w, h.DB.QueryRow("SELECT COUNT(*), SUM(invoice_status='exist'), SUM(invoice_status='noExist') FROM hesi_flow_detail WHERE flow_id=?",
+		if writeDatabaseError(w, h.DB.QueryRow("SELECT COUNT(*), COALESCE(SUM(invoice_status='exist'),0), COALESCE(SUM(invoice_status='noExist'),0) FROM hesi_flow_detail WHERE flow_id=?",
 			items[i].FlowId).Scan(&items[i].DetailCount, &items[i].InvoiceExist, &items[i].InvoiceMissing)) {
 			return
 		}

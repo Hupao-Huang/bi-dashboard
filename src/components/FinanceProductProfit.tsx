@@ -29,7 +29,7 @@ const FinanceProductProfit: React.FC = () => {
   const [endDate, setEndDate] = useState(DATA_END_DATE);
   const [sortedInfo, setSortedInfo] = useState<any>({});
 
-  const color = DEPT_COLORS[dept] || '#4f46e5';
+  const color = DEPT_COLORS[dept] || '#1e40af';
 
   const fetchData = useCallback((d: string, s: string, e: string) => {
     abortRef.current?.abort();
@@ -61,7 +61,7 @@ const FinanceProductProfit: React.FC = () => {
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总毛利', value: totalProfit, precision: 2, prefix: '¥', accentColor: '#10b981' },
     { title: '综合毛利率', value: overallProfitRate * 100, precision: 1, suffix: '%', accentColor: profitRateColor(overallProfitRate) },
-    { title: 'SKU种类数', value: goods.length, suffix: '种', accentColor: '#8b5cf6' },
+    { title: 'SKU种类数', value: goods.length, suffix: '种', accentColor: '#7c3aed' },
   ];
 
   // TOP15 horizontal bar chart by profit
@@ -106,7 +106,7 @@ const FinanceProductProfit: React.FC = () => {
         type: 'line',
         xAxisIndex: 1,
         data: top15Rates,
-        itemStyle: { color: '#8b5cf6' },
+        itemStyle: { color: '#7c3aed' },
       },
     ],
   };
