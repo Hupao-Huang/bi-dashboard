@@ -3047,6 +3047,7 @@ type customerMetricRecord struct {
 	Date             string
 	ShopName         string
 	ConsultUsers     float64
+	InquiryUsers     float64
 	PayUsers         float64
 	SalesAmount      float64
 	FirstRespSeconds float64
@@ -3058,6 +3059,7 @@ type customerMetricRecord struct {
 type customerMetricAgg struct {
 	RecordCount       int
 	ConsultUsers      float64
+	InquiryUsers      float64
 	PayUsers          float64
 	SalesAmount       float64
 	FirstRespSeconds  float64
@@ -3075,6 +3077,7 @@ type customerPlatformStat struct {
 	RecordCount         int     `json:"recordCount"`
 	ShopCount           int     `json:"shopCount"`
 	ConsultUsers        float64 `json:"consultUsers"`
+	InquiryUsers        float64 `json:"inquiryUsers"`
 	PayUsers            float64 `json:"payUsers"`
 	SalesAmount         float64 `json:"salesAmount"`
 	AvgFirstRespSeconds float64 `json:"avgFirstRespSeconds"`
@@ -3086,6 +3089,7 @@ type customerPlatformStat struct {
 type customerTrendPoint struct {
 	Date                string  `json:"date"`
 	ConsultUsers        float64 `json:"consultUsers"`
+	InquiryUsers        float64 `json:"inquiryUsers"`
 	PayUsers            float64 `json:"payUsers"`
 	SalesAmount         float64 `json:"salesAmount"`
 	AvgFirstRespSeconds float64 `json:"avgFirstRespSeconds"`
@@ -3099,6 +3103,7 @@ type customerShopStat struct {
 	ShopName            string  `json:"shopName"`
 	RecordCount         int     `json:"recordCount"`
 	ConsultUsers        float64 `json:"consultUsers"`
+	InquiryUsers        float64 `json:"inquiryUsers"`
 	PayUsers            float64 `json:"payUsers"`
 	SalesAmount         float64 `json:"salesAmount"`
 	AvgFirstRespSeconds float64 `json:"avgFirstRespSeconds"`
@@ -3135,6 +3140,7 @@ func roundFloat(v float64, digits int) float64 {
 func (a *customerMetricAgg) add(rec customerMetricRecord) {
 	a.RecordCount++
 	a.ConsultUsers += rec.ConsultUsers
+	a.InquiryUsers += rec.InquiryUsers
 	a.PayUsers += rec.PayUsers
 	a.SalesAmount += rec.SalesAmount
 	if rec.FirstRespSeconds > 0 {
@@ -3204,13 +3210,14 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 	}
 
 	rows, ok := queryRowsOrWriteError(w, h.DB, `
-		SELECT platform, stat_date, shop_name, consult_users, pay_users, sales_amount, first_response_seconds, response_seconds, satisfaction_rate, conv_rate
+		SELECT platform, stat_date, shop_name, consult_users, inquiry_users, pay_users, sales_amount, first_response_seconds, response_seconds, satisfaction_rate, conv_rate
 		FROM (
 			SELECT
 				'天猫' AS platform,
 				DATE_FORMAT(tc.stat_date, '%Y-%m-%d') AS stat_date,
 				tc.shop_name,
 				IFNULL(tc.consult_users, 0) AS consult_users,
+				IFNULL(ti.inquiry_users, 0) AS inquiry_users,
 				IFNULL(ti.final_pay_users, 0) AS pay_users,
 				IFNULL(ta.sales_amount, 0) AS sales_amount,
 				IFNULL(tc.first_resp_sec, 0) AS first_response_seconds,
@@ -3233,6 +3240,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				DATE_FORMAT(pbase.stat_date, '%Y-%m-%d') AS stat_date,
 				pbase.shop_name,
 				IFNULL(ps.inquiry_users, 0) AS consult_users,
+				IFNULL(ps.inquiry_users, 0) AS inquiry_users,
 				IFNULL(ps.final_group_users, 0) AS pay_users,
 				IFNULL(ps.cs_sales_amount, 0) AS sales_amount,
 				0 AS first_response_seconds,
@@ -3258,6 +3266,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				DATE_FORMAT(jbase.stat_date, '%Y-%m-%d') AS stat_date,
 				jbase.shop_name,
 				IFNULL(js.presale_receive_users, IFNULL(jw.message_consult_count, IFNULL(jw.consult_count, 0))) AS consult_users,
+				IFNULL(js.presale_receive_users, IFNULL(jw.message_consult_count, IFNULL(jw.consult_count, 0))) AS inquiry_users,
 				IFNULL(js.order_users, 0) AS pay_users,
 				IFNULL(js.order_goods_amount, 0) AS sales_amount,
 				IFNULL(jw.first_avg_resp_seconds, 0) AS first_response_seconds,
@@ -3280,6 +3289,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				DATE_FORMAT(stat_date, '%Y-%m-%d') AS stat_date,
 				shop_name,
 				IFNULL(inquiry_users, IFNULL(received_users, 0)) AS consult_users,
+				IFNULL(inquiry_users, IFNULL(received_users, 0)) AS inquiry_users,
 				IFNULL(pay_users, 0) AS pay_users,
 				IFNULL(inquiry_pay_amount, 0) AS sales_amount,
 				IFNULL(all_day_first_reply_seconds, 0) AS first_response_seconds,
@@ -3296,6 +3306,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				DATE_FORMAT(stat_date, '%Y-%m-%d') AS stat_date,
 				shop_name,
 				IFNULL(consult_users, 0) AS consult_users,
+				IFNULL(consult_users, 0) AS inquiry_users,
 				IFNULL(pay_users, 0) AS pay_users,
 				IFNULL(cs_sales_amount, 0) AS sales_amount,
 				0 AS first_response_seconds,
@@ -3321,6 +3332,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				DATE_FORMAT(stat_date, '%Y-%m-%d') AS stat_date,
 				shop_name,
 				IFNULL(case_count, 0) AS consult_users,
+				IFNULL(case_count, 0) AS inquiry_users,
 				IFNULL(inquiry_pay_pkg_count, 0) AS pay_users,
 				IFNULL(inquiry_pay_gmv, 0) AS sales_amount,
 				0 AS first_response_seconds,
@@ -3351,6 +3363,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 	for rows.Next() {
 		var rec customerMetricRecord
 		var consultUsers sql.NullFloat64
+		var inquiryUsers sql.NullFloat64
 		var payUsers sql.NullFloat64
 		var salesAmount sql.NullFloat64
 		var firstRespSeconds sql.NullFloat64
@@ -3363,6 +3376,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 			&rec.Date,
 			&rec.ShopName,
 			&consultUsers,
+			&inquiryUsers,
 			&payUsers,
 			&salesAmount,
 			&firstRespSeconds,
@@ -3374,6 +3388,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 		}
 
 		rec.ConsultUsers = nullFloat(consultUsers)
+		rec.InquiryUsers = nullFloat(inquiryUsers)
 		rec.PayUsers = nullFloat(payUsers)
 		rec.SalesAmount = nullFloat(salesAmount)
 		rec.FirstRespSeconds = nullFloat(firstRespSeconds)
@@ -3458,6 +3473,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 			RecordCount:         agg.RecordCount,
 			ShopCount:           len(platformShopSets[platform]),
 			ConsultUsers:        roundFloat(agg.ConsultUsers, 0),
+			InquiryUsers:        roundFloat(agg.InquiryUsers, 0),
 			PayUsers:            roundFloat(agg.PayUsers, 0),
 			SalesAmount:         roundFloat(agg.SalesAmount, 2),
 			AvgFirstRespSeconds: roundFloat(agg.avgFirstRespSeconds(), 1),
@@ -3481,6 +3497,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 		trend = append(trend, customerTrendPoint{
 			Date:                date,
 			ConsultUsers:        roundFloat(agg.ConsultUsers, 0),
+			InquiryUsers:        roundFloat(agg.InquiryUsers, 0),
 			PayUsers:            roundFloat(agg.PayUsers, 0),
 			SalesAmount:         roundFloat(agg.SalesAmount, 2),
 			AvgFirstRespSeconds: roundFloat(agg.avgFirstRespSeconds(), 1),
@@ -3498,6 +3515,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 			ShopName:            meta.ShopName,
 			RecordCount:         agg.RecordCount,
 			ConsultUsers:        roundFloat(agg.ConsultUsers, 0),
+			InquiryUsers:        roundFloat(agg.InquiryUsers, 0),
 			PayUsers:            roundFloat(agg.PayUsers, 0),
 			SalesAmount:         roundFloat(agg.SalesAmount, 2),
 			AvgFirstRespSeconds: roundFloat(agg.avgFirstRespSeconds(), 1),

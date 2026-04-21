@@ -17,6 +17,36 @@ import (
 
 var baseDir = `Z:\信息部\RPA_集团数据看板\京东`
 
+// parseExcelDate 兼容 Excel 日期列各种格式：2026-04-17 / 2026/4/17 / 2026.04.17 / 20260417
+func parseExcelDate(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, ".", "-")
+	s = strings.ReplaceAll(s, "年", "-")
+	s = strings.ReplaceAll(s, "月", "-")
+	s = strings.ReplaceAll(s, "日", "")
+	if len(s) == 8 && !strings.Contains(s, "-") {
+		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
+	}
+	parts := strings.Split(s, "-")
+	if len(parts) == 3 {
+		y, m, d := parts[0], parts[1], parts[2]
+		if len(m) == 1 {
+			m = "0" + m
+		}
+		if len(d) == 1 {
+			d = "0" + d
+		}
+		if len(y) == 4 {
+			return y + "-" + m + "-" + d
+		}
+	}
+	return s
+}
+
 func main() {
 	cfg, _ := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
 	db, err := sql.Open("mysql", cfg.Database.DSN())
@@ -157,6 +187,12 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		return 0, fmt.Errorf("列数不足: %d", len(d))
 	}
 
+	// stat_date 取 Excel 第 0 列"时间"（业务日），文件名日期只是 RPA 采集日
+	statDate := parseExcelDate(d[0])
+	if statDate == "" {
+		statDate = date
+	}
+
 	visitors := toInt2(d, 8)
 	payAmount := toFloat(d[1])
 	uvValue := toFloat2(d, 15)
@@ -178,7 +214,7 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		 pay_amount_change=VALUES(pay_amount_change), pay_orders=VALUES(pay_orders),
 		 unit_price=VALUES(unit_price), conv_rate=VALUES(conv_rate), uv_value=VALUES(uv_value),
 		 refund_amount=VALUES(refund_amount), cart_customers=VALUES(cart_customers)`,
-		date, shop,
+		statDate, shop,
 		visitors, nil,             // 访客数, 环比(无)
 		toInt2(d, 7), nil,         // 店铺浏览量, 环比(无)
 		toFloat2(d, 16),           // 店铺人均浏览量

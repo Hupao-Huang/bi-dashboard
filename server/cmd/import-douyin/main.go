@@ -465,8 +465,14 @@ func importAdLiveDaily(db *sql.DB, path, sqlDate, shopName string) int {
 		}
 
 		douyinName := get("抖音号名称")
-		if douyinName == "" || get("日期") == "全部" {
+		rowDate := get("日期")
+		if douyinName == "" || rowDate == "" || rowDate == "全部" {
 			continue
+		}
+		// stat_date 取 Excel "日期" 列(业务日)，文件名日期只是 RPA 采集日
+		statDate := rowDate
+		if statDate == "" {
+			statDate = sqlDate
 		}
 
 		_, err := db.Exec(`REPLACE INTO op_douyin_ad_live_daily (
@@ -476,7 +482,7 @@ func importAdLiveDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			impressions, clicks, click_rate, conv_rate,
 			cost, pay_amount, roi, cpm
 		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			sqlDate, shopName, douyinName, get("抖音号ID"),
+			statDate, shopName, douyinName, get("抖音号ID"),
 			getF("净成交ROI"), getF("净成交金额"), getI("净成交订单数"), getF("净成交订单成本"),
 			getF("用户实际支付金额"), getF("净成交金额结算率")/100, getF("1小时内退款率")/100,
 			getI("整体展示次数"), getI("整体点击次数"), getF("整体点击率")/100, getF("整体转化率")/100,
