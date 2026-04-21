@@ -189,6 +189,58 @@
 
 ---
 
+## v0.27 — RPA stat_date 全面审计 + PDD MM-DD-YY 日期解析 + 客服总览 T-3 提示
+
+### 核心工作
+v0.26 后跑哥指出"RPA 文件名日期 ≠ 文件内日期"这条规则要**全覆盖**，于是对剩余 10 个 import 工具的所有函数做了完整审计 + 修复 + Q1 历史重跑。
+
+### 通用日期解析 helper 严格化
+`parseExcelDate` 在 5 个工具（tmall/jd/vip/pdd/customer）统一严格化：
+- 必须 4 位年份（避免 YY 误解析导致数据污染 — pdd 早期版本曾将 YY 当 4 位年解析出 2001-01-26 这种荒谬日期）
+- 格式不合规返回 ""，调用方 fallback 到文件名日期
+
+### PDD 专用日期解析（MM-DD-YY）
+- 拼多多 `销售数据_交易概况/商品概况/服务概况` Excel "统计时间"列是**美式短年份** `MM-DD-YY`（例：`12-29-25` = 2025-12-29）
+- `import-pdd/main.go` 的 `parseExcelDate` 专门扩展：识别三段都 ≤ 2 位且第 0 段 ≤ 12（月份合法）时走 MM-DD-YY 分支，YY 补全规则 00-69→20xx / 70-99→19xx
+- 标准 ISO YYYY-MM-DD 仍正常解析（按 4 位年分支）
+
+### 新审计工具
+- `server/cmd/probe-rpa-headers/`：扫描所有 RPA Excel，对每种文件类型取样本输出 header + 首个业务行（支持扫 15 行跳过汇总标签），一眼看清哪些文件有日期列、列名叫什么、位置在第几列
+- `server/cmd/inspect-pdd-date/`：单独探测 PDD Excel 日期列格式
+- `server/cmd/check-monthly/`：吉客云月度数据核对工具
+
+### stat_date 修复清单（v0.27 新增）
+- **import-pdd.importShopDaily / importGoodsDaily / importServiceOverview** — Excel 第 0 列"统计时间"MM-DD-YY 格式
+- **import-jd.importCustomerDaily** — 京东客户数据_洞察 Excel "日期"列（`2025.12.31` 点分隔格式）
+- **import-jd.importPromoDaily** — 京东营销数据_百亿补贴/秒杀活动 Excel "日期"列
+- **import-customer.importJDWorkload / importJDSalesPerf** — 京东客服工作量/销售绩效 Excel 第 0 列日期
+- **import-tmall.importServiceInquiry/Consult/AvgPrice/Evaluation** — 从宽松 parseExcelDate 升级到严格版
+
+### Q1 历史数据重跑（全量）
+7 个工具都重跑过 `20260101 20260331`：
+- import-tmall（10+ 张表） / import-jd（7 张） / import-vip（4 张） / import-pdd（3 张 + 客服） / import-douyin（7 张） / import-customer（7 张） / import-tmallcs（9 张） / import-douyin-dist / import-promo
+
+### 数据真相暴露（非 bug）
+跑完后发现部分表 Q1 数据不全，审计确认是 **RPA 采集本身的特性**，不是代码问题：
+- **天猫超市 shop_daily / goods_daily** 从 2026-03-11 起有数据：RPA 在 2026-04-12 才补抓历史目录（Q1 目录是虚拟归档日，Excel 内容是 4-12 时点的 30 天滚动快照）
+- **抖音分销** 从 2026-02-19 起有数据：RPA 2-19 才开始采集
+- **京东客服 / 快手客服** 只有 4 月起数据：RPA 4 月才开始采集
+- **天猫业绩询单**（T-3 滞后）最新到 2026-04-17：RPA 4-20 文件内含 4-17 业务数据，符合预期
+
+### 客服总览 UX 优化
+- 天猫 tab "询单人数"列头加 `ℹ️` 悬停提示：「生意参谋业绩询单数据由 RPA 采集，通常存在 T-3 左右延迟（例：4-20 采集的是 4-17 的数据）。近 3 日空值为正常现象。」
+- 客服看到 4-18/19/20 询单为 0 不再困惑
+
+### 业界 RPA 采集异常（待 RPA 同事排查）
+- 京东推广京东联盟 2026-01-10 文件含 2026-03-14 数据（delta=-63 天）— 文件名跟内容完全不符
+
+### 遗漏但无需改
+- **飞瓜 达人数据/归属** Excel 无日期列（每行是达人记录），文件日 = 数据快照日即业务日
+- **抖音 其他 6 个函数**（live/goods/channel/funnel/anchor/admaterial）Excel 无日期列
+- **拼多多 其他推广表**（明星店铺/直播推广）Excel 第 0 列日期但样本为空，v0.26 已改但不可验证
+
+---
+
 ## v0.26 — RPA stat_date 来源修正 + 客服总览咨询/询单拆列
 
 ### 核心问题

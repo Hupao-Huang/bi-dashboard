@@ -1,9 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Card, Empty, Table, Tabs } from 'antd';
+import { Card, Empty, Table, Tabs, Tooltip } from 'antd';
+import { InfoCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../../config';
+
+// 带悬停提示的列标题
+const inquiryLagTitle = (
+  <span>
+    询单人数
+    <Tooltip title="生意参谋业绩询单数据由 RPA 采集，通常存在 T-3 左右延迟（例：4-20 采集的是 4-17 的数据）。近 3 日空值为正常现象。">
+      <InfoCircleOutlined style={{ marginLeft: 4, color: '#94a3b8', fontSize: 12 }} />
+    </Tooltip>
+  </span>
+);
 
 interface ShopStat {
   platform: string;
@@ -127,7 +138,7 @@ const CustomerOverview: React.FC = () => {
         { title: satisfactionLabel, dataIndex: 'avgSatisfactionRate', key: 'avgSatisfactionRate', render: (v: number) => fmtRate(v || 0) },
         { title: '客服销售额', dataIndex: 'salesAmount', key: 'salesAmount', render: (v: number) => fmtCurrency(v || 0) },
         { title: '咨询人数', dataIndex: 'consultUsers', key: 'consultUsers', render: (v: number) => fmtNum(v || 0) },
-        { title: '询单人数', dataIndex: 'inquiryUsers', key: 'inquiryUsers', render: (v: number) => fmtNum(v || 0) },
+        { title: inquiryLagTitle, dataIndex: 'inquiryUsers', key: 'inquiryUsers', render: (v: number) => fmtNum(v || 0) },
         { title: convLabel, dataIndex: 'avgConvRate', key: 'avgConvRate', render: (v: number) => fmtRate(v || 0) },
       ];
     }

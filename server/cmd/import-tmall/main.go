@@ -238,36 +238,43 @@ func formatDate(dateStr string) string {
 	return dateStr
 }
 
-// parseExcelDate 兼容 Excel 日期列各种格式：2026-04-17 / 2026/4/17 / 2026年4月17日 / 20260417
-// 为空返回空串（调用方自行 fallback）
+// parseExcelDate 严格解析 Excel 日期列，格式不合规返回 ""（调用方 fallback 到文件名日期）
+// 支持: YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD / YYYY年MM月DD日 / YYYYMMDD / YYYY-M-D
+// 注意：YY 两位年份格式不受支持（避免误解析导致数据污染）
 func parseExcelDate(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
+	if idx := strings.Index(s, " "); idx > 0 {
+		s = s[:idx]
+	}
 	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, ".", "-")
 	s = strings.ReplaceAll(s, "年", "-")
 	s = strings.ReplaceAll(s, "月", "-")
 	s = strings.ReplaceAll(s, "日", "")
-	// YYYYMMDD（无分隔符）
 	if len(s) == 8 && !strings.Contains(s, "-") {
 		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
 	}
-	// YYYY-M-D / YYYY-MM-DD 补 0
 	parts := strings.Split(s, "-")
-	if len(parts) == 3 {
-		y, m, d := parts[0], parts[1], parts[2]
-		if len(m) == 1 {
-			m = "0" + m
-		}
-		if len(d) == 1 {
-			d = "0" + d
-		}
-		if len(y) == 4 {
-			return y + "-" + m + "-" + d
-		}
+	if len(parts) != 3 {
+		return ""
 	}
-	return s
+	y, m, d := parts[0], parts[1], parts[2]
+	if len(y) != 4 {
+		return ""
+	}
+	if len(m) == 1 {
+		m = "0" + m
+	}
+	if len(d) == 1 {
+		d = "0" + d
+	}
+	if len(m) != 2 || len(d) != 2 {
+		return ""
+	}
+	return y + "-" + m + "-" + d
 }
 
 // ==================== 生意参谋-店铺销售 ====================

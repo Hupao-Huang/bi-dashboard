@@ -18,6 +18,43 @@ import (
 
 var baseDir = `Z:\信息部\RPA_集团数据看板`
 
+// parseExcelDate 严格解析 Excel 日期列，格式不合规返回 ""（调用方 fallback 到文件名日期）
+func parseExcelDate(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if idx := strings.Index(s, " "); idx > 0 {
+		s = s[:idx]
+	}
+	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, ".", "-")
+	s = strings.ReplaceAll(s, "年", "-")
+	s = strings.ReplaceAll(s, "月", "-")
+	s = strings.ReplaceAll(s, "日", "")
+	if len(s) == 8 && !strings.Contains(s, "-") {
+		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
+	}
+	parts := strings.Split(s, "-")
+	if len(parts) != 3 {
+		return ""
+	}
+	y, m, d := parts[0], parts[1], parts[2]
+	if len(y) != 4 {
+		return ""
+	}
+	if len(m) == 1 {
+		m = "0" + m
+	}
+	if len(d) == 1 {
+		d = "0" + d
+	}
+	if len(m) != 2 || len(d) != 2 {
+		return ""
+	}
+	return y + "-" + m + "-" + d
+}
+
 func main() {
 	cfg, err := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
 	if err != nil {
@@ -275,6 +312,13 @@ func importJDWorkload(db *sql.DB, path, date, shop string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// stat_date 取 Excel 第 0 列日期（readJDDataRow 保证含 "-"），文件名日期只是 RPA 采集日
+	statDate := date
+	if len(row) > 0 && strings.Contains(row[0], "-") {
+		if v := parseExcelDate(row[0]); v != "" {
+			statDate = v
+		}
+	}
 	_, err = db.Exec(`INSERT INTO op_jd_cs_workload_daily
 		(stat_date, shop_name, on_duty_cs_count, login_hours, shop_service_hours, upv, consult_count, receive_count,
 		 connect_rate, reply_rate, resp_30s_rate, satisfaction_rate, invite_eval_rate, avg_reply_msg_count,
@@ -291,7 +335,7 @@ func importJDWorkload(db *sql.DB, path, date, shop string) (int, error) {
 		 message_assign_count=VALUES(message_assign_count), message_receive_count=VALUES(message_receive_count),
 		 message_reply_rate=VALUES(message_reply_rate), message_resp_rate=VALUES(message_resp_rate),
 		 merchant_message_rate=VALUES(merchant_message_rate), resolve_rate=VALUES(resolve_rate)`,
-		date, shop,
+		statDate, shop,
 		toInt(row, 1), toFloat(row, 2), toFloat(row, 3), toInt(row, 4), toInt(row, 5), toInt(row, 6),
 		toFloat(row, 7), toFloat(row, 8), toFloat(row, 9), toFloat(row, 10), toFloat(row, 11), toFloat(row, 12),
 		toInt(row, 13), toFloat(row, 14), toFloat(row, 15), toFloat(row, 16), toInt(row, 17),
@@ -308,6 +352,13 @@ func importJDSalesPerf(db *sql.DB, path, date, shop string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// stat_date 取 Excel 第 0 列日期，文件名日期只是 RPA 采集日
+	statDate := date
+	if len(row) > 0 && strings.Contains(row[0], "-") {
+		if v := parseExcelDate(row[0]); v != "" {
+			statDate = v
+		}
+	}
 	_, err = db.Exec(`INSERT INTO op_jd_cs_sales_perf_daily
 		(stat_date, shop_name, on_duty_cs_count, presale_receive_users, order_users, shipped_users,
 		 order_count, shipped_order_count, order_goods_count, shipped_goods_count, order_goods_amount,
@@ -320,7 +371,7 @@ func importJDSalesPerf(db *sql.DB, path, date, shop string) (int, error) {
 		 shipped_goods_count=VALUES(shipped_goods_count), order_goods_amount=VALUES(order_goods_amount),
 		 shipped_goods_amount=VALUES(shipped_goods_amount), consult_to_order_rate=VALUES(consult_to_order_rate),
 		 consult_to_ship_rate=VALUES(consult_to_ship_rate)`,
-		date, shop,
+		statDate, shop,
 		toInt(row, 1), toInt(row, 2), toInt(row, 3), toInt(row, 4), toInt(row, 5), toInt(row, 6), toInt(row, 7),
 		toInt(row, 8), toFloat(row, 9), toFloat(row, 10), toFloat(row, 11), toFloat(row, 12),
 	)

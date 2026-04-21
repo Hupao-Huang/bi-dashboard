@@ -18,11 +18,14 @@ import (
 
 var baseDir = `Z:\信息部\RPA_集团数据看板\唯品会`
 
-// parseExcelDate 兼容 Excel 日期列各种格式
+// parseExcelDate 严格解析 Excel 日期列，格式不合规返回 ""（调用方 fallback 到文件名日期）
 func parseExcelDate(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
+	}
+	if idx := strings.Index(s, " "); idx > 0 {
+		s = s[:idx]
 	}
 	s = strings.ReplaceAll(s, "/", "-")
 	s = strings.ReplaceAll(s, ".", "-")
@@ -33,19 +36,23 @@ func parseExcelDate(s string) string {
 		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
 	}
 	parts := strings.Split(s, "-")
-	if len(parts) == 3 {
-		y, m, d := parts[0], parts[1], parts[2]
-		if len(m) == 1 {
-			m = "0" + m
-		}
-		if len(d) == 1 {
-			d = "0" + d
-		}
-		if len(y) == 4 {
-			return y + "-" + m + "-" + d
-		}
+	if len(parts) != 3 {
+		return ""
 	}
-	return s
+	y, m, d := parts[0], parts[1], parts[2]
+	if len(y) != 4 {
+		return ""
+	}
+	if len(m) == 1 {
+		m = "0" + m
+	}
+	if len(d) == 1 {
+		d = "0" + d
+	}
+	if len(m) != 2 || len(d) != 2 {
+		return ""
+	}
+	return y + "-" + m + "-" + d
 }
 
 func main() {

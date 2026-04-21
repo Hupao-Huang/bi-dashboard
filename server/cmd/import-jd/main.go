@@ -17,11 +17,16 @@ import (
 
 var baseDir = `Z:\信息部\RPA_集团数据看板\京东`
 
-// parseExcelDate 兼容 Excel 日期列各种格式：2026-04-17 / 2026/4/17 / 2026.04.17 / 20260417
+// parseExcelDate 严格解析 Excel 日期列，格式不合规返回 ""（调用方 fallback 到文件名日期）
+// 支持: YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD / YYYY年MM月DD日 / YYYYMMDD / YYYY-M-D
+// 注意：YY 两位年份格式不受支持（避免误解析导致数据污染）
 func parseExcelDate(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
+	}
+	if idx := strings.Index(s, " "); idx > 0 {
+		s = s[:idx]
 	}
 	s = strings.ReplaceAll(s, "/", "-")
 	s = strings.ReplaceAll(s, ".", "-")
@@ -32,19 +37,23 @@ func parseExcelDate(s string) string {
 		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
 	}
 	parts := strings.Split(s, "-")
-	if len(parts) == 3 {
-		y, m, d := parts[0], parts[1], parts[2]
-		if len(m) == 1 {
-			m = "0" + m
-		}
-		if len(d) == 1 {
-			d = "0" + d
-		}
-		if len(y) == 4 {
-			return y + "-" + m + "-" + d
-		}
+	if len(parts) != 3 {
+		return ""
 	}
-	return s
+	y, m, d := parts[0], parts[1], parts[2]
+	if len(y) != 4 {
+		return ""
+	}
+	if len(m) == 1 {
+		m = "0" + m
+	}
+	if len(d) == 1 {
+		d = "0" + d
+	}
+	if len(m) != 2 || len(d) != 2 {
+		return ""
+	}
+	return y + "-" + m + "-" + d
 }
 
 func main() {
@@ -252,12 +261,18 @@ func importCustomerDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		return 0, fmt.Errorf("列数不足: %d", len(d))
 	}
 
+	// stat_date 取 Excel 第 0 列"日期"（业务日，可能是 "2025.12.31" 点分隔格式），文件名日期只是 RPA 采集日
+	statDate := parseExcelDate(d[0])
+	if statDate == "" {
+		statDate = date
+	}
+
 	_, err = db.Exec(`INSERT INTO op_jd_customer_daily
 		(stat_date, shop_name, browse_customers, cart_customers, order_customers,
 		 pay_customers, repurchase_customers, lost_customers)
 		VALUES (?,?,?,?,?,?,?,?)
 		ON DUPLICATE KEY UPDATE browse_customers=VALUES(browse_customers)`,
-		date, shop, toInt(d[1]), toInt(d[3]), toInt(d[5]),
+		statDate, shop, toInt(d[1]), toInt(d[3]), toInt(d[5]),
 		toInt(d[7]), toInt(d[9]), toInt(d[11]))
 	if err != nil {
 		return 0, err
@@ -348,12 +363,18 @@ func importPromoDaily(db *sql.DB, fpath, date, shop, promoType string) (int, err
 		return 0, nil
 	}
 
+	// stat_date 取 Excel 第 0 列"日期"（业务日），文件名日期只是 RPA 采集日
+	statDate := parseExcelDate(d[0])
+	if statDate == "" {
+		statDate = date
+	}
+
 	_, err = db.Exec(`INSERT INTO op_jd_promo_daily
 		(stat_date, shop_name, promo_type, pay_goods_count, pay_amount, pay_count,
 		 pay_users, conv_rate, uv, pv)
 		VALUES (?,?,?,?,?,?,?,?,?,?)
 		ON DUPLICATE KEY UPDATE pay_amount=VALUES(pay_amount)`,
-		date, shop, promoType, toInt2(d, 1), toFloat2(d, 2), toInt2(d, 3),
+		statDate, shop, promoType, toInt2(d, 1), toFloat2(d, 2), toInt2(d, 3),
 		toInt2(d, 4), toFloat2(d, 5), toInt2(d, 6), toInt2(d, 7))
 	if err != nil {
 		return 0, err

@@ -19,6 +19,67 @@ import (
 
 var baseDir = `Z:\信息部\RPA_集团数据看板\拼多多`
 
+// parseExcelDate 拼多多专用 Excel 日期解析
+// 拼多多"统计时间"列格式是 MM-DD-YY（美式短年份）：例如 "12-29-25" = 2025-12-29
+// 也兼容 YYYY-MM-DD / YYYYMMDD / YYYY年MM月DD日 等标准格式
+// 格式不合规返回 ""（调用方 fallback 到文件名日期）
+func parseExcelDate(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if idx := strings.Index(s, " "); idx > 0 {
+		s = s[:idx]
+	}
+	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, ".", "-")
+	s = strings.ReplaceAll(s, "年", "-")
+	s = strings.ReplaceAll(s, "月", "-")
+	s = strings.ReplaceAll(s, "日", "")
+	// YYYYMMDD（无分隔符）
+	if len(s) == 8 && !strings.Contains(s, "-") {
+		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
+	}
+	parts := strings.Split(s, "-")
+	if len(parts) != 3 {
+		return ""
+	}
+	// 情况 A: YYYY-MM-DD（4 位年份，标准 ISO）
+	if len(parts[0]) == 4 {
+		y, m, d := parts[0], parts[1], parts[2]
+		if len(m) == 1 {
+			m = "0" + m
+		}
+		if len(d) == 1 {
+			d = "0" + d
+		}
+		if len(m) != 2 || len(d) != 2 {
+			return ""
+		}
+		return y + "-" + m + "-" + d
+	}
+	// 情况 B: MM-DD-YY（拼多多美式短年份）
+	// 识别条件: 三段都是 1-2 位，parts[0] ≤ 12（月份合法），parts[2] 是 YY
+	if len(parts[0]) <= 2 && len(parts[1]) <= 2 && len(parts[2]) == 2 {
+		mNum, e1 := strconv.Atoi(parts[0])
+		dNum, e2 := strconv.Atoi(parts[1])
+		yyNum, e3 := strconv.Atoi(parts[2])
+		if e1 != nil || e2 != nil || e3 != nil {
+			return ""
+		}
+		if mNum < 1 || mNum > 12 || dNum < 1 || dNum > 31 {
+			return ""
+		}
+		// YY 补全：00-69 → 20xx, 70-99 → 19xx
+		year := 2000 + yyNum
+		if yyNum >= 70 {
+			year = 1900 + yyNum
+		}
+		return fmt.Sprintf("%04d-%02d-%02d", year, mNum, dNum)
+	}
+	return ""
+}
+
 func main() {
 	cfg, _ := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
 	db, _ := sql.Open("mysql", cfg.Database.DSN())
@@ -297,6 +358,11 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	if len(d) < 10 {
 		return 0, nil
 	}
+	// stat_date 取 Excel 第 0 列"统计时间"（业务日），文件名日期只是 RPA 采集日
+	statDate := parseExcelDate(d[0])
+	if statDate == "" {
+		statDate = date
+	}
 	// 文件结构: [统计时间 成交金额 较上周期 成交订单数 较上周期 成交买家数 较上周期 成交转化率 较上周期 客单价 较上周期 老买家占比 较上周期 关注用户数 较上周期 退款金额 较上周期 退款单数 较上周期 平均访客价值 较上周期]
 	_, err = db.Exec(`REPLACE INTO op_pdd_shop_daily
 		(stat_date, shop_name,
@@ -306,7 +372,7 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		 follow_users, follow_users_change, refund_amount, refund_amount_change,
 		 refund_orders, refund_orders_change, uv_value, uv_value_change)
 		VALUES (?,?, ?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?,?)`,
-		date, shop,
+		statDate, shop,
 		toF(d, 1), toS(d, 2), toI(d, 3), toS(d, 4),
 		toI(d, 5), toS(d, 6), toF(d, 7), toS(d, 8),
 		toF(d, 9), toS(d, 10), toF(d, 11), toS(d, 12),
@@ -333,6 +399,11 @@ func importGoodsDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	if len(d) < 10 {
 		return 0, nil
 	}
+	// stat_date 取 Excel 第 0 列"统计时间"（业务日），文件名日期只是 RPA 采集日
+	statDate := parseExcelDate(d[0])
+	if statDate == "" {
+		statDate = date
+	}
 	// 文件结构: [统计时间 商品访客 较上 浏览量 较上 收藏 较上 被访问商品 较上 成交金额 较上 成交订单 较上 成交买家 较上 成交转化率 较上]
 	_, err = db.Exec(`REPLACE INTO op_pdd_goods_daily
 		(stat_date, shop_name,
@@ -341,7 +412,7 @@ func importGoodsDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		 pay_amount, pay_amount_change, pay_count, pay_count_change,
 		 pay_buyers, pay_buyers_change, conv_rate, conv_rate_change)
 		VALUES (?,?, ?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?,?)`,
-		date, shop,
+		statDate, shop,
 		toI(d, 1), toS(d, 2), toI(d, 3), toS(d, 4),
 		toI(d, 5), toS(d, 6), toI(d, 7), toS(d, 8),
 		toF(d, 9), toS(d, 10), toI(d, 11), toS(d, 12),
@@ -368,13 +439,18 @@ func importServiceOverview(db *sql.DB, fpath, date, shop string) (int, error) {
 	if len(d) < 12 {
 		return 0, nil
 	}
+	// stat_date 取 Excel 第 0 列"统计时间"（业务日），文件名日期只是 RPA 采集日
+	statDate := parseExcelDate(d[0])
+	if statDate == "" {
+		statDate = date
+	}
 	// [统计时间 纠纷退款数 纠纷退款率 介入订单数 平台介入率 品质退款率 平均退款时长 成功退款订单数 成功退款金额 成功退款率 退货退款自主完结时长 退款自主完结时长]
 	_, err = db.Exec(`REPLACE INTO op_pdd_service_overview
 		(stat_date, shop_name, dispute_refund_count, dispute_refund_rate, intervene_orders, intervene_rate,
 		 quality_refund_rate, avg_refund_hours, success_refund_orders, success_refund_amount, success_refund_rate,
 		 return_self_close, refund_self_close)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		date, shop,
+		statDate, shop,
 		toI(d, 1), toF(d, 2), toI(d, 3), toF(d, 4),
 		toF(d, 5), toS(d, 6), toI(d, 7), toF(d, 8), toF(d, 9),
 		toS(d, 10), toS(d, 11),
