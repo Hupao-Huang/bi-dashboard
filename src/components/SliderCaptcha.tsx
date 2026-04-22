@@ -35,7 +35,7 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
     setSliderX(0);
     setStatus('');
     try {
-      const res = await fetch(`${API_BASE}/api/auth/captcha`);
+      const res = await fetch(`${API_BASE}/api/auth/captcha`, { credentials: 'include' });
       const body = await res.json();
       const data = body.data || body;
       setCaptchaId(data.id);
@@ -88,6 +88,7 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
       try {
         const res = await fetch(`${API_BASE}/api/auth/captcha/verify`, {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ captchaId: cid, captchaAnswer: Math.round(finalX) }),
         });
