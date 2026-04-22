@@ -58,7 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refresh = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/auth/me`);
+      const response = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
       const data = await parseResponse(response);
       setSession(data);
     } catch {
@@ -75,6 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = useCallback(async (params: LoginParams) => {
     const response = await fetch(`${API_BASE}/api/auth/login`, {
       body: JSON.stringify(params),
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
     });
@@ -85,7 +86,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(async () => {
     try {
-      await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
     } finally {
       setSession(null);
     }
