@@ -18,6 +18,7 @@ import {
   lineAreaStyle,
   pieStyle,
   formatMoney,
+  formatWanHint,
   getNiceAxisInterval,
   DEPT_COLORS,
   GRADE_COLORS,
@@ -319,10 +320,26 @@ const OverviewPage: React.FC = () => {
       title: '销售额',
       dataIndex: 'sales',
       key: 'sales',
-      width: 120,
-      render: (v: number) => <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>¥{v?.toLocaleString()}</span>,
+      width: 150,
+      render: (v: number) => {
+        const hint = formatWanHint(v || 0);
+        return (
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontWeight: 600 }}>¥{v?.toLocaleString()}</span>
+            {hint && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 6 }}>{hint.replace('约', '≈')}</span>}
+          </span>
+        );
+      },
     },
-    { title: '销量', dataIndex: 'qty', key: 'qty', width: 70, render: (v: number) => v?.toLocaleString() },
+    { title: '销量', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => {
+      const hint = formatWanHint(v || 0);
+      return (
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {v?.toLocaleString()}
+          {hint && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 4 }}>{hint.replace('约', '≈')}</span>}
+        </span>
+      );
+    }},
     {
       title: '客单价',
       key: 'avgPrice',
@@ -371,13 +388,24 @@ const OverviewPage: React.FC = () => {
       <DateFilter start={startDate} end={endDate} onChange={handleDateChange} />
 
       <Row gutter={[16, 16]}>
-        {summaryCards.map((card, i) => (
-          <Col xs={24} sm={8} key={i}>
-            <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.color }}>
-              <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
-            </Card>
-          </Col>
-        ))}
+        {summaryCards.map((card, i) => {
+          const hint = formatWanHint(card.value);
+          return (
+            <Col xs={24} sm={8} key={i}>
+              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.color }}>
+                <Statistic
+                  title={card.title}
+                  value={card.value}
+                  precision={card.precision}
+                  prefix={card.prefix}
+                />
+                <div style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
+                  {hint ? hint.replace('约', '≈ ') : ' '}
+                </div>
+              </Card>
+            </Col>
+          );
+        })}
       </Row>
 
       <Row gutter={[12, 12]} style={{ marginTop: 16 }}>
@@ -425,6 +453,11 @@ const OverviewPage: React.FC = () => {
                 >
                   ¥{dept.sales?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
+                {formatWanHint(dept.sales || 0) && (
+                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 2, fontVariantNumeric: 'tabular-nums', fontWeight: 400 }}>
+                    {formatWanHint(dept.sales || 0).replace('约', '≈ ')}
+                  </div>
+                )}
                 <div
                   style={{
                     display: 'flex',

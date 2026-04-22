@@ -42,6 +42,13 @@ export const formatMoney = (v: number): string => {
   return String(v);
 };
 
+// 生成"约X万/X亿"后缀（KPI卡片下方小字用），小于1万返回空字符串
+export const formatWanHint = (v: number): string => {
+  if (Math.abs(v) < 10000) return '';
+  if (Math.abs(v) >= 100000000) return `约${(v / 100000000).toFixed(2)}亿`;
+  return `约${(v / 10000).toFixed(1)}万`;
+};
+
 export const getNiceAxisInterval = (maxValue: number, splits: number): number => {
   const safeMax = Math.max(maxValue, 1);
   const rawInterval = safeMax / splits;

@@ -212,13 +212,17 @@ const MarketingCostPage: React.FC = () => {
         <>
           {/* 汇总指标 */}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            {statCards.map((card) => (
-              <Col xs={12} sm={6} md={3} key={card.title}>
-                <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
-                  <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
-                </Card>
-              </Col>
-            ))}
+            {statCards.map((card) => {
+              const hint = (card.prefix === '¥' && card.value >= 10000) ? `≈ ${(card.value / 10000).toFixed(1)}万` : '';
+              return (
+                <Col xs={12} sm={6} md={3} key={card.title}>
+                  <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
+                    <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
+                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
+                  </Card>
+                </Col>
+              );
+            })}
           </Row>
 
           {/* CPC趋势 + CPS趋势 */}

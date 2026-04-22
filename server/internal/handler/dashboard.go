@@ -36,8 +36,17 @@ var (
 const (
 	overviewCacheTTL      = 30 * time.Second
 	deptCacheTTL          = 5 * time.Minute
-	overviewCacheMaxItems = 256
+	overviewCacheMaxItems = 1024
 )
+
+// ClearOverviewCache 清空所有接口缓存（同步脚本完成后调用，立即反映最新数据）
+func ClearOverviewCache() int {
+	overviewCacheMu.Lock()
+	defer overviewCacheMu.Unlock()
+	n := len(overviewCache)
+	overviewCache = map[string]overviewCacheEntry{}
+	return n
+}
 
 func getOverviewCache(key string) (map[string]interface{}, bool) {
 	now := time.Now()
@@ -790,14 +799,14 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// 4.6 产品定位×平台销售分布（仅电商部门）
+	// 4.6 产品定位×平台销售分布（电商+社媒部门，平台维度通过 sales_channel.online_plat_name）
 	type GradePlatItem struct {
 		Grade    string  `json:"grade"`
 		Platform string  `json:"platform"`
 		Sales    float64 `json:"sales"`
 	}
 	var gradePlatSales []GradePlatItem
-	if dept == "ecommerce" {
+	if dept == "ecommerce" || dept == "social" {
 		gpRows, ok := queryRowsOrWriteError(w, h.DB, `
 			SELECT IFNULL(g.goods_field7,'未设置') as grade,
 			CASE

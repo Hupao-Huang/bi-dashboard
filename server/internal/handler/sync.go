@@ -108,6 +108,25 @@ func (h *DashboardHandler) SyncOps(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ClearCache webhook接口：清空所有接口缓存（同步脚本完成后调用）
+// POST /api/webhook/clear-cache
+func (h *DashboardHandler) ClearCache(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	if h.WebhookSecret != "" {
+		token := r.Header.Get("X-Webhook-Secret")
+		if !hmac.Equal([]byte(token), []byte(h.WebhookSecret)) {
+			writeError(w, 403, "unauthorized")
+			return
+		}
+	}
+	n := ClearOverviewCache()
+	log.Printf("[clear-cache] 已清空 %d 条缓存", n)
+	writeJSON(w, map[string]interface{}{"cleared": n})
+}
+
 // SyncStatus 查询同步状态
 // GET /api/webhook/sync-status
 func (h *DashboardHandler) SyncStatus(w http.ResponseWriter, r *http.Request) {

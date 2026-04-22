@@ -186,7 +186,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       itemStyle: { color: GRADE_COLORS[g] },
     }));
 
-  const gradeDonutOption = dept === 'ecommerce' && totalSales > 0 && gradePieData.length > 0 ? {
+  const gradeDonutOption = (dept === 'ecommerce' || dept === 'social') && totalSales > 0 && gradePieData.length > 0 ? {
     ...pieStyle,
     tooltip: {
       ...pieStyle.tooltip,
@@ -248,13 +248,21 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
     <div>
       <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
       <Row gutter={[16, 16]}>
-        {statCards.map((card) => (
-          <Col xs={24} sm={6} key={card.title}>
-            <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
-              <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-            </Card>
-          </Col>
-        ))}
+        {statCards.map((card) => {
+          const hint = card.value >= 10000
+            ? (card.value >= 100000000 ? `≈ ${(card.value / 100000000).toFixed(2)}亿` : `≈ ${(card.value / 10000).toFixed(1)}万`)
+            : '';
+          return (
+            <Col xs={24} sm={6} key={card.title}>
+              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
+                <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
+                <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
+                  {hint || ' '}
+                </div>
+              </Card>
+            </Col>
+          );
+        })}
       </Row>
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={gradeDonutOption || platformSales.length > 0 ? 12 : 24}>

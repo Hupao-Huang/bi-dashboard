@@ -146,13 +146,19 @@ const ProductDashboard: React.FC<Props> = ({ dept }) => {
 
       {/* 汇总统计 */}
       <Row gutter={[16, 16]}>
-        {statCards.map((card) => (
-          <Col xs={24} sm={6} key={card.title}>
-            <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
-              <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-            </Card>
-          </Col>
-        ))}
+        {statCards.map((card) => {
+          const hint = card.value >= 10000
+            ? (card.value >= 100000000 ? `≈ ${(card.value / 100000000).toFixed(2)}亿` : `≈ ${(card.value / 10000).toFixed(1)}万`)
+            : '';
+          return (
+            <Col xs={24} sm={6} key={card.title}>
+              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
+                <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
+                <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
+              </Card>
+            </Col>
+          );
+        })}
       </Row>
 
       {/* 商品TOP15 + 品牌占比 + 产品定位 */}

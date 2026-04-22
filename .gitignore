@@ -26,6 +26,7 @@ yarn-error.log*
 # server binaries
 server/*.exe
 server/*.exe~
+server/cmd/**/*.exe
 server/*.log
 server/*.log.old
 server/archive/
