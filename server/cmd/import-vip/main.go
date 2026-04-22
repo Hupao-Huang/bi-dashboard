@@ -135,6 +135,11 @@ func main() {
 	fmt.Printf("\n导入完成: %d 条\n", total)
 }
 
+// importShopDaily 导入唯品会店铺销售经营数据。按表头名映射，避免原版硬编码索引把
+// "曝光流量/浏览流量/商详UV/商详UV价值"错存成"销售额/销售量/子订单数/客户数"。
+// Excel 真实列：时间/曝光流量/浏览流量/商详UV/商详UV价值/加购人数/收藏人数/兴趣人数/
+//   兴趣人次/访问-加购转化率/销售额/销售量/客户数/子订单数/ARPU/超V销售额/超V客户数/
+//   加购-支付转化率/购买转化率/接待数/客服转化数/客服转化金额/客服转化率/...
 func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	f, err := excelize.OpenFile(fpath)
 	if err != nil {
@@ -145,24 +150,104 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	if len(rows) < 2 {
 		return 0, nil
 	}
+	header := rows[0]
 	d := rows[1]
-	if len(d) < 5 {
-		return 0, nil
+	idx := headerIdx(header)
+
+	// 核心字段缺失直接报错跳过（Excel 格式彻底换了时保护数据）
+	colSales := findCol(idx, "销售额")
+	if colSales < 0 {
+		return 0, fmt.Errorf("表头格式未识别（找不到'销售额'列）: %v", header)
 	}
-	// stat_date 取 Excel 第 0 列（业务日），文件名日期只是 RPA 采集日
-	statDate := parseExcelDate(d[0])
+
+	// stat_date 取 Excel 第一列业务日期（文件名日期只是 RPA 采集日）
+	colDate := findCol(idx, "时间", "日期", "统计日期")
+	statDate := ""
+	if colDate >= 0 && colDate < len(d) {
+		statDate = parseExcelDate(d[colDate])
+	}
 	if statDate == "" {
 		statDate = date
 	}
+
 	_, err = db.Exec(`INSERT INTO op_vip_shop_daily
-		(stat_date, shop_name, pay_amount, pay_count, pay_orders, visitors)
-		VALUES (?,?,?,?,?,?)
-		ON DUPLICATE KEY UPDATE pay_amount=VALUES(pay_amount)`,
-		statDate, shop, toF(d, 1), toI(d, 2), toI(d, 3), toI(d, 4))
+		(stat_date, shop_name, impressions, page_views, detail_uv, detail_uv_value,
+		 cart_buyers, collect_buyers, cart_conv_rate,
+		 pay_amount, pay_count, pay_orders, pay_conv_rate, pay_cart_conv_rate, arpu, visitors)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON DUPLICATE KEY UPDATE
+		 impressions=VALUES(impressions), page_views=VALUES(page_views),
+		 detail_uv=VALUES(detail_uv), detail_uv_value=VALUES(detail_uv_value),
+		 cart_buyers=VALUES(cart_buyers), collect_buyers=VALUES(collect_buyers),
+		 cart_conv_rate=VALUES(cart_conv_rate),
+		 pay_amount=VALUES(pay_amount), pay_count=VALUES(pay_count), pay_orders=VALUES(pay_orders),
+		 pay_conv_rate=VALUES(pay_conv_rate), pay_cart_conv_rate=VALUES(pay_cart_conv_rate),
+		 arpu=VALUES(arpu), visitors=VALUES(visitors)`,
+		statDate, shop,
+		getInt(d, findCol(idx, "曝光流量")),
+		getInt(d, findCol(idx, "浏览流量")),
+		getInt(d, findCol(idx, "商详UV")),
+		getFloat(d, findCol(idx, "商详UV价值")),
+		getInt(d, findCol(idx, "加购人数")),
+		getInt(d, findCol(idx, "收藏人数")),
+		getStr(d, findCol(idx, "访问-加购转化率")),
+		getFloat(d, colSales),
+		getInt(d, findCol(idx, "销售量")),
+		getInt(d, findCol(idx, "子订单数")),
+		getStr(d, findCol(idx, "购买转化率")),
+		getStr(d, findCol(idx, "加购-支付转化率")),
+		getFloat(d, findCol(idx, "ARPU")),
+		getInt(d, findCol(idx, "客户数")),
+	)
 	if err != nil {
 		return 0, err
 	}
 	return 1, nil
+}
+
+// headerIdx 构建 Excel 表头 → 列索引映射。重复表头取第一次出现位置。
+func headerIdx(header []string) map[string]int {
+	m := make(map[string]int, len(header))
+	for i, h := range header {
+		h = strings.TrimSpace(h)
+		if h == "" {
+			continue
+		}
+		if _, ok := m[h]; !ok {
+			m[h] = i
+		}
+	}
+	return m
+}
+
+func findCol(idx map[string]int, aliases ...string) int {
+	for _, a := range aliases {
+		if i, ok := idx[a]; ok {
+			return i
+		}
+	}
+	return -1
+}
+
+func getInt(d []string, i int) int {
+	if i < 0 || i >= len(d) {
+		return 0
+	}
+	return toI(d, i)
+}
+
+func getFloat(d []string, i int) float64 {
+	if i < 0 || i >= len(d) {
+		return 0
+	}
+	return toF(d, i)
+}
+
+func getStr(d []string, i int) interface{} {
+	if i < 0 || i >= len(d) || d[i] == "" {
+		return nil
+	}
+	return d[i]
 }
 
 // importCancelAmount 取消金额（按dt多天数据）
