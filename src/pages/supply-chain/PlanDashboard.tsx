@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table } from 'antd';
+import { Row, Col, Card, Table, DatePicker } from 'antd';
+import dayjs, { Dayjs } from 'dayjs';
 import {
   DollarOutlined,
   DatabaseOutlined,
@@ -11,16 +12,29 @@ import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import AnimatedNumber from '../../components/AnimatedNumber';
 import PageLoading from '../../components/PageLoading';
-import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../../config';
+import { API_BASE, DATA_START_DATE, DATA_END_DATE } from '../../config';
 import { getBaseOption, barItemStyle, formatMoney, CHART_COLORS, GRADE_COLORS } from '../../chartTheme';
+
+// 计划看板默认选本月（月初到昨天，月初1号当天兜底到上月）
+const DEFAULT_START = DATA_START_DATE;
+const DEFAULT_END = DATA_END_DATE;
+
+// 月度趋势默认展示近15个月
+const DEFAULT_TREND_START = dayjs().subtract(14, 'month').format('YYYY-MM');
+const DEFAULT_TREND_END = dayjs().format('YYYY-MM');
 
 const PlanDashboard: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
-  const [startDate, setStartDate] = useState(DATA_START_DATE);
-  const [endDate, setEndDate] = useState(DATA_END_DATE);
+  const [startDate, setStartDate] = useState(DEFAULT_START);
+  const [endDate, setEndDate] = useState(DEFAULT_END);
   const [warehouse] = useState('');
+
+  // 月度销售趋势独立状态
+  const [trendStart, setTrendStart] = useState(DEFAULT_TREND_START);
+  const [trendEnd, setTrendEnd] = useState(DEFAULT_TREND_END);
+  const [trendData, setTrendData] = useState<{ month: string; value: number }[]>([]);
 
   const fetchData = useCallback((s: string, e: string, wh: string) => {
     abortRef.current?.abort();
@@ -35,7 +49,16 @@ const PlanDashboard: React.FC = () => {
       .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, []);
 
+  const fetchTrend = useCallback((s: string, e: string) => {
+    const params = new URLSearchParams({ start_month: s, end_month: e });
+    fetch(`${API_BASE}/api/supply-chain/monthly-trend?${params}`)
+      .then(res => res.json())
+      .then(res => { if (res.code === 200) setTrendData(res.data || []); })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => { fetchData(startDate, endDate, warehouse); }, [fetchData, startDate, endDate, warehouse]);
+  useEffect(() => { fetchTrend(trendStart, trendEnd); }, [fetchTrend, trendStart, trendEnd]);
 
   if (loading && !data) return <PageLoading />;
   if (!data) return <div>加载失败</div>;
@@ -48,9 +71,10 @@ const PlanDashboard: React.FC = () => {
   const fmtDay = (v: number) => `${v.toFixed(1)}天`;
   const fmtPct = (v: number) => `${v.toFixed(1)}%`;
 
+  const wanHint = (v: number) => v >= 10000 ? `≈ ${(v / 10000).toFixed(1)}万 · ` : '';
   const kpiCards = [
-    { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#1e40af', icon: <DollarOutlined />, desc: '销售出库销售额', animated: true },
-    { title: '库存成本', num: kpi.stockCost || 0, fmt: fmtYuan, color: '#06b6d4', icon: <DatabaseOutlined />, desc: '当前库存金额', tag: '实时' },
+    { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#1e40af', icon: <DollarOutlined />, desc: wanHint(kpi.salesGMV || 0) + '销售出库销售额', animated: true },
+    { title: '库存成本', num: kpi.stockCost || 0, fmt: fmtYuan, color: '#06b6d4', icon: <DatabaseOutlined />, desc: wanHint(kpi.stockCost || 0) + '当前库存金额', tag: '实时' },
     { title: '库存周转', num: kpi.turnoverDays || 0, fmt: fmtDay, color: '#f59e0b', icon: <SyncOutlined />, desc: '库存成本÷日均销售成本', animated: true },
     { title: '高库存占比', num: kpi.highStockRate || 0, fmt: fmtPct, color: '#7c3aed', icon: <WarningOutlined />, desc: '周转>50天的库存占比', tag: '实时' },
     { title: '缺货率', num: kpi.stockoutRate || 0, fmt: fmtPct, color: '#ef4444', icon: <StopOutlined />, desc: `${kpi.stockoutSKU || 0}/${kpi.salesSKU || 0} SKU`, tag: '实时' },
@@ -59,14 +83,13 @@ const PlanDashboard: React.FC = () => {
 
   // ========== 月度销售趋势 ==========
   const baseOpt = getBaseOption();
-  const monthly = data.monthlySales || [];
   const salesTrendOption = {
     ...baseOpt,
     grid: { left: 60, right: 20, top: 24, bottom: 24 },
-    xAxis: { ...baseOpt.xAxis, type: 'category' as const, data: monthly.map((d: any) => d.month) },
+    xAxis: { ...baseOpt.xAxis, type: 'category' as const, data: trendData.map(d => d.month) },
     yAxis: { ...baseOpt.yAxis, type: 'value' as const, axisLabel: { ...baseOpt.yAxis.axisLabel, formatter: formatMoney } },
     series: [{
-      type: 'bar', data: monthly.map((d: any) => d.value), ...barItemStyle('#1e40af'), barWidth: 20,
+      type: 'bar', data: trendData.map(d => d.value), ...barItemStyle('#1e40af'), barWidth: 20,
       label: { show: true, position: 'top', fontSize: 10, color: '#64748b', formatter: (p: any) => formatMoney(p.value) },
     }],
   };
@@ -218,8 +241,27 @@ const PlanDashboard: React.FC = () => {
         ))}
       </Row>
 
-      {/* 第2行：月度销售趋势（全宽扁长） */}
-      <Card title="月度销售趋势" style={{ marginTop: 16 }}>
+      {/* 第2行：月度销售趋势（全宽扁长，独立月份范围） */}
+      <Card
+        title="月度销售趋势"
+        style={{ marginTop: 16 }}
+        extra={
+          <DatePicker.RangePicker
+            picker="month"
+            size="small"
+            value={[dayjs(trendStart), dayjs(trendEnd)]}
+            disabledDate={(current) => current && current.isAfter(dayjs(), 'month')}
+            onChange={(d) => {
+              if (d && d[0] && d[1]) {
+                setTrendStart((d[0] as Dayjs).format('YYYY-MM'));
+                setTrendEnd((d[1] as Dayjs).format('YYYY-MM'));
+              }
+            }}
+            allowClear={false}
+            style={{ width: 220 }}
+          />
+        }
+      >
         <ReactECharts option={salesTrendOption} style={{ height: 180 }} />
       </Card>
 

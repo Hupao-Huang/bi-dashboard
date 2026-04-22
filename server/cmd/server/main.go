@@ -25,8 +25,9 @@ func main() {
 	}
 	defer db.Close()
 
-	db.SetMaxOpenConns(50)
-	db.SetMaxIdleConns(20)
+	db.SetMaxOpenConns(100)
+	db.SetMaxIdleConns(40)
+	db.SetConnMaxLifetime(30 * time.Minute)
 
 	if err := db.Ping(); err != nil {
 		log.Fatalf("ping db: %v", err)
@@ -113,7 +114,9 @@ func main() {
 	mux.HandleFunc("/api/admin/roles", adminRoles(h.AdminRoles))
 	mux.HandleFunc("/api/admin/roles/", adminRoles(h.AdminRoleByPath))
 
-	cache5m := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(5*time.Minute, fn) }
+	// 销售/库存/运营类看板数据一天只变一次，缓存60分钟足够
+	// 如需立即生效，调用 /api/webhook/clear-cache（同步脚本自动调用）
+	cache5m := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(60*time.Minute, fn) }
 
 	mux.HandleFunc("/api/overview", pageAnyProtected(cache5m(h.GetOverview),
 		"overview:view", "finance.overview:view", "finance.monthly_profit:view",
@@ -156,8 +159,10 @@ func main() {
 	))
 	mux.HandleFunc("/api/webhook/sync-ops", corsHandler(h.SyncOps))
 	mux.HandleFunc("/api/webhook/sync-status", corsHandler(h.SyncStatus))
+	mux.HandleFunc("/api/webhook/clear-cache", corsHandler(h.ClearCache))
 	mux.HandleFunc("/api/stock/warning", pageProtected("supply_chain.inventory_warning:view", cache5m(h.GetStockWarning)))
 	mux.HandleFunc("/api/supply-chain/dashboard", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetSupplyChainDashboard)))
+	mux.HandleFunc("/api/supply-chain/monthly-trend", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetSupplyChainMonthlyTrend)))
 	mux.HandleFunc("/api/admin/tasks", adminRoles(h.GetTaskStatus))
 	mux.HandleFunc("/api/admin/tasks/run", adminRoles(h.RunManualTask))
 	mux.HandleFunc("/api/admin/tasks/running", adminRoles(h.GetRunningTasks))

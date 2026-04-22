@@ -5,6 +5,7 @@ import (
 	"bi-dashboard/internal/jackyun"
 	"database/sql"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -37,10 +38,24 @@ func main() {
 	deptMap := loadDeptMap(db)
 	log.Printf("已加载 %d 个渠道映射", len(deptMap))
 
+	// 同步范围：当月1号到昨天（先删后拉，保证与吉客云完全一致）
+	now := time.Now()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	yesterday := now.AddDate(0, 0, -1)
+
 	summaryTotal := 0
-	for dayOffset := 7; dayOffset >= 1; dayOffset-- {
-		d := time.Now().AddDate(0, 0, -dayOffset)
+	totalDeleted := int64(0)
+	for d := monthStart; !d.After(yesterday); d = d.AddDate(0, 0, 1) {
 		dayStr := d.Format("2006-01-02")
+
+		// 先删除该天旧数据（保证取消/合并的单据不残留）
+		delResult, delErr := db.Exec(`DELETE FROM sales_goods_summary WHERE stat_date = ?`, dayStr)
+		if delErr != nil {
+			log.Printf("删除 %s 旧数据失败: %v", dayStr, delErr)
+			continue
+		}
+		delCount, _ := delResult.RowsAffected()
+		totalDeleted += delCount
 
 		query := jackyun.SalesSummaryQuery{
 			TimeType: 3, StartTime: dayStr, EndTime: dayStr,
@@ -136,11 +151,41 @@ func main() {
 		if err != nil {
 			log.Printf("汇总 %s 同步失败: %v", dayStr, err)
 		} else {
-			log.Printf("汇总 %s: %d 条", dayStr, dayCount)
+			log.Printf("汇总 %s: 删除%d条, 新写入%d条", dayStr, delCount, dayCount)
 		}
 		summaryTotal += dayCount
 	}
-	log.Printf("汇总同步完成(7天总计): %d 条", summaryTotal)
+	// 清零"社媒-抖音-飞瓜"渠道的销售数据（达人样品发货，不计入销售）
+	if res, err := db.Exec(`UPDATE sales_goods_summary SET
+		goods_qty=0, goods_amt=0, local_goods_amt=0, goods_cost=0,
+		tax_fee=0, tax_amt=0, gross_profit=0, gross_profit_rate=0,
+		tax_gross_profit=0, tax_gross_profit_rate=0,
+		sell_total=0, share_expense=0, local_share_expense=0, local_tax_fee=0,
+		fixed_cost=0, so_qty=0, avg_price=0
+		WHERE shop_id='2395831916807980288' AND stat_date BETWEEN ? AND ?`,
+		monthStart.Format("2006-01-02"), yesterday.Format("2006-01-02")); err == nil {
+		n, _ := res.RowsAffected()
+		if n > 0 {
+			log.Printf("已清零 社媒-抖音-飞瓜 渠道 %d 条记录的销售数据", n)
+		}
+	}
+
+	log.Printf("汇总同步完成(当月%s至%s): 共删除%d条, 新写入%d条",
+		monthStart.Format("2006-01-02"), yesterday.Format("2006-01-02"),
+		totalDeleted, summaryTotal)
+
+	// 通知 bi-server 清空缓存（让用户立即看到最新数据）
+	if cfg.Webhook.Secret != "" {
+		req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/webhook/clear-cache", nil)
+		req.Header.Set("X-Webhook-Secret", cfg.Webhook.Secret)
+		if resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req); err == nil {
+			resp.Body.Close()
+			log.Println("已通知 bi-server 清缓存")
+		} else {
+			log.Printf("通知清缓存失败: %v", err)
+		}
+	}
+
 	log.Println("========== 每日汇总帐同步结束 ==========")
 }
 

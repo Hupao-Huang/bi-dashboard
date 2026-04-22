@@ -241,13 +241,17 @@ const MarketingDashboard: React.FC = () => {
             <>
               {/* KPI卡片 + 推广汇总 */}
               <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-                {liveStatCards.map((card) => (
-                  <Col xs={12} sm={6} lg={4} key={card.title}>
-                    <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
-                      <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-                    </Card>
-                  </Col>
-                ))}
+                {liveStatCards.map((card) => {
+                  const hint = (card.prefix === '¥' && card.value >= 10000) ? `≈ ${(card.value / 10000).toFixed(1)}万` : '';
+                  return (
+                    <Col xs={12} sm={6} lg={4} key={card.title}>
+                      <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
+                        <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
+                        <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
+                      </Card>
+                    </Col>
+                  );
+                })}
               </Row>
 
               {/* 直播趋势 + 转化漏斗 */}
@@ -359,13 +363,17 @@ const MarketingDashboard: React.FC = () => {
                           { title: 'ROI', value: overallROI, precision: 2, accentColor: '#1e40af' },
                           { title: '净成交', value: totalNet, precision: 2, prefix: '¥', accentColor: '#06b6d4' },
                           { title: '净ROI', value: netROI, precision: 2, accentColor: '#7c3aed' },
-                        ].map((card) => (
-                          <Col xs={12} sm={4} key={card.title}>
-                            <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
-                              <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
-                            </Card>
-                          </Col>
-                        ))}
+                        ].map((card) => {
+                          const hint = (card.prefix === '¥' && card.value >= 10000) ? `≈ ${(card.value / 10000).toFixed(1)}万` : '';
+                          return (
+                            <Col xs={12} sm={4} key={card.title}>
+                              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
+                                <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
+                                <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
+                              </Card>
+                            </Col>
+                          );
+                        })}
                       </Row>
                       <ReactECharts lazyUpdate={true} style={{ height: 300 }} option={{
                         ...baseOpt,
@@ -458,13 +466,17 @@ const MarketingDashboard: React.FC = () => {
               </Card>
 
               <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                {distStatCards.map((card) => (
-                  <Col xs={12} sm={6} key={card.title}>
-                    <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
-                      <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
-                    </Card>
-                  </Col>
-                ))}
+                {distStatCards.map((card) => {
+                  const hint = (card.prefix === '¥' && card.value >= 10000) ? `≈ ${(card.value / 10000).toFixed(1)}万` : '';
+                  return (
+                    <Col xs={12} sm={6} key={card.title}>
+                      <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
+                        <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
+                        <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
+                      </Card>
+                    </Col>
+                  );
+                })}
               </Row>
 
               {distTrend.length > 0 && (
