@@ -47,9 +47,9 @@ export type MenuDefinition = {
   permission?: string;
 };
 
-const deptMenuChildren = (prefix: string, permissions: { preview: string; store: string; product: string }): MenuDefinition[] => [
-  { key: `${prefix}/store-preview`, icon: <EyeOutlined />, label: '店铺数据预览', permission: permissions.preview },
-  { key: `${prefix}/store-dashboard`, icon: <BarChartOutlined />, label: '店铺看板', permission: permissions.store },
+const deptMenuChildren = (prefix: string, permissions: { preview: string; store: string; product: string }, unitLabel: '店铺' | '大区' = '店铺'): MenuDefinition[] => [
+  { key: `${prefix}/store-preview`, icon: <EyeOutlined />, label: `${unitLabel}数据预览`, permission: permissions.preview },
+  { key: `${prefix}/store-dashboard`, icon: <BarChartOutlined />, label: `${unitLabel}看板`, permission: permissions.store },
   { key: `${prefix}/product-dashboard`, icon: <AppstoreOutlined />, label: '货品看板', permission: permissions.product },
 ];
 
@@ -95,7 +95,7 @@ export const menuDefinitions: MenuDefinition[] = [
         preview: 'offline.store_preview:view',
         store: 'offline.store_dashboard:view',
         product: 'offline.product_dashboard:view',
-      }),
+      }, '大区'),
       { key: '/offline/high-value-customers', icon: <CrownOutlined />, label: '高价值客户', permission: 'offline.high_value_customers:view' },
       { key: '/offline/turnover-expiry', icon: <SyncOutlined />, label: '周转率及临期', permission: 'offline.turnover_expiry:view' },
       { key: '/offline/ka-monthly', icon: <ScheduleOutlined />, label: 'KA月度统计', permission: 'offline.ka_monthly:view' },
@@ -123,6 +123,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/finance/monthly-profit', icon: <CalendarOutlined />, label: '月度利润统计', permission: 'finance.monthly_profit:view' },
       { key: '/finance/product-profit', icon: <RiseOutlined />, label: '产品利润统计', permission: 'finance.product_profit:view' },
       { key: '/finance/expense-control', icon: <AccountBookOutlined />, label: '费控管理', permission: 'finance.expense:view' },
+      { key: '/finance/report', icon: <FileTextOutlined />, label: '财务报表', permission: 'finance.report:view' },
     ],
   },
   {
@@ -180,8 +181,8 @@ export const pageTitleMap: Record<string, string> = {
   '/social/feigua': '飞瓜看板',
   '/social/marketing': '营销看板',
   '/offline': '线下部门',
-  '/offline/store-preview': '店铺数据预览',
-  '/offline/store-dashboard': '店铺看板',
+  '/offline/store-preview': '大区数据预览',
+  '/offline/store-dashboard': '大区看板',
   '/offline/product-dashboard': '货品看板',
   '/offline/high-value-customers': '高价值客户',
   '/offline/turnover-expiry': '周转率及临期',
@@ -196,6 +197,7 @@ export const pageTitleMap: Record<string, string> = {
   '/finance/monthly-profit': '月度利润统计',
   '/finance/product-profit': '产品利润统计',
   '/finance/expense-control': '费控管理',
+  '/finance/report': '财务报表',
   '/customer': '客服部门',
   '/customer/overview': '客服总览',
   '/supply-chain': '供应链管理',
