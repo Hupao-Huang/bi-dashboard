@@ -419,11 +419,18 @@ const RPAMonitor: React.FC = () => {
         signal,
       });
       const json = await res.json();
-      if (json.error) { message.error(json.error); setImportModalOpen(false); return; }
+      // 后端错误统一返回 {code, msg}，非 200 视为失败
+      if (!res.ok || (json.code && json.code !== 200)) {
+        message.error(json.msg || json.error || '导入请求失败');
+        setImportModalOpen(false);
+        return;
+      }
       pollRef.current = setInterval(async () => {
         try {
           const pr = await fetch(`${API_BASE}/api/admin/rpa-scan/import-progress`, { credentials: 'include', signal });
-          const prog = await pr.json();
+          const json = await pr.json();
+          // 后端统一包 {code, data}，这里要取 .data 才是真实 progress
+          const prog = json.data || json;
           // 后端若返回只含 running 的空对象（服务重启等场景），合并进当前 state 保留 total/platform/results
           setImportProg((prev: any) => ({ ...(prev || {}), ...prog }));
           if (!prog.running) {
@@ -431,6 +438,8 @@ const RPAMonitor: React.FC = () => {
             pollRef.current = null;
             message.success('导入完成');
             fetchData();
+            // 停止后让用户看 1.5 秒结果再自动关闭，避免弹窗永久卡在界面上
+            setTimeout(() => setImportModalOpen(false), 1500);
           }
         } catch (err) {
           if ((err as Error)?.name === 'AbortError' && pollRef.current) {
