@@ -320,23 +320,23 @@ const OverviewPage: React.FC = () => {
       title: '销售额',
       dataIndex: 'sales',
       key: 'sales',
-      width: 150,
+      width: 190,
       render: (v: number) => {
         const hint = formatWanHint(v || 0);
         return (
-          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
             <span style={{ fontWeight: 600 }}>¥{v?.toLocaleString()}</span>
-            {hint && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 6 }}>{hint.replace('约', '≈')}</span>}
+            {hint && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 6, whiteSpace: 'nowrap' }}>{hint.replace('约', '≈')}</span>}
           </span>
         );
       },
     },
-    { title: '销量', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => {
+    { title: '销量', dataIndex: 'qty', key: 'qty', width: 130, render: (v: number) => {
       const hint = formatWanHint(v || 0);
       return (
-        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
           {v?.toLocaleString()}
-          {hint && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 4 }}>{hint.replace('约', '≈')}</span>}
+          {hint && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 4, whiteSpace: 'nowrap' }}>{hint.replace('约', '≈')}</span>}
         </span>
       );
     }},
