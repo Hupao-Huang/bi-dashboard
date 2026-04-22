@@ -34,6 +34,8 @@ const supportsOpsShop = (shopName: string) => {
 };
 
 const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
+  // 线下部门用"大区"术语（线下没有电商平台，每家店就是一个大区）
+  const unit = dept === 'offline' ? '大区' : '店铺';
   const [platformTabs, setPlatformTabs] = useState<{key: string; label: string}[]>([]);
   const [platform, setPlatform] = useState('all');
   const [shopList, setShopList] = useState<any[]>([]);
@@ -285,7 +287,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
   const shopSelectOptions = useMemo(() => {
     const totalSales = shopList.reduce((sum, shop) => sum + (shop.sales || 0), 0);
     return [
-      { value: ALL_SHOPS_VALUE, label: `全部店铺（${shopList.length}家，¥${totalSales.toLocaleString()}）` },
+      { value: ALL_SHOPS_VALUE, label: `全部${unit}（${shopList.length}家，¥${totalSales.toLocaleString()}）` },
       ...shopList.map(s => ({
         value: s.shopName,
         label: `${s.shopName}（¥${s.sales?.toLocaleString()}${supportsOpsShop(s.shopName) ? '，含运营数据' : ''}）`,
@@ -294,9 +296,11 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
   }, [shopList]);
   const opsHint = useMemo(() => {
     if (!shopList.length) return '';
+    // 线下部门没有"运营数据"概念（纯 ERP 销售数据），不显示该提示
+    if (dept === 'offline') return '';
     if (!opsSupportedShops.length) return '当前平台暂无运营数据店铺';
     return `运营数据店铺：${opsSupportedShops.length}家`;
-  }, [opsSupportedShops, shopList.length]);
+  }, [opsSupportedShops, shopList.length, dept]);
   const avgOrderValue = currentShop.qty > 0 ? currentShop.sales / currentShop.qty : 0;
   // 趋势图用扩展数据，商品/品牌用原始数据
   // 后端趋势数据已自动扩展，直接用shopDetail.daily
@@ -470,7 +474,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
         />
         <Row align="middle" gutter={16}>
           <Col>
-            <span style={{ fontWeight: 500, marginRight: 8 }}>选择店铺：</span>
+            <span style={{ fontWeight: 500, marginRight: 8 }}>选择{unit}：</span>
             <Select
               value={selectedShop}
               onChange={setSelectedShop}
@@ -481,13 +485,13 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
             />
           </Col>
           <Col>
-            {isAllShops && <Tag color="blue">平台汇总</Tag>}
+            {isAllShops && <Tag color="blue">{dept === 'offline' ? '部门汇总' : '平台汇总'}</Tag>}
             {isTmallShop && <Tag color="orange">天猫运营数据</Tag>}
             {isVipShop && <Tag color="purple">唯品会运营数据</Tag>}
             {isPddShop && <Tag color="red">拼多多运营数据</Tag>}
             {isJdShop && <Tag color="red">京东运营数据</Tag>}
             {isTmallcsShop && <Tag color="cyan">天猫超市运营数据</Tag>}
-            {isAllShops && <span style={{ color: '#8c8c8c', fontSize: 12 }}>运营数据仅支持单店查看</span>}
+            {isAllShops && dept !== 'offline' && <span style={{ color: '#8c8c8c', fontSize: 12 }}>运营数据仅支持单店查看</span>}
           </Col>
         </Row>
         {opsHint && (
@@ -532,7 +536,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 { title: '销售额', value: currentShop.sales, precision: 2, prefix: '¥', accentColor: color },
                 { title: '货品数', value: currentShop.qty, accentColor: '#10b981' },
                 { title: '客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#1e40af' },
-                { title: '店铺数量', value: shopList.length, suffix: '家', accentColor: '#7c3aed' },
+                { title: `${unit}数量`, value: shopList.length, suffix: '家', accentColor: '#7c3aed' },
               ].map((card) => (
                 <Col xs={12} sm={6} key={card.title}>
                   <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
