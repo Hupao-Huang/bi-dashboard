@@ -265,11 +265,12 @@ func importDistMaterial(db *sql.DB, path, sqlDate, accountName string) int {
 	header := rows[0]
 	colMap := make(map[string]int)
 	for i, h := range header {
-		// 处理可能的英文列名
+		// 处理可能的英文列名 + 已知中文同义词（RPA 不同采集路径有不同命名）
 		name := strings.TrimSpace(h)
 		if name == "material_id" { name = "素材ID" }
 		if name == "roi2_material_video_name" { name = "素材视频名称" }
 		if name == "material_create_time_v2" { name = "素材创建时间" }
+		if name == "全域素材视频名称" { name = "素材视频名称" } // 变体 1 RPA 抓的是全域面板
 		colMap[name] = i
 	}
 

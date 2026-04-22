@@ -172,6 +172,11 @@ func main() {
 	}
 }
 
+// importShopDaily 导入京东店铺销售数据。
+// RPA 抓到的 Excel 至少有两套列布局：
+//   老格式: 时间 / 成交金额 / 成交商品件数 / 成交客户数 / 成交单量 / 店铺成交转化率 / 客单价 / 店铺浏览量 / 店铺访客数 / 平均停留时长 ...
+//   新格式: 日期 / 浏览量 / 浏览量环比 / 访客数 / 访客数环比 / 人均浏览量 / 平均停留时间 / 跳失率 / 成交客户数 / 成交单量 / 成交金额 / 客单价 / ...
+// 按列索引硬编码会错位（v0.27 之前版本），现改为按表头名查列 + 同义词兼容 + 核心字段缺失报错。
 func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	f, err := excelize.OpenFile(fpath)
 	if err != nil {
@@ -183,28 +188,27 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	if len(rows) < 2 {
 		return 0, nil
 	}
-	// 第一行表头，第二行数据
-	// 列布局: [0]时间 [1]成交金额 [2]成交商品件数 [3]成交客户数 [4]成交单量
-	// [5]店铺成交转化率 [6]客单价 [7]店铺浏览量 [8]店铺访客数 [9]平均停留时长
-	// [10]加购客户数 [11]加购商品件数 [12]加购转化率 [13]商品成交转化率 [14]件单价
-	// [15]UV价值 [16]店铺人均浏览量 [17]商品浏览量 [18]商品访客数 [19]商品人均浏览量
-	// [20]商详平均停留时长 [21]加购商品件数(正向) [22]加购商品件数(负向)
-	// [23]下单金额 [24]下单商品件数 [25]下单单量 [26]下单客户数 [27]下单转化率
-	// [28]下单成交转化率 [29]退款金额
+	header := rows[0]
 	d := rows[1]
-	if len(d) < 9 {
-		return 0, fmt.Errorf("列数不足: %d", len(d))
+	idx := headerIdx(header)
+
+	// 核心字段缺失校验：浏览量/访客数/成交金额 任一缺失说明 Excel 彻底换了，报错跳过
+	colViews := findCol(idx, "店铺浏览量", "浏览量")
+	colVisitors := findCol(idx, "店铺访客数", "访客数")
+	colPayAmount := findCol(idx, "成交金额")
+	if colViews < 0 || colVisitors < 0 || colPayAmount < 0 {
+		return 0, fmt.Errorf("表头格式未识别（浏览量/访客数/成交金额 有缺失）: %v", header)
 	}
 
-	// stat_date 取 Excel 第 0 列"时间"（业务日），文件名日期只是 RPA 采集日
-	statDate := parseExcelDate(d[0])
+	// stat_date 取 Excel 第一列业务日期（时间/日期），文件名日期只是 RPA 采集日
+	colDate := findCol(idx, "时间", "日期")
+	statDate := ""
+	if colDate >= 0 && colDate < len(d) {
+		statDate = parseExcelDate(d[colDate])
+	}
 	if statDate == "" {
 		statDate = date
 	}
-
-	visitors := toInt2(d, 8)
-	payAmount := toFloat(d[1])
-	uvValue := toFloat2(d, 15)
 
 	_, err = db.Exec(`INSERT INTO op_jd_shop_daily
 		(stat_date, shop_name, visitors, visitors_change, page_views, page_views_change,
@@ -224,27 +228,37 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		 unit_price=VALUES(unit_price), conv_rate=VALUES(conv_rate), uv_value=VALUES(uv_value),
 		 refund_amount=VALUES(refund_amount), cart_customers=VALUES(cart_customers)`,
 		statDate, shop,
-		visitors, nil,             // 访客数, 环比(无)
-		toInt2(d, 7), nil,         // 店铺浏览量, 环比(无)
-		toFloat2(d, 16),           // 店铺人均浏览量
-		toFloat2(d, 9),            // 平均停留时长
-		0,                         // 跳失率(无)
-		toInt2(d, 3), nil,         // 成交客户数, 环比(无)
-		toInt2(d, 2), nil,         // 成交商品件数, 环比(无)
-		payAmount, nil,            // 成交金额, 环比(无)
-		toInt2(d, 4),              // 成交单量
-		toFloat2(d, 6),            // 客单价
-		toFloat2(d, 5),            // 店铺成交转化率
-		uvValue,                   // UV价值
-		toFloat2(d, 29),           // 退款金额
-		toInt2(d, 10),             // 加购客户数
-		0)                         // collect_customers(无对应列)
+		getInt(d, colVisitors),
+		getStr(d, findCol(idx, "访客数环比")),
+		getInt(d, colViews),
+		getStr(d, findCol(idx, "浏览量环比")),
+		getFloat(d, findCol(idx, "店铺人均浏览量", "人均浏览量")),
+		getFloat(d, findCol(idx, "店铺平均停留时长", "平均停留时长", "平均停留时间")),
+		getFloat(d, findCol(idx, "跳失率")),
+		getInt(d, findCol(idx, "成交客户数")),
+		getStr(d, findCol(idx, "成交客户数环比")),
+		getInt(d, findCol(idx, "成交商品件数")),
+		getStr(d, findCol(idx, "成交商品件数环比")),
+		getFloat(d, colPayAmount),
+		getStr(d, findCol(idx, "成交金额环比")),
+		getInt(d, findCol(idx, "成交单量")),
+		getFloat(d, findCol(idx, "客单价")),
+		getFloat(d, findCol(idx, "店铺成交转化率", "成交转化率")),
+		getFloat(d, findCol(idx, "UV价值")), // 新格式无此列，fallback 0
+		getFloat(d, findCol(idx, "退款金额", "取消及售后退款金额")),
+		getInt(d, findCol(idx, "加购客户数")), // 新格式无此列，fallback 0
+		0)                                 // collect_customers 无对应列
 	if err != nil {
 		return 0, err
 	}
 	return 1, nil
 }
 
+// importCustomerDaily 导入京东客户数据-洞察。按表头名映射。
+// Excel 真实列：日期/进店客户数/进店同比/加购客户数/加购同比/下单客户数/下单同比/
+//   成交客户数/成交同比/出库客户数/出库同比/复购客户数/复购同比
+// 原版按奇数列索引硬编码，但 repurchase_customers 取了 d[9]=出库客户数（错）、
+// lost_customers 取了 d[11]=复购客户数（错，应视为 repurchase），造成两列错位。
 func importCustomerDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	f, err := excelize.OpenFile(fpath)
 	if err != nil {
@@ -256,13 +270,20 @@ func importCustomerDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	if len(rows) < 2 {
 		return 0, nil
 	}
+	header := rows[0]
 	d := rows[1]
-	if len(d) < 12 {
-		return 0, fmt.Errorf("列数不足: %d", len(d))
+	idx := headerIdx(header)
+
+	colBrowse := findCol(idx, "进店客户数")
+	if colBrowse < 0 {
+		return 0, fmt.Errorf("表头格式未识别（找不到'进店客户数'）: %v", header)
 	}
 
-	// stat_date 取 Excel 第 0 列"日期"（业务日，可能是 "2025.12.31" 点分隔格式），文件名日期只是 RPA 采集日
-	statDate := parseExcelDate(d[0])
+	colDate := findCol(idx, "日期", "时间", "统计日期")
+	statDate := ""
+	if colDate >= 0 && colDate < len(d) {
+		statDate = parseExcelDate(d[colDate])
+	}
 	if statDate == "" {
 		statDate = date
 	}
@@ -271,9 +292,18 @@ func importCustomerDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		(stat_date, shop_name, browse_customers, cart_customers, order_customers,
 		 pay_customers, repurchase_customers, lost_customers)
 		VALUES (?,?,?,?,?,?,?,?)
-		ON DUPLICATE KEY UPDATE browse_customers=VALUES(browse_customers)`,
-		statDate, shop, toInt(d[1]), toInt(d[3]), toInt(d[5]),
-		toInt(d[7]), toInt(d[9]), toInt(d[11]))
+		ON DUPLICATE KEY UPDATE
+		 browse_customers=VALUES(browse_customers), cart_customers=VALUES(cart_customers),
+		 order_customers=VALUES(order_customers), pay_customers=VALUES(pay_customers),
+		 repurchase_customers=VALUES(repurchase_customers), lost_customers=VALUES(lost_customers)`,
+		statDate, shop,
+		getInt(d, colBrowse),
+		getInt(d, findCol(idx, "加购客户数")),
+		getInt(d, findCol(idx, "下单客户数")),
+		getInt(d, findCol(idx, "成交客户数")),
+		getInt(d, findCol(idx, "复购客户数")),            // 原版错位：存了出库客户数
+		getInt(d, findCol(idx, "流失客户数")),            // Excel 无此列 fallback 0
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -459,6 +489,53 @@ func toFloat2(d []string, i int) float64 {
 	return toFloat(d[i])
 }
 
+// headerIdx 构建 Excel 表头 → 列索引映射。重复表头取第一次出现位置。
+func headerIdx(header []string) map[string]int {
+	m := make(map[string]int, len(header))
+	for i, h := range header {
+		h = strings.TrimSpace(h)
+		if h == "" {
+			continue
+		}
+		if _, ok := m[h]; !ok {
+			m[h] = i
+		}
+	}
+	return m
+}
+
+// findCol 按同义词列表查列索引，任一匹配即返回；都找不到返回 -1。
+func findCol(idx map[string]int, aliases ...string) int {
+	for _, a := range aliases {
+		if i, ok := idx[a]; ok {
+			return i
+		}
+	}
+	return -1
+}
+
+// getInt / getFloat / getStr 按列索引取值，索引 <0 或越界返回零值。
+func getInt(d []string, i int) int {
+	if i < 0 || i >= len(d) {
+		return 0
+	}
+	return toInt(d[i])
+}
+
+func getFloat(d []string, i int) float64 {
+	if i < 0 || i >= len(d) {
+		return 0
+	}
+	return toFloat(d[i])
+}
+
+func getStr(d []string, i int) interface{} {
+	if i < 0 || i >= len(d) || d[i] == "" {
+		return nil
+	}
+	return d[i]
+}
+
 // importIndustryRank 导入行业榜单（热搜榜/飙升榜）
 // 热搜榜列: [关键词 搜索人数 搜索次数 点击人数 点击次数 点击率 成交金额 成交单量 成交转化率 在线商品数 快车参考价 最优品类]
 // 飙升榜列: [关键词 搜索增长幅度 搜索人数 搜索次数 点击人数 点击次数 点击率 成交金额 成交单量 成交转化率 在线商品数 快车参考价 最优品类]
@@ -473,7 +550,12 @@ func importIndustryRank(db *sql.DB, fpath, date, shop, rankType string) (int, er
 		return 0, nil
 	}
 	count := 0
-	hasGrowth := rankType == "surge" // 飙升榜多一列
+	// 按 header 自适应是否有"搜索增长幅度"列（不依赖 rankType 参数 —
+	// RPA 偶发把热搜榜格式错放到飙升榜文件会让原版 surge 分支整行错位）
+	hasGrowth := false
+	if len(rows[0]) > 1 && strings.TrimSpace(rows[0][1]) == "搜索增长幅度" {
+		hasGrowth = true
+	}
 	for i := 1; i < len(rows); i++ {
 		d := rows[i]
 		if len(d) < 12 {

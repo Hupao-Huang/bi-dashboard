@@ -514,6 +514,16 @@ func importGoodsDetailJson(db *sql.DB, fpath, date, shop string) (int, error) {
 	return count, nil
 }
 
+// importCampaign 导入拼多多推广数据（商品推广/明星店铺/直播推广）。
+// 三种推广类型的 Excel 列布局完全不同（原版共用硬编码索引导致字段全部错位）。
+// 现按表头名映射并配同义词：
+//   - cost:      总花费/花费 (明星店铺只有"花费"；商品推广/直播推广有"总花费")
+//   - pay_amount: 交易额 (全系列)
+//   - roi:       实际投产比/投入产出比
+//   - real_pay_amount/real_roi: 净交易额+净实际投产比 (只有商品推广有；其他 fallback cost/roi)
+//   - pay_orders: 成交笔数
+//   - impressions: 曝光量
+//   - clicks:    点击量 (明星店铺有，直播推广无)
 func importCampaign(db *sql.DB, fpath, date, shop, promoType string) (int, error) {
 	f, err := excelize.OpenFile(fpath)
 	if err != nil {
@@ -524,23 +534,99 @@ func importCampaign(db *sql.DB, fpath, date, shop, promoType string) (int, error
 	if len(rows) < 2 {
 		return 0, nil
 	}
-	d := rows[1] // 第一行数据
-	if len(d) < 5 {
-		return 0, nil
+	header := rows[0]
+	d := rows[1]
+	idx := headerIdx(header)
+
+	// 核心字段缺失保护
+	colTrade := findCol(idx, "交易额(元)", "交易额")
+	if colTrade < 0 {
+		return 0, fmt.Errorf("[%s] 表头格式未识别（找不到'交易额'列）: %v", promoType, header)
 	}
-	// 跳过合计行
-	if len(d) > 0 && (d[0] == "合计" || d[0] == "总计") && len(rows) > 2 {
-		d = rows[1]
+
+	// stat_date 取 Excel 第一列业务日期
+	colDate := findCol(idx, "日期", "时间", "统计日期")
+	statDate := ""
+	if colDate >= 0 && colDate < len(d) {
+		statDate = parseExcelDate(d[colDate])
 	}
+	if statDate == "" {
+		statDate = date
+	}
+
+	cost := getFloat(d, findCol(idx, "总花费(元)", "花费(元)", "总花费", "花费"))
+	payAmount := getFloat(d, colTrade)
+	roi := getFloat(d, findCol(idx, "实际投产比", "投入产出比"))
+	// 净*字段只有商品推广有；其他类型 fallback 为 cost/roi（语义近似）
+	realPayAmount := getFloat(d, findCol(idx, "净交易额(元)", "净交易额"))
+	if realPayAmount == 0 {
+		realPayAmount = payAmount
+	}
+	realROI := getFloat(d, findCol(idx, "净实际投产比"))
+	if realROI == 0 {
+		realROI = roi
+	}
+
 	_, err = db.Exec(`INSERT INTO op_pdd_campaign_daily
 		(stat_date, shop_name, promo_type, cost, pay_amount, roi, real_pay_amount, real_roi, pay_orders, impressions, clicks)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?)
-		ON DUPLICATE KEY UPDATE cost=VALUES(cost), pay_amount=VALUES(pay_amount)`,
-		date, shop, promoType, toF(d, 4), toF(d, 2), toF(d, 3), toF(d, 5), toF(d, 6), toI(d, 20), toI(d, 23), toI(d, 24))
+		ON DUPLICATE KEY UPDATE cost=VALUES(cost), pay_amount=VALUES(pay_amount), roi=VALUES(roi),
+		 real_pay_amount=VALUES(real_pay_amount), real_roi=VALUES(real_roi),
+		 pay_orders=VALUES(pay_orders), impressions=VALUES(impressions), clicks=VALUES(clicks)`,
+		statDate, shop, promoType, cost, payAmount, roi, realPayAmount, realROI,
+		getInt(d, findCol(idx, "成交笔数")),
+		getInt(d, findCol(idx, "曝光量")),
+		getInt(d, findCol(idx, "点击量")),
+	)
 	if err != nil {
 		return 0, err
 	}
 	return 1, nil
+}
+
+// headerIdx/findCol/getInt/getFloat/getStr - 通用按表头名映射 helper
+func headerIdx(header []string) map[string]int {
+	m := make(map[string]int, len(header))
+	for i, h := range header {
+		h = strings.TrimSpace(h)
+		if h == "" {
+			continue
+		}
+		if _, ok := m[h]; !ok {
+			m[h] = i
+		}
+	}
+	return m
+}
+
+func findCol(idx map[string]int, aliases ...string) int {
+	for _, a := range aliases {
+		if i, ok := idx[a]; ok {
+			return i
+		}
+	}
+	return -1
+}
+
+func getInt(d []string, i int) int {
+	if i < 0 || i >= len(d) {
+		return 0
+	}
+	return toI(d, i)
+}
+
+func getFloat(d []string, i int) float64 {
+	if i < 0 || i >= len(d) {
+		return 0
+	}
+	return toF(d, i)
+}
+
+func getStr(d []string, i int) interface{} {
+	if i < 0 || i >= len(d) || d[i] == "" {
+		return nil
+	}
+	return d[i]
 }
 
 func importVideo(db *sql.DB, fpath, date, shop string) (int, error) {
