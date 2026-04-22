@@ -163,9 +163,12 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
     }],
   };
 
-  // 产品定位分布 — 单圈饼图，hover展示平台明细（仅电商部门）
+  // 产品定位分布 — 单圈饼图，hover展示平台/渠道明细
+  // 电商/社媒：platform 是合并后的平台名；线下/分销：platform 字段实际是渠道名（店铺名）
   const gradePlatSales: any[] = data.gradePlatSales || [];
   const gradeOrder = ['S', 'A', 'B', 'C', 'D', '未设置'];
+  // 线下/分销以"渠道"展示，电商/社媒以"平台"展示
+  const dimensionLabel = (dept === 'offline' || dept === 'distribution') ? '渠道' : '平台';
 
   const gradePlatMap = new Map<string, { total: number; platforms: { platform: string; sales: number }[] }>();
   gradePlatSales.forEach((item: any) => {
@@ -186,7 +189,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       itemStyle: { color: GRADE_COLORS[g] },
     }));
 
-  const gradeDonutOption = (dept === 'ecommerce' || dept === 'social') && totalSales > 0 && gradePieData.length > 0 ? {
+  const gradeDonutOption = (dept === 'ecommerce' || dept === 'social' || dept === 'offline' || dept === 'distribution') && totalSales > 0 && gradePieData.length > 0 ? {
     ...pieStyle,
     tooltip: {
       ...pieStyle.tooltip,
@@ -272,7 +275,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
         </Col>
         {gradeDonutOption ? (
           <Col xs={24} lg={12}>
-            <Card title="产品定位 × 平台分布（hover查看平台明细）">
+            <Card title={`产品定位 × ${dimensionLabel}分布（hover查看${dimensionLabel}明细）`}>
               <ReactECharts option={gradeDonutOption} lazyUpdate={true} style={{ height: 380 }} />
             </Card>
           </Col>
