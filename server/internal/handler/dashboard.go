@@ -866,6 +866,37 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			}
 			return gradePlatSales[i].Sales > gradePlatSales[j].Sales
 		})
+	} else if dept == "offline" || dept == "distribution" {
+		// 线下/分销部门：用 shop_name 直接作为"渠道"维度（它们没有 online_plat_name）
+		// 前端标题会显示为"产品定位 × 渠道分布"
+		gpRows, ok := queryRowsOrWriteError(w, h.DB, `
+			SELECT IFNULL(g.goods_field7,'未设置') as grade, s.shop_name as channel,
+			ROUND(SUM(s.local_goods_amt),2) as sales
+			FROM sales_goods_summary s
+			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+			WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?`+scopeCond+`
+			GROUP BY grade, s.shop_name
+			ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`, dept, start, end)
+		if !ok {
+			return
+		}
+		defer gpRows.Close()
+		// 线下渠道名含冗余前缀"线下渠道销售中心-"，简化一下
+		simplify := func(name string) string {
+			name = strings.TrimPrefix(name, "线下渠道销售中心-")
+			return name
+		}
+		for gpRows.Next() {
+			var grade, channel string
+			var sales float64
+			if writeDatabaseError(w, gpRows.Scan(&grade, &channel, &sales)) {
+				return
+			}
+			gradePlatSales = append(gradePlatSales, GradePlatItem{Grade: grade, Platform: simplify(channel), Sales: sales})
+		}
+		if writeDatabaseError(w, gpRows.Err()) {
+			return
+		}
 	}
 
 	// 5. 平台列表（合并后，只返回有销售数据的）
