@@ -157,6 +157,9 @@ func main() {
 		"offline.store_preview:view", "offline.store_dashboard:view",
 		"distribution.store_preview:view", "distribution.store_dashboard:view",
 	))
+	mux.HandleFunc("/api/offline/targets", pageAnyProtected(h.GetOfflineTargets, "offline.target:view", "offline.target:edit"))
+	mux.HandleFunc("/api/offline/targets/save", pageProtected("offline.target:edit", h.SaveOfflineTargets))
+	mux.HandleFunc("/api/offline/targets/month", pageAnyProtected(h.GetOfflineTargetsByMonth, "offline:view", "offline.target:view"))
 	mux.HandleFunc("/api/webhook/sync-ops", corsHandler(h.SyncOps))
 	mux.HandleFunc("/api/webhook/sync-status", corsHandler(h.SyncStatus))
 	mux.HandleFunc("/api/webhook/clear-cache", corsHandler(h.ClearCache))

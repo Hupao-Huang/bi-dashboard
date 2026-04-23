@@ -29,6 +29,7 @@ const OfflineProductDashboard = lazy(() => import('./pages/offline/ProductDashbo
 const HighValueCustomers = lazy(() => import('./pages/offline/HighValueCustomers'));
 const TurnoverExpiry = lazy(() => import('./pages/offline/TurnoverExpiry'));
 const KAMonthly = lazy(() => import('./pages/offline/KAMonthly'));
+const OfflineTargetManage = lazy(() => import('./pages/offline/TargetManage'));
 const DistributionPage = lazy(() => import('./pages/distribution'));
 const DistributionStorePreview = lazy(() => import('./pages/distribution/StorePreview'));
 const DistributionStoreDashboard = lazy(() => import('./pages/distribution/StoreDashboard'));
@@ -135,6 +136,7 @@ const App: React.FC = () => (
               <Route path="/offline/high-value-customers" element={guard('offline.high_value_customers:view', <HighValueCustomers />)} />
               <Route path="/offline/turnover-expiry" element={guard('offline.turnover_expiry:view', <TurnoverExpiry />)} />
               <Route path="/offline/ka-monthly" element={guard('offline.ka_monthly:view', <KAMonthly />)} />
+              <Route path="/offline/target-manage" element={guard('offline.target:view', <OfflineTargetManage />)} />
 
               <Route path="/distribution" element={guard('distribution:view', <DistributionPage />)} />
               <Route path="/distribution/store-preview" element={guard('distribution.store_preview:view', <DistributionStorePreview />)} />
