@@ -270,7 +270,15 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       labelLayout: { hideOverlap: true },
       labelLine: { length: 15, length2: 18, lineStyle: { color: '#cbd5e1' } },
       itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
-      data: gradePieData,
+      data: gradePieData.map((item: any) => {
+        const share = totalSales > 0 ? item.value / totalSales : 0;
+        const showLabel = share >= 0.05;
+        return {
+          ...item,
+          label: { show: showLabel },
+          labelLine: { show: showLabel },
+        };
+      }),
     }],
   } : null;
 
@@ -298,7 +306,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
           const pctColor = pct >= 100 ? '#10b981' : pct >= 80 ? '#f59e0b' : '#ef4444';
           return (
             <Col xs={24} sm={6} key={card.title}>
-              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
+              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%' }}>
                 <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
                 <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
                   {hint || ' '}
@@ -315,6 +323,11 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
                     <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
                       目标 ￥{(totalTarget / 10000).toFixed(1)}万
                     </div>
+                  </div>
+                )}
+                {!showTarget && dept === 'offline' && totalTarget > 0 && (
+                  <div style={{ marginTop: 8, paddingTop: 8, height: 47, visibility: 'hidden' }}>
+                    <div>placeholder</div>
                   </div>
                 )}
               </Card>
