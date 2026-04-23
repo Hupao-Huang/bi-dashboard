@@ -689,6 +689,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	shopListArgs := append([]interface{}{dept, start, end}, platArgs...)
 	shopListArgs = append(shopListArgs, scopeArgs...)
 	var shopListSQL string
+	const offlineRegionPrefilter = ` AND (shop_name LIKE '%大区%' OR shop_name LIKE '%省区%' OR shop_name LIKE '%重客系统%')`
 	if dept == "offline" {
 		shopListSQL = `SELECT ` + offlineRegionExpr + ` as shop_name,
 			ROUND(SUM(local_goods_amt), 2) as sales,
@@ -696,8 +697,8 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			ROUND(SUM(gross_profit), 2) as profit
 		FROM sales_goods_summary
 		WHERE department = ? AND shop_name IS NOT NULL
-		  AND stat_date BETWEEN ? AND ?` + scopeCond + `
-		GROUP BY shop_name HAVING shop_name IS NOT NULL ORDER BY sales DESC`
+		  AND stat_date BETWEEN ? AND ?` + offlineRegionPrefilter + scopeCond + `
+		GROUP BY shop_name ORDER BY sales DESC`
 	} else {
 		shopListSQL = `SELECT shop_name,
 			ROUND(SUM(local_goods_amt), 2) as sales,
@@ -950,8 +951,8 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				ROUND(SUM(s.local_goods_amt),2) as sales
 				FROM sales_goods_summary s
 				LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
-				WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?` + scopeCond + `
-				GROUP BY grade, channel HAVING channel IS NOT NULL
+				WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?` + offlineRegionPrefilter + scopeCond + `
+				GROUP BY grade, channel
 				ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`
 		} else {
 			gpSQL = `SELECT IFNULL(g.goods_field7,'未设置') as grade, s.shop_name as channel,
