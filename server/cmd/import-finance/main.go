@@ -1,3 +1,5 @@
+// import-finance.exe <xlsx_path> [year]
+// 从文件名推断年份（YYYY年财务管理报表.xlsx），可用第二参数覆盖
 package main
 
 import (
@@ -5,174 +7,74 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/finance"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/xuri/excelize/v2"
 )
 
-var sheetDeptMap = map[string]string{
-	"考核利润汇总表": "汇总",
-	"1、电商":     "电商",
-	"2、社媒":     "社媒",
-	"3、线下":     "线下",
-	"4、分销":     "分销",
-	"5、私域":     "私域",
-	"6、国际零售业务": "国际零售",
-	"7、即时零售":   "即时零售",
-	"8、糙有力量":   "糙有力量",
-	"中台部门":     "中台",
-	"电商":       "电商",
-	"社媒":       "社媒",
-	"线下":       "线下",
-	"分销":       "分销",
-	"私域":       "私域",
-}
-
-var categoryKeywords = []struct {
-	keyword  string
-	category string
-}{
-	{"GMV", "GMV"},
-	{"营业收入", "收入"},
-	{"营业成本", "成本"},
-	{"营业毛利", "毛利"},
-	{"仓储物流费用", "成本"},
-	{"销售费用", "销售费用"},
-	{"运营利润", "运营利润"},
-	{"管理费用", "管理费用"},
-	{"研发费用", "研发费用"},
-	{"利润总额", "利润总额"},
-	{"营业利润", "利润总额"},
-	{"营业外收入", "营业外"},
-	{"营业外支出", "营业外"},
-	{"净利润", "净利润"},
-}
-
 func main() {
-	cfg, _ := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "用法: import-finance.exe <xlsx_path> [year]")
+		os.Exit(2)
+	}
+	fpath := os.Args[1]
+
+	year := finance.ParseYearFromFilename(fpath)
+	if len(os.Args) >= 3 {
+		if y, err := strconv.Atoi(os.Args[2]); err == nil {
+			year = y
+		}
+	}
+	if year == 0 {
+		log.Fatalf("无法从文件名推断年份，请用第二参数指定 year")
+	}
+
+	if _, err := os.Stat(fpath); err != nil {
+		log.Fatalf("文件不存在: %s", fpath)
+	}
+
+	cfg, err := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
+	if err != nil {
+		log.Fatalf("加载配置失败: %v", err)
+	}
 	db, err := sql.Open("mysql", cfg.Database.DSN())
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("数据库连接失败: %v", err)
 	}
 	defer db.Close()
 
-	dir := `C:\Users\Administrator\Desktop\财务报表`
-	files := map[string]int{
-		"25年12月财务报表.xlsx":    2025,
-		"26年1-33月财务报表.xlsx": 2026,
-	}
-
-	for filename, year := range files {
-		fpath := filepath.Join(dir, filename)
-		if _, err := os.Stat(fpath); err != nil {
-			log.Printf("文件不存在: %s", fpath)
-			continue
-		}
-		log.Printf("处理 %s (年份: %d)", filename, year)
-		count := importFile(db, fpath, year)
-		log.Printf("  导入 %d 条记录", count)
-	}
-}
-
-func colName(col int) string {
-	name := ""
-	for col >= 0 {
-		name = string(rune('A'+col%26)) + name
-		col = col/26 - 1
-	}
-	return name
-}
-
-func importFile(db *sql.DB, fpath string, year int) int {
-	f, err := excelize.OpenFile(fpath)
+	dict, err := finance.LoadSubjectDict(db)
 	if err != nil {
-		log.Printf("打开文件失败: %v", err)
-		return 0
+		log.Fatalf("加载科目字典失败: %v", err)
 	}
-	defer f.Close()
+	log.Printf("已加载科目字典 %d 条", len(dict))
 
-	total := 0
-	for _, sheetName := range f.GetSheetList() {
-		dept, ok := sheetDeptMap[sheetName]
-		if !ok {
-			continue
-		}
-
-		allRows, _ := f.GetRows(sheetName)
-		if len(allRows) < 3 {
-			continue
-		}
-
-		headerRow := 2
-		monthCols := map[int]int{}
-		for ci := 0; ci < 30; ci++ {
-			cell, _ := f.GetCellValue(sheetName, colName(ci)+fmt.Sprintf("%d", headerRow))
-			cell = strings.TrimSpace(cell)
-			for m := 1; m <= 12; m++ {
-				if cell == fmt.Sprintf("%d月", m) {
-					monthCols[ci] = m
-					break
-				}
-			}
-		}
-		if len(monthCols) == 0 {
-			continue
-		}
-
-		sheetCount := 0
-		currentCategory := ""
-		sortOrder := 0
-		maxRow := len(allRows) + 5
-		if maxRow > 80 {
-			maxRow = 80
-		}
-		for ri := headerRow + 1; ri <= maxRow; ri++ {
-			subject, _ := f.GetCellValue(sheetName, "A"+fmt.Sprintf("%d", ri))
-			subject = strings.TrimSpace(subject)
-			if subject == "" || subject == "项目" {
-				continue
-			}
-
-			for _, kw := range categoryKeywords {
-				if strings.Contains(subject, kw.keyword) {
-					currentCategory = kw.category
-					break
-				}
-			}
-
-			sortOrder++
-			for ci, month := range monthCols {
-				cellRef := colName(ci) + fmt.Sprintf("%d", ri)
-				valStr, _ := f.GetCellValue(sheetName, cellRef)
-				valStr = strings.TrimSpace(valStr)
-				if valStr == "" || valStr == "#DIV/0!" || valStr == "#REF!" || valStr == "-" {
-					continue
-				}
-				val, err := strconv.ParseFloat(valStr, 64)
-				if err != nil || val == 0 {
-					continue
-				}
-
-				_, err = db.Exec(`
-					INSERT INTO finance_report (year, month, department, subject, subject_category, sort_order, amount)
-					VALUES (?, ?, ?, ?, ?, ?, ?)
-					ON DUPLICATE KEY UPDATE
-						subject_category=VALUES(subject_category), sort_order=VALUES(sort_order), amount=VALUES(amount)`,
-					year, month, dept, subject, currentCategory, sortOrder, val)
-				if err != nil {
-					log.Printf("  插入失败 [%s][%d月][%s]: %v", dept, month, subject, err)
-					continue
-				}
-				sheetCount++
-				total++
-			}
-		}
-		log.Printf("  [%s] %s → %d 条", sheetName, dept, sheetCount)
+	log.Printf("开始解析: %s (年份: %d)", fpath, year)
+	result, err := finance.ParseFile(fpath, year, dict)
+	if err != nil {
+		_ = finance.LogImport(db, fpath, year, &finance.ParseResult{Year: year}, 0, "failed", err.Error())
+		log.Fatalf("解析失败: %v", err)
 	}
-	return total
+	log.Printf("解析完成：sheet %d, rows %d, 未映射 %d", result.SheetCount, result.RowCount, len(result.UnmappedSubjects))
+	for _, u := range result.UnmappedSubjects {
+		log.Printf("  [未映射] %s/%s parent=%s subject=%s", u.Sheet, u.Department, u.Parent, u.Subject)
+	}
+
+	log.Printf("写入数据库中...渠道: %v", result.Departments)
+	if err := finance.WriteResult(db, result); err != nil {
+		_ = finance.LogImport(db, fpath, year, result, 0, "failed", err.Error())
+		log.Fatalf("入库失败: %v", err)
+	}
+
+	status := "success"
+	if len(result.UnmappedSubjects) > 0 {
+		status = "partial"
+	}
+	if err := finance.LogImport(db, fpath, year, result, 0, status, ""); err != nil {
+		log.Printf("写入日志失败: %v", err)
+	}
+	log.Printf("完成✓  %d 年入库 %d 条", year, result.RowCount)
 }
