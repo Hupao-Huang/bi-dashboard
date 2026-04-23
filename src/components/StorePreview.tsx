@@ -18,6 +18,8 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
+  // 目标数据：{大区: 目标额}
+  const [targets, setTargets] = useState<Record<string, number>>({});
 
   const fetchData = useCallback((s: string, e: string) => {
     abortRef.current?.abort();
@@ -29,6 +31,18 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       .then(res => { setData(res.data); setLoading(false); })
       .catch((e: any) => { if (e?.name !== 'AbortError') setLoading(false); });
   }, [dept]);
+
+  // 线下部门：根据 endDate 推断月份拉取目标
+  useEffect(() => {
+    if (dept !== 'offline') return;
+    const d = new Date(endDate);
+    const year = d.getFullYear();
+    const month = d.getMonth() + 1;
+    fetch(`${API_BASE}/api/offline/targets/month?year=${year}&month=${month}`)
+      .then(res => res.json())
+      .then(res => { if (res.data) setTargets(res.data); })
+      .catch(() => {});
+  }, [dept, endDate]);
 
   useEffect(() => { fetchData(startDate, endDate); }, [fetchData, startDate, endDate]);
 
@@ -55,6 +69,21 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       render: (_: any, r: any) => r.qty > 0 ? `¥${(r.sales / r.qty).toFixed(2)}` : '-' },
     { title: '销售占比', key: 'pct', width: 100,
       render: (_: any, r: any) => totalSales > 0 ? `${(r.sales / totalSales * 100).toFixed(1)}%` : '-' },
+    ...(dept === 'offline' && Object.keys(targets).length > 0 ? [
+      { title: '月度目标', key: 'target', width: 120,
+        render: (_: any, r: any) => {
+          const t = targets[r.shopName];
+          return t ? `¥${t.toLocaleString()}` : '-';
+        }},
+      { title: '完成率', key: 'targetPct', width: 90,
+        render: (_: any, r: any) => {
+          const t = targets[r.shopName];
+          if (!t) return '-';
+          const pct = (r.sales / t * 100).toFixed(1);
+          const c = r.sales >= t ? '#10b981' : r.sales / t >= 0.8 ? '#f59e0b' : '#ef4444';
+          return <span style={{ color: c, fontWeight: 600 }}>{pct}%</span>;
+        }},
+    ] : []),
   ];
 
   // 销售额占比 — 店铺过多时显示 TOP10 + 其他，避免标签挤压
@@ -240,6 +269,10 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
     }],
   } : null;
 
+  // 目标汇总
+  const totalTarget = Object.values(targets).reduce((s, v) => s + v, 0);
+  const totalPct = totalTarget > 0 ? (totalSales / totalTarget * 100) : null;
+
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总货品数', value: totalQty, precision: 0, accentColor: '#10b981' },
@@ -251,7 +284,22 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
     <div>
       <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
       <Row gutter={[16, 16]}>
-        {statCards.map((card) => {
+        {statCards.map((card, idx) => {
+          // 线下部门第2格改为月度目标完成卡片
+          if (dept === 'offline' && idx === 1 && totalTarget > 0) {
+            const pct = totalPct ?? 0;
+            const pctColor = pct >= 100 ? '#10b981' : pct >= 80 ? '#f59e0b' : '#ef4444';
+            return (
+              <Col xs={24} sm={6} key="target">
+                <Card className="bi-stat-card" style={{ ['--accent-color' as any]: pctColor }}>
+                  <Statistic title="月度目标完成率" value={pct} precision={1} suffix="%" valueStyle={{ color: pctColor }} />
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                    目标 ¥{(totalTarget / 10000).toFixed(1)}万
+                  </div>
+                </Card>
+              </Col>
+            );
+          }
           const hint = card.value >= 10000
             ? (card.value >= 100000000 ? `≈ ${(card.value / 100000000).toFixed(2)}亿` : `≈ ${(card.value / 10000).toFixed(1)}万`)
             : '';
