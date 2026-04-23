@@ -35,7 +35,7 @@ func (h *DashboardHandler) GetOfflineTargets(w http.ResponseWriter, r *http.Requ
 		Region string  `json:"region"`
 		Target float64 `json:"target"`
 	}
-	var items []TargetItem
+	items := []TargetItem{}
 	for rows.Next() {
 		var it TargetItem
 		if writeDatabaseError(w, rows.Scan(&it.Month, &it.Region, &it.Target)) {
