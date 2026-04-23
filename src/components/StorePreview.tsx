@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Statistic, Table } from 'antd';
+import { Row, Col, Card, Statistic, Table, Progress } from 'antd';
 import ReactECharts from './Chart';
 import DateFilter from './DateFilter';
 import PageLoading from './PageLoading';
@@ -36,6 +36,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   if (!data) return <div>加载失败</div>;
 
   const shops = data.shops || [];
+  const regionTargets: Record<string, number> = data.regionTargets || {};
   const totalSales = shops.reduce((s: number, d: any) => s + d.sales, 0);
   const totalQty = shops.reduce((s: number, d: any) => s + d.qty, 0);
   const avgOrderValue = totalQty > 0 ? totalSales / totalQty : 0;
@@ -47,8 +48,30 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
     { title: '排名', dataIndex: '_rank', key: 'rank', width: 60, align: 'center' as const,
       render: (rank: number) => <span style={{ color: rank <= 3 ? color : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span> },
     { title: '店铺名称', dataIndex: 'shopName', key: 'shopName', ellipsis: true, width: 300 },
-    { title: '销售额', dataIndex: 'sales', key: 'sales', width: 130, sorter: (a: any, b: any) => a.sales - b.sales,
-      render: (v: number) => `¥${v?.toLocaleString()}` },
+    { title: '销售额', dataIndex: 'sales', key: 'sales', width: dept === 'offline' ? 220 : 130, sorter: (a: any, b: any) => a.sales - b.sales,
+      render: (v: number, record: any) => {
+        const target = regionTargets[record.shopName];
+        if (dept === 'offline' && target > 0) {
+          const pct = Math.min(v / target * 100, 100);
+          return (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
+                <span style={{ fontWeight: 600 }}>¥{v?.toLocaleString()}</span>
+                <span style={{ color: pct >= 100 ? '#16a34a' : '#94a3b8' }}>{pct.toFixed(1)}%</span>
+              </div>
+              <Progress
+                percent={pct}
+                showInfo={false}
+                strokeColor={color}
+                trailColor="#e2e8f0"
+                size={['100%', 6]}
+              />
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>目标¥{target.toLocaleString()}</div>
+            </div>
+          );
+        }
+        return `¥${v?.toLocaleString()}`;
+      } },
     { title: '货品数', dataIndex: 'qty', key: 'qty', width: 90, sorter: (a: any, b: any) => a.qty - b.qty,
       render: (v: number) => v?.toLocaleString() },
     { title: '客单价', key: 'avgPrice', width: 110, sorter: (a: any, b: any) => (a.qty > 0 ? a.sales/a.qty : 0) - (b.qty > 0 ? b.sales/b.qty : 0),
