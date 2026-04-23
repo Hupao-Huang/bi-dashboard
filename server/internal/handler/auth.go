@@ -468,6 +468,8 @@ var permissionSeeds = []permissionSeed{
 	{Code: "offline.high_value_customers:view", Name: "线下-高价值客户", Type: "page"},
 	{Code: "offline.turnover_expiry:view", Name: "线下-周转率及临期", Type: "page"},
 	{Code: "offline.ka_monthly:view", Name: "线下-KA月度统计", Type: "page"},
+	{Code: "offline.target:view", Name: "线下-目标管理查看", Type: "page"},
+	{Code: "offline.target:edit", Name: "线下-目标管理编辑", Type: "action"},
 	{Code: "distribution:view", Name: "分销部门", Type: "menu"},
 	{Code: "distribution.store_preview:view", Name: "分销-店铺数据预览", Type: "page"},
 	{Code: "distribution.store_dashboard:view", Name: "分销-店铺看板", Type: "page"},
