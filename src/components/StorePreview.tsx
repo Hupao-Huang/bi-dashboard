@@ -266,7 +266,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
         fontSize: 12,
         color: '#334155',
       },
-      labelLine: { length: 18, length2: 24, lineStyle: { color: '#cbd5e1' } },
+      labelLine: { length: 24, length2: 32, lineStyle: { color: '#cbd5e1' } },
       itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
       data: gradePieData,
     }],
