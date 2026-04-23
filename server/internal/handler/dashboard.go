@@ -1125,18 +1125,48 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return platformSales[i].Sales > platformSales[j].Sales
 	})
 
+	// offline 补充：查询日期范围内各月目标累加
+	regionTargets := map[string]float64{}
+	if dept == "offline" {
+		// 解析 start/end 年月
+		startTime, _ := time.Parse("2006-01-02", start)
+		endTime, _ := time.Parse("2006-01-02", end)
+		if !startTime.IsZero() && !endTime.IsZero() {
+			tRows, tOk := queryRowsOrWriteError(w, h.DB, `
+				SELECT region, SUM(target)
+				FROM offline_region_target
+				WHERE (year*100+month) BETWEEN ? AND ?
+				GROUP BY region`,
+				startTime.Year()*100+int(startTime.Month()),
+				endTime.Year()*100+int(endTime.Month()),
+			)
+			if tOk {
+				defer tRows.Close()
+				for tRows.Next() {
+					var reg string
+					var tgt float64
+					if writeDatabaseError(w, tRows.Scan(&reg, &tgt)) {
+						return
+					}
+					regionTargets[reg] = tgt
+				}
+			}
+		}
+	}
+
 	writeJSON(w, map[string]interface{}{
-		"daily":           daily,
-		"shops":           shops,
-		"goods":           goods,
-		"goodsChannels":   goodsChannels,
-		"brands":          brands,
-		"grades":          grades,
-		"platforms":       platforms,
-		"platformSales":   platformSales,
-		"gradePlatSales":  gradePlatSales,
-		"dateRange":       map[string]string{"start": start, "end": end},
-		"trendRange":      map[string]string{"start": trendStart, "end": trendEnd},
+		"daily":          daily,
+		"shops":          shops,
+		"goods":          goods,
+		"goodsChannels":  goodsChannels,
+		"brands":         brands,
+		"grades":         grades,
+		"platforms":      platforms,
+		"platformSales":  platformSales,
+		"gradePlatSales": gradePlatSales,
+		"regionTargets":  regionTargets,
+		"dateRange":      map[string]string{"start": start, "end": end},
+		"trendRange":     map[string]string{"start": trendStart, "end": trendEnd},
 	})
 }
 
