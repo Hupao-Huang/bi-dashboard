@@ -94,6 +94,13 @@ func (h *DashboardHandler) SyncOps(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewDecoder(r.Body).Decode(&req)
 		if req.Date != "" {
+			if len(req.Date) != 8 {
+				syncMu.Lock()
+				syncRunning = false
+				syncMu.Unlock()
+				writeError(w, 400, "日期格式错误，请传入8位日期如20260325")
+				return
+			}
 			date = req.Date
 		}
 	}

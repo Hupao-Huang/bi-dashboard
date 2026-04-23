@@ -817,7 +817,7 @@ func (h *DashboardHandler) adminRoleCreate(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusConflict, "角色编码已存在")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "创建失败: "+err.Error())
+		writeError(w, http.StatusInternalServerError, "创建失败，请重试")
 		return
 	}
 
@@ -1476,7 +1476,10 @@ func (h *DashboardHandler) AdminUsersBatchImport(w http.ResponseWriter, r *http.
 		)
 		if err != nil {
 			rows[i].Valid = false
-			rows[i].Error = "插入失败: " + err.Error()
+			rows[i].Error = "用户名已存在或数据重复"
+				if !strings.Contains(err.Error(), "Duplicate") {
+					rows[i].Error = "插入失败，请检查数据格式"
+				}
 			importErrors = append(importErrors, rows[i])
 			continue
 		}
@@ -1485,7 +1488,7 @@ func (h *DashboardHandler) AdminUsersBatchImport(w http.ResponseWriter, r *http.
 		if len(roleCodes) > 0 {
 			if err := h.saveUserAccessTx(tx, userID, roleCodes, authDataScopes{}); err != nil {
 				rows[i].Valid = false
-				rows[i].Error = "分配角色失败: " + err.Error()
+				rows[i].Error = "分配角色失败，请联系管理员"
 				importErrors = append(importErrors, rows[i])
 				continue
 			}
