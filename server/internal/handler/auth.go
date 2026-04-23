@@ -478,6 +478,8 @@ var permissionSeeds = []permissionSeed{
 	{Code: "finance.monthly_profit:view", Name: "财务-月度利润统计", Type: "page"},
 	{Code: "finance.product_profit:view", Name: "财务-产品利润统计", Type: "page"},
 	{Code: "finance.expense:view", Name: "财务-费控管理", Type: "page"},
+	{Code: "finance.report:view", Name: "财务-财务报表", Type: "page"},
+	{Code: "finance.report:import", Name: "财务-财务报表导入", Type: "action"},
 	{Code: "customer:view", Name: "客服部门", Type: "menu"},
 	{Code: "customer.overview:view", Name: "客服-客服总览", Type: "page"},
 	{Code: "supply_chain:view", Name: "供应链管理", Type: "menu"},
@@ -513,7 +515,8 @@ var roleDefaultPermissions = map[string][]string{
 		"social:view", "social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view", "social.feigua:view",
 		"offline:view", "offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view", "offline.high_value_customers:view", "offline.turnover_expiry:view", "offline.ka_monthly:view",
 		"distribution:view", "distribution.store_preview:view", "distribution.store_dashboard:view", "distribution.product_dashboard:view",
-		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view",		"customer:view", "customer.overview:view",
+		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view", "finance.report:view",
+		"customer:view", "customer.overview:view",
 		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view",
 		"profit:view", "cost:view", "gross_margin:view",
 	},
@@ -537,7 +540,8 @@ var roleDefaultPermissions = map[string][]string{
 	"finance": {
 		"overview:view",
 		"brand:view",
-		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view",		"profit:view", "cost:view", "gross_margin:view",
+		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view", "finance.report:view", "finance.report:import",
+		"profit:view", "cost:view", "gross_margin:view",
 	},
 	"supply_chain": {
 		"brand:view",

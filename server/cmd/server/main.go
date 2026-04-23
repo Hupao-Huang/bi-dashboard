@@ -219,6 +219,16 @@ func main() {
 	mux.HandleFunc("/api/hesi/flow-detail", pageProtected("finance.expense:view", h.GetHesiFlowDetail))
 	mux.HandleFunc("/api/hesi/attachment-urls", pageProtected("finance.expense:view", h.GetHesiAttachmentURLs))
 
+	// 财务报表
+	mux.HandleFunc("/api/finance/report", pageProtected("finance.report:view", h.GetFinanceReport))
+	mux.HandleFunc("/api/finance/report/trend", pageProtected("finance.report:view", h.GetFinanceReportTrend))
+	mux.HandleFunc("/api/finance/report/compare", pageProtected("finance.report:view", h.GetFinanceReportCompare))
+	mux.HandleFunc("/api/finance/report/structure", pageProtected("finance.report:view", h.GetFinanceReportStructure))
+	mux.HandleFunc("/api/finance/report/subjects", pageProtected("finance.report:view", h.GetFinanceSubjects))
+	mux.HandleFunc("/api/finance/report/imports", pageProtected("finance.report:view", h.GetFinanceImportLogs))
+	mux.HandleFunc("/api/finance/report/import", pageProtected("finance.report:import", h.ImportFinanceReport))
+	mux.HandleFunc("/api/finance/report/export", pageProtected("finance.report:view", h.ExportFinanceReport))
+
 	// 受保护的上传文件访问（禁止目录浏览）
 	mux.HandleFunc("/api/uploads/", protected(h.ServeUploadFile))
 
