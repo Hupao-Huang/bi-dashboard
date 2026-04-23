@@ -52,8 +52,13 @@ const ProductDashboard: React.FC<Props> = ({ dept }) => {
   const top15 = goods.slice(0, 15);
   const topGoodsOption = {
     ...baseOpt,
+    tooltip: { trigger: 'axis' as const, formatter: (params: any) => {
+      const p = Array.isArray(params) ? params[0] : params;
+      const name = top15[top15.length - 1 - p.dataIndex]?.goodsName || p.name;
+      return `${name}<br/>销售额：¥${p.value?.toLocaleString()}`;
+    }},
     legend: { ...baseOpt.legend, data: ['销售额'], top: 4 },
-    grid: { left: 160, right: 80, top: 48, bottom: 20 },
+    grid: { left: 260, right: 100, top: 48, bottom: 20 },
     xAxis: {
       ...baseOpt.xAxis,
       type: 'value' as const,
@@ -66,7 +71,7 @@ const ProductDashboard: React.FC<Props> = ({ dept }) => {
       ...baseOpt.yAxis,
       type: 'category' as const,
       data: top15.map((g: any) => g.goodsName || g.goodsNo).reverse(),
-      axisLabel: { ...baseOpt.yAxis.axisLabel, width: 140, overflow: 'truncate' as const, fontSize: 11 },
+      axisLabel: { ...baseOpt.yAxis.axisLabel, width: 240, overflow: 'truncate' as const, fontSize: 11 },
     },
     series: [
       {
@@ -75,6 +80,12 @@ const ProductDashboard: React.FC<Props> = ({ dept }) => {
         data: top15.map((g: any) => g.sales).reverse(),
         ...barItemStyle(color),
         barWidth: 14,
+        label: {
+          show: true,
+          position: 'right' as const,
+          fontSize: 11,
+          formatter: (p: any) => p.value >= 10000 ? `¥${(p.value / 10000).toFixed(1)}万` : `¥${p.value?.toLocaleString()}`,
+        },
       },
     ],
   };

@@ -13,6 +13,7 @@ interface Props {
 }
 
 const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
+  const unit = dept === 'offline' ? '大区' : '店铺';
   const abortRef = useRef<AbortController | null>(null);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -60,7 +61,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   const columns = [
     { title: '排名', dataIndex: '_rank', key: 'rank', width: 60, align: 'center' as const,
       render: (rank: number) => <span style={{ color: rank <= 3 ? color : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span> },
-    { title: '店铺名称', dataIndex: 'shopName', key: 'shopName', ellipsis: true, width: 300 },
+    { title: `${unit}名称`, dataIndex: 'shopName', key: 'shopName', ellipsis: true, width: 300 },
     { title: '销售额', dataIndex: 'sales', key: 'sales', width: 130, sorter: (a: any, b: any) => a.sales - b.sales,
       render: (v: number) => `¥${v?.toLocaleString()}` },
     { title: '货品数', dataIndex: 'qty', key: 'qty', width: 90, sorter: (a: any, b: any) => a.qty - b.qty,
@@ -98,7 +99,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   const otherSales = sortedBySales.slice(pieTopCount).reduce((sum: number, s: any) => sum + (s.sales || 0), 0);
   const pieData = [
     ...topPieShops.map((s: any) => ({ value: s.sales, name: s.shopName })),
-    ...(otherSales > 0 ? [{ value: otherSales, name: '其他店铺' }] : []),
+    ...(otherSales > 0 ? [{ value: otherSales, name: `其他${unit}` }] : []),
   ];
   const salesPieOption = {
     ...pieStyle,
@@ -201,8 +202,8 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   // 电商/社媒：platform 是合并后的平台名；线下/分销：platform 字段实际是渠道名（店铺名）
   const gradePlatSales: any[] = data.gradePlatSales || [];
   const gradeOrder = ['S', 'A', 'B', 'C', 'D', '未设置'];
-  // 线下/分销以"渠道"展示，电商/社媒以"平台"展示
-  const dimensionLabel = (dept === 'offline' || dept === 'distribution') ? '渠道' : '平台';
+  // 线下以"大区"展示，分销以"渠道"展示，电商/社媒以"平台"展示
+  const dimensionLabel = dept === 'offline' ? '大区' : (dept === 'distribution' ? '渠道' : '平台');
 
   const gradePlatMap = new Map<string, { total: number; platforms: { platform: string; sales: number }[] }>();
   gradePlatSales.forEach((item: any) => {
@@ -254,27 +255,18 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
     series: [{
       name: '产品定位',
       type: 'pie',
-      radius: ['28%', '55%'],
-      center: ['50%', '45%'],
+      radius: ['25%', '50%'],
+      center: ['50%', '42%'],
       minAngle: 2,
       avoidLabelOverlap: true,
       label: {
         show: true,
         position: 'outside' as const,
-        formatter: (p: any) => {
-          const pct = (p.value / totalSales * 100).toFixed(1);
-          const share = p.value / totalSales;
-          return share >= 0.05
-            ? `${p.name}
-{v|${pct}%}`
-            : `${p.name} ${pct}%`;
-        },
-        rich: { v: { fontSize: 11, color: '#999', lineHeight: 16 } },
+        formatter: '{b} {d}%',
         fontSize: 12,
         color: '#334155',
       },
-      labelLayout: { hideOverlap: false, moveOverlap: 'shiftY' as const },
-      labelLine: { length: 12, length2: 15, lineStyle: { color: '#cbd5e1' } },
+      labelLine: { length: 18, length2: 24, lineStyle: { color: '#cbd5e1' } },
       itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
       data: gradePieData,
     }],
@@ -368,7 +360,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       </Row>
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={gradeDonutOption || platformSales.length > 0 ? 12 : 24}>
-          <Card title={shops.length > pieTopCount ? `店铺销售额占比（TOP${pieTopCount}+其他）` : '店铺销售额占比'}>
+          <Card title={shops.length > pieTopCount ? `${unit}销售额占比（TOP${pieTopCount}+其他）` : `${unit}销售额占比`}>
             <ReactECharts option={salesPieOption} lazyUpdate={true} style={{ height: 460 }} />
           </Card>
         </Col>
@@ -388,12 +380,12 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       </Row>
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={8}>
-          <Card title="店铺客单价对比">
+          <Card title={`${unit}客单价对比`}>
             <ReactECharts option={avgPriceOption} lazyUpdate={true} style={{ height: Math.max(400, Math.min(avgPriceData.length, 20) * 28) }} />
           </Card>
         </Col>
         <Col xs={24} lg={16}>
-          <Card className="bi-table-card" title={`店铺排名（共${shops.length}家）`}>
+          <Card className="bi-table-card" title={`${unit}排名（共${shops.length}${dept === 'offline' ? '个' : '家'}）`}>
             <Table dataSource={indexedShops} columns={columns} rowKey="shopName" pagination={false} size="small" scroll={{ y: Math.max(400, Math.min(avgPriceData.length, 20) * 28 - 8) }} />
           </Card>
         </Col>

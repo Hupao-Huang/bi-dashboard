@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { Row, Col, Card, Table, Statistic, Spin, Select, Tabs, Tag, Empty, Popover } from 'antd';
+import { Row, Col, Card, Table, Statistic, Spin, Select, Tabs, Tag, Empty, Popover, Progress } from 'antd';
 import ReactECharts from './Chart';
 import DateFilter from './DateFilter';
 import PageLoading from './PageLoading';
@@ -309,6 +309,19 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
   const trendRange = shopDetail?.trendRange;
   const isExpanded = trendRange && trendRange.start !== shopDetail?.dateRange?.start;
   const inSelectedRange = useCallback((d: string) => d >= startDate && d <= endDate, [startDate, endDate]);
+  // KPI 卡片辅助信息
+  const daysInRange = daily.filter((d: any) => inSelectedRange(d.date)).length || 1;
+  const dailyAvgQty = currentShop.qty > 0 ? Math.round(currentShop.qty / daysInRange) : 0;
+  const shopRank = !isAllShops && selectedShop ? shopList.findIndex((s: any) => s.shopName === selectedShop) + 1 : 0;
+  // 目标数据（仅 offline 有）
+  const regionTargets: Record<string, number> = shopDetail?.regionTargets || {};
+  const targetAmount = isAllShops
+    ? Object.values(regionTargets).reduce((s: number, v: number) => s + v, 0)
+    : (regionTargets[selectedShop] || 0);
+  const targetPct = targetAmount > 0 ? currentShop.sales / targetAmount * 100 : 0;
+  const targetPctColor = targetPct >= 100 ? '#10b981' : targetPct >= 80 ? '#f59e0b' : '#ef4444';
+  const avgShopSales = shopList.length > 0 ? currentShop.sales / shopList.length : 0;
+  const achievedCount = shopList.filter((s: any) => regionTargets[s.shopName] && s.sales >= regionTargets[s.shopName]).length;
   const goods = shopDetail?.goods || [];
   const brands = shopDetail?.brands || [];
   const trendSplits = 5;
@@ -533,15 +546,56 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
             styles={{ header: { background: 'linear-gradient(90deg, #f0f5ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
               {[
-                { title: '销售额', value: currentShop.sales, precision: 2, prefix: '¥', accentColor: color },
+                { title: '销售额', value: currentShop.sales, precision: 2, prefix: '¥', accentColor: color,
+                  hint: currentShop.sales >= 10000 ? `≈ ${(currentShop.sales / 10000).toFixed(1)}万` : '' },
                 { title: '货品数', value: currentShop.qty, accentColor: '#10b981' },
-                { title: '客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#1e40af' },
-                { title: `${unit}数量`, value: shopList.length, suffix: '家', accentColor: '#7c3aed' },
-              ].map((card) => (
+                { title: '客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#1e40af',
+                  hint: avgOrderValue >= 10000 ? `≈ ${(avgOrderValue / 10000).toFixed(1)}万` : '' },
+                { title: `${unit}数量`, value: shopList.length, suffix: '家', accentColor: '#7c3aed',
+                  hintNode: shopRank > 0 ? <span style={{ color: shopRank <= 3 ? '#10b981' : '#64748b', fontWeight: shopRank <= 3 ? 600 : 400 }}>排名 #{shopRank}/{shopList.length}</span> : null },
+              ].map((card: any, idx: number) => (
                 <Col xs={12} sm={6} key={card.title}>
-                  <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
+                  <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%' }}>
                     <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.value >= 10000 ? `≈ ${(card.value / 10000).toFixed(1)}万` : ' '}</div>
+                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.hintNode || card.hint || ' '}</div>
+                    {idx === 0 && targetAmount > 0 && (
+                      <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+                        <Progress
+                          percent={parseFloat(Math.min(targetPct, 999).toFixed(1))}
+                          strokeColor={targetPctColor}
+                          trailColor="#f1f5f9"
+                          format={p => <span style={{ color: targetPctColor, fontWeight: 700, fontSize: 13 }}>{p}%</span>}
+                          size="small"
+                        />
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                          目标 ￥{(targetAmount / 10000).toFixed(1)}万
+                        </div>
+                      </div>
+                    )}
+                    {idx === 1 && targetAmount > 0 && (
+                      <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>
+                          {dailyAvgQty.toLocaleString()} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>件/日</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{daysInRange} 天平均</div>
+                      </div>
+                    )}
+                    {idx === 2 && targetAmount > 0 && (
+                      <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>
+                          ￥{(avgShopSales / 10000).toFixed(1)}万 <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>店均</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>单店平均销售额</div>
+                      </div>
+                    )}
+                    {idx === 3 && targetAmount > 0 && (
+                      <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: achievedCount > 0 ? '#10b981' : '#94a3b8' }}>
+                          {achievedCount} / {shopList.length} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>达标</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>完成率 ≥100% 的大区数</div>
+                      </div>
+                    )}
                   </Card>
                 </Col>
               ))}
