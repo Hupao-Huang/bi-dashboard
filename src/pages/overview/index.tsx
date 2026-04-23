@@ -281,17 +281,75 @@ const OverviewPage: React.FC = () => {
   }), [isLongRange, pieData]);
 
   const grades = data?.grades || [];
+  const gradeDeptSales: any[] = data?.gradeDeptSales || [];
+  const totalGradeSales = grades.reduce((s: number, g: any) => s + g.sales, 0);
+
+  // 按 grade 汇聚部门明细
+  const gradeDeptMap = new Map<string, { total: number; depts: { dept: string; label: string; sales: number }[] }>();
+  gradeDeptSales.forEach((item: any) => {
+    const entry = gradeDeptMap.get(item.grade) || { total: 0, depts: [] };
+    entry.total += item.sales;
+    entry.depts.push({
+      dept: item.department,
+      label: deptConfig[item.department]?.label || item.department,
+      sales: item.sales,
+    });
+    gradeDeptMap.set(item.grade, entry);
+  });
+  gradeDeptMap.forEach(entry => entry.depts.sort((a, b) => b.sales - a.sales));
+
   const gradePieOption = {
     ...pieStyle,
     animation: !isLongRange,
+    tooltip: {
+      ...pieStyle.tooltip,
+      trigger: 'item' as const,
+      formatter: (p: any) => {
+        const pct = totalGradeSales > 0 ? (p.value / totalGradeSales * 100).toFixed(1) : '0.0';
+        const depts: { label: string; sales: number }[] = p.data?._depts || [];
+        let html = `<b>${p.name}</b>：¥${p.value?.toLocaleString()}（${pct}%）`;
+        if (depts.length > 0) {
+          html += '<br/><div style="margin-top:6px;border-top:1px solid #eee;padding-top:6px">';
+          depts.forEach(d => {
+            const dPct = totalGradeSales > 0 ? (d.sales / totalGradeSales * 100).toFixed(1) : '0.0';
+            html += `${d.label}：¥${d.sales.toLocaleString()}（${dPct}%）<br/>`;
+          });
+          html += '</div>';
+        }
+        return html;
+      },
+    },
+    legend: {
+      orient: 'horizontal' as const,
+      left: 'center',
+      bottom: 0,
+      type: 'scroll' as const,
+      itemGap: 14,
+      textStyle: { fontSize: 11 },
+    },
     series: [{
       type: 'pie',
-      radius: ['35%', '65%'],
-      center: ['50%', '50%'],
-      label: { show: true, formatter: '{b}\n{d}%', fontSize: 11, lineHeight: 15, color: '#64748b' },
-      labelLine: { length: 14, length2: 10, lineStyle: { color: '#e2e8f0' } },
-      itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 },
-      data: grades.map((g: any) => ({ value: g.sales, name: g.grade, itemStyle: { color: GRADE_COLORS[g.grade] || '#94a3b8' } })),
+      radius: ['30%', '60%'],
+      center: ['50%', '45%'],
+      label: {
+        show: true,
+        formatter: (p: any) => {
+          const pct = totalGradeSales > 0 ? (p.value / totalGradeSales * 100).toFixed(1) : '0.0';
+          return `${p.name}\n{value|${pct}%}`;
+        },
+        rich: { value: { fontSize: 11, color: '#999', lineHeight: 18 } },
+        fontSize: 12,
+        color: '#333',
+      },
+      labelLayout: { hideOverlap: true },
+      labelLine: { length: 15, length2: 18, lineStyle: { color: '#cbd5e1' } },
+      itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+      data: grades.map((g: any) => ({
+        value: g.sales,
+        name: g.grade + '品',
+        _depts: gradeDeptMap.get(g.grade)?.depts || [],
+        itemStyle: { color: GRADE_COLORS[g.grade] || '#94a3b8' },
+      })),
     }],
   };
 
