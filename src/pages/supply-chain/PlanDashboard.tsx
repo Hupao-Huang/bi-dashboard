@@ -217,6 +217,9 @@ const PlanDashboard: React.FC = () => {
       {/* 加载遮罩（暂时关闭） */}
 
       <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
+      <div style={{ fontSize: 12, color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 12px', marginBottom: 16 }}>
+        数据来源：南京委外成品仓、天津委外仓、西安仓库成品、松鲜鲜&amp;大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共7个仓库）
+      </div>
 
       {/* 第1行：KPI 卡片 */}
       <Row gutter={[16, 16]}>
