@@ -34,7 +34,7 @@ interface Channel {
 }
 
 // mode: 'platform' 按平台聚合（电商/货品看板），'department' 按部门聚合（综合看板）
-const GoodsChannelExpand: React.FC<{ channels: Channel[]; mode?: 'platform' | 'department' }> = ({ channels, mode = 'platform' }) => {
+const GoodsChannelExpand: React.FC<{ channels: Channel[]; mode?: 'platform' | 'department'; hidePlatSection?: boolean }> = ({ channels, mode = 'platform', hidePlatSection = false }) => {
   if (channels.length === 0) return <span style={{ color: '#64748b' }}>暂无渠道数据</span>;
   const totalSales = channels.reduce((s, c) => s + c.sales, 0);
 
@@ -54,7 +54,7 @@ const GoodsChannelExpand: React.FC<{ channels: Channel[]; mode?: 'platform' | 'd
 
   return (
     <>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      {!hidePlatSection && <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={12}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>{groupLabel}分布</div>
           <Table
@@ -84,7 +84,7 @@ const GoodsChannelExpand: React.FC<{ channels: Channel[]; mode?: 'platform' | 'd
             style={{ height: Math.max(200, platData.length * 28) }}
           />
         </Col>
-      </Row>
+      </Row>}
       <Row gutter={16}>
         <Col span={12}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>渠道分布</div>
