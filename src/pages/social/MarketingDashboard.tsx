@@ -355,7 +355,7 @@ const MarketingDashboard: React.FC = () => {
                 return (
                   <>
                     <Card title="推广直播间投放" style={{ marginBottom: 16 }}
-                      headStyle={{ background: 'linear-gradient(90deg, #fef3c7 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                      styles={{ header: { background: 'linear-gradient(90deg, #fef3c7 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
                         {[
                           { title: '推广消耗', value: totalCost, precision: 2, prefix: '¥', accentColor: '#f59e0b' },
