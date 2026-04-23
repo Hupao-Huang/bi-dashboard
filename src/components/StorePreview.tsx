@@ -263,6 +263,9 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
     }],
   } : null;
 
+  const totalTarget = Object.values(regionTargets).reduce((s, v) => s + v, 0);
+  const totalPct = totalTarget > 0 ? Math.min(totalSales / totalTarget * 100, 100) : 0;
+
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总货品数', value: totalQty, precision: 0, accentColor: '#10b981' },
@@ -285,6 +288,26 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
                 <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
                   {hint || ' '}
                 </div>
+              {card.title === '总销售额' && dept === 'offline' && totalTarget > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                      <span style={{ color: '#64748b' }}>目标完成</span>
+                      <span style={{ fontWeight: 600, color: totalPct >= 100 ? '#16a34a' : color }}>
+                        {totalPct.toFixed(1)}%
+                      </span>
+                    </div>
+                    <Progress
+                      percent={totalPct}
+                      showInfo={false}
+                      strokeColor={color}
+                      trailColor="#e2e8f0"
+                      size={['100%', 7]}
+                    />
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                      目标 ¥{totalTarget.toLocaleString()}
+                    </div>
+                  </div>
+                )}
               </Card>
             </Col>
           );
