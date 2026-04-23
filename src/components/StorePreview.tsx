@@ -294,7 +294,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总货品数', value: totalQty, precision: 0, accentColor: '#10b981' },
     { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#7c3aed' },
-    { title: '店铺数量', value: shops.length, precision: 0, suffix: '家', accentColor: '#f59e0b' },
+    { title: dept === 'offline' ? '大区数量' : '店铺数量', value: shops.length, precision: 0, suffix: dept === 'offline' ? '个' : '家', accentColor: '#f59e0b' },
   ];
 
   return (
