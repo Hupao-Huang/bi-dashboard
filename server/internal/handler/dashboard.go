@@ -698,7 +698,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		FROM sales_goods_summary
 		WHERE department = ? AND shop_name IS NOT NULL
 		  AND stat_date BETWEEN ? AND ?` + offlineRegionPrefilter + scopeCond + `
-		GROUP BY shop_name ORDER BY sales DESC`
+		GROUP BY 1 ORDER BY sales DESC`
 	} else {
 		shopListSQL = `SELECT shop_name,
 			ROUND(SUM(local_goods_amt), 2) as sales,
@@ -952,7 +952,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				FROM sales_goods_summary s
 				LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
 				WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?` + offlineRegionPrefilter + scopeCond + `
-				GROUP BY grade, channel
+				GROUP BY 1, 2
 				ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`
 		} else {
 			gpSQL = `SELECT IFNULL(g.goods_field7,'未设置') as grade, s.shop_name as channel,
