@@ -254,31 +254,29 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
     series: [{
       name: '产品定位',
       type: 'pie',
-      radius: ['30%', '60%'],
+      radius: ['28%', '55%'],
       center: ['50%', '45%'],
+      minAngle: 2,
+      avoidLabelOverlap: true,
       label: {
         show: true,
         position: 'outside' as const,
         formatter: (p: any) => {
           const pct = (p.value / totalSales * 100).toFixed(1);
-          return `${p.name}\n{value|${pct}%}`;
+          const share = p.value / totalSales;
+          return share >= 0.05
+            ? `${p.name}
+{v|${pct}%}`
+            : `${p.name} ${pct}%`;
         },
-        rich: { value: { fontSize: 11, color: '#999', lineHeight: 18 } },
+        rich: { v: { fontSize: 11, color: '#999', lineHeight: 16 } },
         fontSize: 12,
-        color: '#333',
+        color: '#334155',
       },
-      labelLayout: { hideOverlap: true },
-      labelLine: { length: 15, length2: 18, lineStyle: { color: '#cbd5e1' } },
+      labelLayout: { hideOverlap: false, moveOverlap: 'shiftY' as const },
+      labelLine: { length: 12, length2: 15, lineStyle: { color: '#cbd5e1' } },
       itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
-      data: gradePieData.map((item: any) => {
-        const share = totalSales > 0 ? item.value / totalSales : 0;
-        const showLabel = share >= 0.05;
-        return {
-          ...item,
-          label: { show: showLabel },
-          labelLine: { show: showLabel },
-        };
-      }),
+      data: gradePieData,
     }],
   } : null;
 
