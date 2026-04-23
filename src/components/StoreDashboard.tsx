@@ -530,7 +530,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
           {isExpanded && <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>深色柱为选中日期，浅色柱为趋势参考</div>}
           {/* ========== 第一块：经营数据（所有平台） ========== */}
           <Card title={`经营数据${isExpanded ? '（蓝色区域为选中日期）' : ''}`} style={{ marginBottom: 16 }}
-            headStyle={{ background: 'linear-gradient(90deg, #f0f5ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+            styles={{ header: { background: 'linear-gradient(90deg, #f0f5ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
               {[
                 { title: '销售额', value: currentShop.sales, precision: 2, prefix: '¥', accentColor: color },
@@ -583,7 +583,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
           {/* ========== 第二块：流量转化（天猫独有） ========== */}
           {isTmallShop && (
             <Card title="流量转化" style={{ marginBottom: 16 }}
-              headStyle={{ background: 'linear-gradient(90deg, #fff7e6 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+              styles={{ header: { background: 'linear-gradient(90deg, #fff7e6 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
               {traffic.length > 0 ? (
                 <>
                   <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -613,7 +613,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
           {isTmallShop && (
             <Card title="推广摘要" extra={<span style={{ color: '#999', fontSize: 12 }}>详细数据请查看「营销费用」页面</span>}
               style={{ marginBottom: 16 }}
-              headStyle={{ background: 'linear-gradient(90deg, #fff1f0 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+              styles={{ header: { background: 'linear-gradient(90deg, #fff1f0 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
               {(campaigns.length > 0 || cps.length > 0) ? (
                 <Row gutter={[16, 16]}>
                   {[
@@ -639,7 +639,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
           {/* ========== 第四块：会员复购（天猫独有） ========== */}
           {isTmallShop && (
             <Card title="会员复购" style={{ marginBottom: 16 }}
-              headStyle={{ background: 'linear-gradient(90deg, #f9f0ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+              styles={{ header: { background: 'linear-gradient(90deg, #f9f0ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
               {members.length > 0 ? (
                 <>
                   <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -666,7 +666,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
           {/* ========== 天猫商品TOP10 ========== */}
           {isTmallShop && tmallGoodsTop.length > 0 && (
             <Card className="bi-table-card" title="商品销售TOP10（生意参谋）" style={{ marginBottom: 16 }}
-              headStyle={{ background: 'linear-gradient(90deg, #fef3c7 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+              styles={{ header: { background: 'linear-gradient(90deg, #fef3c7 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
               <Table dataSource={tmallGoodsTop} rowKey="productName" size="small" pagination={false} scroll={{ x: 700 }}
                 columns={[
                   { title: '商品', dataIndex: 'productName', key: 'name', ellipsis: true, width: 200 },
@@ -684,7 +684,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
           {/* ========== 天猫品牌数据（数据银行） ========== */}
           {isTmallShop && tmallBrandDaily.length > 0 && (
             <Card title="品牌数据（数据银行）" style={{ marginBottom: 16 }}
-              headStyle={{ background: 'linear-gradient(90deg, #dbeafe 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+              styles={{ header: { background: 'linear-gradient(90deg, #dbeafe 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
               <ReactECharts lazyUpdate={true} style={{ height: 300 }} option={{
                 tooltip: { trigger: 'axis' },
                 legend: { data: ['会员成交额', '客户量', '忠诚量', '兴趣量'], top: 0 },
@@ -707,7 +707,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
           {/* ========== 天猫人群覆盖（达摩盘） ========== */}
           {isTmallShop && tmallCrowdDaily.length > 0 && (
             <Card title="人群覆盖（达摩盘）" style={{ marginBottom: 16 }}
-              headStyle={{ background: 'linear-gradient(90deg, #fce7f3 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+              styles={{ header: { background: 'linear-gradient(90deg, #fce7f3 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
               <ReactECharts lazyUpdate={true} style={{ height: 300 }} option={{
                 tooltip: { trigger: 'axis' },
                 legend: { data: ['覆盖人数', 'TA浓度', '成交额'], top: 0 },
@@ -731,7 +731,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
               {tmallIndustry.length > 0 && (
                 <Col xs={24} lg={12}>
-                  <Card title="行业月报（集客）" headStyle={{ fontWeight: 600, fontSize: 15 }}>
+                  <Card title="行业月报（集客）" styles={{ header: { fontWeight: 600, fontSize: 15 } }}>
                     <Table dataSource={tmallIndustry} rowKey={(r: any) => `${r.month}-${r.category}`} size="small" pagination={false}
                       columns={[
                         { title: '月份', dataIndex: 'month', key: 'month', width: 80 },
@@ -747,7 +747,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               )}
               {tmallRepurchase.length > 0 && (
                 <Col xs={24} lg={12}>
-                  <Card title="复购分析（集客）" headStyle={{ fontWeight: 600, fontSize: 15 }}>
+                  <Card title="复购分析（集客）" styles={{ header: { fontWeight: 600, fontSize: 15 } }}>
                     <Table dataSource={tmallRepurchase} rowKey={(r: any) => `${r.month}-${r.category}`} size="small" pagination={false}
                       columns={[
                         { title: '月份', dataIndex: 'month', key: 'month', width: 80 },
@@ -796,7 +796,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
 
             return (
               <Card title="流量转化（唯品会）" style={{ marginBottom: 16 }}
-                headStyle={{ background: 'linear-gradient(90deg, #f9f0ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                styles={{ header: { background: 'linear-gradient(90deg, #f9f0ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                 <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                   {[
                     { title: '曝光流量', value: vipSummary.impressions, accentColor: '#7c3aed' },
@@ -891,7 +891,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               <>
                 {jdShop.length > 0 && (
                   <Card title="店铺经营（京东）" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #fff1f0 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #fff1f0 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                       {[
                         { title: '访客数', value: shopSum.visitors, accentColor: '#1e40af' },
@@ -916,7 +916,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 )}
                 {jdCustomer.length > 0 && (
                   <Card title="客户分析（京东）" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #e6f7ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #e6f7ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                       {[
                         { title: '浏览客户', value: custSum.browse, accentColor: '#1e40af' },
@@ -951,7 +951,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               <>
                 {customerTypes.length > 0 && (
                   <Card className="bi-table-card" title="新老客分析" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #fef3c7 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #fef3c7 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Table dataSource={(() => {
                       const grouped: Record<string, any> = {};
                       customerTypes.forEach((c: any) => {
@@ -976,7 +976,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 )}
                 {keywords.length > 0 && (
                   <Card className="bi-table-card" title="行业热词TOP20" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #ecfdf5 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #ecfdf5 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Table dataSource={keywords} rowKey="keyword" size="small" pagination={false} scroll={{ x: 600 }}
                       columns={[
                         { title: '关键词', dataIndex: 'keyword', key: 'kw', ellipsis: true, width: 150 },
@@ -992,7 +992,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                   {promos.length > 0 && (
                     <Col xs={24} lg={12}>
-                      <Card className="bi-table-card" title="促销活动汇总" headStyle={{ fontWeight: 600, fontSize: 15 }}>
+                      <Card className="bi-table-card" title="促销活动汇总" styles={{ header: { fontWeight: 600, fontSize: 15 } }}>
                         <Table dataSource={promos} rowKey="promoType" size="small" pagination={false}
                           columns={[
                             { title: '活动类型', dataIndex: 'promoType', key: 'type' },
@@ -1007,7 +1007,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                   )}
                   {promoSkus.length > 0 && (
                     <Col xs={24} lg={12}>
-                      <Card className="bi-table-card" title="促销商品TOP10" headStyle={{ fontWeight: 600, fontSize: 15 }}>
+                      <Card className="bi-table-card" title="促销商品TOP10" styles={{ header: { fontWeight: 600, fontSize: 15 } }}>
                         <Table dataSource={promoSkus} rowKey={(r: any) => `${r.goodsName}-${r.promoType}`} size="small" pagination={false}
                           columns={[
                             { title: '商品', dataIndex: 'goodsName', key: 'name', ellipsis: true, width: 150 },
@@ -1121,7 +1121,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               <>
                 {pddShop.length > 0 && (
                   <Card title="店铺经营（拼多多）" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #fff1f0 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #fff1f0 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                       {[
                         { title: '成交金额', value: shopSum.payAmount, precision: 2, prefix: '¥', accentColor: '#ef4444' },
@@ -1143,7 +1143,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 )}
                 {pddGoods.length > 0 && (
                   <Card title="商品数据（拼多多）" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #fff7e6 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #fff7e6 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                       {[
                         { title: '商品访客', value: goodsSum.visitors, accentColor: '#ef4444' },
@@ -1164,7 +1164,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 )}
                 {pddVideo.length > 0 && (
                   <Card title="短视频数据（拼多多）" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #f9f0ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #f9f0ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                       {[
                         { title: '视频GMV', value: videoSum.gmv, precision: 2, prefix: '¥', accentColor: '#ef4444' },
@@ -1252,7 +1252,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
             return (
               <>
                 <Card title="S品渠道销售分析" style={{ marginBottom: 16 }}
-                  headStyle={{ background: 'linear-gradient(90deg, #fffbeb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                  styles={{ header: { background: 'linear-gradient(90deg, #fffbeb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                   <Row gutter={16} style={{ marginBottom: 16 }}>
                     {[
                       { title: 'S品总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: '#1e40af' },
@@ -1274,7 +1274,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                   {isAllShops && shopBarOption && (
                     <Col span={10}>
                       <Card title={platform === 'all' || !platform ? 'S品平台排名' : 'S品渠道排行'} style={{ marginBottom: 16 }}
-                        headStyle={{ background: 'linear-gradient(90deg, #fffbeb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                        styles={{ header: { background: 'linear-gradient(90deg, #fffbeb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                         <ReactECharts lazyUpdate={true} option={shopBarOption} style={{ height: 320 }} />
                       </Card>
                     </Col>
@@ -1282,7 +1282,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                   {goodsRank.length > 0 && (
                     <Col span={isAllShops && shopBarOption ? 14 : 24}>
                       <Card className="bi-table-card" title={`S品单品排行（点击展开查看${platform === 'all' || !platform ? '平台' : '渠道'}分布）`} style={{ marginBottom: 16 }}
-                        headStyle={{ background: 'linear-gradient(90deg, #fffbeb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                        styles={{ header: { background: 'linear-gradient(90deg, #fffbeb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Table dataSource={goodsRank} pagination={false} size="small" rowKey="goodsNo"
                       expandable={{
                         expandedRowRender: (record: any) => {
@@ -1358,7 +1358,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
               <>
                 {business.length > 0 && (
                   <Card title="经营概况（天猫超市）" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #e6fffb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #e6fffb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Row gutter={16} style={{ marginBottom: 16 }}>
                       {[
                         { title: '支付金额', value: bSum.payAmount, precision: 2, prefix: '¥', accentColor: '#14b8a6' },
@@ -1382,7 +1382,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
 
                 {keywords.length > 0 && (
                   <Card className="bi-table-card" title="行业搜索热词TOP30（天猫超市）" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #e6fffb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #e6fffb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     <Table dataSource={keywords} pagination={false} size="small" rowKey="keyword"
                       columns={[
                         { title: '排名', render: (_, __, i) => i + 1, width: 60 },
@@ -1399,7 +1399,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
 
                 {Object.keys(categoryGroups).length > 0 && (
                   <Card className="bi-table-card" title="市场品牌排名（天猫超市）" style={{ marginBottom: 16 }}
-                    headStyle={{ background: 'linear-gradient(90deg, #e6fffb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 }}>
+                    styles={{ header: { background: 'linear-gradient(90deg, #e6fffb 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
                     {Object.entries(categoryGroups).map(([category, list]) => (
                       <div key={category} style={{ marginBottom: 16 }}>
                         <div style={{ fontWeight: 600, marginBottom: 8, color: '#13c2c2' }}>{category}</div>

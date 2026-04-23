@@ -176,10 +176,10 @@ const ChannelManagement: React.FC = () => {
           <Card><Statistic title="总渠道数" value={total} /></Card>
         </Col>
         <Col xs={8}>
-          <Card><Statistic title="已映射" value={total - unmappedCount} valueStyle={{ color: '#52c41a' }} /></Card>
+          <Card><Statistic title="已映射" value={total - unmappedCount} styles={{ content: { color: '#52c41a' } }} /></Card>
         </Col>
         <Col xs={8}>
-          <Card><Statistic title="未映射" value={unmappedCount} valueStyle={{ color: unmappedCount > 0 ? '#f5222d' : '#52c41a' }} /></Card>
+          <Card><Statistic title="未映射" value={unmappedCount} styles={{ content: { color: unmappedCount > 0 ? '#f5222d' : '#52c41a' } }} /></Card>
         </Col>
       </Row>
 

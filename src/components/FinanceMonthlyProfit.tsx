@@ -1,10 +1,15 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import dayjs from 'dayjs';
 import { DEPT_COLORS } from '../chartTheme';
 import { Row, Col, Card, Table, Statistic, Select, Tag } from 'antd';
 import ReactECharts from './Chart';
 import DateFilter from './DateFilter';
 import PageLoading from './PageLoading';
-import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../config';
+import { API_BASE } from '../config';
+
+// 月度利润统计默认展示近 12 个月（避免进入时只显示 1 个月导致趋势图只有 1 个点）
+const DEFAULT_MONTHLY_START = dayjs().subtract(11, 'month').startOf('month').format('YYYY-MM-DD');
+const DEFAULT_MONTHLY_END = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
 
 const deptOptions = [
   { value: 'all', label: '全部部门' },
@@ -26,8 +31,8 @@ const FinanceMonthlyProfit: React.FC = () => {
   const [dept, setDept] = useState('all');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState(DATA_START_DATE);
-  const [endDate, setEndDate] = useState(DATA_END_DATE);
+  const [startDate, setStartDate] = useState(DEFAULT_MONTHLY_START);
+  const [endDate, setEndDate] = useState(DEFAULT_MONTHLY_END);
 
   const color = DEPT_COLORS[dept] || '#1e40af';
 
