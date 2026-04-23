@@ -285,6 +285,10 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   // 目标汇总
   const totalTarget = Object.values(targets).reduce((s, v) => s + v, 0);
   const totalPct = totalTarget > 0 ? (totalSales / totalTarget * 100) : null;
+  const daysInRange = Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
+  const dailyAvgQty = totalQty / daysInRange;
+  const avgShopSales = shops.length > 0 ? totalSales / shops.length : 0;
+  const achievedCount = shops.filter((s: any) => targets[s.shopName] && s.sales >= targets[s.shopName]).length;
 
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
@@ -326,8 +330,37 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
                   </div>
                 )}
                 {!showTarget && dept === 'offline' && totalTarget > 0 && (
-                  <div style={{ marginTop: 8, paddingTop: 8, height: 47, visibility: 'hidden' }}>
-                    <div>placeholder</div>
+                  <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+                    {idx === 1 && (
+                      <>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>
+                          {Math.round(dailyAvgQty).toLocaleString()} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>件/日</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                          {daysInRange} 天平均
+                        </div>
+                      </>
+                    )}
+                    {idx === 2 && (
+                      <>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>
+                          ￥{(avgShopSales / 10000).toFixed(1)}万 <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>店均</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                          单店平均销售额
+                        </div>
+                      </>
+                    )}
+                    {idx === 3 && (
+                      <>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: achievedCount > 0 ? '#10b981' : '#94a3b8' }}>
+                          {achievedCount} / {shops.length} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>达标</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                          完成率 ≥100% 的大区数
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </Card>
