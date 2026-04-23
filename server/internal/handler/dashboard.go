@@ -789,16 +789,29 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			chArgs = append(chArgs, g.GoodsNo)
 		}
 		chArgs = append(chArgs, extraArgs...)
-		chRows, ok := queryRowsOrWriteError(w, h.DB, `
-			SELECT goods_no, shop_name,
+		var chSQL string
+		if dept == "offline" {
+			chSQL = `SELECT goods_no, ` + offlineRegionExpr + ` as shop_name,
 				ROUND(SUM(local_goods_amt), 2) as sales,
 				ROUND(SUM(goods_qty), 0) as qty
 			FROM sales_goods_summary
 			WHERE department = ? AND stat_date BETWEEN ? AND ?
-			  AND goods_no IN (`+joinStrings(placeholders, ",")+`)
-			`+shopCond+platCond+scopeCond+`
+			  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
+				offlineRegionPrefilter + shopCond + scopeCond + `
+			GROUP BY goods_no, 2
+			ORDER BY goods_no, sales DESC`
+		} else {
+			chSQL = `SELECT goods_no, shop_name,
+				ROUND(SUM(local_goods_amt), 2) as sales,
+				ROUND(SUM(goods_qty), 0) as qty
+			FROM sales_goods_summary
+			WHERE department = ? AND stat_date BETWEEN ? AND ?
+			  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
+				shopCond + platCond + scopeCond + `
 			GROUP BY goods_no, shop_name
-			ORDER BY goods_no, sales DESC`, chArgs...)
+			ORDER BY goods_no, sales DESC`
+		}
+		chRows, ok := queryRowsOrWriteError(w, h.DB, chSQL, chArgs...)
 		if !ok {
 			return
 		}
