@@ -283,13 +283,13 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
             : '';
           return (
             <Col xs={24} sm={6} key={card.title}>
-              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%' }}>
+              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%' }} styles={{ body: { height: '100%', display: 'flex', flexDirection: 'column', justifyContent: card.title === '总销售额' ? 'flex-start' : 'center' } }}>
                 <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
                 <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
                   {hint || ' '}
                 </div>
               {card.title === '总销售额' && dept === 'offline' && totalTarget > 0 && (
-                  <div style={{ marginTop: 8 }}>
+                  <div style={{ marginTop: 'auto', paddingTop: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
                       <span style={{ color: '#64748b' }}>目标完成</span>
                       <span style={{ fontWeight: 600, color: totalPct >= 100 ? '#16a34a' : color }}>
