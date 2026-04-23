@@ -603,12 +603,42 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	shop := r.URL.Query().Get("shop")         // 可选：按店铺过滤
 	platform := r.URL.Query().Get("platform") // 可选：按平台过滤
 
+	// 线下大区合并：shop_name → 大区名映射
+	const offlineRegionExpr = `CASE
+		WHEN shop_name LIKE '%华东大区%' THEN '华东大区'
+		WHEN shop_name LIKE '%华北大区%' THEN '华北大区'
+		WHEN shop_name LIKE '%华南大区%' THEN '华南大区'
+		WHEN shop_name LIKE '%华中大区%' THEN '华中大区'
+		WHEN shop_name LIKE '%西北大区%' THEN '西北大区'
+		WHEN shop_name LIKE '%西南大区%' THEN '西南大区'
+		WHEN shop_name LIKE '%东北大区%' THEN '东北大区'
+		WHEN shop_name LIKE '%山东大区%' OR shop_name LIKE '%山东省区%' THEN '山东大区'
+		WHEN shop_name LIKE '%重客系统%' THEN '重客'
+		ELSE NULL END`
+	offlineRegionCond := map[string]string{
+		"华东大区": "shop_name LIKE '%华东大区%'",
+		"华北大区": "shop_name LIKE '%华北大区%'",
+		"华南大区": "shop_name LIKE '%华南大区%'",
+		"华中大区": "shop_name LIKE '%华中大区%'",
+		"西北大区": "shop_name LIKE '%西北大区%'",
+		"西南大区": "shop_name LIKE '%西南大区%'",
+		"东北大区": "shop_name LIKE '%东北大区%'",
+		"山东大区": "(shop_name LIKE '%山东大区%' OR shop_name LIKE '%山东省区%')",
+		"重客":    "shop_name LIKE '%重客系统%'",
+	}
+
 	// 构建额外条件
 	shopCond := ""
 	extraArgs := []interface{}{}
 	if shop != "" {
-		shopCond = " AND shop_name = ?"
-		extraArgs = append(extraArgs, shop)
+		if dept == "offline" {
+			if cond, ok := offlineRegionCond[shop]; ok {
+				shopCond = " AND " + cond
+			}
+		} else {
+			shopCond = " AND shop_name = ?"
+			extraArgs = append(extraArgs, shop)
+		}
 	}
 	platCond, platArgs := buildPlatformCond(dept, platform)
 	extraArgs = append(extraArgs, platArgs...)
@@ -655,18 +685,30 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// 2. 店铺排行（需要支持platform过滤，但不用shopCond）
+	// 2. 店铺/大区排行（offline 按大区合并，其余按 shop_name）
 	shopListArgs := append([]interface{}{dept, start, end}, platArgs...)
 	shopListArgs = append(shopListArgs, scopeArgs...)
-	shopRows, ok := queryRowsOrWriteError(w, h.DB, `
-		SELECT shop_name,
+	var shopListSQL string
+	if dept == "offline" {
+		shopListSQL = `SELECT ` + offlineRegionExpr + ` as shop_name,
 			ROUND(SUM(local_goods_amt), 2) as sales,
 			ROUND(SUM(goods_qty), 0) as qty,
 			ROUND(SUM(gross_profit), 2) as profit
 		FROM sales_goods_summary
 		WHERE department = ? AND shop_name IS NOT NULL
-		  AND stat_date BETWEEN ? AND ?`+platCond+scopeCond+`
-		GROUP BY shop_name ORDER BY sales DESC LIMIT 20`, shopListArgs...)
+		  AND stat_date BETWEEN ? AND ?` + scopeCond + `
+		GROUP BY shop_name HAVING shop_name IS NOT NULL ORDER BY sales DESC`
+	} else {
+		shopListSQL = `SELECT shop_name,
+			ROUND(SUM(local_goods_amt), 2) as sales,
+			ROUND(SUM(goods_qty), 0) as qty,
+			ROUND(SUM(gross_profit), 2) as profit
+		FROM sales_goods_summary
+		WHERE department = ? AND shop_name IS NOT NULL
+		  AND stat_date BETWEEN ? AND ?` + platCond + scopeCond + `
+		GROUP BY shop_name ORDER BY sales DESC LIMIT 20`
+	}
+	shopRows, ok := queryRowsOrWriteError(w, h.DB, shopListSQL, shopListArgs...)
 	if !ok {
 		return
 	}
@@ -900,32 +942,38 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			return gradePlatSales[i].Sales > gradePlatSales[j].Sales
 		})
 	} else if dept == "offline" || dept == "distribution" {
-		// 线下/分销部门：用 shop_name 直接作为"渠道"维度（它们没有 online_plat_name）
-		// 前端标题会显示为"产品定位 × 渠道分布"
-		gpRows, ok := queryRowsOrWriteError(w, h.DB, `
-			SELECT IFNULL(g.goods_field7,'未设置') as grade, s.shop_name as channel,
-			ROUND(SUM(s.local_goods_amt),2) as sales
-			FROM sales_goods_summary s
-			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
-			WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?`+scopeCond+`
-			GROUP BY grade, s.shop_name
-			ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`, dept, start, end)
+		// 线下：按大区合并；分销：保留原 shop_name
+		var gpSQL string
+		if dept == "offline" {
+			gpSQL = `SELECT IFNULL(g.goods_field7,'未设置') as grade,
+				` + offlineRegionExpr + ` as channel,
+				ROUND(SUM(s.local_goods_amt),2) as sales
+				FROM sales_goods_summary s
+				LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+				WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?` + scopeCond + `
+				GROUP BY grade, channel HAVING channel IS NOT NULL
+				ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`
+		} else {
+			gpSQL = `SELECT IFNULL(g.goods_field7,'未设置') as grade, s.shop_name as channel,
+				ROUND(SUM(s.local_goods_amt),2) as sales
+				FROM sales_goods_summary s
+				LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+				WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?` + scopeCond + `
+				GROUP BY grade, s.shop_name
+				ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`
+		}
+		gpRows, ok := queryRowsOrWriteError(w, h.DB, gpSQL, dept, start, end)
 		if !ok {
 			return
 		}
 		defer gpRows.Close()
-		// 线下渠道名含冗余前缀"线下渠道销售中心-"，简化一下
-		simplify := func(name string) string {
-			name = strings.TrimPrefix(name, "线下渠道销售中心-")
-			return name
-		}
 		for gpRows.Next() {
 			var grade, channel string
 			var sales float64
 			if writeDatabaseError(w, gpRows.Scan(&grade, &channel, &sales)) {
 				return
 			}
-			gradePlatSales = append(gradePlatSales, GradePlatItem{Grade: grade, Platform: simplify(channel), Sales: sales})
+			gradePlatSales = append(gradePlatSales, GradePlatItem{Grade: grade, Platform: channel, Sales: sales})
 		}
 		if writeDatabaseError(w, gpRows.Err()) {
 			return
