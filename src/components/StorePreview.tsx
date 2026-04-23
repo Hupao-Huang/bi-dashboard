@@ -290,31 +290,12 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
       <Row gutter={[16, 16]}>
         {statCards.map((card, idx) => {
-          // 线下部门第2格改为月度目标完成卡片
-          if (dept === 'offline' && idx === 1 && totalTarget > 0) {
-            const pct = totalPct ?? 0;
-            const pctColor = pct >= 100 ? '#10b981' : pct >= 80 ? '#f59e0b' : '#ef4444';
-            return (
-              <Col xs={24} sm={6} key="target">
-                <Card className="bi-stat-card" style={{ ['--accent-color' as any]: pctColor }}>
-                  <div style={{ fontSize: 13, color: '#64748b', marginBottom: 6 }}>月度目标完成</div>
-                  <Progress
-                    percent={parseFloat(pct.toFixed(1))}
-                    strokeColor={pctColor}
-                    trailColor="#f1f5f9"
-                    format={p => <span style={{ color: pctColor, fontWeight: 700, fontSize: 16 }}>{p}%</span>}
-                    style={{ marginBottom: 4 }}
-                  />
-                  <div style={{ fontSize: 12, color: '#64748b' }}>
-                    ¥{(totalSales / 10000).toFixed(1)}万 / 目标¥{(totalTarget / 10000).toFixed(1)}万
-                  </div>
-                </Card>
-              </Col>
-            );
-          }
           const hint = card.value >= 10000
-            ? (card.value >= 100000000 ? `≈ ${(card.value / 100000000).toFixed(2)}亿` : `≈ ${(card.value / 10000).toFixed(1)}万`)
+            ? (card.value >= 100000000 ? '≈ ' + (card.value / 100000000).toFixed(2) + '亿' : '≈ ' + (card.value / 10000).toFixed(1) + '万')
             : '';
+          const showTarget = dept === 'offline' && idx === 0 && totalTarget > 0;
+          const pct = totalPct ?? 0;
+          const pctColor = pct >= 100 ? '#10b981' : pct >= 80 ? '#f59e0b' : '#ef4444';
           return (
             <Col xs={24} sm={6} key={card.title}>
               <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
@@ -322,6 +303,20 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
                 <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
                   {hint || ' '}
                 </div>
+                {showTarget && (
+                  <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+                    <Progress
+                      percent={parseFloat(Math.min(pct, 999).toFixed(1))}
+                      strokeColor={pctColor}
+                      trailColor="#f1f5f9"
+                      format={p => <span style={{ color: pctColor, fontWeight: 700, fontSize: 13 }}>{p}%</span>}
+                      size="small"
+                    />
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                      目标 ￥{(totalTarget / 10000).toFixed(1)}万
+                    </div>
+                  </div>
+                )}
               </Card>
             </Col>
           );
