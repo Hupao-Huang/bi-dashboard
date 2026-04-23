@@ -466,19 +466,52 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. 可选日期范围
+	// 6. 产品定位 × 部门明细（用于 hover 展开）
+	type GradeDeptSales struct {
+		Grade      string  `json:"grade"`
+		Department string  `json:"department"`
+		Sales      float64 `json:"sales"`
+	}
+	var gradeDeptSales []GradeDeptSales
+	gdArgs := append([]interface{}{start, end}, scopeArgs...)
+	gdRows, ok := queryRowsOrWriteError(w, h.DB, `
+		SELECT IFNULL(g.goods_field7,'未设置') as grade,
+			IFNULL(s.department,'其他') as department,
+			ROUND(SUM(s.goods_amt), 2) as sales
+		FROM sales_goods_summary s
+		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+		WHERE s.stat_date BETWEEN ? AND ?`+strings.ReplaceAll(scopeCond, "shop_name", "s.shop_name")+`
+		GROUP BY g.goods_field7, s.department
+		ORDER BY FIELD(g.goods_field7,'S','A','B','C','D'), sales DESC`, gdArgs...)
+	if !ok {
+		return
+	}
+	defer gdRows.Close()
+	for gdRows.Next() {
+		var gd GradeDeptSales
+		if writeDatabaseError(w, gdRows.Scan(&gd.Grade, &gd.Department, &gd.Sales)) {
+			return
+		}
+		gradeDeptSales = append(gradeDeptSales, gd)
+	}
+	if writeDatabaseError(w, gdRows.Err()) {
+		return
+	}
+
+	// 7. 可选日期范围
 	var minDate, maxDate string
 	_ = h.DB.QueryRow("SELECT IFNULL(MIN(stat_date),''), IFNULL(MAX(stat_date),'') FROM sales_goods_summary").Scan(&minDate, &maxDate)
 
 	response := map[string]interface{}{
-		"departments":   deptList,
-		"trend":         trend,
-		"topGoods":      topGoods,
-		"goodsChannels": overviewGoodsChannels,
-		"topShops":      topShops,
-		"grades":        grades,
-		"dateRange":     map[string]string{"start": start, "end": end, "min": minDate, "max": maxDate},
-		"trendRange":    map[string]string{"start": trendStart, "end": trendEnd},
+		"departments":    deptList,
+		"trend":          trend,
+		"topGoods":       topGoods,
+		"goodsChannels":  overviewGoodsChannels,
+		"topShops":       topShops,
+		"grades":         grades,
+		"gradeDeptSales": gradeDeptSales,
+		"dateRange":      map[string]string{"start": start, "end": end, "min": minDate, "max": maxDate},
+		"trendRange":     map[string]string{"start": trendStart, "end": trendEnd},
 	}
 	setOverviewCache(cacheKey, response)
 	writeJSON(w, response)
