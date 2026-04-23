@@ -1040,7 +1040,7 @@ func ensureDefaultAdmin(db *sql.DB) error {
 	}
 
 	result, err := db.Exec(
-		`INSERT INTO users (username, password_hash, real_name, status) VALUES (?, ?, ?, 'active')`,
+		`INSERT INTO users (username, password_hash, real_name, status, must_change_password) VALUES (?, ?, ?, 'active', 1)`,
 		defaultAdminUsername, string(passwordHash), "系统管理员",
 	)
 	if err != nil {
@@ -1943,10 +1943,13 @@ func (h *DashboardHandler) createSessionAndRespond(w http.ResponseWriter, r *htt
 	expiresAt := time.Now().Add(sessionDuration)
 	ip := clientIP(r)
 
-	h.DB.Exec(
+	if _, err := h.DB.Exec(
 		`INSERT INTO user_sessions (user_id, token_hash, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?)`,
 		userID, tokenHash, expiresAt, ip, truncateString(r.UserAgent(), 255),
-	)
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, "创建会话失败")
+		return
+	}
 	h.DB.Exec(`UPDATE users SET last_login_at = NOW() WHERE id = ?`, userID)
 	setSessionCookie(w, token, expiresAt, isSecureRequest(r))
 
