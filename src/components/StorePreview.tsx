@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Statistic, Table } from 'antd';
+import { Row, Col, Card, Progress, Statistic, Table } from 'antd';
 import ReactECharts from './Chart';
 import DateFilter from './DateFilter';
 import PageLoading from './PageLoading';
@@ -75,13 +75,18 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
           const t = targets[r.shopName];
           return t ? `¥${t.toLocaleString()}` : '-';
         }},
-      { title: '完成率', key: 'targetPct', width: 90,
+      { title: '完成率', key: 'targetPct', width: 160,
         render: (_: any, r: any) => {
           const t = targets[r.shopName];
           if (!t) return '-';
-          const pct = (r.sales / t * 100).toFixed(1);
-          const c = r.sales >= t ? '#10b981' : r.sales / t >= 0.8 ? '#f59e0b' : '#ef4444';
-          return <span style={{ color: c, fontWeight: 600 }}>{pct}%</span>;
+          const pct = parseFloat((r.sales / t * 100).toFixed(1));
+          const c = pct >= 100 ? '#10b981' : pct >= 80 ? '#f59e0b' : '#ef4444';
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Progress percent={Math.min(pct, 100)} strokeColor={c} trailColor="#f1f5f9" showInfo={false} style={{ flex: 1 }} size="small" />
+              <span style={{ color: c, fontWeight: 600, minWidth: 44, textAlign: 'right' }}>{pct}%</span>
+            </div>
+          );
         }},
     ] : []),
   ];
@@ -292,9 +297,16 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
             return (
               <Col xs={24} sm={6} key="target">
                 <Card className="bi-stat-card" style={{ ['--accent-color' as any]: pctColor }}>
-                  <Statistic title="月度目标完成率" value={pct} precision={1} suffix="%" valueStyle={{ color: pctColor }} />
-                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-                    目标 ¥{(totalTarget / 10000).toFixed(1)}万
+                  <div style={{ fontSize: 13, color: '#64748b', marginBottom: 6 }}>月度目标完成</div>
+                  <Progress
+                    percent={parseFloat(pct.toFixed(1))}
+                    strokeColor={pctColor}
+                    trailColor="#f1f5f9"
+                    format={p => <span style={{ color: pctColor, fontWeight: 700, fontSize: 16 }}>{p}%</span>}
+                    style={{ marginBottom: 4 }}
+                  />
+                  <div style={{ fontSize: 12, color: '#64748b' }}>
+                    ¥{(totalSales / 10000).toFixed(1)}万 / 目标¥{(totalTarget / 10000).toFixed(1)}万
                   </div>
                 </Card>
               </Col>
