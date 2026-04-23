@@ -427,10 +427,15 @@ const OverviewPage: React.FC = () => {
   const avgOrderValue = totalQty > 0 ? totalSales / totalQty : 0;
 
   const statColors = ['#1e40af', '#f59e0b', '#06b6d4'];
+  const fmtDept = (v: number) => v >= 10000 ? `¥${(v / 10000).toFixed(1)}万` : `¥${v.toLocaleString()}`;
+  const fmtDeptQty = (v: number) => v >= 10000 ? `${(v / 10000).toFixed(1)}万` : v.toLocaleString();
   const summaryCards = [
-    { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', color: statColors[0] },
-    { title: '总货品数', value: totalQty, precision: 0, prefix: '', color: statColors[1] },
-    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', color: statColors[2] },
+    { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', color: statColors[0],
+      depts: visibleDepts.map((d: any) => ({ label: deptConfig[d.department]?.label || d.department, value: fmtDept(d.sales), color: deptConfig[d.department]?.color })) },
+    { title: '总货品数', value: totalQty, precision: 0, prefix: '', color: statColors[1],
+      depts: visibleDepts.map((d: any) => ({ label: deptConfig[d.department]?.label || d.department, value: fmtDeptQty(d.qty), color: deptConfig[d.department]?.color })) },
+    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', color: statColors[2],
+      depts: visibleDepts.map((d: any) => ({ label: deptConfig[d.department]?.label || d.department, value: `¥${d.qty > 0 ? (d.sales / d.qty).toFixed(0) : '-'}`, color: deptConfig[d.department]?.color })) },
   ];
 
   const handleDateChange = (s: string, e: string) => {
@@ -446,7 +451,7 @@ const OverviewPage: React.FC = () => {
       <DateFilter start={startDate} end={endDate} onChange={handleDateChange} />
 
       <Row gutter={[16, 16]}>
-        {summaryCards.map((card, i) => {
+        {summaryCards.map((card: any, i: number) => {
           const hint = formatWanHint(card.value);
           return (
             <Col xs={24} sm={8} key={i}>
@@ -460,6 +465,15 @@ const OverviewPage: React.FC = () => {
                 <div style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
                   {hint ? hint.replace('约', '≈ ') : ' '}
                 </div>
+                {card.depts && card.depts.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+                    {card.depts.map((d: any) => (
+                      <span key={d.label} style={{ fontSize: 11, color: '#64748b', background: `${d.color}10`, border: `1px solid ${d.color}20`, borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+                        <span style={{ color: d.color, fontWeight: 600 }}>{d.label}</span> {d.value}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </Card>
             </Col>
           );
