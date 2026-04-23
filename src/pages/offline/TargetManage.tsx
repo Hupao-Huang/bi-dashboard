@@ -20,12 +20,18 @@ const TargetManage: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE}/api/offline/targets?year=${y}`);
       const data = await res.json();
+      if (!res.ok) {
+        message.error(`加载失败：${data.msg || res.status}`);
+        return;
+      }
       const map: Record<string, Record<number, number>> = {};
       (data.items || []).forEach((it: any) => {
         if (!map[it.region]) map[it.region] = {};
-        map[it.region][it.month] = it.target;
+        map[it.region][it.month] = Number(it.target);
       });
       setTargets(map);
+    } catch (e: any) {
+      message.error(`请求失败：${e.message}`);
     } finally {
       setLoading(false);
     }
