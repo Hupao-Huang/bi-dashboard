@@ -280,6 +280,37 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   const avgShopSales = shops.length > 0 ? totalSales / shops.length : 0;
   const achievedCount = shops.filter((s: any) => targets[s.shopName] && s.sales >= targets[s.shopName]).length;
 
+  // 平台分解标签（仅电商部门）
+  const breakdownColors = ['#f59e0b', '#7c3aed', '#10b981', '#f43f5e', '#3b82f6', '#06b6d4', '#be123c', '#84cc16'];
+  const shopBreakdown = (() => {
+    if (dept === 'ecommerce') {
+      const getPlatform = (name: string): string => {
+        if (name.includes('天猫超市')) return '猫超';
+        if (name.includes('天猫')) return '天猫';
+        if (name.includes('拼多多')) return '拼多多';
+        if (name.includes('京东')) return '京东';
+        if (name.includes('唯品会')) return '唯品会';
+        if (name.includes('抖音')) return '抖音';
+        if (name.includes('快手')) return '快手';
+        if (name.includes('即时零售')) return '即时零售';
+        const parts = name.split('-').filter(Boolean);
+        return parts[1] || parts[0] || name;
+      };
+      const map: Record<string, { sales: number; qty: number }> = {};
+      const order: string[] = [];
+      shops.forEach((s: any) => {
+        const p = getPlatform(s.shopName);
+        if (!map[p]) { map[p] = { sales: 0, qty: 0 }; order.push(p); }
+        map[p].sales += s.sales || 0;
+        map[p].qty += s.qty || 0;
+      });
+      return order.map((label, i) => ({
+        label, sales: map[label].sales, qty: map[label].qty, color: breakdownColors[i % breakdownColors.length],
+      }));
+    }
+    return [];
+  })();
+
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总货品数', value: totalQty, precision: 0, accentColor: '#10b981' },
@@ -300,11 +331,28 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
           const pctColor = pct >= 100 ? '#10b981' : pct >= 80 ? '#f59e0b' : '#ef4444';
           return (
             <Col xs={24} sm={6} key={card.title}>
-              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%' }}>
+              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%', position: 'relative' }}>
                 <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
                 <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
-                  {hint || ' '}
+                  {hint || ' '}
                 </div>
+                {idx < 3 && shopBreakdown.length > 0 && (
+                  <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: '60%' }}>
+                    {shopBreakdown.map((d: any) => {
+                      const val = idx === 0
+                        ? (d.sales >= 10000 ? '¥' + (d.sales / 10000).toFixed(1) + '万' : '¥' + d.sales.toLocaleString())
+                        : idx === 1
+                          ? (d.qty >= 10000 ? (d.qty / 10000).toFixed(1) + '万' : d.qty.toLocaleString())
+                          : (d.qty > 0 ? '¥' + (d.sales / d.qty).toFixed(0) : '-');
+                      return (
+                        <span key={d.label} style={{ display: 'inline-flex', alignItems: 'center', fontSize: 10, color: '#64748b', background: d.color + '10', border: '1px solid ' + d.color + '20', borderRadius: 4, padding: '1px 4px' }}>
+                          <span style={{ color: d.color, fontWeight: 600 }}>{d.label}</span>
+                          <span style={{ marginLeft: 2 }}>{val}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
                 {showTarget && (
                   <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
                     <Progress
