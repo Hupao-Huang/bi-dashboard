@@ -56,6 +56,8 @@ func main() {
 		"http://localhost:3000":      true,
 		"http://127.0.0.1:3000":      true,
 		"http://192.168.200.48:3000": true,
+		"http://songxianxian.local":  true,
+		"http://bi.songxianxian.local": true,
 	}
 
 	corsHandler := func(next http.HandlerFunc) http.HandlerFunc {
@@ -88,6 +90,9 @@ func main() {
 	pageAnyProtected := func(next http.HandlerFunc, permissions ...string) http.HandlerFunc {
 		return corsHandler(h.RequireAnyPermission(next, permissions...))
 	}
+	pageAllProtected := func(next http.HandlerFunc, permissions ...string) http.HandlerFunc {
+		return corsHandler(h.RequireAllPermissions(next, permissions...))
+	}
 	adminUsers := func(next http.HandlerFunc) http.HandlerFunc {
 		return corsHandler(h.RequirePermission("user.manage", next))
 	}
@@ -113,6 +118,8 @@ func main() {
 	mux.HandleFunc("/api/admin/users/", adminUsers(h.AdminUserByPath))
 	mux.HandleFunc("/api/admin/roles", adminRoles(h.AdminRoles))
 	mux.HandleFunc("/api/admin/roles/", adminRoles(h.AdminRoleByPath))
+	mux.HandleFunc("/api/audit/page-view", protected(h.AuditLogPageView))
+	mux.HandleFunc("/api/admin/audit-logs", adminMeta(h.AdminAuditLogs))
 
 	// 销售/库存/运营类看板数据一天只变一次，缓存60分钟足够
 	// 如需立即生效，调用 /api/webhook/clear-cache（同步脚本自动调用）
@@ -230,7 +237,7 @@ func main() {
 	mux.HandleFunc("/api/finance/report/subjects", pageProtected("finance.report:view", h.GetFinanceSubjects))
 	mux.HandleFunc("/api/finance/report/imports", pageProtected("finance.report:view", h.GetFinanceImportLogs))
 	mux.HandleFunc("/api/finance/report/import", pageProtected("finance.report:import", h.ImportFinanceReport))
-	mux.HandleFunc("/api/finance/report/export", pageProtected("finance.report:view", h.ExportFinanceReport))
+	mux.HandleFunc("/api/finance/report/export", pageAllProtected(h.ExportFinanceReport, "finance.report:view", "data:export"))
 
 	// 受保护的上传文件访问（禁止目录浏览）
 	mux.HandleFunc("/api/uploads/", protected(h.ServeUploadFile))

@@ -361,6 +361,7 @@ const ReportStructure: React.FC<{ year: number; department: string }> = ({ year,
 const FinanceReportPage: React.FC = () => {
   const { session } = useAuth();
   const canImport = !!session && (session.isSuperAdmin || session.permissions.includes('finance.report:import'));
+  const canExport = !!session && (session.isSuperAdmin || session.permissions.includes('data:export'));
 
   // 顶部筛选（给 其他 tab 用，单年份+单渠道）
   const [year, setYear] = useState<number>(DEFAULT_YEAR);
@@ -517,7 +518,7 @@ const FinanceReportPage: React.FC = () => {
         />
       </Space>
       <Space>
-        <Button icon={<DownloadOutlined />} onClick={doExport}>导出 Excel</Button>
+        {canExport && <Button icon={<DownloadOutlined />} onClick={doExport}>导出 Excel</Button>}
         {canImport && (
           <Upload {...uploadProps}>
             <Button type="primary" icon={<UploadOutlined />} loading={uploading}>上传 Excel</Button>
