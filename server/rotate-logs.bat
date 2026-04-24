@@ -11,7 +11,7 @@ echo =============================================== >> %LOGFILE%
 echo %date% %time% start log rotation >> %LOGFILE%
 
 REM 1. 轮转活跃日志（>10MB）
-for %%f in (sync-stock.log sync-batch-stock.log sync-daily-trades.log sync-daily-summary.log sync-daily.log server.log server-stderr.log bi-server.log sync-hesi.log sync-modified.log sync-summary-2024.log sync-ops-daily.log) do (
+for %%f in (sync-stock.log sync-batch-stock.log sync-daily-trades.log sync-daily-summary.log sync-daily.log server.log server-stderr.log bi-server.log sync-hesi.log sync-summary-2024.log sync-ops-daily.log) do (
     if exist "%%f" (
         for %%a in ("%%f") do (
             if %%~za GTR 10485760 (

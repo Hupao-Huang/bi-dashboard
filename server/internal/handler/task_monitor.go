@@ -52,14 +52,6 @@ var taskConfigs = []TaskConfig{
 		Category:    "sync",
 	},
 	{
-		Name:        "修改订单同步",
-		Description: "同步昨天被修改的历史订单(覆盖更新)",
-		Schedule:    "每天 08:30",
-		TaskName:    "BI-SyncModified",
-		LogFile:     "sync-modified.log",
-		Category:    "sync",
-	},
-	{
 		Name:        "库存同步",
 		Description: "库存分页查询 + 历史明细快照(每天3次)",
 		Schedule:    "每天 09:00/15:00/21:00",
@@ -464,13 +456,6 @@ var manualTaskConfigs = []ManualTaskConfig{
 		Params: []ParamConfig{
 			{Key: "startDate", Label: "开始日期", Type: "date", Required: true, EnvVar: "SYNC_START_DATE"},
 			{Key: "endDate", Label: "结束日期", Type: "date", Required: true, EnvVar: "SYNC_END_DATE"},
-		},
-	},
-	{
-		Key: "sync-modified", Name: "修改订单同步", Description: "同步被修改的历史订单(默认昨天1天)",
-		Exe: "sync-modified.exe",
-		Params: []ParamConfig{
-			{Key: "days", Label: "回溯天数", Type: "number", Required: false, Default: "1", EnvVar: "MODIFIED_DAYS"},
 		},
 	},
 	{
