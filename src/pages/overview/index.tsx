@@ -456,24 +456,28 @@ const OverviewPage: React.FC = () => {
           return (
             <Col xs={24} sm={8} key={i}>
               <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.color }}>
-                <Statistic
-                  title={card.title}
-                  value={card.value}
-                  precision={card.precision}
-                  prefix={card.prefix}
-                />
-                <div style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
-                  {hint ? hint.replace('约', '≈ ') : ' '}
-                </div>
-                {card.depts && card.depts.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
-                    {card.depts.map((d: any) => (
-                      <span key={d.label} style={{ fontSize: 11, color: '#64748b', background: `${d.color}10`, border: `1px solid ${d.color}20`, borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>
-                        <span style={{ color: d.color, fontWeight: 600 }}>{d.label}</span> {d.value}
-                      </span>
-                    ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <Statistic
+                      title={card.title}
+                      value={card.value}
+                      precision={card.precision}
+                      prefix={card.prefix}
+                    />
+                    <div style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
+                      {hint ? hint.replace('约', '≈ ') : ' '}
+                    </div>
                   </div>
-                )}
+                  {card.depts && card.depts.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 4, justifyContent: 'flex-end' }}>
+                      {card.depts.map((d: any) => (
+                        <span key={d.label} style={{ fontSize: 11, color: '#64748b', background: `${d.color}10`, border: `1px solid ${d.color}20`, borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+                          <span style={{ color: d.color, fontWeight: 600 }}>{d.label}</span> {d.value}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </Card>
             </Col>
           );
