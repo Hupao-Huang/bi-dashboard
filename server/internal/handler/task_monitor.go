@@ -52,14 +52,6 @@ var taskConfigs = []TaskConfig{
 		Category:    "sync",
 	},
 	{
-		Name:        "每日销售单同步",
-		Description: "销售单+明细+包裹(昨天)",
-		Schedule:    "每天 08:30",
-		TaskName:    "BI-SyncDailyTrades",
-		LogFile:     "sync-daily-trades.log",
-		Category:    "sync",
-	},
-	{
 		Name:        "修改订单同步",
 		Description: "同步昨天被修改的历史订单(覆盖更新)",
 		Schedule:    "每天 08:30",
