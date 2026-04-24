@@ -498,6 +498,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "feedback.manage", Name: "反馈管理", Type: "action"},
 	{Code: "notice.manage", Name: "公告管理", Type: "action"},
 	{Code: "channel.manage", Name: "渠道管理", Type: "action"},
+		{Code: "data:export", Name: "数据导出", Type: "action"},
 }
 
 var roleSeeds = []roleSeed{
@@ -650,6 +651,22 @@ func EnsureAuthSchemaAndSeed(db *sql.DB) error {
 			KEY idx_feedback_status (status),
 			KEY idx_feedback_created_at (created_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户反馈'`,
+
+		`CREATE TABLE IF NOT EXISTS audit_logs (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			user_id BIGINT DEFAULT NULL,
+			username VARCHAR(64) NOT NULL DEFAULT '',
+			real_name VARCHAR(64) NOT NULL DEFAULT '',
+			action VARCHAR(32) NOT NULL COMMENT 'page_view/export/login/logout/permission_change',
+			resource VARCHAR(255) NOT NULL DEFAULT '',
+			detail TEXT DEFAULT NULL,
+			ip VARCHAR(64) DEFAULT '',
+			user_agent VARCHAR(255) DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			KEY idx_audit_user_id (user_id),
+			KEY idx_audit_action (action),
+			KEY idx_audit_created_at (created_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作审计日志'`,
 
 		`CREATE TABLE IF NOT EXISTS op_douyin_live_daily (
 			id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -1166,6 +1183,8 @@ func (h *DashboardHandler) Login(w http.ResponseWriter, r *http.Request) {
 		log.Printf("update last_login_at failed: %v", err)
 	}
 
+	h.logAuditNoRequest(userID, req.Username, realName.String, "login", "密码登录", "", ip, truncateString(r.UserAgent(), 255))
+
 	setSessionCookie(w, token, expiresAt, isSecureRequest(r))
 	payload, err := h.loadAuthPayload(userID)
 	if writeDatabaseError(w, err) {
@@ -1188,6 +1207,11 @@ func (h *DashboardHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// audit: logout
+	payload, _ := authPayloadFromContext(r)
+	if payload != nil {
+		h.logAudit(r, "logout", "退出登录", nil)
+	}
 	clearSessionCookie(w)
 	writeJSON(w, map[string]string{"message": "ok"})
 }
@@ -1319,6 +1343,23 @@ func (h *DashboardHandler) RequireAnyPermission(next http.HandlerFunc, permissio
 			}
 		}
 		writeError(w, http.StatusForbidden, "forbidden")
+	})
+}
+
+func (h *DashboardHandler) RequireAllPermissions(next http.HandlerFunc, permissions ...string) http.HandlerFunc {
+	return h.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		payload, ok := authPayloadFromContext(r)
+		if !ok {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		for _, permission := range permissions {
+			if !hasPermission(payload, permission) {
+				writeError(w, http.StatusForbidden, "forbidden")
+				return
+			}
+		}
+		next(w, r)
 	})
 }
 
@@ -1953,6 +1994,7 @@ func (h *DashboardHandler) createSessionAndRespond(w http.ResponseWriter, r *htt
 		return
 	}
 	h.DB.Exec(`UPDATE users SET last_login_at = NOW() WHERE id = ?`, userID)
+	h.logAuditNoRequest(userID, "", "", "login", "钉钉扫码登录", "", ip, truncateString(r.UserAgent(), 255))
 	setSessionCookie(w, token, expiresAt, isSecureRequest(r))
 
 	payload, err := h.loadAuthPayload(userID)

@@ -1714,3 +1714,37 @@ body {
   }
 }
 
+/* ==========================================
+   Mobile responsive (<768px)
+   ========================================== */
+@media (max-width: 768px) {
+  .bi-stat-card .ant-statistic-content-value {
+    font-size: 18px !important;
+  }
+  .bi-stat-card .ant-statistic-title {
+    font-size: 11px !important;
+  }
+  .ant-card .ant-card-body {
+    padding: 12px !important;
+  }
+  .ant-card .ant-card-head {
+    padding: 0 12px !important;
+  }
+  .bi-date-filter {
+    padding: 8px 10px;
+  }
+  .bi-date-filter .ant-picker {
+    width: 100%;
+  }
+  .ant-btn {
+    min-height: 36px;
+  }
+}
+
+/* Global table horizontal scroll (mobile) */
+.ant-table-wrapper {
+  overflow-x: auto;
+}
+.ant-table-wrapper .ant-table {
+  min-width: 700px;
+}

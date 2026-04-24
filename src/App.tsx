@@ -59,6 +59,9 @@ const ChannelManagementPage = lazy(() => import('./pages/system/ChannelManagemen
 const RPAMappingPage = lazy(() => import('./pages/system/RPAMapping'));
 const DBDictionaryPage = lazy(() => import('./pages/system/DBDictionary'));
 const RPAMonitorPage = lazy(() => import('./pages/system/RPAMonitor'));
+const AuditLogPage = lazy(() => import('./pages/system/AuditLog'));
+const RPAManagementPage = lazy(() => import('./pages/system/RPAManagement'));
+const OpsMonitorPage = lazy(() => import('./pages/system/OpsMonitor'));
 const DingtalkCallback = lazy(() => import('./pages/DingtalkCallback'));
 
 dayjs.locale('zh-cn');
@@ -159,13 +162,17 @@ const App: React.FC = () => (
               <Route path="/brand" element={guard('brand:view', <div style={{ textAlign: 'center', padding: 80, color: '#94a3b8' }}>品牌中心 - 待开发</div>)} />
               <Route path="/system/access" element={guard('user.manage', <UserAccessPage />)} />
               <Route path="/system/roles" element={guard('role.manage', <RoleAccessPage />)} />
-              <Route path="/system/tasks" element={guard('role.manage', <TaskMonitorPage />)} />
+              <Route path="/system/ops" element={guard('role.manage', <OpsMonitorPage />)} />
               <Route path="/system/feedback" element={guard('feedback.manage', <FeedbackPage />)} />
               <Route path="/system/notices" element={guard('notice.manage', <NoticesPage />)} />
               <Route path="/system/channels" element={guard('channel.manage', <ChannelManagementPage />)} />
-              <Route path="/system/rpa-mapping" element={guard('role.manage', <RPAMappingPage />)} />
+              <Route path="/system/rpa" element={guard('role.manage', <RPAManagementPage />)} />
               <Route path="/system/db-dict" element={guard('role.manage', <DBDictionaryPage />)} />
-              <Route path="/system/rpa-monitor" element={guard('role.manage', <RPAMonitorPage />)} />
+              {/* 旧路由兼容跳转 */}
+              <Route path="/system/tasks" element={<Navigate to="/system/ops" replace />} />
+              <Route path="/system/rpa-mapping" element={<Navigate to="/system/rpa" replace />} />
+              <Route path="/system/rpa-monitor" element={<Navigate to="/system/rpa" replace />} />
+              <Route path="/system/audit-log" element={<Navigate to="/system/ops" replace />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>

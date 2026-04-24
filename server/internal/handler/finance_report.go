@@ -710,6 +710,7 @@ func (h *DashboardHandler) ImportFinanceReport(w http.ResponseWriter, r *http.Re
 
 // ExportFinanceReport GET /api/finance/report/export - 按当前筛选条件导出 xlsx
 func (h *DashboardHandler) ExportFinanceReport(w http.ResponseWriter, r *http.Request) {
+	h.logAudit(r, "export", "财务报表导出", map[string]interface{}{"query": r.URL.RawQuery})
 	// 复用 GetFinanceReport 的参数解析和数据聚合，但输出改为 xlsx
 	rw := &captureWriter{header: http.Header{}}
 	h.GetFinanceReport(rw, r)

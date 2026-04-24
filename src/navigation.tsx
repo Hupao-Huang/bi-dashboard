@@ -162,9 +162,9 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/system/feedback', icon: <CommentOutlined />, label: '反馈管理', permission: 'feedback.manage' },
       { key: '/system/notices', icon: <NotificationOutlined />, label: '公告管理', permission: 'notice.manage' },
       { key: '/system/channels', icon: <ApartmentOutlined />, label: '渠道管理', permission: 'channel.manage' },
-      { key: '/system/rpa-mapping', icon: <FileTextOutlined />, label: 'RPA文件映射', permission: 'role.manage' },
+      { key: '/system/rpa', icon: <FileTextOutlined />, label: 'RPA管理', permission: 'role.manage' },
       { key: '/system/db-dict', icon: <DatabaseOutlined />, label: '数据库字典', permission: 'role.manage' },
-      { key: '/system/rpa-monitor', icon: <MonitorOutlined />, label: 'RPA监控', permission: 'role.manage' },
+      { key: '/system/ops', icon: <MonitorOutlined />, label: '运维监控', permission: 'role.manage' },
     ],
   },
 ];
@@ -217,9 +217,9 @@ export const pageTitleMap: Record<string, string> = {
   '/system/feedback': '反馈管理',
   '/system/notices': '公告管理',
   '/system/channels': '渠道管理',
-  '/system/rpa-mapping': 'RPA文件映射',
+  '/system/rpa': 'RPA管理',
   '/system/db-dict': '数据库字典',
-  '/system/rpa-monitor': 'RPA数据监控',
+  '/system/ops': '运维监控',
   '/profile': '个人中心',
   '/forbidden': '无权限',
 };
@@ -278,9 +278,9 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/system/feedback', permission: 'feedback.manage' },
   { path: '/system/notices', permission: 'notice.manage' },
   { path: '/system/channels', permission: 'channel.manage' },
-  { path: '/system/rpa-mapping', permission: 'role.manage' },
+  { path: '/system/rpa', permission: 'role.manage' },
   { path: '/system/db-dict', permission: 'role.manage' },
-  { path: '/system/rpa-monitor', permission: 'role.manage' },
+  { path: '/system/ops', permission: 'role.manage' },
 ];
 
 const filterMenuDefinitions = (

@@ -596,6 +596,8 @@ func (h *DashboardHandler) adminUserAccessUpdate(w http.ResponseWriter, r *http.
 		return
 	}
 
+	h.logAudit(r, "permission_change", fmt.Sprintf("用户权限变更 #%d", userID), map[string]interface{}{"userId": userID, "roles": req.RoleCodes})
+
 	access, err := h.loadAdminUserAccess(userID)
 	if writeDatabaseError(w, err) {
 		return
@@ -931,6 +933,8 @@ func (h *DashboardHandler) adminRoleUpdate(w http.ResponseWriter, r *http.Reques
 		writeDatabaseError(w, err)
 		return
 	}
+
+	h.logAudit(r, "permission_change", fmt.Sprintf("角色权限变更 #%d", roleID), map[string]interface{}{"roleId": roleID, "permissions": req.Permissions})
 
 	role, err := h.loadAdminRoleDetail(roleID)
 	if writeDatabaseError(w, err) {
