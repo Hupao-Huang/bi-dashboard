@@ -68,6 +68,14 @@ var taskConfigs = []TaskConfig{
 		Category:    "stock",
 	},
 	{
+		Name:        "合思费控同步",
+		Description: "合思费用单据 + 报销单 + 流程明细",
+		Schedule:    "每天 10:30",
+		TaskName:    "BI-SyncHesi",
+		LogFile:     "sync-hesi.log",
+		Category:    "sync",
+	},
+	{
 		Name:        "运营数据导入",
 		Description: "天猫/京东/拼多多/唯品会/天猫超市/推广/飞瓜/客服专项",
 		Schedule:    "RPA webhook触发",
@@ -268,6 +276,12 @@ func fillNextRun(ts *TaskStatus, cfg TaskConfig) {
 		ts.NextRun = next.Format(timeFmt)
 	case cfg.Schedule == "每天 09:05":
 		next := time.Date(now.Year(), now.Month(), now.Day(), 9, 5, 0, 0, loc)
+		if now.After(next) {
+			next = next.AddDate(0, 0, 1)
+		}
+		ts.NextRun = next.Format(timeFmt)
+	case cfg.Schedule == "每天 10:30":
+		next := time.Date(now.Year(), now.Month(), now.Day(), 10, 30, 0, 0, loc)
 		if now.After(next) {
 			next = next.AddDate(0, 0, 1)
 		}
@@ -699,30 +713,53 @@ func (h *DashboardHandler) GetRunningTasks(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// 先在锁内 snapshot 字段，释放锁后再读日志文件，避免持锁做磁盘 I/O 阻塞其他任务操作
+	type taskSnap struct {
+		id, key, name, status, startedAt, endedAt, logFile string
+		params                                             map[string]string
+		hasEnd                                             bool
+	}
 	runningMu.Lock()
-	result := make(map[string]interface{})
+	snaps := make([]taskSnap, 0, len(runningTasks))
 	for id, t := range runningTasks {
-		entry := map[string]interface{}{
-			"id":        t.ID,
-			"key":       t.Key,
-			"name":      t.Name,
-			"status":    t.Status,
-			"startedAt": t.StartedAt.Format(timeFmt),
-			"params":    t.Params,
+		s := taskSnap{
+			id:        id,
+			key:       t.Key,
+			name:      t.Name,
+			status:    t.Status,
+			startedAt: t.StartedAt.Format(timeFmt),
+			params:    t.Params,
+			logFile:   t.LogFile,
 		}
 		if t.EndedAt != nil {
-			entry["endedAt"] = t.EndedAt.Format(timeFmt)
+			s.endedAt = t.EndedAt.Format(timeFmt)
+			s.hasEnd = true
 		}
-		// 读取日志最后20行
-		if t.LogFile != "" {
-			lines := readLastNLines(t.LogFile, 20)
+		snaps = append(snaps, s)
+	}
+	runningMu.Unlock()
+
+	result := make(map[string]interface{}, len(snaps))
+	for _, s := range snaps {
+		entry := map[string]interface{}{
+			"id":        s.id,
+			"key":       s.key,
+			"name":      s.name,
+			"status":    s.status,
+			"startedAt": s.startedAt,
+			"params":    s.params,
+		}
+		if s.hasEnd {
+			entry["endedAt"] = s.endedAt
+		}
+		if s.logFile != "" {
+			lines := readLastNLines(s.logFile, 20)
 			if len(lines) > 0 {
 				entry["log"] = strings.Join(lines, "\n")
 			}
 		}
-		result[id] = entry
+		result[s.id] = entry
 	}
-	runningMu.Unlock()
 
 	writeJSON(w, map[string]interface{}{
 		"configs": manualTaskConfigs,
@@ -746,26 +783,24 @@ func (h *DashboardHandler) StopManualTask(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// 检查 + kill + 状态改写在同一把锁内完成，避免 TOCTOU
+	// Process.Kill() 只发送信号不阻塞，持锁安全
 	runningMu.Lock()
 	task, ok := runningTasks[req.TaskID]
-	runningMu.Unlock()
-
 	if !ok {
+		runningMu.Unlock()
 		writeError(w, 404, "task not found")
 		return
 	}
-
 	if task.Status != "running" {
+		runningMu.Unlock()
 		writeError(w, 400, "task is not running")
 		return
 	}
-
 	if task.Cmd != nil && task.Cmd.Process != nil {
-		task.Cmd.Process.Kill()
+		_ = task.Cmd.Process.Kill()
 	}
-
 	endTime := time.Now()
-	runningMu.Lock()
 	task.Status = "failed"
 	task.EndedAt = &endTime
 	runningMu.Unlock()

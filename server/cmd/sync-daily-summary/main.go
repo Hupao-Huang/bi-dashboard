@@ -48,15 +48,8 @@ func main() {
 	for d := monthStart; !d.After(yesterday); d = d.AddDate(0, 0, 1) {
 		dayStr := d.Format("2006-01-02")
 
-		// 先删除该天旧数据（保证取消/合并的单据不残留）
-		delResult, delErr := db.Exec(`DELETE FROM sales_goods_summary WHERE stat_date = ?`, dayStr)
-		if delErr != nil {
-			log.Printf("删除 %s 旧数据失败: %v", dayStr, delErr)
-			continue
-		}
-		delCount, _ := delResult.RowsAffected()
-		totalDeleted += delCount
-
+		// 先把吉客云数据 collect 到内存，全部拉成功后才 DELETE+INSERT（事务包裹）
+		// 这样 API 失败时旧数据保留，避免"删了旧的没拉到新的导致当天数据为 0"
 		query := jackyun.SalesSummaryQuery{
 			TimeType: 3, StartTime: dayStr, EndTime: dayStr,
 			FilterTimeType: 2, AssemblyDimension: 1, IsSkuStatistic: 1,
@@ -64,12 +57,36 @@ func main() {
 			IsCancelTrade: "0", IsAssembly: "2",
 		}
 
+		var collected []jackyun.SalesSummaryItem
+		fetchErr := client.FetchSalesSummary(query, func(items []jackyun.SalesSummaryItem) error {
+			collected = append(collected, items...)
+			return nil
+		})
+		if fetchErr != nil {
+			log.Printf("汇总 %s API 拉取失败: %v，保留旧数据不动", dayStr, fetchErr)
+			continue
+		}
+
+		// API 完整成功，开启事务做 DELETE + INSERT
+		tx, txErr := db.Begin()
+		if txErr != nil {
+			log.Printf("开启事务失败 %s: %v", dayStr, txErr)
+			continue
+		}
+		delResult, delErr := tx.Exec(`DELETE FROM sales_goods_summary WHERE stat_date = ?`, dayStr)
+		if delErr != nil {
+			log.Printf("删除 %s 旧数据失败: %v", dayStr, delErr)
+			tx.Rollback()
+			continue
+		}
+		delCount, _ := delResult.RowsAffected()
+
 		dayCount := 0
-		err = client.FetchSalesSummary(query, func(items []jackyun.SalesSummaryItem) error {
-			for _, item := range items {
-				shopId := item.ShopId.String()
-				dept := deptMap[shopId]
-				_, err := db.Exec(`INSERT INTO sales_goods_summary
+		insertOK := true
+		for _, item := range collected {
+			shopId := item.ShopId.String()
+			dept := deptMap[shopId]
+			_, err := tx.Exec(`INSERT INTO sales_goods_summary
 					(stat_date, shop_id, shop_name, shop_code, warehouse_id, warehouse_name, warehouse_code,
 					 goods_id, goods_no, goods_name, goods_name_en, brand_name, cate_name,
 					 sku_id, sku_name, sku_barcode, unit, currency_code,
@@ -114,46 +131,53 @@ func main() {
 						goods_flag_data=VALUES(goods_flag_data), default_vend_name=VALUES(default_vend_name),
 						default_vend_id=VALUES(default_vend_id), unique_id=VALUES(unique_id),
 						unique_sku_id=VALUES(unique_sku_id)`,
-					dayStr, shopId, item.ShopName.String(), item.ShopCode.String(),
-					item.WarehouseId.String(), item.WarehouseName.String(), item.WarehouseCode.String(),
-					item.GoodsId.String(), item.GoodsNo.String(), item.GoodsName.String(),
-					item.GoodsNameEn.String(), item.BrandName.String(), item.CateName.String(),
-					item.SkuId.String(), item.SkuName.String(), item.SkuBarcode.String(),
-					item.Unit.String(), item.ChargeCurrencyCode.String(),
-					item.GoodsQty.Float64(), item.GoodsAmt.Float64(), item.LocalCurrencyGoodsAmt.Float64(),
-					item.GoodsCost.Float64(), item.TaxFee.Float64(), item.TaxAmt.Float64(),
-					item.GrossProfit.Float64(), item.GrossProfitRate.Float64(),
-					item.TaxGrossProfit.Float64(), item.TaxGrossProfitRate.Float64(),
-					item.TaxUnitPrice.Float64(),
-					item.FixedCost.Float64(), item.RetailPrice.Float64(), item.SoQty.Float64(),
-					item.AvgPrice.Float64(), item.SellTotal.Float64(), item.ShareSalesExpense.Float64(),
-					item.SellerId.String(), item.SellerName.String(),
-					item.TradeOrderType.String(), item.TradeOrderTypeName.String(),
-					item.CateFullName.String(), item.ColorName.String(), item.SizeName.String(),
-					item.GoodsAlias.String(), item.MaterialName.String(),
-					item.MainBarcode.String(), item.ImgUrl.String(), item.SkuNo.String(),
-					item.SkuGmtCreate.String(), item.GoodsGmtCreate.String(),
-					item.ShopCateName.String(), item.ShopCompanyCode.String(), item.CurrencyName.String(),
-					item.LocalCurrencyShareSalesExpense.Float64(), item.LocalCurrencyTaxFee.Float64(),
-					item.GoodsExtendMap.String(), item.PriceExtendMap.String(),
-					item.SkuExtendMap.String(), item.AssistInfo.String(),
-					item.GoodsFlagData.String(), item.DefaultVendName.String(),
-					item.EstimateWeight.Float64(),
-					item.DefaultVendId.String(), item.UniqueId.String(), item.UniqueSkuId.String(),
-					dept)
-				if err != nil {
-					log.Printf("汇总写入失败: %v", err)
-				}
-				dayCount++
+				dayStr, shopId, item.ShopName.String(), item.ShopCode.String(),
+				item.WarehouseId.String(), item.WarehouseName.String(), item.WarehouseCode.String(),
+				item.GoodsId.String(), item.GoodsNo.String(), item.GoodsName.String(),
+				item.GoodsNameEn.String(), item.BrandName.String(), item.CateName.String(),
+				item.SkuId.String(), item.SkuName.String(), item.SkuBarcode.String(),
+				item.Unit.String(), item.ChargeCurrencyCode.String(),
+				item.GoodsQty.Float64(), item.GoodsAmt.Float64(), item.LocalCurrencyGoodsAmt.Float64(),
+				item.GoodsCost.Float64(), item.TaxFee.Float64(), item.TaxAmt.Float64(),
+				item.GrossProfit.Float64(), item.GrossProfitRate.Float64(),
+				item.TaxGrossProfit.Float64(), item.TaxGrossProfitRate.Float64(),
+				item.TaxUnitPrice.Float64(),
+				item.FixedCost.Float64(), item.RetailPrice.Float64(), item.SoQty.Float64(),
+				item.AvgPrice.Float64(), item.SellTotal.Float64(), item.ShareSalesExpense.Float64(),
+				item.SellerId.String(), item.SellerName.String(),
+				item.TradeOrderType.String(), item.TradeOrderTypeName.String(),
+				item.CateFullName.String(), item.ColorName.String(), item.SizeName.String(),
+				item.GoodsAlias.String(), item.MaterialName.String(),
+				item.MainBarcode.String(), item.ImgUrl.String(), item.SkuNo.String(),
+				item.SkuGmtCreate.String(), item.GoodsGmtCreate.String(),
+				item.ShopCateName.String(), item.ShopCompanyCode.String(), item.CurrencyName.String(),
+				item.LocalCurrencyShareSalesExpense.Float64(), item.LocalCurrencyTaxFee.Float64(),
+				item.GoodsExtendMap.String(), item.PriceExtendMap.String(),
+				item.SkuExtendMap.String(), item.AssistInfo.String(),
+				item.GoodsFlagData.String(), item.DefaultVendName.String(),
+				item.EstimateWeight.Float64(),
+				item.DefaultVendId.String(), item.UniqueId.String(), item.UniqueSkuId.String(),
+				dept)
+			if err != nil {
+				log.Printf("汇总 %s 写入失败: %v", dayStr, err)
+				insertOK = false
+				break
 			}
-			return nil
-		})
-		if err != nil {
-			log.Printf("汇总 %s 同步失败: %v", dayStr, err)
-		} else {
-			log.Printf("汇总 %s: 删除%d条, 新写入%d条", dayStr, delCount, dayCount)
+			dayCount++
 		}
+
+		if !insertOK {
+			tx.Rollback()
+			log.Printf("汇总 %s 写入中断，已回滚（旧数据保留）", dayStr)
+			continue
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			log.Printf("汇总 %s commit 失败: %v", dayStr, commitErr)
+			continue
+		}
+		totalDeleted += delCount
 		summaryTotal += dayCount
+		log.Printf("汇总 %s: 删除%d条, 新写入%d条", dayStr, delCount, dayCount)
 	}
 	// 清零"社媒-抖音-飞瓜"渠道的销售数据（达人样品发货，不计入销售）
 	if res, err := db.Exec(`UPDATE sales_goods_summary SET

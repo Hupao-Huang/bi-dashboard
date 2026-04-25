@@ -94,8 +94,10 @@ func (h *DashboardHandler) AdminAuditLogs(w http.ResponseWriter, r *http.Request
 		args = append(args, action)
 	}
 	if username := strings.TrimSpace(q.Get("username")); username != "" {
-		conditions = append(conditions, "username LIKE ?")
-		args = append(args, "%"+username+"%")
+		conditions = append(conditions, `username LIKE ? ESCAPE '\\'`)
+		// 转义 LIKE 通配符 \、%、_，避免用户输入绕过/探测
+		escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(username)
+		args = append(args, "%"+escaped+"%")
 	}
 	if startDate := strings.TrimSpace(q.Get("startDate")); startDate != "" {
 		conditions = append(conditions, "created_at >= ?")

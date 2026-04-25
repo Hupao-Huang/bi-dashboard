@@ -158,7 +158,6 @@ export const menuDefinitions: MenuDefinition[] = [
     children: [
       { key: '/system/access', icon: <TeamOutlined />, label: '用户管理', permission: 'user.manage' },
       { key: '/system/roles', icon: <SafetyCertificateOutlined />, label: '角色管理', permission: 'role.manage' },
-      { key: '/system/tasks', icon: <ClockCircleOutlined />, label: '任务监控', permission: 'role.manage' },
       { key: '/system/feedback', icon: <CommentOutlined />, label: '反馈管理', permission: 'feedback.manage' },
       { key: '/system/notices', icon: <NotificationOutlined />, label: '公告管理', permission: 'notice.manage' },
       { key: '/system/channels', icon: <ApartmentOutlined />, label: '渠道管理', permission: 'channel.manage' },
@@ -213,7 +212,6 @@ export const pageTitleMap: Record<string, string> = {
   '/system': '系统设置',
   '/system/access': '用户管理',
   '/system/roles': '角色管理',
-  '/system/tasks': '任务监控',
   '/system/feedback': '反馈管理',
   '/system/notices': '公告管理',
   '/system/channels': '渠道管理',
@@ -274,7 +272,6 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/supply-chain/monthly-billing', permission: 'supply_chain.monthly_billing:view' },
   { path: '/system/access', permission: 'user.manage' },
   { path: '/system/roles', permission: 'role.manage' },
-  { path: '/system/tasks', permission: 'role.manage' },
   { path: '/system/feedback', permission: 'feedback.manage' },
   { path: '/system/notices', permission: 'notice.manage' },
   { path: '/system/channels', permission: 'channel.manage' },

@@ -18,6 +18,7 @@ type DashboardHandler struct {
 	DingSecret       string
 	DingClientID     string
 	DingClientSecret string
+	DingCallbackHost string
 	HesiAppKey       string
 	HesiSecret       string
 	WebhookSecret    string
@@ -624,7 +625,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		"西南大区": "shop_name LIKE '%西南大区%'",
 		"东北大区": "shop_name LIKE '%东北大区%'",
 		"山东大区": "(shop_name LIKE '%山东大区%' OR shop_name LIKE '%山东省区%')",
-		"重客":    "shop_name LIKE '%重客系统%'",
+		"重客":   "shop_name LIKE '%重客系统%'",
 	}
 
 	// 构建额外条件

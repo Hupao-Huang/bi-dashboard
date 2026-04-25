@@ -153,8 +153,15 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 更新渠道部门
-	result, err := h.DB.Exec("UPDATE sales_channel SET department = ? WHERE id = ?", req.Department, id)
+	// 两表更新包事务，保证 sales_channel 和 sales_goods_summary 的 department 强一致
+	tx, err := h.DB.Begin()
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec("UPDATE sales_channel SET department = ? WHERE id = ?", req.Department, id)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -167,13 +174,20 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 
 	// 同步更新 sales_goods_summary 中对应渠道的 department
 	var channelID string
-	if err := h.DB.QueryRow("SELECT channel_id FROM sales_channel WHERE id = ?", id).Scan(&channelID); err != nil {
-		log.Printf("查询channel_id失败 id=%d: %v", id, err)
+	if err := tx.QueryRow("SELECT channel_id FROM sales_channel WHERE id = ?", id).Scan(&channelID); err != nil {
+		writeError(w, 500, "查询channel_id失败: "+err.Error())
+		return
 	}
 	if channelID != "" {
-		if _, err := h.DB.Exec("UPDATE sales_goods_summary SET department = ? WHERE shop_id = ?", req.Department, channelID); err != nil {
-			log.Printf("同步sales_goods_summary部门失败 channel_id=%s: %v", channelID, err)
+		if _, err := tx.Exec("UPDATE sales_goods_summary SET department = ? WHERE shop_id = ?", req.Department, channelID); err != nil {
+			writeError(w, 500, "同步sales_goods_summary部门失败: "+err.Error())
+			return
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeError(w, 500, "commit failed: "+err.Error())
+		return
 	}
 
 	writeJSON(w, map[string]interface{}{"message": "更新成功"})

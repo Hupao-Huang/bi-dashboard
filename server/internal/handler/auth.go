@@ -12,9 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"io"
 	"image/color"
 	"image/png"
+	"io"
 	"log"
 	"math"
 	mrand "math/rand"
@@ -498,7 +498,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "feedback.manage", Name: "反馈管理", Type: "action"},
 	{Code: "notice.manage", Name: "公告管理", Type: "action"},
 	{Code: "channel.manage", Name: "渠道管理", Type: "action"},
-		{Code: "data:export", Name: "数据导出", Type: "action"},
+	{Code: "data:export", Name: "数据导出", Type: "action"},
 }
 
 var roleSeeds = []roleSeed{
@@ -1692,12 +1692,20 @@ func (h *DashboardHandler) DingtalkAuthURL(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "钉钉登录未配置")
 		return
 	}
-	referer := r.Header.Get("Referer")
-	if referer == "" {
-		referer = "http://192.168.200.48:3000"
+	// 优先用 config 配置的回调域名（必须在钉钉应用后台白名单里）
+	// 兜底：未配置时回退到 Referer，最后兜底到固定默认值
+	host := strings.TrimRight(h.DingCallbackHost, "/")
+	if host == "" {
+		if referer := r.Header.Get("Referer"); referer != "" {
+			if parsed, err := url.Parse(referer); err == nil && parsed.Host != "" {
+				host = parsed.Scheme + "://" + parsed.Host
+			}
+		}
 	}
-	parsed, _ := url.Parse(referer)
-	redirectURI := fmt.Sprintf("%s://%s/dingtalk/callback", parsed.Scheme, parsed.Host)
+	if host == "" {
+		host = "http://192.168.200.48:3000"
+	}
+	redirectURI := host + "/dingtalk/callback"
 
 	state := r.URL.Query().Get("state")
 	if state != "login" && state != "bind" {
@@ -1716,8 +1724,8 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req struct {
-		Code        string `json:"code"`
-		Remark      string `json:"remark"`
+		Code         string `json:"code"`
+		Remark       string `json:"remark"`
 		PendingToken string `json:"pendingToken"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

@@ -19,6 +19,11 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	// 关键凭证必填校验：避免部署遗漏导致 webhook 无校验全开放
+	if cfg.Webhook.Secret == "" {
+		log.Fatalf("config error: webhook.secret 必须配置（防止 webhook 接口被未授权调用）")
+	}
+
 	db, err := sql.Open("mysql", cfg.Database.DSN())
 	if err != nil {
 		log.Fatalf("open db: %v", err)
@@ -45,6 +50,7 @@ func main() {
 		DingSecret:       cfg.DingTalk.WebhookSecret,
 		DingClientID:     cfg.DingTalk.ClientID,
 		DingClientSecret: cfg.DingTalk.ClientSecret,
+		DingCallbackHost: cfg.DingTalk.CallbackHost,
 		HesiAppKey:       cfg.Hesi.AppKey,
 		HesiSecret:       cfg.Hesi.Secret,
 		WebhookSecret:    cfg.Webhook.Secret,
@@ -53,10 +59,10 @@ func main() {
 	mux := http.NewServeMux()
 
 	allowedOrigins := map[string]bool{
-		"http://localhost:3000":      true,
-		"http://127.0.0.1:3000":      true,
-		"http://192.168.200.48:3000": true,
-		"http://songxianxian.local":  true,
+		"http://localhost:3000":        true,
+		"http://127.0.0.1:3000":        true,
+		"http://192.168.200.48:3000":   true,
+		"http://songxianxian.local":    true,
 		"http://bi.songxianxian.local": true,
 	}
 
