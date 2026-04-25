@@ -43,7 +43,7 @@ type importToolInfo struct {
 }
 
 var (
-	importProgressMu   sync.RWMutex
+	importProgressMu      sync.RWMutex
 	currentImportProgress *importProgress
 )
 
@@ -69,12 +69,11 @@ func (h *DashboardHandler) SyncOps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.WebhookSecret != "" {
-		token := r.Header.Get("X-Webhook-Secret")
-		if !hmac.Equal([]byte(token), []byte(h.WebhookSecret)) {
-			writeError(w, 403, "unauthorized")
-			return
-		}
+	// secret 启动时已强制非空，这里直接强制校验
+	token := r.Header.Get("X-Webhook-Secret")
+	if !hmac.Equal([]byte(token), []byte(h.WebhookSecret)) {
+		writeError(w, 403, "unauthorized")
+		return
 	}
 
 	syncMu.Lock()
@@ -122,12 +121,10 @@ func (h *DashboardHandler) ClearCache(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	if h.WebhookSecret != "" {
-		token := r.Header.Get("X-Webhook-Secret")
-		if !hmac.Equal([]byte(token), []byte(h.WebhookSecret)) {
-			writeError(w, 403, "unauthorized")
-			return
-		}
+	token := r.Header.Get("X-Webhook-Secret")
+	if !hmac.Equal([]byte(token), []byte(h.WebhookSecret)) {
+		writeError(w, 403, "unauthorized")
+		return
 	}
 	n := ClearOverviewCache()
 	log.Printf("[clear-cache] 已清空 %d 条缓存", n)
