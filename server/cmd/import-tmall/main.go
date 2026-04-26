@@ -948,6 +948,9 @@ func importRepurchaseMonthly(path, shopName string) error {
 		if statMonth == "" {
 			continue
 		}
+		if len(statMonth) == 6 {
+			statMonth = statMonth[:4] + "-" + statMonth[4:]
+		}
 
 		_, err := db.Exec(`REPLACE INTO op_tmall_repurchase_monthly (
 			stat_month, shop_name, category,
@@ -1018,6 +1021,9 @@ func importIndustryMonthly(path, shopName string) error {
 		valueType := get("取值方式")
 		if statMonth == "" || valueType == "" {
 			continue
+		}
+		if len(statMonth) == 6 {
+			statMonth = statMonth[:4] + "-" + statMonth[4:]
 		}
 
 		_, err := db.Exec(`REPLACE INTO op_tmall_industry_monthly (

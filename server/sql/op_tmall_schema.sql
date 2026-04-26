@@ -265,7 +265,7 @@ CREATE TABLE IF NOT EXISTS op_tmall_crowd_daily (
 -- =============================================
 CREATE TABLE IF NOT EXISTS op_tmall_repurchase_monthly (
     id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    stat_month      VARCHAR(6)     NOT NULL COMMENT '统计月份 YYYYMM',
+    stat_month      VARCHAR(7)     NOT NULL COMMENT '统计月份 yyyy-MM',
     shop_name       VARCHAR(100)   NOT NULL COMMENT '店铺名称',
     category        VARCHAR(100)   DEFAULT NULL COMMENT '行业/类目',
     new_ratio       DECIMAL(8,4)   DEFAULT 0 COMMENT '新客占比',
@@ -299,7 +299,7 @@ CREATE TABLE IF NOT EXISTS op_tmall_repurchase_monthly (
 -- =============================================
 CREATE TABLE IF NOT EXISTS op_tmall_industry_monthly (
     id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    stat_month      VARCHAR(6)     NOT NULL COMMENT '统计月份 YYYYMM',
+    stat_month      VARCHAR(7)     NOT NULL COMMENT '统计月份 yyyy-MM',
     shop_name       VARCHAR(100)   NOT NULL COMMENT '店铺名称',
     category        VARCHAR(100)   DEFAULT NULL COMMENT '行业/类目',
     value_type      VARCHAR(20)    NOT NULL COMMENT '取值方式: 平均值/最大值',
