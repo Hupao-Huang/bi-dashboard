@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -171,15 +172,65 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 批量查明细和附件统计
-	for i := range items {
-		if writeDatabaseError(w, h.DB.QueryRow("SELECT COUNT(*), COALESCE(SUM(invoice_status='exist'),0), COALESCE(SUM(invoice_status='noExist'),0) FROM hesi_flow_detail WHERE flow_id=?",
-			items[i].FlowId).Scan(&items[i].DetailCount, &items[i].InvoiceExist, &items[i].InvoiceMissing)) {
+	// 批量查明细和附件统计：IN+GROUP BY 一次查完，避免 N+1（原循环每条 2 次 SQL，pageSize=20 时多 40 次往返）
+	if len(items) > 0 {
+		flowIds := make([]interface{}, len(items))
+		placeholders := make([]string, len(items))
+		for i := range items {
+			flowIds[i] = items[i].FlowId
+			placeholders[i] = "?"
+		}
+		ph := strings.Join(placeholders, ",")
+
+		// 明细统计：count / 已开票 / 未开票
+		type detailStat struct {
+			count, exist, missing int
+		}
+		detailMap := make(map[string]detailStat, len(items))
+		drows, err := h.DB.Query(fmt.Sprintf(
+			`SELECT flow_id, COUNT(*), COALESCE(SUM(invoice_status='exist'),0), COALESCE(SUM(invoice_status='noExist'),0)
+			 FROM hesi_flow_detail WHERE flow_id IN (%s) GROUP BY flow_id`, ph), flowIds...)
+		if writeDatabaseError(w, err) {
 			return
 		}
-		if writeDatabaseError(w, h.DB.QueryRow("SELECT COUNT(*) FROM hesi_flow_attachment WHERE flow_id=?",
-			items[i].FlowId).Scan(&items[i].AttachmentCount)) {
+		for drows.Next() {
+			var fid string
+			var s detailStat
+			if err := drows.Scan(&fid, &s.count, &s.exist, &s.missing); err != nil {
+				drows.Close()
+				writeError(w, 500, "扫描明细统计失败: "+err.Error())
+				return
+			}
+			detailMap[fid] = s
+		}
+		drows.Close()
+
+		// 附件统计
+		attachMap := make(map[string]int, len(items))
+		arows, err := h.DB.Query(fmt.Sprintf(
+			`SELECT flow_id, COUNT(*) FROM hesi_flow_attachment WHERE flow_id IN (%s) GROUP BY flow_id`, ph), flowIds...)
+		if writeDatabaseError(w, err) {
 			return
+		}
+		for arows.Next() {
+			var fid string
+			var c int
+			if err := arows.Scan(&fid, &c); err != nil {
+				arows.Close()
+				writeError(w, 500, "扫描附件统计失败: "+err.Error())
+				return
+			}
+			attachMap[fid] = c
+		}
+		arows.Close()
+
+		for i := range items {
+			if s, ok := detailMap[items[i].FlowId]; ok {
+				items[i].DetailCount = s.count
+				items[i].InvoiceExist = s.exist
+				items[i].InvoiceMissing = s.missing
+			}
+			items[i].AttachmentCount = attachMap[items[i].FlowId]
 		}
 	}
 
