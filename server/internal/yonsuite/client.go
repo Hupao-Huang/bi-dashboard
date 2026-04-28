@@ -1,0 +1,233 @@
+// Package yonsuite 用友 YonBIP 开放平台 client
+// 文档: https://c3.yonyoucloud.com (用友 iuap 开放平台)
+//
+// 认证流程:
+//  1. selfAppAuth/base/v1/getAccessToken (HmacSHA256 签名) → access_token (2h 有效期)
+//  2. 业务接口 (POST application/json) → query 带 access_token
+//
+// 签名算法 (getAccessToken 用):
+//   sign = Base64(HmacSHA256(parameterMap, AppSecret))
+//   parameterMap 按 key 排序后 key+value 直接拼接 (除 signature 外)
+//
+// Token cache: 内存 cache，过期前 5min 主动刷新。
+package yonsuite
+
+import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	// authPath 自建应用获取 access_token (新版 base/v1)
+	authPath = "/iuap-api-auth/open-auth/selfAppAuth/base/v1/getAccessToken"
+	// purchaseListPath 采购订单列表查询
+	purchaseListPath = "/iuap-api-gateway/yonbip/scm/purchaseorder/list"
+
+	// tokenSafetyMargin token 提前 5min 过期，避免边界条件
+	tokenSafetyMargin = 5 * time.Minute
+)
+
+// Client YS 开放平台客户端
+type Client struct {
+	AppKey    string
+	AppSecret string
+	BaseURL   string
+	HTTP      *http.Client
+
+	tokenMu     sync.Mutex
+	accessToken string
+	tokenExpire time.Time
+}
+
+// NewClient 构造 client
+func NewClient(appkey, appsecret, baseURL string) *Client {
+	return &Client{
+		AppKey:    appkey,
+		AppSecret: appsecret,
+		BaseURL:   strings.TrimRight(baseURL, "/"),
+		HTTP:      &http.Client{Timeout: 60 * time.Second},
+	}
+}
+
+// AccessToken 获取 access_token (cache 命中直接返回，过期主动刷新)
+func (c *Client) AccessToken() (string, error) {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+
+	if c.accessToken != "" && time.Now().Before(c.tokenExpire) {
+		return c.accessToken, nil
+	}
+	return c.refreshTokenLocked()
+}
+
+// refreshTokenLocked 实际拉 token (必须在 tokenMu 锁内调用)
+func (c *Client) refreshTokenLocked() (string, error) {
+	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	params := map[string]string{
+		"appKey":    c.AppKey,
+		"timestamp": timestamp,
+	}
+	signature := c.sign(params)
+
+	q := url.Values{}
+	q.Set("appKey", c.AppKey)
+	q.Set("timestamp", timestamp)
+	q.Set("signature", signature)
+
+	fullURL := c.BaseURL + authPath + "?" + q.Encode()
+
+	resp, err := c.HTTP.Get(fullURL)
+	if err != nil {
+		return "", fmt.Errorf("yonsuite getAccessToken http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read token body: %w", err)
+	}
+
+	var tr struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			AccessToken string `json:"access_token"`
+			Expire      int    `json:"expire"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &tr); err != nil {
+		return "", fmt.Errorf("unmarshal token: %w, body=%s", err, truncate(string(body), 500))
+	}
+	if tr.Code != "00000" {
+		return "", fmt.Errorf("yonsuite token failed: code=%s msg=%s", tr.Code, tr.Message)
+	}
+	if tr.Data.AccessToken == "" {
+		return "", fmt.Errorf("yonsuite empty access_token: body=%s", truncate(string(body), 500))
+	}
+
+	c.accessToken = tr.Data.AccessToken
+	c.tokenExpire = time.Now().Add(time.Duration(tr.Data.Expire)*time.Second - tokenSafetyMargin)
+	return c.accessToken, nil
+}
+
+// sign HmacSHA256(parameterMap, AppSecret) → Base64
+// 参数按 key 排序后 key+value 直接拼接 (除 signature 外)
+func (c *Client) sign(params map[string]string) string {
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		if k == "signature" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var buf strings.Builder
+	for _, k := range keys {
+		buf.WriteString(k)
+		buf.WriteString(params[k])
+	}
+
+	h := hmac.New(sha256.New, []byte(c.AppSecret))
+	h.Write([]byte(buf.String()))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// SimpleVO 查询条件 (op: eq/neq/lt/gt/between/in/nin/like/leftlike/rightlike/is_null/is_not_null/and/or)
+type SimpleVO struct {
+	Field  string `json:"field"`
+	Op     string `json:"op"`
+	Value1 string `json:"value1"`
+	Value2 string `json:"value2,omitempty"` // for between
+}
+
+// QueryOrder 排序字段
+type QueryOrder struct {
+	Field string `json:"field"`
+	Order string `json:"order"` // asc / desc
+}
+
+// PurchaseListReq 采购订单列表请求
+type PurchaseListReq struct {
+	PageIndex   int          `json:"pageIndex"`
+	PageSize    int          `json:"pageSize"`
+	IsSum       bool         `json:"isSum"`
+	SimpleVOs   []SimpleVO   `json:"simpleVOs"`
+	QueryOrders []QueryOrder `json:"queryOrders"`
+}
+
+// PurchaseListResp 采购订单列表返回
+// recordList 用 map[string]interface{} 接收，保留所有原始字段供入库时序列化为 raw_json
+type PurchaseListResp struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
+		PageIndex   int                      `json:"pageIndex"`
+		PageSize    int                      `json:"pageSize"`
+		RecordCount int                      `json:"recordCount"`
+		PageCount   int                      `json:"pageCount"`
+		RecordList  []map[string]interface{} `json:"recordList"`
+	} `json:"data"`
+}
+
+// QueryPurchaseList 调采购订单列表接口 (POST + access_token query)
+func (c *Client) QueryPurchaseList(req *PurchaseListReq) (*PurchaseListResp, error) {
+	token, err := c.AccessToken()
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal purchase list req: %w", err)
+	}
+
+	q := url.Values{}
+	q.Set("access_token", token)
+	fullURL := c.BaseURL + purchaseListPath + "?" + q.Encode()
+
+	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("yonsuite purchase list http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	var pr PurchaseListResp
+	if err := json.Unmarshal(respBody, &pr); err != nil {
+		return nil, fmt.Errorf("unmarshal purchase list: %w, body=%s", err, truncate(string(respBody), 500))
+	}
+	if pr.Code != "200" {
+		return nil, fmt.Errorf("yonsuite purchase list non-200: code=%s msg=%s", pr.Code, pr.Message)
+	}
+	return &pr, nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}

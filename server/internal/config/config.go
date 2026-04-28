@@ -14,6 +14,7 @@ type Config struct {
 	JackYunTrade JackYunConfig  `json:"jackyun_trade"`
 	DingTalk     DingTalkConfig `json:"dingtalk"`
 	Hesi         HesiConfig     `json:"hesi"`
+	YonSuite     YonSuiteConfig `json:"yonsuite"`
 	Webhook      WebhookConfig  `json:"webhook"`
 }
 
@@ -50,6 +51,14 @@ type DingTalkConfig struct {
 type HesiConfig struct {
 	AppKey string `json:"appkey"`
 	Secret string `json:"secret"`
+}
+
+// YonSuiteConfig 用友 YonBIP 开放平台配置
+// BaseURL 示例: https://c3.yonyoucloud.com（不带尾斜杠，client 内部拼路径）
+type YonSuiteConfig struct {
+	AppKey    string `json:"appkey"`
+	AppSecret string `json:"appsecret"`
+	BaseURL   string `json:"base_url"`
 }
 
 type WebhookConfig struct {
