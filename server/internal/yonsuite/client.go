@@ -36,6 +36,8 @@ const (
 	purchaseListPath = "/iuap-api-gateway/yonbip/scm/purchaseorder/list"
 	// subcontractListPath 委外订单列表查询
 	subcontractListPath = "/iuap-api-gateway/yonbip/mfg/subcontractorder/list"
+	// materialOutListPath 材料出库单查询 (委外发料 = 生产倒冲)
+	materialOutListPath = "/iuap-api-gateway/yonbip/scm/materialout/list"
 
 	// tokenSafetyMargin token 提前 5min 过期，避免边界条件
 	tokenSafetyMargin = 5 * time.Minute
@@ -314,6 +316,52 @@ func (c *Client) QuerySubcontractList(req *PurchaseListReq) (*PurchaseListResp, 
 	}
 	if pr.Code != "200" {
 		return nil, fmt.Errorf("yonsuite subcontract non-200: code=%s msg=%s", pr.Code, pr.Message)
+	}
+	return &pr, nil
+}
+
+// QueryMaterialOutList 调材料出库单列表接口
+// 委外入库后自动生成出库单 (bustype="生产倒冲"), 是包材实际消耗的金标准
+func (c *Client) QueryMaterialOutList(req *PurchaseListReq) (*PurchaseListResp, error) {
+	token, err := c.AccessToken()
+	if err != nil {
+		return nil, err
+	}
+	c.waitRateLimit()
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal materialout req: %w", err)
+	}
+	q := url.Values{}
+	q.Set("access_token", token)
+	fullURL := c.BaseURL + materialOutListPath + "?" + q.Encode()
+
+	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("yonsuite materialout list http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	var pr PurchaseListResp
+	dec := json.NewDecoder(bytes.NewReader(respBody))
+	dec.UseNumber()
+	if err := dec.Decode(&pr); err != nil {
+		return nil, fmt.Errorf("unmarshal materialout: %w, body=%s", err, truncate(string(respBody), 500))
+	}
+	if pr.Code != "200" {
+		return nil, fmt.Errorf("yonsuite materialout non-200: code=%s msg=%s", pr.Code, pr.Message)
 	}
 	return &pr, nil
 }
