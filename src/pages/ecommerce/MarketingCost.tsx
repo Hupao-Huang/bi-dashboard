@@ -56,6 +56,8 @@ const MarketingCostPage: React.FC = () => {
   const cpsDaily = data?.cpsDaily || [];
   const shopCosts = data?.shopCosts || [];
   const details = data?.details || [];
+  const tmallSkuTop = data?.tmallSkuTop || [];
+  const pddSkuTop = data?.pddSkuTop || [];
   const shops = data?.shops || [];
   const hasCps = data?.hasCps || false;
   const dateRange = data?.dateRange || { start: startDate, end: endDate };
@@ -242,16 +244,16 @@ const MarketingCostPage: React.FC = () => {
             )}
           </Row>
 
-          {/* 店铺对比 + 明细占比 */}
+          {/* 店铺对比 + 明细占比（各占一半） */}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={24} lg={14}>
+            <Col xs={24} lg={12}>
               <Card title="各店铺推广投入对比">
                 {shopCosts.length > 0 ? (
-                  <ReactECharts option={shopCostOption} lazyUpdate={true} style={{ height: Math.max(200, shopCosts.length * 60) }} />
+                  <ReactECharts option={shopCostOption} lazyUpdate={true} style={{ height: Math.max(320, shopCosts.length * 60) }} />
                 ) : <Empty description="暂无数据" />}
               </Card>
             </Col>
-            <Col xs={24} lg={10}>
+            <Col xs={24} lg={12}>
               <Card title="推广类型花费占比">
                 {details.length > 0 ? (
                   <ReactECharts option={detailPieOption} lazyUpdate={true} style={{ height: 320 }} />
@@ -273,14 +275,25 @@ const MarketingCostPage: React.FC = () => {
                     { title: '平台', dataIndex: 'platform', key: 'platform', width: 80,
                       filters: Array.from(new Set(details.map((d: any) => d.platform))).map((p: any) => ({ text: p, value: p })),
                       onFilter: (value: any, record: any) => record.platform === value },
-                    { title: '推广类型/场景', dataIndex: 'name', key: 'name' },
+                    { title: '推广类型/场景', dataIndex: 'name', key: 'name',
+                      render: (v: string, r: any) => r.isContent
+                        ? <span>{v} <span style={{ marginLeft: 4, fontSize: 11, color: '#94a3b8' }}>无投放费用</span></span>
+                        : v },
                     { title: '花费', dataIndex: 'cost', key: 'cost', sorter: (a: any, b: any) => a.cost - b.cost,
-                      render: (v: number) => `¥${v?.toLocaleString()}` },
+                      render: (v: number, r: any) => r.isContent ? <span style={{ color: '#cbd5e1' }}>-</span> : `¥${v?.toLocaleString()}` },
                     { title: '成交额', dataIndex: 'payAmount', key: 'payAmount',
                       render: (v: number) => `¥${v?.toLocaleString()}` },
-                    { title: 'ROI', dataIndex: 'roi', key: 'roi', render: (v: number) => v?.toFixed(2) },
-                    { title: '点击量', dataIndex: 'clicks', key: 'clicks', render: (v: number) => v ? v.toLocaleString() : '-' },
-                    { title: '平均CPC', dataIndex: 'avgCpc', key: 'avgCpc', render: (v: number) => v ? `¥${v.toFixed(2)}` : '-' },
+                    { title: 'ROI', dataIndex: 'roi', key: 'roi',
+                      render: (v: number, r: any) => r.isContent ? <span style={{ color: '#cbd5e1' }}>-</span> : v?.toFixed(2) },
+                    { title: '点击量', dataIndex: 'clicks', key: 'clicks',
+                      render: (v: number, r: any) => {
+                        if (!v) return '-';
+                        return r.isContent
+                          ? <span>{v.toLocaleString()} <span style={{ marginLeft: 4, fontSize: 11, color: '#94a3b8' }}>(商品点击)</span></span>
+                          : v.toLocaleString();
+                      } },
+                    { title: '平均CPC', dataIndex: 'avgCpc', key: 'avgCpc',
+                      render: (v: number, r: any) => r.isContent ? <span style={{ color: '#cbd5e1' }}>-</span> : (v ? `¥${v.toFixed(2)}` : '-') },
                   ]}
                 />
               </Card>
@@ -310,6 +323,96 @@ const MarketingCostPage: React.FC = () => {
               </Col>
             )}
           </Row>
+
+          {/* 天猫万象台 商品级 SKU Top 20 */}
+          {tmallSkuTop.length > 0 && (
+            <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+              <Col xs={24}>
+                <Card className="bi-table-card" title="天猫万象台 - 商品级 ROI 排行 Top 20"
+                  extra={<span style={{ fontSize: 12, color: '#94a3b8' }}>按花费倒排，可点列头切换排序</span>}>
+                  <Table
+                    dataSource={tmallSkuTop}
+                    rowKey={(r: any) => `${r.shopName}-${r.productId}`}
+                    size="small"
+                    pagination={false}
+                    columns={[
+                      { title: '排名', key: 'rank', width: 60, align: 'center' as const,
+                        render: (_: any, __: any, idx: number) => (
+                          <span style={{ fontWeight: 600, color: idx < 3 ? '#dc2626' : '#64748b' }}>{idx + 1}</span>
+                        ) },
+                      { title: '店铺', dataIndex: 'shopName', key: 'shopName', width: 180, ellipsis: true,
+                        filters: Array.from(new Set(tmallSkuTop.map((s: any) => s.shopName))).map((s: any) => ({ text: s, value: s })),
+                        onFilter: (v: any, r: any) => r.shopName === v },
+                      { title: '商品ID', dataIndex: 'productId', key: 'productId', width: 170, ellipsis: true },
+                      { title: '商品名称', dataIndex: 'productName', key: 'productName', ellipsis: true },
+                      { title: '花费', dataIndex: 'cost', key: 'cost', width: 110, align: 'right' as const,
+                        sorter: (a: any, b: any) => a.cost - b.cost,
+                        render: (v: number) => `¥${v?.toLocaleString()}` },
+                      { title: '成交额', dataIndex: 'payAmount', key: 'payAmount', width: 110, align: 'right' as const,
+                        sorter: (a: any, b: any) => a.payAmount - b.payAmount,
+                        render: (v: number) => `¥${v?.toLocaleString()}` },
+                      { title: 'ROI', dataIndex: 'roi', key: 'roi', width: 90, align: 'right' as const,
+                        sorter: (a: any, b: any) => a.roi - b.roi,
+                        render: (v: number) => {
+                          const color = v >= 3 ? '#16a34a' : v >= 1 ? '#1e40af' : '#dc2626';
+                          return <span style={{ color, fontWeight: 600 }}>{v?.toFixed(2)}</span>;
+                        } },
+                      { title: '点击量', dataIndex: 'clicks', key: 'clicks', width: 100, align: 'right' as const,
+                        sorter: (a: any, b: any) => a.clicks - b.clicks,
+                        render: (v: number) => v?.toLocaleString() },
+                      { title: '平均CPC', key: 'cpc', width: 100, align: 'right' as const,
+                        render: (_: any, r: any) => r.clicks > 0 ? `¥${(r.cost / r.clicks).toFixed(2)}` : '-' },
+                    ]}
+                  />
+                </Card>
+              </Col>
+            </Row>
+          )}
+
+          {/* 拼多多商品推广 商品级 SKU Top 20 */}
+          {pddSkuTop.length > 0 && (
+            <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+              <Col xs={24}>
+                <Card className="bi-table-card" title="拼多多商品推广 - 商品级 ROI 排行 Top 20"
+                  extra={<span style={{ fontSize: 12, color: '#94a3b8' }}>按花费倒排，可点列头切换排序</span>}>
+                  <Table
+                    dataSource={pddSkuTop}
+                    rowKey={(r: any) => `${r.shopName}-${r.productId}`}
+                    size="small"
+                    pagination={false}
+                    columns={[
+                      { title: '排名', key: 'rank', width: 60, align: 'center' as const,
+                        render: (_: any, __: any, idx: number) => (
+                          <span style={{ fontWeight: 600, color: idx < 3 ? '#dc2626' : '#64748b' }}>{idx + 1}</span>
+                        ) },
+                      { title: '店铺', dataIndex: 'shopName', key: 'shopName', width: 180, ellipsis: true,
+                        filters: Array.from(new Set(pddSkuTop.map((s: any) => s.shopName))).map((s: any) => ({ text: s, value: s })),
+                        onFilter: (v: any, r: any) => r.shopName === v },
+                      { title: '商品ID', dataIndex: 'productId', key: 'productId', width: 140, ellipsis: true },
+                      { title: '商品名称', dataIndex: 'productName', key: 'productName', ellipsis: true },
+                      { title: '花费', dataIndex: 'cost', key: 'cost', width: 110, align: 'right' as const,
+                        sorter: (a: any, b: any) => a.cost - b.cost,
+                        render: (v: number) => `¥${v?.toLocaleString()}` },
+                      { title: '成交额', dataIndex: 'payAmount', key: 'payAmount', width: 110, align: 'right' as const,
+                        sorter: (a: any, b: any) => a.payAmount - b.payAmount,
+                        render: (v: number) => `¥${v?.toLocaleString()}` },
+                      { title: 'ROI', dataIndex: 'roi', key: 'roi', width: 90, align: 'right' as const,
+                        sorter: (a: any, b: any) => a.roi - b.roi,
+                        render: (v: number) => {
+                          const color = v >= 3 ? '#16a34a' : v >= 1 ? '#1e40af' : '#dc2626';
+                          return <span style={{ color, fontWeight: 600 }}>{v?.toFixed(2)}</span>;
+                        } },
+                      { title: '点击量', dataIndex: 'clicks', key: 'clicks', width: 100, align: 'right' as const,
+                        sorter: (a: any, b: any) => a.clicks - b.clicks,
+                        render: (v: number) => v?.toLocaleString() },
+                      { title: '平均CPC', key: 'cpc', width: 100, align: 'right' as const,
+                        render: (_: any, r: any) => r.clicks > 0 ? `¥${(r.cost / r.clicks).toFixed(2)}` : '-' },
+                    ]}
+                  />
+                </Card>
+              </Col>
+            </Row>
+          )}
         </>
       )}
     </div>

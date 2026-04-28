@@ -2696,7 +2696,19 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 		ROI       float64 `json:"roi"`
 		Clicks    int     `json:"clicks"`
 		AvgCpc    float64 `json:"avgCpc"`
+		IsContent bool    `json:"isContent"` // true=内容推广(无投放费用，cost/roi/cpc 不参与对比)
 	}
+	type SkuTopRow struct {
+		ShopName    string  `json:"shopName"`
+		ProductID   string  `json:"productId"`
+		ProductName string  `json:"productName"`
+		Cost        float64 `json:"cost"`
+		PayAmount   float64 `json:"payAmount"`
+		ROI         float64 `json:"roi"`
+		Clicks      int     `json:"clicks"`
+	}
+	var tmallSkuTop []SkuTopRow
+	var pddSkuTop []SkuTopRow
 
 	var cpcDaily []CpcDaily
 	var cpsDaily []CpsDaily
@@ -2836,6 +2848,33 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 					return
 				}
 				dRows.Close()
+			}
+			// 天猫万象台 SKU Top 20：仅在用户单选"天猫"平台时返回（all 时不返回避免视觉干扰）
+			// 按 (店铺, 商品) 分组，避免同商品在不同店合并失真
+			if platform == "tmall" {
+				skuArgs := append([]interface{}{start, end}, shopArgs...)
+				skuRows, skuErr := h.DB.Query(`SELECT shop_name, product_id,
+					MAX(product_name) AS product_name,
+					ROUND(SUM(cost),2) AS cost,
+					ROUND(SUM(total_pay_amount),2) AS pay,
+					CASE WHEN SUM(cost)>0 THEN ROUND(SUM(total_pay_amount)/SUM(cost),2) ELSE 0 END AS roi,
+					SUM(clicks) AS clicks
+					FROM op_tmall_campaign_detail_daily
+					WHERE stat_date BETWEEN ? AND ?`+shopCond+`
+					AND entity_type='商品'
+					GROUP BY shop_name, product_id
+					HAVING cost > 0
+					ORDER BY cost DESC LIMIT 20`, skuArgs...)
+				if skuErr == nil {
+					for skuRows.Next() {
+						var s SkuTopRow
+						if err := skuRows.Scan(&s.ShopName, &s.ProductID, &s.ProductName, &s.Cost, &s.PayAmount, &s.ROI, &s.Clicks); err != nil {
+							continue
+						}
+						tmallSkuTop = append(tmallSkuTop, s)
+					}
+					skuRows.Close()
+				}
 			}
 
 		case "jd":
@@ -3021,6 +3060,53 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 				dRows.Close()
 			}
 
+			// 拼多多 多多视频（内容推广，无投放费用）
+			vArgs := append([]interface{}{start, end}, shopArgs...)
+			var vGmv sql.NullFloat64
+			var vClicks sql.NullInt64
+			var vOrders sql.NullInt64
+			vErr := h.DB.QueryRow(`SELECT ROUND(SUM(total_gmv),2), SUM(goods_click_cnt), SUM(order_count)
+				FROM op_pdd_video_daily WHERE stat_date BETWEEN ? AND ?`+shopCond, vArgs...).
+				Scan(&vGmv, &vClicks, &vOrders)
+			if vErr == nil && (vGmv.Float64 > 0 || vOrders.Int64 > 0) {
+				details = append(details, DetailRow{
+					Platform:  "拼多多",
+					Name:      "多多视频（内容）",
+					Cost:      0,
+					PayAmount: vGmv.Float64,
+					ROI:       0,
+					Clicks:    int(vClicks.Int64),
+					AvgCpc:    0,
+					IsContent: true,
+				})
+			}
+
+			// 拼多多商品推广 SKU Top 20：仅在用户单选"拼多多"平台时返回
+			if platform == "pdd" {
+				skuArgs := append([]interface{}{start, end}, shopArgs...)
+				skuRows, skuErr := h.DB.Query(`SELECT shop_name, goods_id,
+					MAX(goods_name) AS goods_name,
+					ROUND(SUM(cost_total),2) AS cost,
+					ROUND(SUM(pay_amount),2) AS pay,
+					CASE WHEN SUM(cost_total)>0 THEN ROUND(SUM(pay_amount)/SUM(cost_total),2) ELSE 0 END AS roi,
+					SUM(clicks) AS clicks
+					FROM op_pdd_campaign_goods_daily
+					WHERE stat_date BETWEEN ? AND ?`+shopCond+`
+					GROUP BY shop_name, goods_id
+					HAVING cost > 0
+					ORDER BY cost DESC LIMIT 20`, skuArgs...)
+				if skuErr == nil {
+					for skuRows.Next() {
+						var s SkuTopRow
+						if err := skuRows.Scan(&s.ShopName, &s.ProductID, &s.ProductName, &s.Cost, &s.PayAmount, &s.ROI, &s.Clicks); err != nil {
+							continue
+						}
+						pddSkuTop = append(pddSkuTop, s)
+					}
+					skuRows.Close()
+				}
+			}
+
 		case "tmall_cs":
 			// 天猫超市CPC
 			args := append([]interface{}{trendStart, trendEnd}, shopArgs...)
@@ -3072,33 +3158,80 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 				}
 				sRows.Close()
 			}
-			// 天猫超市推广类型明细
-			dArgs := append([]interface{}{start, end}, shopArgs...)
-			dRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT promo_type, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
-				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
+			// 天猫超市推广明细：无界/智多星 拆到场景级（每个场景独立行，name 带括号标父类），淘客单独一行
+			// 无界场景：op_tmall_cs_wujie_scene_daily
+			wujieArgs := append([]interface{}{start, end}, shopArgs...)
+			wRows, wErr := h.DB.Query(`SELECT scene_name, ROUND(SUM(cost),2), ROUND(SUM(total_pay_amount),2),
+				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(total_pay_amount)/SUM(cost),2) ELSE 0 END,
 				SUM(clicks),
 				CASE WHEN SUM(clicks)>0 THEN ROUND(SUM(cost)/SUM(clicks),2) ELSE 0 END
-				FROM op_tmall_cs_campaign_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
-				GROUP BY promo_type ORDER BY SUM(cost) DESC`, dArgs...)
-			if !ok {
-				return
-			}
-			if dRows != nil {
-				for dRows.Next() {
+				FROM op_tmall_cs_wujie_scene_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
+				AND scene_name IS NOT NULL AND scene_name != ''
+				GROUP BY scene_name ORDER BY SUM(cost) DESC`, wujieArgs...)
+			if wErr == nil {
+				for wRows.Next() {
 					var d DetailRow
-					d.Platform = "天猫超市"
-					if writeDatabaseError(w, dRows.Scan(&d.Name, &d.Cost, &d.PayAmount, &d.ROI, &d.Clicks, &d.AvgCpc)) {
-						dRows.Close()
-						return
+					var sceneName string
+					if err := wRows.Scan(&sceneName, &d.Cost, &d.PayAmount, &d.ROI, &d.Clicks, &d.AvgCpc); err != nil {
+						continue
 					}
+					d.Platform = "天猫超市"
+					d.Name = sceneName + "（无界）"
 					details = append(details, d)
 				}
-				if writeDatabaseError(w, dRows.Err()) {
-					dRows.Close()
-					return
-				}
-				dRows.Close()
+				wRows.Close()
 			}
+
+			// 智多星场景：op_tmall_cs_smart_plan_daily
+			smartArgs := append([]interface{}{start, end}, shopArgs...)
+			spRows, spErr := h.DB.Query(`SELECT campaign_scene, ROUND(SUM(cost),2), ROUND(SUM(total_pay_amount),2),
+				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(total_pay_amount)/SUM(cost),2) ELSE 0 END,
+				SUM(clicks),
+				CASE WHEN SUM(clicks)>0 THEN ROUND(SUM(cost)/SUM(clicks),2) ELSE 0 END
+				FROM op_tmall_cs_smart_plan_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
+				AND campaign_scene IS NOT NULL AND campaign_scene != ''
+				GROUP BY campaign_scene ORDER BY SUM(cost) DESC`, smartArgs...)
+			if spErr == nil {
+				for spRows.Next() {
+					var d DetailRow
+					var sceneName string
+					if err := spRows.Scan(&sceneName, &d.Cost, &d.PayAmount, &d.ROI, &d.Clicks, &d.AvgCpc); err != nil {
+						continue
+					}
+					d.Platform = "天猫超市"
+					d.Name = sceneName + "（智多星）"
+					details = append(details, d)
+				}
+				spRows.Close()
+			}
+
+			// 淘客单独一行（无场景维度，从 op_tmall_cs_campaign_daily promo_type='淘客' 取）
+			tkArgs := append([]interface{}{start, end}, shopArgs...)
+			var tkCost, tkPay sql.NullFloat64
+			var tkClicks sql.NullInt64
+			tkErr := h.DB.QueryRow(`SELECT ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2), SUM(clicks)
+				FROM op_tmall_cs_campaign_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
+				AND promo_type='淘客'`, tkArgs...).Scan(&tkCost, &tkPay, &tkClicks)
+			if tkErr == nil && (tkCost.Float64 > 0 || tkPay.Float64 > 0) {
+				roi := 0.0
+				if tkCost.Float64 > 0 {
+					roi = tkPay.Float64 / tkCost.Float64
+				}
+				cpc := 0.0
+				if tkClicks.Int64 > 0 {
+					cpc = tkCost.Float64 / float64(tkClicks.Int64)
+				}
+				details = append(details, DetailRow{
+					Platform:  "天猫超市",
+					Name:      "淘客",
+					Cost:      tkCost.Float64,
+					PayAmount: tkPay.Float64,
+					ROI:       roi,
+					Clicks:    int(tkClicks.Int64),
+					AvgCpc:    cpc,
+				})
+			}
+
 		}
 	}
 
@@ -3167,14 +3300,16 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 	sort.Slice(cpsDaily, func(i, j int) bool { return cpsDaily[i].Date < cpsDaily[j].Date })
 
 	writeJSON(w, map[string]interface{}{
-		"cpcDaily":   cpcDaily,
-		"cpsDaily":   cpsDaily,
-		"shopCosts":  shopCosts,
-		"details":    details,
-		"shops":      shops,
-		"hasCps":     hasCps,
-		"dateRange":  map[string]string{"start": start, "end": end},
-		"trendRange": map[string]string{"start": trendStart, "end": trendEnd},
+		"cpcDaily":     cpcDaily,
+		"cpsDaily":     cpsDaily,
+		"shopCosts":    shopCosts,
+		"details":      details,
+		"tmallSkuTop":  tmallSkuTop,
+		"pddSkuTop":    pddSkuTop,
+		"shops":        shops,
+		"hasCps":       hasCps,
+		"dateRange":    map[string]string{"start": start, "end": end},
+		"trendRange":   map[string]string{"start": trendStart, "end": trendEnd},
 	})
 }
 
