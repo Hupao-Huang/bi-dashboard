@@ -786,3 +786,204 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		},
 	})
 }
+
+// GetPurchasePlan 采购计划仪表盘 (v0.48)
+// 5 张表 JOIN: stock_quantity + sales (吉客云) + ys_purchase_orders + ys_subcontract_orders + ys_material_out
+// 算法:
+//   成品 (goods_attr=1) 目标 45 天, 日均 = month_qty/30 (吉客云销售)
+//   包材 (goods_attr=4) 目标 90 天, 日均 = ys_material_out 近30天/30 (真实消耗)
+//   建议采购量 = max(0, 目标天数 × 日均 - 库存 - 在途采购 - 在途委外)
+//   状态: 紧急(可售<7) / 偏低(7-14) / 正常 / 积压(>90)
+func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Request) {
+	if writeScopeError(w, requireDomainAccess(r, "supply_chain")) {
+		return
+	}
+
+	// === 1. KPI 4 个 ===
+	type kpiData struct {
+		UrgentSKU            int     `json:"urgentSku"`
+		InTransitOrders      int     `json:"inTransitOrders"`
+		InTransitSubcontract int     `json:"inTransitSubcontract"`
+		Recent30Amount       float64 `json:"recent30Amount"`
+	}
+	var kpi kpiData
+
+	// 紧急 SKU 数 (成品可售天数 < 7)
+	if err := h.DB.QueryRow(`SELECT COUNT(*) FROM stock_quantity
+		WHERE goods_attr=1 AND month_qty > 0 AND (current_qty - locked_qty) > 0
+		  AND (current_qty - locked_qty) / (month_qty/30) < 7`).Scan(&kpi.UrgentSKU); err != nil {
+		log.Printf("kpi urgent: %v", err)
+	}
+
+	// 在途采购订单数
+	h.DB.QueryRow(`SELECT COUNT(DISTINCT id) FROM ys_purchase_orders
+		WHERE purchase_orders_in_wh_status IN (2,3)`).Scan(&kpi.InTransitOrders)
+
+	// 在途委外订单数
+	h.DB.QueryRow(`SELECT COUNT(DISTINCT id) FROM ys_subcontract_orders
+		WHERE status NOT IN (2)`).Scan(&kpi.InTransitSubcontract)
+
+	// 最近 30 天采购金额 (相对 DB 内 MAX(vouchdate) 滚动)
+	var amt sql.NullFloat64
+	h.DB.QueryRow(`SELECT SUM(ori_sum) FROM ys_purchase_orders
+		WHERE vouchdate >= DATE_SUB((SELECT MAX(vouchdate) FROM ys_purchase_orders), INTERVAL 30 DAY)`).Scan(&amt)
+	kpi.Recent30Amount = amt.Float64
+
+	// === 2. 月度趋势 (近 6 个月采购金额) ===
+	type monthRow struct {
+		Month  string  `json:"month"`
+		Amount float64 `json:"amount"`
+	}
+	monthlyTrend := []monthRow{}
+	mRows, _ := h.DB.Query(`SELECT DATE_FORMAT(vouchdate, '%Y-%m') AS month,
+		ROUND(SUM(ori_sum), 0) AS amount
+		FROM ys_purchase_orders
+		WHERE vouchdate >= DATE_SUB((SELECT MAX(vouchdate) FROM ys_purchase_orders), INTERVAL 6 MONTH)
+		GROUP BY DATE_FORMAT(vouchdate, '%Y-%m') ORDER BY month`)
+	if mRows != nil {
+		for mRows.Next() {
+			var m monthRow
+			if err := mRows.Scan(&m.Month, &m.Amount); err == nil {
+				monthlyTrend = append(monthlyTrend, m)
+			}
+		}
+		mRows.Close()
+	}
+
+	// === 3. TOP 10 供应商 (按采购金额) ===
+	type vendorRow struct {
+		VendorName string  `json:"vendorName"`
+		Amount     float64 `json:"amount"`
+		OrderCount int     `json:"orderCount"`
+	}
+	topVendors := []vendorRow{}
+	vRows, _ := h.DB.Query(`SELECT vendor_name, ROUND(SUM(ori_sum), 0) AS amount,
+		COUNT(DISTINCT id) AS order_count
+		FROM ys_purchase_orders WHERE vendor_name IS NOT NULL
+		GROUP BY vendor_name ORDER BY amount DESC LIMIT 10`)
+	if vRows != nil {
+		for vRows.Next() {
+			var v vendorRow
+			if err := vRows.Scan(&v.VendorName, &v.Amount, &v.OrderCount); err == nil {
+				topVendors = append(topVendors, v)
+			}
+		}
+		vRows.Close()
+	}
+
+	// === 4. 建议采购清单 (UNION 成品 + 包材, 按建议量倒序) ===
+	type suggestRow struct {
+		Type         string  `json:"type"` // 成品 / 包材
+		GoodsNo      string  `json:"goodsNo"`
+		GoodsName    string  `json:"goodsName"`
+		Stock        float64 `json:"stock"`
+		DailyAvg     float64 `json:"dailyAvg"`
+		InTransit    float64 `json:"inTransit"`
+		SuggestedQty float64 `json:"suggestedQty"`
+		Status       string  `json:"status"`        // 紧急 / 偏低 / 正常 / 积压
+		SellableDays float64 `json:"sellableDays"` // 可售天数
+	}
+	suggested := []suggestRow{}
+
+	// 4a. 成品 (goods_attr=1, 目标 45 天)
+	prodSQL := `SELECT '成品' AS t, sq.goods_no, sq.goods_name,
+		ROUND(SUM(sq.current_qty - sq.locked_qty), 0) AS stock,
+		ROUND(SUM(sq.month_qty)/30, 1) AS daily_avg,
+		IFNULL(ROUND(SUM(po.in_transit_qty), 0), 0) AS in_transit,
+		GREATEST(0, ROUND(45 * SUM(sq.month_qty)/30 - SUM(sq.current_qty - sq.locked_qty) - IFNULL(SUM(po.in_transit_qty), 0), 0)) AS suggested,
+		CASE
+		  WHEN SUM(sq.month_qty) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
+		  WHEN SUM(sq.month_qty) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / (SUM(sq.month_qty)/30), 1)
+		  ELSE 9999 END AS sellable_days
+		FROM stock_quantity sq
+		LEFT JOIN (
+		  SELECT product_c_code, SUM(qty - IFNULL(total_in_qty, 0)) AS in_transit_qty
+		  FROM ys_purchase_orders WHERE purchase_orders_in_wh_status IN (2,3) AND qty > IFNULL(total_in_qty, 0)
+		  GROUP BY product_c_code
+		) po ON po.product_c_code = sq.goods_no
+		WHERE sq.goods_attr = 1 AND sq.month_qty > 0
+		GROUP BY sq.goods_no, sq.goods_name
+		HAVING suggested > 0`
+
+	// 4b. 包材 (goods_attr=4, 目标 90 天)
+	matSQL := `SELECT '包材' AS t, sq.goods_no, sq.goods_name,
+		ROUND(SUM(sq.current_qty - sq.locked_qty), 0) AS stock,
+		ROUND(IFNULL(SUM(mo.daily_avg), 0), 1) AS daily_avg,
+		IFNULL(ROUND(SUM(po.in_transit_qty), 0), 0) AS in_transit,
+		GREATEST(0, ROUND(90 * IFNULL(SUM(mo.daily_avg), 0) - SUM(sq.current_qty - sq.locked_qty) - IFNULL(SUM(po.in_transit_qty), 0), 0)) AS suggested,
+		CASE
+		  WHEN IFNULL(SUM(mo.daily_avg), 0) > 0 AND SUM(sq.current_qty - sq.locked_qty) <= 0 THEN -1
+		  WHEN IFNULL(SUM(mo.daily_avg), 0) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / SUM(mo.daily_avg), 1)
+		  ELSE 9999 END AS sellable_days
+		FROM stock_quantity sq
+		LEFT JOIN (
+		  SELECT product_c_code, SUM(qty)/30 AS daily_avg FROM ys_material_out
+		  WHERE vouchdate >= DATE_SUB((SELECT MAX(vouchdate) FROM ys_material_out), INTERVAL 30 DAY)
+		  GROUP BY product_c_code
+		) mo ON mo.product_c_code = sq.goods_no
+		LEFT JOIN (
+		  SELECT product_c_code, SUM(qty - IFNULL(total_in_qty, 0)) AS in_transit_qty
+		  FROM ys_purchase_orders WHERE purchase_orders_in_wh_status IN (2,3) AND qty > IFNULL(total_in_qty, 0)
+		  GROUP BY product_c_code
+		) po ON po.product_c_code = sq.goods_no
+		WHERE sq.goods_attr = 4
+		GROUP BY sq.goods_no, sq.goods_name
+		HAVING suggested > 0`
+
+	for _, q := range []string{prodSQL, matSQL} {
+		sRows, err := h.DB.Query(q)
+		if err != nil {
+			log.Printf("suggest query err: %v", err)
+			continue
+		}
+		for sRows.Next() {
+			var s suggestRow
+			if err := sRows.Scan(&s.Type, &s.GoodsNo, &s.GoodsName, &s.Stock, &s.DailyAvg,
+				&s.InTransit, &s.SuggestedQty, &s.SellableDays); err != nil {
+				continue
+			}
+			// 判断 status
+			switch {
+			case s.SellableDays < 0:
+				s.Status = "断货"
+			case s.SellableDays < 7:
+				s.Status = "紧急"
+			case s.SellableDays < 14:
+				s.Status = "偏低"
+			case s.SellableDays > 90:
+				s.Status = "积压"
+			default:
+				s.Status = "正常"
+			}
+			suggested = append(suggested, s)
+		}
+		sRows.Close()
+	}
+
+	// 按 suggestedQty 倒序
+	for i := 0; i < len(suggested); i++ {
+		for j := i + 1; j < len(suggested); j++ {
+			if suggested[j].SuggestedQty > suggested[i].SuggestedQty {
+				suggested[i], suggested[j] = suggested[j], suggested[i]
+			}
+		}
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"kpis":         kpi,
+		"monthlyTrend": monthlyTrend,
+		"topVendors":   topVendors,
+		"suggested":    suggested,
+		"params": map[string]interface{}{
+			"finishedGoodsTargetDays":  45,
+			"materialTargetDays":       90,
+			"urgentThresholdDays":      7,
+			"lowThresholdDays":         14,
+			"overstockThresholdDays":   90,
+		},
+	})
+}
+
+// 防止 sync 未引用警告 (sync, time 已在文件其他地方用)
+var _ = sync.Mutex{}
+var _ = time.Now

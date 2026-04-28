@@ -144,6 +144,7 @@ export const menuDefinitions: MenuDefinition[] = [
     permission: 'supply_chain:view',
     children: [
       { key: '/supply-chain/plan-dashboard', icon: <DashboardOutlined />, label: '计划看板', permission: 'supply_chain.plan_dashboard:view' },
+      { key: '/supply-chain/purchase-plan', icon: <ShoppingCartOutlined />, label: '采购计划', permission: 'supply_chain.plan_dashboard:view' },
       { key: '/supply-chain/inventory-warning', icon: <AlertOutlined />, label: '库存预警', permission: 'supply_chain.inventory_warning:view' },
       { key: '/supply-chain/logistics-analysis', icon: <CarOutlined />, label: '快递仓储分析', permission: 'supply_chain.logistics_analysis:view' },
       { key: '/supply-chain/daily-alerts', icon: <WarningOutlined />, label: '每日预警', permission: 'supply_chain.daily_alerts:view' },
@@ -204,6 +205,7 @@ export const pageTitleMap: Record<string, string> = {
   '/customer/overview': '客服总览',
   '/supply-chain': '供应链管理',
   '/supply-chain/plan-dashboard': '计划看板',
+  '/supply-chain/purchase-plan': '采购计划',
   '/supply-chain/inventory-warning': '库存预警',
   '/supply-chain/logistics-analysis': '快递仓储分析',
   '/supply-chain/daily-alerts': '每日预警',
@@ -266,6 +268,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/finance/expense-control', permission: 'finance.expense:view' },
   { path: '/customer/overview', permission: 'customer.overview:view' },
   { path: '/supply-chain/plan-dashboard', permission: 'supply_chain.plan_dashboard:view' },
+  { path: '/supply-chain/purchase-plan', permission: 'supply_chain.plan_dashboard:view' },
   { path: '/supply-chain/inventory-warning', permission: 'supply_chain.inventory_warning:view' },
   { path: '/supply-chain/logistics-analysis', permission: 'supply_chain.logistics_analysis:view' },
   { path: '/supply-chain/daily-alerts', permission: 'supply_chain.daily_alerts:view' },

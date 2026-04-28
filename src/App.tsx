@@ -43,6 +43,7 @@ const FinanceReport = lazy(() => import('./pages/finance/Report'));
 const CustomerOverview = lazy(() => import('./pages/customer/Overview'));
 const InventoryWarning = lazy(() => import('./pages/supply-chain/InventoryWarning'));
 const PlanDashboard = lazy(() => import('./pages/supply-chain/PlanDashboard'));
+const PurchasePlan = lazy(() => import('./pages/supply-chain/PurchasePlan'));
 const LogisticsAnalysis = lazy(() => import('./pages/supply-chain/LogisticsAnalysis'));
 const DailyAlerts = lazy(() => import('./pages/supply-chain/DailyAlerts'));
 const MonthlyBilling = lazy(() => import('./pages/supply-chain/MonthlyBilling'));
@@ -156,6 +157,7 @@ const App: React.FC = () => (
 
               <Route path="/supply-chain/inventory-warning" element={guard('supply_chain.inventory_warning:view', <InventoryWarning />)} />
               <Route path="/supply-chain/plan-dashboard" element={guard('supply_chain.plan_dashboard:view', <PlanDashboard />)} />
+              <Route path="/supply-chain/purchase-plan" element={guard('supply_chain.plan_dashboard:view', <PurchasePlan />)} />
               <Route path="/supply-chain/logistics-analysis" element={guard('supply_chain.logistics_analysis:view', <LogisticsAnalysis />)} />
               <Route path="/supply-chain/daily-alerts" element={guard('supply_chain.daily_alerts:view', <DailyAlerts />)} />
               <Route path="/supply-chain/monthly-billing" element={guard('supply_chain.monthly_billing:view', <MonthlyBilling />)} />
