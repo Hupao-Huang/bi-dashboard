@@ -87,6 +87,9 @@ func main() {
 	if err := ensurePDDCustomerTables(db); err != nil {
 		log.Fatalf("初始化拼多多客服表失败: %v", err)
 	}
+	if err := ensurePDDCampaignVideoTables(db); err != nil {
+		log.Fatalf("初始化拼多多商品推广/视频表失败: %v", err)
+	}
 
 	startDate, endDate := "", ""
 	if len(os.Args) >= 3 {
@@ -150,6 +153,8 @@ func main() {
 					case strings.Contains(name, "商品推广") && strings.HasSuffix(name, ".xlsx"):
 						cnt, _ = importCampaign(db, fpath, sqlDate, shopName, "商品推广")
 						total["campaign"] += cnt
+						gCnt, _ := importCampaignGoods(db, fpath, sqlDate, shopName)
+						total["campaign_goods"] += gCnt
 					case strings.Contains(name, "明星店铺") && strings.HasSuffix(name, ".xlsx"):
 						cnt, _ = importCampaign(db, fpath, sqlDate, shopName, "明星店铺")
 						total["campaign"] += cnt
@@ -228,6 +233,103 @@ func ensurePDDCustomerTables(db *sql.DB) error {
 			UNIQUE KEY uk_stat_shop (stat_date, shop_name),
 			KEY idx_shop_date (shop_name, stat_date)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensurePDDCampaignVideoTables 创建拼多多商品推广SKU级日数据表 + 多多视频日数据表
+// 表结构来自实际生产 SHOW CREATE TABLE，含完整中文 COMMENT + UK + 索引
+func ensurePDDCampaignVideoTables(db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS op_pdd_campaign_goods_daily (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			stat_date DATE NOT NULL COMMENT '业务日期(读Excel日期列,fallback文件名)',
+			shop_name VARCHAR(128) NOT NULL COMMENT '店铺名',
+			goods_id VARCHAR(64) NOT NULL COMMENT '商品ID',
+			goods_name VARCHAR(500) DEFAULT NULL COMMENT '商品名称',
+			promo_scene VARCHAR(64) NOT NULL DEFAULT '' COMMENT '推广场景(稳定成本推广/标准推广等)',
+			promo_name VARCHAR(500) DEFAULT NULL COMMENT '推广计划名称',
+			bid_method VARCHAR(128) DEFAULT NULL COMMENT '出价方式(目标投产比/目标成交花费等)',
+			group_name VARCHAR(128) DEFAULT NULL COMMENT '分组',
+			is_deleted VARCHAR(16) DEFAULT NULL COMMENT '是否已删除',
+			cost_pay DECIMAL(14,2) DEFAULT 0.00 COMMENT '成交花费(元)',
+			pay_amount DECIMAL(14,2) DEFAULT 0.00 COMMENT '交易额(元)',
+			roi DECIMAL(10,4) DEFAULT 0.0000 COMMENT '实际投产比',
+			cost_total DECIMAL(14,2) DEFAULT 0.00 COMMENT '总花费(元)',
+			net_pay_amount DECIMAL(14,2) DEFAULT 0.00 COMMENT '净交易额(元)',
+			net_roi DECIMAL(10,4) DEFAULT 0.0000 COMMENT '净实际投产比',
+			net_pay_orders INT DEFAULT 0 COMMENT '净成交笔数',
+			net_pay_cost_per_order DECIMAL(10,4) DEFAULT 0.0000 COMMENT '每笔净成交花费(元)',
+			net_pay_amount_ratio DECIMAL(8,4) DEFAULT NULL COMMENT '净交易额占比',
+			net_pay_orders_ratio DECIMAL(8,4) DEFAULT NULL COMMENT '净成交笔数占比',
+			net_pay_amount_per_order DECIMAL(14,4) DEFAULT 0.0000 COMMENT '每笔净成交金额(元)',
+			settle_pay_amount DECIMAL(14,2) DEFAULT 0.00 COMMENT '结算交易额(元)',
+			settle_roi DECIMAL(10,4) DEFAULT 0.0000 COMMENT '结算投产比',
+			settle_pay_orders INT DEFAULT 0 COMMENT '结算成交笔数',
+			refund_exempt_rate DECIMAL(8,4) DEFAULT NULL COMMENT '退款豁免率',
+			cancel_exempt_rate DECIMAL(8,4) DEFAULT NULL COMMENT '退单豁免率',
+			settle_cost_per_order DECIMAL(10,4) DEFAULT 0.0000 COMMENT '每笔结算成交花费(元)',
+			settle_pay_amount_rate DECIMAL(8,4) DEFAULT NULL COMMENT '交易额结算率',
+			settle_pay_orders_rate DECIMAL(8,4) DEFAULT NULL COMMENT '订单结算率',
+			settle_pay_amount_per_order DECIMAL(14,4) DEFAULT 0.0000 COMMENT '每笔结算成交金额(元)',
+			pay_orders INT DEFAULT 0 COMMENT '成交笔数',
+			cost_per_order DECIMAL(10,4) DEFAULT 0.0000 COMMENT '每笔成交花费(元)',
+			pay_amount_per_order DECIMAL(14,4) DEFAULT 0.0000 COMMENT '每笔成交金额(元)',
+			direct_pay_amount DECIMAL(14,2) DEFAULT 0.00 COMMENT '直接交易额(元)',
+			indirect_pay_amount DECIMAL(14,2) DEFAULT 0.00 COMMENT '间接交易额(元)',
+			direct_pay_orders INT DEFAULT 0 COMMENT '直接成交笔数',
+			indirect_pay_orders INT DEFAULT 0 COMMENT '间接成交笔数',
+			impressions BIGINT DEFAULT 0 COMMENT '曝光量',
+			clicks INT DEFAULT 0 COMMENT '点击量',
+			inquiry_cost DECIMAL(14,2) DEFAULT 0.00 COMMENT '询单花费(元)',
+			inquiry_count INT DEFAULT 0 COMMENT '询单量',
+			inquiry_avg_cost DECIMAL(10,4) DEFAULT 0.0000 COMMENT '平均询单成本(元)',
+			collect_cost DECIMAL(14,2) DEFAULT 0.00 COMMENT '收藏花费(元)',
+			collect_count INT DEFAULT 0 COMMENT '收藏量',
+			collect_avg_cost DECIMAL(10,4) DEFAULT 0.0000 COMMENT '平均收藏成本(元)',
+			follow_cost DECIMAL(14,2) DEFAULT 0.00 COMMENT '关注花费(元)',
+			follow_count INT DEFAULT 0 COMMENT '关注量',
+			follow_avg_cost DECIMAL(10,4) DEFAULT 0.0000 COMMENT '平均关注成本(元)',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			UNIQUE KEY uk_date_shop_goods_scene (stat_date, shop_name, goods_id, promo_scene),
+			KEY idx_stat_date (stat_date),
+			KEY idx_shop_goods (shop_name, goods_id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='拼多多商品推广SKU级日数据'`,
+		`CREATE TABLE IF NOT EXISTS op_pdd_video_daily (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			stat_date DATE NOT NULL COMMENT '统计日期',
+			shop_name VARCHAR(100) NOT NULL COMMENT '店铺名称',
+			total_gmv DECIMAL(14,2) DEFAULT 0.00 COMMENT '总GMV',
+			order_count INT DEFAULT 0 COMMENT '订单数',
+			order_uv INT DEFAULT 0 COMMENT '下单用户数',
+			feed_count INT DEFAULT 0 COMMENT '作品数',
+			video_view_cnt INT DEFAULT 0 COMMENT '视频播放量',
+			goods_click_cnt INT DEFAULT 0 COMMENT '商品点击数',
+			has_explain_goods_total INT DEFAULT NULL COMMENT '有讲解的商品数',
+			un_open_window_goods_total INT DEFAULT NULL COMMENT '未开通橱窗的商品数',
+			explain_cover_rate DECIMAL(8,4) DEFAULT NULL COMMENT '讲解覆盖率(=有讲解商品/总商品)',
+			total_gmv_rate DECIMAL(10,4) DEFAULT NULL COMMENT 'GMV环比变化率',
+			order_count_rate DECIMAL(10,4) DEFAULT NULL COMMENT '订单数环比变化率',
+			order_uv_rate DECIMAL(10,4) DEFAULT NULL COMMENT '买家数环比变化率',
+			feed_count_rate DECIMAL(10,4) DEFAULT NULL COMMENT '视频条数环比变化率',
+			video_view_cnt_rate DECIMAL(10,4) DEFAULT NULL COMMENT '视频播放数环比变化率',
+			goods_click_cnt_growth_rate DECIMAL(10,4) DEFAULT NULL COMMENT '商品点击数环比变化率',
+			has_explain_goods_total_growth_rate DECIMAL(10,4) DEFAULT NULL COMMENT '讲解商品数环比变化率',
+			un_open_window_goods_growth_total DECIMAL(10,4) DEFAULT NULL COMMENT '未开橱窗商品数环比变化率',
+			explain_cover_growth_rate DECIMAL(10,4) DEFAULT NULL COMMENT '讲解覆盖率环比变化',
+			use_flow_card_cnt INT DEFAULT NULL COMMENT '已使用流量卡数量',
+			obtain_flow_card_cnt INT DEFAULT NULL COMMENT '已获得流量卡数量',
+			usable_flow_card_cnt INT DEFAULT NULL COMMENT '可用流量卡数量',
+			own_top_goods JSON DEFAULT NULL COMMENT '自营热销商品Top列表(原始JSON数组)',
+			other_top_goods JSON DEFAULT NULL COMMENT '其他热销商品Top列表(原始JSON数组)',
+			UNIQUE KEY uk_date_shop (stat_date, shop_name)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='拼多多多多视频日数据'`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
@@ -584,6 +686,169 @@ func importCampaign(db *sql.DB, fpath, date, shop, promoType string) (int, error
 	return 1, nil
 }
 
+// importCampaignGoods 读拼多多"商品推广.xlsx"的第二个 sheet（商品_分天数据_xxx），
+// 按表头名映射写入 op_pdd_campaign_goods_daily。每行 = 一个 (商品ID × 推广场景) 当日数据。
+// 仅商品推广文件有此 sheet；明星店铺/直播推广跳过。
+func importCampaignGoods(db *sql.DB, fpath, date, shop string) (int, error) {
+	f, err := excelize.OpenFile(fpath)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	// 找以 "商品_" 开头的 sheet
+	var goodsSheet string
+	for _, name := range f.GetSheetList() {
+		if strings.HasPrefix(name, "商品_") {
+			goodsSheet = name
+			break
+		}
+	}
+	if goodsSheet == "" {
+		return 0, nil // 无商品 sheet（可能是其他推广文件）
+	}
+
+	rows, _ := f.GetRows(goodsSheet)
+	if len(rows) < 2 {
+		return 0, nil
+	}
+	header := rows[0]
+	idx := headerIdx(header)
+
+	colDate := findCol(idx, "日期", "时间", "统计日期")
+	colGoodsID := findCol(idx, "商品ID")
+	if colGoodsID < 0 {
+		return 0, fmt.Errorf("商品 sheet 表头缺少'商品ID'列: %v", header)
+	}
+
+	count := 0
+	for ri := 1; ri < len(rows); ri++ {
+		d := rows[ri]
+		if len(d) <= colGoodsID {
+			continue
+		}
+		goodsID := strings.TrimSpace(d[colGoodsID])
+		if goodsID == "" || goodsID == "-" || goodsID == "总计" {
+			continue
+		}
+
+		// 业务日期优先 Excel，fallback 文件名
+		statDate := date
+		if colDate >= 0 && colDate < len(d) {
+			if pd := parseExcelDate(d[colDate]); pd != "" {
+				statDate = pd
+			}
+		}
+
+		_, err = db.Exec(`INSERT INTO op_pdd_campaign_goods_daily
+			(stat_date, shop_name, goods_id, goods_name, promo_scene, promo_name, bid_method, group_name, is_deleted,
+			 cost_pay, pay_amount, roi, cost_total, net_pay_amount, net_roi, net_pay_orders, net_pay_cost_per_order,
+			 net_pay_amount_ratio, net_pay_orders_ratio, net_pay_amount_per_order,
+			 settle_pay_amount, settle_roi, settle_pay_orders, refund_exempt_rate, cancel_exempt_rate,
+			 settle_cost_per_order, settle_pay_amount_rate, settle_pay_orders_rate, settle_pay_amount_per_order,
+			 pay_orders, cost_per_order, pay_amount_per_order,
+			 direct_pay_amount, indirect_pay_amount, direct_pay_orders, indirect_pay_orders,
+			 impressions, clicks,
+			 inquiry_cost, inquiry_count, inquiry_avg_cost,
+			 collect_cost, collect_count, collect_avg_cost,
+			 follow_cost, follow_count, follow_avg_cost)
+			VALUES (?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?,?, ?,?,?, ?,?,?,?, ?,?, ?,?,?, ?,?,?, ?,?,?)
+			ON DUPLICATE KEY UPDATE
+			 goods_name=VALUES(goods_name), promo_name=VALUES(promo_name), bid_method=VALUES(bid_method),
+			 group_name=VALUES(group_name), is_deleted=VALUES(is_deleted),
+			 cost_pay=VALUES(cost_pay), pay_amount=VALUES(pay_amount), roi=VALUES(roi),
+			 cost_total=VALUES(cost_total), net_pay_amount=VALUES(net_pay_amount), net_roi=VALUES(net_roi),
+			 net_pay_orders=VALUES(net_pay_orders), net_pay_cost_per_order=VALUES(net_pay_cost_per_order),
+			 net_pay_amount_ratio=VALUES(net_pay_amount_ratio), net_pay_orders_ratio=VALUES(net_pay_orders_ratio),
+			 net_pay_amount_per_order=VALUES(net_pay_amount_per_order),
+			 settle_pay_amount=VALUES(settle_pay_amount), settle_roi=VALUES(settle_roi), settle_pay_orders=VALUES(settle_pay_orders),
+			 refund_exempt_rate=VALUES(refund_exempt_rate), cancel_exempt_rate=VALUES(cancel_exempt_rate),
+			 settle_cost_per_order=VALUES(settle_cost_per_order), settle_pay_amount_rate=VALUES(settle_pay_amount_rate),
+			 settle_pay_orders_rate=VALUES(settle_pay_orders_rate), settle_pay_amount_per_order=VALUES(settle_pay_amount_per_order),
+			 pay_orders=VALUES(pay_orders), cost_per_order=VALUES(cost_per_order), pay_amount_per_order=VALUES(pay_amount_per_order),
+			 direct_pay_amount=VALUES(direct_pay_amount), indirect_pay_amount=VALUES(indirect_pay_amount),
+			 direct_pay_orders=VALUES(direct_pay_orders), indirect_pay_orders=VALUES(indirect_pay_orders),
+			 impressions=VALUES(impressions), clicks=VALUES(clicks),
+			 inquiry_cost=VALUES(inquiry_cost), inquiry_count=VALUES(inquiry_count), inquiry_avg_cost=VALUES(inquiry_avg_cost),
+			 collect_cost=VALUES(collect_cost), collect_count=VALUES(collect_count), collect_avg_cost=VALUES(collect_avg_cost),
+			 follow_cost=VALUES(follow_cost), follow_count=VALUES(follow_count), follow_avg_cost=VALUES(follow_avg_cost)`,
+			statDate, shop, goodsID,
+			toSS(d, findCol(idx, "商品名称")),
+			toSS(d, findCol(idx, "推广场景")),
+			toSS(d, findCol(idx, "推广名称")),
+			toSS(d, findCol(idx, "出价方式")),
+			toSS(d, findCol(idx, "分组")),
+			toSS(d, findCol(idx, "是否已删除")),
+			getFloat(d, findCol(idx, "成交花费(元)", "成交花费")),
+			getFloat(d, findCol(idx, "交易额(元)")),
+			getFloat(d, findCol(idx, "实际投产比")),
+			getFloat(d, findCol(idx, "总花费(元)", "总花费")),
+			getFloat(d, findCol(idx, "净交易额(元)")),
+			getFloat(d, findCol(idx, "净实际投产比")),
+			getInt(d, findCol(idx, "净成交笔数")),
+			getFloat(d, findCol(idx, "每笔净成交花费(元)")),
+			getPctFloat(d, findCol(idx, "净交易额占比")),
+			getPctFloat(d, findCol(idx, "净成交笔数占比")),
+			getFloat(d, findCol(idx, "每笔净成交金额(元)")),
+			getFloat(d, findCol(idx, "结算交易额(元)")),
+			getFloat(d, findCol(idx, "结算投产比")),
+			getInt(d, findCol(idx, "结算成交笔数")),
+			getPctFloat(d, findCol(idx, "退款豁免率")),
+			getPctFloat(d, findCol(idx, "退单豁免率")),
+			getFloat(d, findCol(idx, "每笔结算成交花费(元)")),
+			getPctFloat(d, findCol(idx, "交易额结算率")),
+			getPctFloat(d, findCol(idx, "订单结算率")),
+			getFloat(d, findCol(idx, "每笔结算成交金额(元)")),
+			getInt(d, findCol(idx, "成交笔数")),
+			getFloat(d, findCol(idx, "每笔成交花费(元)")),
+			getFloat(d, findCol(idx, "每笔成交金额(元)")),
+			getFloat(d, findCol(idx, "直接交易额(元)")),
+			getFloat(d, findCol(idx, "间接交易额(元)")),
+			getInt(d, findCol(idx, "直接成交笔数")),
+			getInt(d, findCol(idx, "间接成交笔数")),
+			getInt(d, findCol(idx, "曝光量")),
+			getInt(d, findCol(idx, "点击量")),
+			getFloat(d, findCol(idx, "询单花费(元)")),
+			getInt(d, findCol(idx, "询单量")),
+			getFloat(d, findCol(idx, "平均询单成本(元)")),
+			getFloat(d, findCol(idx, "收藏花费(元)")),
+			getInt(d, findCol(idx, "收藏量")),
+			getFloat(d, findCol(idx, "平均收藏成本(元)")),
+			getFloat(d, findCol(idx, "关注花费(元)")),
+			getInt(d, findCol(idx, "关注量")),
+			getFloat(d, findCol(idx, "平均关注成本(元)")),
+		)
+		if err != nil {
+			log.Printf("写入商品级失败 [%s/%s]: %v", goodsID, shop, err)
+			continue
+		}
+		count++
+	}
+	return count, nil
+}
+
+// getPctFloat 解析百分比字符串："83.33%" → 0.8333；"-" / "" → 0
+func getPctFloat(d []string, i int) interface{} {
+	if i < 0 || i >= len(d) {
+		return nil
+	}
+	s := strings.TrimSpace(d[i])
+	if s == "" || s == "-" {
+		return nil
+	}
+	hasPct := strings.HasSuffix(s, "%")
+	s = strings.TrimSuffix(s, "%")
+	s = strings.ReplaceAll(s, ",", "")
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil
+	}
+	if hasPct {
+		return v / 100
+	}
+	return v
+}
+
 // headerIdx/findCol/getInt/getFloat/getStr - 通用按表头名映射 helper
 func headerIdx(header []string) map[string]int {
 	m := make(map[string]int, len(header))
@@ -636,26 +901,130 @@ func importVideo(db *sql.DB, fpath, date, shop string) (int, error) {
 	}
 	var resp struct {
 		Result struct {
-			TotalGMV     string `json:"totalGMV"`
-			OrderCount   string `json:"orderCount"`
-			OrderUV      string `json:"orderUV"`
-			FeedCount    string `json:"feedCount"`
-			VideoViewCnt string `json:"videoViewCnt"`
-			GoodsClkCnt  string `json:"goodsClkCnt"`
+			TotalGMV                       string          `json:"totalGMV"`
+			OrderCount                     string          `json:"orderCount"`
+			OrderUV                        string          `json:"orderUV"`
+			FeedCount                      string          `json:"feedCount"`
+			VideoViewCnt                   string          `json:"videoViewCnt"`
+			GoodsClkCnt                    string          `json:"goodsClkCnt"`
+			HasExplainGoodsTotal           string          `json:"hasExplainGoodsTotal"`
+			UnOpenWindowGoodsTotal         string          `json:"unOpenWindowGoodsTotal"`
+			ExplainCoverRate               string          `json:"explainCoverRate"`
+			TotalGMVRate                   *float64        `json:"totalGMVRate"`
+			OrderCountRate                 *float64        `json:"orderCountRate"`
+			OrderUVRate                    *float64        `json:"orderUVRate"`
+			FeedCountRate                  *float64        `json:"feedCountRate"`
+			VideoViewCntRate               *float64        `json:"videoViewCntRate"`
+			GoodsClkCntGrowthRate          *float64        `json:"goodsClkCntGrowthRate"`
+			HasExplainGoodsTotalGrowthRate *float64        `json:"hasExplainGoodsTotalGrowthRate"`
+			UnOpenWindowGoodsGrowthTotal   *float64        `json:"unOpenWindowGoodsGrowthTotal"`
+			ExplainCoverGrowthRate         *float64        `json:"explainCoverGrowthRate"`
+			UseFlowCardCnt                 *int            `json:"useFlowCardCnt"`
+			ObtainFlowCardCnt              *int            `json:"obtainFlowCardCnt"`
+			UsableFlowCardCnt              *int            `json:"usableFlowCardCnt"`
+			OwnTopGoods                    json.RawMessage `json:"ownTopGoods"`
+			OtherTopGoods                  json.RawMessage `json:"otherTopGoods"`
+			StartPt                        string          `json:"startPt"`
 		} `json:"result"`
 	}
 	json.Unmarshal(data, &resp)
 	r := resp.Result
+
+	// 优先用 json 里的 startPt（业务日期），否则用 date（文件名日期）作为 fallback
+	actualDate := date
+	if r.StartPt != "" {
+		actualDate = r.StartPt
+	}
+
+	// 讲解覆盖率 "83.33%" → 0.8333
+	explainCoverRate := pctToFraction(r.ExplainCoverRate)
+
+	// nullable helper
+	nz := func(p *float64) interface{} {
+		if p == nil {
+			return nil
+		}
+		return *p
+	}
+	nzi := func(p *int) interface{} {
+		if p == nil {
+			return nil
+		}
+		return *p
+	}
+	nzj := func(b json.RawMessage) interface{} {
+		if len(b) == 0 || string(b) == "null" {
+			return nil
+		}
+		return string(b)
+	}
+	nzs := func(s string) interface{} {
+		s = strings.TrimSpace(s)
+		if s == "" || s == "-" {
+			return nil
+		}
+		return toIS(s)
+	}
+	nzPct := func(s string) interface{} {
+		s = strings.TrimSpace(s)
+		if s == "" || s == "-" {
+			return nil
+		}
+		return explainCoverRate
+	}
+	_ = nzPct // 仅保留 explain_cover_rate 一处用，下方直接传 explainCoverRate
+
 	_, err = db.Exec(`INSERT INTO op_pdd_video_daily
-		(stat_date, shop_name, total_gmv, order_count, order_uv, feed_count, video_view_cnt, goods_click_cnt)
-		VALUES (?,?,?,?,?,?,?,?)
-		ON DUPLICATE KEY UPDATE total_gmv=VALUES(total_gmv)`,
-		date, shop, toFS(r.TotalGMV), toIS(r.OrderCount), toIS(r.OrderUV),
-		toIS(r.FeedCount), toIS(r.VideoViewCnt), toIS(r.GoodsClkCnt))
+		(stat_date, shop_name, total_gmv, order_count, order_uv, feed_count, video_view_cnt, goods_click_cnt,
+		 has_explain_goods_total, un_open_window_goods_total, explain_cover_rate,
+		 total_gmv_rate, order_count_rate, order_uv_rate, feed_count_rate, video_view_cnt_rate,
+		 goods_click_cnt_growth_rate, has_explain_goods_total_growth_rate, un_open_window_goods_growth_total, explain_cover_growth_rate,
+		 use_flow_card_cnt, obtain_flow_card_cnt, usable_flow_card_cnt,
+		 own_top_goods, other_top_goods)
+		VALUES (?,?,?,?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?,?, ?,?,?, ?,?)
+		ON DUPLICATE KEY UPDATE
+		 total_gmv=VALUES(total_gmv), order_count=VALUES(order_count), order_uv=VALUES(order_uv),
+		 feed_count=VALUES(feed_count), video_view_cnt=VALUES(video_view_cnt), goods_click_cnt=VALUES(goods_click_cnt),
+		 has_explain_goods_total=VALUES(has_explain_goods_total), un_open_window_goods_total=VALUES(un_open_window_goods_total),
+		 explain_cover_rate=VALUES(explain_cover_rate),
+		 total_gmv_rate=VALUES(total_gmv_rate), order_count_rate=VALUES(order_count_rate), order_uv_rate=VALUES(order_uv_rate),
+		 feed_count_rate=VALUES(feed_count_rate), video_view_cnt_rate=VALUES(video_view_cnt_rate),
+		 goods_click_cnt_growth_rate=VALUES(goods_click_cnt_growth_rate),
+		 has_explain_goods_total_growth_rate=VALUES(has_explain_goods_total_growth_rate),
+		 un_open_window_goods_growth_total=VALUES(un_open_window_goods_growth_total),
+		 explain_cover_growth_rate=VALUES(explain_cover_growth_rate),
+		 use_flow_card_cnt=VALUES(use_flow_card_cnt), obtain_flow_card_cnt=VALUES(obtain_flow_card_cnt), usable_flow_card_cnt=VALUES(usable_flow_card_cnt),
+		 own_top_goods=VALUES(own_top_goods), other_top_goods=VALUES(other_top_goods)`,
+		actualDate, shop, toFS(r.TotalGMV), toIS(r.OrderCount), toIS(r.OrderUV),
+		toIS(r.FeedCount), toIS(r.VideoViewCnt), toIS(r.GoodsClkCnt),
+		nzs(r.HasExplainGoodsTotal), nzs(r.UnOpenWindowGoodsTotal), explainCoverRate,
+		nz(r.TotalGMVRate), nz(r.OrderCountRate), nz(r.OrderUVRate), nz(r.FeedCountRate), nz(r.VideoViewCntRate),
+		nz(r.GoodsClkCntGrowthRate), nz(r.HasExplainGoodsTotalGrowthRate), nz(r.UnOpenWindowGoodsGrowthTotal), nz(r.ExplainCoverGrowthRate),
+		nzi(r.UseFlowCardCnt), nzi(r.ObtainFlowCardCnt), nzi(r.UsableFlowCardCnt),
+		nzj(r.OwnTopGoods), nzj(r.OtherTopGoods))
 	if err != nil {
 		return 0, err
 	}
 	return 1, nil
+}
+
+// pctToFraction "83.33%" → 0.8333；"" / "-" / null → nil（用于 SQL）
+func pctToFraction(s string) interface{} {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "-" {
+		return nil
+	}
+	hasPct := strings.HasSuffix(s, "%")
+	s = strings.TrimSuffix(s, "%")
+	s = strings.ReplaceAll(s, ",", "")
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil
+	}
+	if hasPct {
+		return v / 100
+	}
+	return v
 }
 
 func toF(d []string, i int) float64 {
