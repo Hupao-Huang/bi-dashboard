@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, Select, Input, Tag } from 'antd';
+import { Row, Col, Card, Table, Select, Input, Tag, Button, message, Tooltip } from 'antd';
 import {
   StopOutlined,
   AlertOutlined,
   ExclamationCircleOutlined,
   InboxOutlined,
   PauseCircleOutlined,
+  InfoCircleOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
@@ -23,6 +25,8 @@ interface StockChild {
 interface StockItem {
   goodsNo: string;
   goodsName: string;
+  category?: string;
+  position?: string;
   warehouse?: string;
   usableQty: number;
   sellableDays: number;
@@ -72,6 +76,12 @@ const InventoryWarning: React.FC = () => {
   const [filter, setFilter] = useState('all');
   const [warehouse, setWarehouse] = useState('');
   const [keyword, setKeyword] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncInfo, setSyncInfo] = useState<{ lastFinishedAt?: string; lastElapsedSec?: number; lastError?: string; elapsedSec?: number; startedAt?: string }>({});
+  const pollRef = useRef<number | null>(null);
+  const tickRef = useRef<number | null>(null);
+  const wasRunningRef = useRef(false);
+  const [, forceTick] = useState(0); // 仅用于 syncing 时每秒触发重渲染
 
   const fetchData = useCallback((w: string, f: string, kw: string) => {
     abortRef.current?.abort();
@@ -97,6 +107,125 @@ const InventoryWarning: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchData(warehouse, filter, keyword); }, [fetchData, warehouse, filter, keyword]);
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const checkSyncStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/stock/sync-status`, { credentials: 'include' });
+      const json = await res.json();
+      if (json.code !== 200) return;
+      const data = json.data || {};
+      setSyncInfo({
+        lastFinishedAt: data.lastFinishedAt,
+        lastElapsedSec: data.lastElapsedSec,
+        lastError: data.lastError,
+        elapsedSec: data.elapsedSec,
+        startedAt: data.startedAt,
+      });
+      if (data.running) {
+        setSyncing(true);
+        wasRunningRef.current = true;
+        if (!pollRef.current) {
+          pollRef.current = window.setInterval(() => { checkSyncStatus(); }, 10000);
+        }
+      } else {
+        setSyncing(false);
+        if (wasRunningRef.current) {
+          // 从同步中 → 已完成：自动刷新表格 + 提示
+          wasRunningRef.current = false;
+          stopPolling();
+          if (data.lastError) {
+            message.error(`同步失败：${data.lastError}`);
+          } else {
+            message.success(`✓ 实时库存已同步（耗时 ${data.lastElapsedSec || 0}s），表格已刷新`);
+          }
+          fetchData(warehouse, filter, keyword);
+        }
+      }
+    } catch {
+      // ignore，下次轮询继续
+    }
+  }, [fetchData, warehouse, filter, keyword]);
+
+  // 进页面查一次状态：如果发现服务端正在跑同步，自动锁住按钮 + 启动轮询
+  useEffect(() => {
+    checkSyncStatus();
+    return () => stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 同步中本地 tick：每秒重渲染让"已 Xs"实时跳动（不依赖 10 秒轮询）
+  useEffect(() => {
+    if (!syncing) {
+      if (tickRef.current) {
+        window.clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
+      return;
+    }
+    tickRef.current = window.setInterval(() => forceTick((x) => x + 1), 1000);
+    return () => {
+      if (tickRef.current) {
+        window.clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
+    };
+  }, [syncing]);
+
+  // 实时已耗时秒数：优先用 startedAt 算（每秒跳），fallback 后端返回的 elapsedSec
+  const liveElapsedSec = (() => {
+    if (syncing && syncInfo.startedAt) {
+      const ms = Date.now() - new Date(syncInfo.startedAt).getTime();
+      return Math.max(0, Math.floor(ms / 1000));
+    }
+    return syncInfo.elapsedSec || 0;
+  })();
+
+  const handleSyncNow = () => {
+    setSyncing(true);
+    wasRunningRef.current = true;
+    message.info('已触发实时同步（约 2-3 分钟），可关闭页面，后台继续');
+    // fire-and-forget：触发后立即启动轮询，不等待 fetch 返回
+    fetch(`${API_BASE}/api/stock/sync-now`, { method: 'POST', credentials: 'include' })
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.code === 409) {
+          // 已有任务在跑（可能是定时任务）—— 仍然继续轮询
+          message.warning(json.msg || '已有同步任务在跑，正在跟踪进度');
+        } else if (json.code !== 200) {
+          message.error(json.msg || '触发失败');
+          setSyncing(false);
+          wasRunningRef.current = false;
+          stopPolling();
+        }
+        // code === 200：sync 完成，下一次轮询会拿到 running=false 触发刷新
+      })
+      .catch(() => {
+        // 网络中断不要紧，依赖轮询拿状态
+      });
+    // 立即启动轮询（更快感知完成）
+    stopPolling();
+    pollRef.current = window.setInterval(() => { checkSyncStatus(); }, 10000);
+    // 1 秒后再查一次（短延迟，让按钮立刻进入"同步中"状态显示已经几秒）
+    window.setTimeout(() => { checkSyncStatus(); }, 1000);
+  };
+
+  // 格式化"上次同步：X 分钟前"
+  const formatSyncAgo = (iso?: string) => {
+    if (!iso) return '';
+    const t = new Date(iso).getTime();
+    const ago = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (ago < 60) return `${ago} 秒前`;
+    if (ago < 3600) return `${Math.floor(ago / 60)} 分钟前`;
+    if (ago < 86400) return `${Math.floor(ago / 3600)} 小时前`;
+    return `${Math.floor(ago / 86400)} 天前`;
+  };
 
   const isAggMode = !warehouse; // 未选仓库时按商品聚合
 
@@ -157,7 +286,25 @@ const InventoryWarning: React.FC = () => {
       render: (_: any, r: StockItem) => getWarningTag(r.sellableDays, r.monthQty, r.currentQty || r.usableQty),
     },
     { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 120 },
-    { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 280, ellipsis: true },
+    { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 240, ellipsis: true },
+    {
+      title: '商品分类', dataIndex: 'category', key: 'category', width: 130, ellipsis: true,
+      filters: Array.from(new Set(items.map((i) => i.category).filter(Boolean))).map((c) => ({ text: c as string, value: c as string })),
+      onFilter: (val: any, r: StockItem) => r.category === val,
+      render: (v?: string) => v ? <span style={{ fontSize: 12 }}>{v}</span> : <span style={{ color: '#cbd5e1' }}>-</span>,
+    },
+    {
+      title: '产品定位', dataIndex: 'position', key: 'position', width: 90, align: 'center' as const,
+      filters: Array.from(new Set(items.map((i) => i.position).filter(Boolean))).map((p) => ({ text: p as string, value: p as string })),
+      onFilter: (val: any, r: StockItem) => r.position === val,
+      sorter: (a: StockItem, b: StockItem) => (a.position || 'Z').localeCompare(b.position || 'Z'),
+      render: (v?: string) => {
+        if (!v) return <span style={{ color: '#cbd5e1' }}>-</span>;
+        const colorMap: Record<string, string> = { S: '#7c3aed', A: '#1e40af', B: '#16a34a', C: '#f59e0b', D: '#94a3b8' };
+        const c = colorMap[v.toUpperCase()] || '#64748b';
+        return <Tag color={c} style={{ marginRight: 0, fontWeight: 600 }}>{v}</Tag>;
+      },
+    },
   ];
 
   if (!isAggMode) {
@@ -209,6 +356,34 @@ const InventoryWarning: React.FC = () => {
 
   return (
     <div>
+      {/* 数据来源 + 指标说明 */}
+      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#64748b', lineHeight: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <InfoCircleOutlined style={{ marginRight: 6, color: '#1e40af' }} />
+            <span style={{ color: '#1e293b', fontWeight: 600 }}>数据来源：</span>
+            南京委外成品仓、天津委外仓、西安仓库成品、松鲜鲜&大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共 7 个仓库）
+          </div>
+          {syncInfo.lastFinishedAt && (
+            <div style={{ whiteSpace: 'nowrap', color: syncInfo.lastError ? '#dc2626' : '#16a34a', fontSize: 11 }}>
+              {syncInfo.lastError ? '⚠ 上次同步失败' : '✓ 上次同步'}：{formatSyncAgo(syncInfo.lastFinishedAt)}
+              {!syncInfo.lastError && syncInfo.lastElapsedSec ? `（耗时 ${syncInfo.lastElapsedSec}s）` : ''}
+            </div>
+          )}
+        </div>
+        <div style={{ marginTop: 4 }}>
+          <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 20 }}>核心公式：</span>
+          可用库存 = 当前库存 − 锁定库存；&nbsp;&nbsp;日均销量 = 近 30 天销量 ÷ 30；&nbsp;&nbsp;可售天数 = 可用库存 ÷ 日均销量
+        </div>
+        <div style={{ marginTop: 4, marginLeft: 20 }}>
+          <span style={{ color: '#ef4444', fontWeight: 600 }}>断货</span>：可用库存 ≤ 0 且近 30 天有销量&nbsp;&nbsp;|&nbsp;&nbsp;
+          <span style={{ color: '#ea580c', fontWeight: 600 }}>即将断货</span>：可售天数 &lt; 7 天&nbsp;&nbsp;|&nbsp;&nbsp;
+          <span style={{ color: '#f59e0b', fontWeight: 600 }}>库存偏低</span>：可售天数 7–14 天&nbsp;&nbsp;|&nbsp;&nbsp;
+          <span style={{ color: '#7c3aed', fontWeight: 600 }}>库存积压</span>：可售天数 &gt; 90 天&nbsp;&nbsp;|&nbsp;&nbsp;
+          <span style={{ color: '#94a3b8', fontWeight: 600 }}>滞销品</span>：近 30 天零销量 且当前库存 &gt; 0
+        </div>
+      </div>
+
       {/* 预警统计卡片 */}
       <Row gutter={[12, 12]}>
         {statCards.map(card => (
@@ -273,6 +448,18 @@ const InventoryWarning: React.FC = () => {
             共 {items.length} {isAggMode ? '个商品' : '条记录'}
             {isAggMode && <span style={{ marginLeft: 8, color: '#b0b8c4' }}>点击行展开仓库明细</span>}
           </span>
+          <Tooltip title={syncing
+            ? `正在拉取吉客云全量库存（已 ${liveElapsedSec}s），约 2-3 分钟。可关闭页面，下次回来自动刷新。`
+            : '立即从吉客云拉取最新库存（全量 SKU，约 2-3 分钟）。定时任务每小时自动跑一次。'}>
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              loading={syncing}
+              onClick={handleSyncNow}
+            >
+              {syncing ? `同步中（${liveElapsedSec}s）` : '实时刷新'}
+            </Button>
+          </Tooltip>
         </div>
 
         <Table
@@ -283,7 +470,7 @@ const InventoryWarning: React.FC = () => {
             expandedRowRender,
             rowExpandable: (r) => !!(r.warehouses && r.warehouses.length > 0),
           } : undefined}
-          pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: ['50', '100', '200'], showTotal: t => `共 ${t} 条` }}
+          pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: ['50', '100', '200', '500'], showTotal: t => `共 ${t} 条` }}
           size="small"
           scroll={{ x: 900 }}
           loading={loading}

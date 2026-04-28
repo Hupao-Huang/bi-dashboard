@@ -49,6 +49,22 @@ func ClearOverviewCache() int {
 	return n
 }
 
+// ClearCacheByPrefix 精准清理：只删 key 以 prefix 开头的缓存条目
+// prefix 示例: "api|/api/stock/" 匹配所有 stock 相关接口（不影响别的模块）
+// WithCache 的 key 格式: "api|<path>?<query>|u:<uid>"
+func ClearCacheByPrefix(prefix string) int {
+	overviewCacheMu.Lock()
+	defer overviewCacheMu.Unlock()
+	n := 0
+	for k := range overviewCache {
+		if strings.HasPrefix(k, prefix) {
+			delete(overviewCache, k)
+			n++
+		}
+	}
+	return n
+}
+
 func getOverviewCache(key string) (map[string]interface{}, bool) {
 	now := time.Now()
 	overviewCacheMu.RLock()

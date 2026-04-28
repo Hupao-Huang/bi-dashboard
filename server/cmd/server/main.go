@@ -177,6 +177,8 @@ func main() {
 	mux.HandleFunc("/api/webhook/sync-status", corsHandler(h.SyncStatus))
 	mux.HandleFunc("/api/webhook/clear-cache", corsHandler(h.ClearCache))
 	mux.HandleFunc("/api/stock/warning", pageProtected("supply_chain.inventory_warning:view", cache5m(h.GetStockWarning)))
+	mux.HandleFunc("/api/stock/sync-now", pageProtected("supply_chain.inventory_warning:view", h.SyncStockNow))
+	mux.HandleFunc("/api/stock/sync-status", pageProtected("supply_chain.inventory_warning:view", h.SyncStockStatus))
 	mux.HandleFunc("/api/supply-chain/dashboard", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetSupplyChainDashboard)))
 	mux.HandleFunc("/api/supply-chain/monthly-trend", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetSupplyChainMonthlyTrend)))
 	mux.HandleFunc("/api/admin/tasks", adminRoles(h.GetTaskStatus))
