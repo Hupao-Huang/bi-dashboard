@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -306,11 +307,18 @@ type FinanceRow struct {
 type ParseResult struct {
 	Year             int             `json:"year"`
 	Departments      []string        `json:"departments"`
-	Rows             []FinanceRow    `json:"-"`
+	Rows             []FinanceRow    `json:"rows"`
 	UnmappedSubjects []UnmappedEntry `json:"unmappedSubjects"`
 	SheetCount       int             `json:"sheetCount"`
 	RowCount         int             `json:"rowCount"`
+	Mode             string          `json:"mode"` // "full" 全年覆盖 | "incremental" 按月精确替换
 }
+
+// ImportModeFull 累积版：按 (year, dept) 全删后重写，旧月份会被清理
+const ImportModeFull = "full"
+
+// ImportModeIncremental 增量版：只删除 Excel 里实际出现金额的 (year, dept, month)，未出现的月份保留旧值
+const ImportModeIncremental = "incremental"
 
 // ParseFile 解析 Excel 文件，返回结果（不写入数据库）
 func ParseFile(fpath string, year int, dict map[string]*DictEntry) (*ParseResult, error) {
@@ -450,6 +458,12 @@ func parseSheet(f *excelize.File, sheetName, dept string, year int, dict map[str
 			if l2Code == "GMV_TOTAL" || l2Code == "RETURN" || l2Code == "REV_TOTAL" {
 				parent = "GMV_GROUP"
 			}
+			// 兼容新格式：A3 直接是 "GMV合计"（旧格式 A3 是 "GMV数据" 分组标题）
+			// 新格式没有显式的 Level1 分组行，遇到 GMV_TOTAL 就补设 currentL1，
+			// 让后续 GMV 子项行能正确走 Level3 → GMV_SUB 分支
+			if l2Code == "GMV_TOTAL" {
+				currentL1 = "GMV_GROUP"
+			}
 		} else {
 			level = 3
 			if currentL1 == "GMV_GROUP" && (currentL2 == "" || currentL2 == "GMV_TOTAL") {
@@ -523,7 +537,22 @@ func parseSheet(f *excelize.File, sheetName, dept string, year int, dict map[str
 	return rows, nil
 }
 
-// WriteResult 写入数据库：DELETE 当年涉及渠道 + 批量 INSERT
+// CollectDeptMonths 从解析结果提取每个部门实际出现金额的月份集合（含 month=0 合计列）
+// 返回 map[department]map[month]bool
+func CollectDeptMonths(result *ParseResult) map[string]map[int]bool {
+	out := make(map[string]map[int]bool)
+	for _, r := range result.Rows {
+		if _, ok := out[r.Department]; !ok {
+			out[r.Department] = make(map[int]bool)
+		}
+		out[r.Department][r.Month] = true
+	}
+	return out
+}
+
+// WriteResult 写入数据库：根据 result.Mode 决定 DELETE 范围
+//   - ImportModeFull: 按 (year, dept) 全删（默认行为，保持向后兼容）
+//   - ImportModeIncremental: 按 (year, dept, month) 精确删，未在 Excel 出现的月份保留旧值
 func WriteResult(db *sql.DB, result *ParseResult) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -531,9 +560,26 @@ func WriteResult(db *sql.DB, result *ParseResult) error {
 	}
 	defer tx.Rollback()
 
-	for _, dept := range result.Departments {
-		if _, err := tx.Exec(`DELETE FROM finance_report WHERE year = ? AND department = ?`, result.Year, dept); err != nil {
-			return fmt.Errorf("清理 %s/%d 失败: %w", dept, result.Year, err)
+	mode := result.Mode
+	if mode == "" {
+		mode = ImportModeFull
+	}
+
+	switch mode {
+	case ImportModeIncremental:
+		deptMonths := CollectDeptMonths(result)
+		for dept, months := range deptMonths {
+			for m := range months {
+				if _, err := tx.Exec(`DELETE FROM finance_report WHERE year = ? AND department = ? AND month = ?`, result.Year, dept, m); err != nil {
+					return fmt.Errorf("清理 %s/%d/%d 失败: %w", dept, result.Year, m, err)
+				}
+			}
+		}
+	default: // ImportModeFull
+		for _, dept := range result.Departments {
+			if _, err := tx.Exec(`DELETE FROM finance_report WHERE year = ? AND department = ?`, result.Year, dept); err != nil {
+				return fmt.Errorf("清理 %s/%d 失败: %w", dept, result.Year, err)
+			}
 		}
 	}
 
@@ -561,6 +607,199 @@ func WriteResult(db *sql.DB, result *ParseResult) error {
 	}
 
 	return tx.Commit()
+}
+
+// DiffEntry 单个 (department, month) 的变更对比
+type DiffEntry struct {
+	Department string  `json:"department"`
+	Month      int     `json:"month"`     // 0=年合计列，1-12=月份
+	OldAmount  float64 `json:"oldAmount"` // 数据库现有营业额合计 (REV_TOTAL)
+	NewAmount  float64 `json:"newAmount"` // Excel 新营业额合计
+	Delta      float64 `json:"delta"`     // 差额
+	DeltaPct   float64 `json:"deltaPct"`  // 变化百分比
+	OldRows    int     `json:"oldRows"`   // 数据库现有行数（所有科目）
+	NewRows    int     `json:"newRows"`   // Excel 新行数
+	Action     string  `json:"action"`    // "new" / "update" / "delete" / "unchanged"
+}
+
+// DiffSummary 整次导入的预览汇总
+type DiffSummary struct {
+	Mode          string      `json:"mode"`
+	Year          int         `json:"year"`
+	Departments   []string    `json:"departments"`
+	Entries       []DiffEntry `json:"entries"`
+	Warnings      []string    `json:"warnings"`
+	UnmappedCount int         `json:"unmappedCount"`
+	NewRows       int         `json:"newRows"`      // 即将插入的总行数
+	DeleteRows    int         `json:"deleteRows"`   // 即将删除的旧行数
+	NetChange     int         `json:"netChange"`    // 净增减行数
+}
+
+// ComputeDiff 根据 result + mode 查库计算变更预览
+func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
+	summary := &DiffSummary{
+		Mode:          result.Mode,
+		Year:          result.Year,
+		Departments:   result.Departments,
+		UnmappedCount: len(result.UnmappedSubjects),
+		NewRows:       len(result.Rows),
+	}
+
+	// 1. 聚合 Excel 新数据：每个 (dept, month) 的 REV_TOTAL 金额 + 总行数
+	type aggVal struct {
+		rev  float64
+		rows int
+	}
+	newByKey := make(map[string]*aggVal)
+	for _, r := range result.Rows {
+		key := fmt.Sprintf("%s|%d", r.Department, r.Month)
+		v, ok := newByKey[key]
+		if !ok {
+			v = &aggVal{}
+			newByKey[key] = v
+		}
+		v.rows++
+		if r.SubjectCode == "REV_TOTAL" {
+			v.rev = r.Amount
+		}
+	}
+
+	// 2. 一次性查数据库当年所有 (dept, month) 的旧数据
+	oldByKey := make(map[string]*aggVal)
+	rows, err := db.Query(`
+		SELECT department, month,
+			SUM(CASE WHEN subject_code='REV_TOTAL' THEN amount ELSE 0 END) AS rev,
+			COUNT(*) AS rows
+		FROM finance_report
+		WHERE year = ?
+		GROUP BY department, month`, result.Year)
+	if err != nil {
+		return nil, fmt.Errorf("查询旧数据失败: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		var m int
+		var rev sql.NullFloat64
+		var rc int
+		if err := rows.Scan(&d, &m, &rev, &rc); err != nil {
+			return nil, err
+		}
+		oldByKey[fmt.Sprintf("%s|%d", d, m)] = &aggVal{rev: rev.Float64, rows: rc}
+	}
+
+	// 3. 决定要对比的 key 集合
+	//   - incremental: 只对比 Excel 实际出现的 (dept, month)
+	//   - full: 加上"被本次导入波及的部门" × 0..12 月（旧数据中有但 Excel 没有的 → 显示为 delete）
+	keys := make(map[string]bool)
+	for k := range newByKey {
+		keys[k] = true
+	}
+	if result.Mode == ImportModeFull {
+		for _, dept := range result.Departments {
+			for m := 0; m <= 12; m++ {
+				k := fmt.Sprintf("%s|%d", dept, m)
+				if _, ok := oldByKey[k]; ok {
+					keys[k] = true
+				}
+			}
+		}
+	}
+
+	// 4. 生成 entries
+	for k := range keys {
+		parts := strings.SplitN(k, "|", 2)
+		dept := parts[0]
+		month, _ := strconv.Atoi(parts[1])
+		oldV := oldByKey[k]
+		newV := newByKey[k]
+
+		var oldRev, newRev float64
+		var oldRows, newRows int
+		if oldV != nil {
+			oldRev = oldV.rev
+			oldRows = oldV.rows
+		}
+		if newV != nil {
+			newRev = newV.rev
+			newRows = newV.rows
+		}
+
+		delta := newRev - oldRev
+		deltaPct := 0.0
+		if oldRev != 0 {
+			deltaPct = delta / oldRev * 100
+		}
+
+		action := "update"
+		switch {
+		case oldRows == 0 && newRows > 0:
+			action = "new"
+		case oldRows > 0 && newRows == 0:
+			action = "delete"
+		case oldRows > 0 && newRows > 0 && oldRev == newRev && oldRows == newRows:
+			action = "unchanged"
+		}
+
+		summary.Entries = append(summary.Entries, DiffEntry{
+			Department: dept,
+			Month:      month,
+			OldAmount:  oldRev,
+			NewAmount:  newRev,
+			Delta:      delta,
+			DeltaPct:   deltaPct,
+			OldRows:    oldRows,
+			NewRows:    newRows,
+			Action:     action,
+		})
+
+		// 异常告警：营收环比变化超阈值
+		if action == "update" && oldRev > 0 && newRev > 0 {
+			if deltaPct > 50 || deltaPct < -30 {
+				summary.Warnings = append(summary.Warnings,
+					fmt.Sprintf("[%s · %d月] 营业额变化 %.1f%%（旧 ¥%.0f → 新 ¥%.0f）", dept, month, deltaPct, oldRev, newRev))
+			}
+		}
+	}
+
+	// 5. 计算 DeleteRows + NetChange
+	deletedKeys := make(map[string]bool)
+	switch result.Mode {
+	case ImportModeIncremental:
+		for k := range newByKey {
+			deletedKeys[k] = true
+		}
+	default: // full
+		for _, dept := range result.Departments {
+			for k := range oldByKey {
+				if strings.HasPrefix(k, dept+"|") {
+					deletedKeys[k] = true
+				}
+			}
+		}
+	}
+	for k := range deletedKeys {
+		if v, ok := oldByKey[k]; ok {
+			summary.DeleteRows += v.rows
+		}
+	}
+	summary.NetChange = summary.NewRows - summary.DeleteRows
+
+	// 6. 排序：按部门 + 月份
+	sort.Slice(summary.Entries, func(i, j int) bool {
+		if summary.Entries[i].Department != summary.Entries[j].Department {
+			return summary.Entries[i].Department < summary.Entries[j].Department
+		}
+		return summary.Entries[i].Month < summary.Entries[j].Month
+	})
+
+	// 7. 全局警告：未映射科目
+	if summary.UnmappedCount > 0 {
+		summary.Warnings = append(summary.Warnings,
+			fmt.Sprintf("有 %d 项科目未映射，导入后这些行会被丢弃", summary.UnmappedCount))
+	}
+
+	return summary, nil
 }
 
 // LogImport 写入导入日志

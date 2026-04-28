@@ -242,7 +242,8 @@ func main() {
 	mux.HandleFunc("/api/finance/report/structure", pageProtected("finance.report:view", h.GetFinanceReportStructure))
 	mux.HandleFunc("/api/finance/report/subjects", pageProtected("finance.report:view", h.GetFinanceSubjects))
 	mux.HandleFunc("/api/finance/report/imports", pageProtected("finance.report:view", h.GetFinanceImportLogs))
-	mux.HandleFunc("/api/finance/report/import", pageProtected("finance.report:import", h.ImportFinanceReport))
+	mux.HandleFunc("/api/finance/report/import/preview", pageProtected("finance.report:import", h.ImportFinancePreview))
+	mux.HandleFunc("/api/finance/report/import/confirm", pageProtected("finance.report:import", h.ImportFinanceConfirm))
 	mux.HandleFunc("/api/finance/report/export", pageAllProtected(h.ExportFinanceReport, "finance.report:view", "data:export"))
 
 	// 受保护的上传文件访问（禁止目录浏览）
