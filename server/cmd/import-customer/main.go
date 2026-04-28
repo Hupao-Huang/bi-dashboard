@@ -539,6 +539,9 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 		return 0, err
 	}
 
+	// 业务日期默认 = RPA 文件名日期；如果 sellerCSOverall.dtm.value 存在则用那个
+	statDate := date
+
 	// 按blockKey分类提取数据
 	metrics := map[string]interface{}{}
 	var trendRows []map[string]interface{}
@@ -556,6 +559,22 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 				if len(rows) > 0 {
 					if row, ok := rows[0].(map[string]interface{}); ok {
 						metrics = row
+						// 从 dtm.value 读业务日期（YYYYMMDD 整数 或 YYYY-MM-DD 字符串）
+						if dtm, ok := row["dtm"].(map[string]interface{}); ok {
+							switch v := dtm["value"].(type) {
+							case float64:
+								n := int(v)
+								if n > 19000000 && n < 99999999 {
+									statDate = fmt.Sprintf("%04d-%02d-%02d", n/10000, (n/100)%100, n%100)
+								}
+							case string:
+								if len(v) == 10 && v[4] == '-' && v[7] == '-' {
+									statDate = v
+								} else if len(v) == 8 {
+									statDate = v[:4] + "-" + v[4:6] + "-" + v[6:8]
+								}
+							}
+						}
 					}
 				}
 			case "sellerCSTrend":
@@ -594,7 +613,7 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 		 remove_na_case_count=VALUES(remove_na_case_count), reply_in_3min_case_count=VALUES(reply_in_3min_case_count),
 		 reply_na_in_3min_case_count=VALUES(reply_na_in_3min_case_count),
 		 raw_json=VALUES(raw_json)`,
-		date, shop,
+		statDate, shop,
 		nestedValue(metrics, "caseCnt"),
 		nestedValue(metrics, "replyCaseCnt"),
 		nestedValue(metrics, "replyCaseRatio"),

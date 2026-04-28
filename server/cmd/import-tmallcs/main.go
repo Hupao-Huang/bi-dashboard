@@ -101,7 +101,7 @@ func main() {
 					// 注意判断顺序：更具体的子串必须先匹配（"无界明细"先于"无界场景"，"智多星_明细"先于"智多星"）
 					switch {
 					case strings.Contains(name, "销售数据_经营概况"):
-						cnt, _ := importBusinessOverview(db, fpath, shopName)
+						cnt, _ := importBusinessOverview(db, fpath, sqlDate, shopName)
 						total["shop_daily"] += cnt
 					case strings.Contains(name, "销售数据_商品"):
 						cnt, _ := importGoods(db, fpath, sqlDate, shopName)
@@ -152,7 +152,7 @@ func main() {
 
 // ==================== 经营概况 (30 天滚动) ====================
 // 文件结构: [日期 支付金额 子订单均价 客单价 IPVUV 支付子订单数 支付商品件数 支付转化率 支付用户数]
-func importBusinessOverview(db *sql.DB, fpath, shopName string) (int, error) {
+func importBusinessOverview(db *sql.DB, fpath, sqlDate, shopName string) (int, error) {
 	f, err := excelize.OpenFile(fpath)
 	if err != nil {
 		return 0, err
@@ -170,7 +170,7 @@ func importBusinessOverview(db *sql.DB, fpath, shopName string) (int, error) {
 		}
 		statDate := toSQLDate(d[0])
 		if statDate == "" {
-			continue
+			statDate = sqlDate // fallback 到 RPA 文件名日期
 		}
 		_, err = db.Exec(`REPLACE INTO op_tmall_cs_shop_daily
 			(stat_date, shop_name, pay_amount, sub_order_avg_price, avg_price, ipv_uv,

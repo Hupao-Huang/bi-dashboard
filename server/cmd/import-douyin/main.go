@@ -9,12 +9,27 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/xuri/excelize/v2"
 )
+
+// dateRe 从形如 "2026/04/26 07:00:29" / "2026-04-26" 的字符串里抽出 YYYY-MM-DD
+var dateRe = regexp.MustCompile(`(\d{4})[/-](\d{1,2})[/-](\d{1,2})`)
+
+// extractDate 抽取业务日期；抽不到返回 ""，调用方 fallback 到 RPA 文件名日期
+func extractDate(s string) string {
+	m := dateRe.FindStringSubmatch(s)
+	if len(m) < 4 {
+		return ""
+	}
+	mn, _ := strconv.Atoi(m[2])
+	d, _ := strconv.Atoi(m[3])
+	return fmt.Sprintf("%s-%02d-%02d", m[1], mn, d)
+}
 
 var baseDir = `Z:\信息部\RPA_集团数据看板\抖音`
 
@@ -156,6 +171,12 @@ func importLiveDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			continue
 		}
 
+		// 业务日期优先从"直播开始时间"提取（RPA 文件夹名是抓取日，业务日是直播实际日期）
+		statDate := extractDate(get("直播开始时间"))
+		if statDate == "" {
+			statDate = sqlDate
+		}
+
 		_, err := db.Exec(`REPLACE INTO op_douyin_live_daily (
 			stat_date, shop_name, anchor_name, anchor_id,
 			start_time, end_time, duration_min,
@@ -167,7 +188,7 @@ func importLiveDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			ad_cost_bindshop, ad_cost_invested,
 			net_order_amount, net_order_count, refund_1h_rate
 		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			sqlDate, shopName, anchorName, get("主播抖音号"),
+			statDate, shopName, anchorName, get("主播抖音号"),
 			parseTime(get("直播开始时间")), parseTime(get("直播结束时间")), getF("直播时长(分钟)"),
 			getI("直播间曝光人数"), getI("直播间观看人数"), getI("直播间观看次数"),
 			getI("最高在线人数"), getI("平均在线人数"),

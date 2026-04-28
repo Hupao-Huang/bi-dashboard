@@ -10,12 +10,28 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
+import { pageTitleMap } from '../../navigation';
+
+// 把 pageUrl 转成可读菜单名："/ecommerce/marketing-cost" → "营销费用"
+const formatPageName = (url?: string): string => {
+  if (!url) return '-';
+  let path = url;
+  try {
+    if (/^https?:/i.test(url)) {
+      path = new URL(url).pathname;
+    }
+  } catch {
+    // ignore
+  }
+  return pageTitleMap[path] || url;
+};
 
 interface FeedbackItem {
   id: number;
@@ -135,11 +151,22 @@ const Feedback: React.FC = () => {
     {
       title: '标题',
       dataIndex: 'title',
+      width: 220,
       ellipsis: true,
       render: (title: string, record) => (
-        <Button type="link" onClick={() => openDetail(record)} style={{ padding: 0, height: 'auto' }}>
+        <Button type="link" onClick={() => openDetail(record)} style={{ padding: 0, height: 'auto', textAlign: 'left' }}>
           {title}
         </Button>
+      ),
+    },
+    {
+      title: '内容',
+      dataIndex: 'content',
+      ellipsis: true,
+      render: (content: string) => (
+        <Tooltip title={<div style={{ whiteSpace: 'pre-wrap', maxWidth: 400 }}>{content}</div>} placement="topLeft">
+          <span style={{ color: '#475569', fontSize: 12 }}>{content}</span>
+        </Tooltip>
       ),
     },
     {
@@ -150,13 +177,18 @@ const Feedback: React.FC = () => {
       ),
     },
     {
-      title: '页面',
+      title: '提交页面',
       dataIndex: 'pageUrl',
-      width: 180,
+      width: 160,
       ellipsis: true,
-      render: (url: string) => (
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>{url || '-'}</Typography.Text>
-      ),
+      render: (url: string) => {
+        const name = formatPageName(url);
+        return (
+          <Tooltip title={url || '未知'}>
+            <Typography.Text style={{ fontSize: 12, color: name === url || name === '-' ? '#94a3b8' : '#1e40af' }}>{name}</Typography.Text>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '附件',
@@ -259,7 +291,10 @@ const Feedback: React.FC = () => {
             {detailItem.pageUrl && (
               <div>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>所在页面</Typography.Text>
-                <div style={{ fontSize: 13 }}>{detailItem.pageUrl}</div>
+                <div style={{ fontSize: 13 }}>
+                  <span style={{ color: '#1e40af', fontWeight: 600, marginRight: 8 }}>{formatPageName(detailItem.pageUrl)}</span>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>{detailItem.pageUrl}</Typography.Text>
+                </div>
               </div>
             )}
             {detailItem.attachments?.length > 0 && (
