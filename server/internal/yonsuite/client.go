@@ -37,6 +37,11 @@ const (
 
 	// tokenSafetyMargin token 提前 5min 过期，避免边界条件
 	tokenSafetyMargin = 5 * time.Minute
+
+	// defaultMinInterval YS 免费标准配置限流 60 次/分钟 = 1 次/秒
+	// 默认间隔 1.1s 留 10% 余量，避免边界踩限流
+	// 付费版可通过 SetMinInterval(0) 关闭节流
+	defaultMinInterval = 1100 * time.Millisecond
 )
 
 // Client YS 开放平台客户端
@@ -49,16 +54,46 @@ type Client struct {
 	tokenMu     sync.Mutex
 	accessToken string
 	tokenExpire time.Time
+
+	// 限流: 所有 HTTP 调用 (getToken + 业务接口) 共用一个 rate limiter
+	rateMu       sync.Mutex
+	lastCallTime time.Time
+	minInterval  time.Duration
 }
 
-// NewClient 构造 client
+// NewClient 构造 client (默认节流 1.1s/次, 即 < 60 次/分钟)
 func NewClient(appkey, appsecret, baseURL string) *Client {
 	return &Client{
-		AppKey:    appkey,
-		AppSecret: appsecret,
-		BaseURL:   strings.TrimRight(baseURL, "/"),
-		HTTP:      &http.Client{Timeout: 60 * time.Second},
+		AppKey:      appkey,
+		AppSecret:   appsecret,
+		BaseURL:     strings.TrimRight(baseURL, "/"),
+		HTTP:        &http.Client{Timeout: 60 * time.Second},
+		minInterval: defaultMinInterval,
 	}
+}
+
+// SetMinInterval 设置 HTTP 调用最小间隔 (限流保护)
+// d=0 关闭节流 (付费版无限流时使用)
+func (c *Client) SetMinInterval(d time.Duration) {
+	c.rateMu.Lock()
+	defer c.rateMu.Unlock()
+	c.minInterval = d
+}
+
+// waitRateLimit 阻塞直到距上次调用 ≥ minInterval
+// 所有 HTTP 调用 (getToken + 业务接口) 入口都调用此方法
+func (c *Client) waitRateLimit() {
+	c.rateMu.Lock()
+	defer c.rateMu.Unlock()
+	if c.minInterval <= 0 {
+		c.lastCallTime = time.Now()
+		return
+	}
+	elapsed := time.Since(c.lastCallTime)
+	if elapsed < c.minInterval {
+		time.Sleep(c.minInterval - elapsed)
+	}
+	c.lastCallTime = time.Now()
 }
 
 // AccessToken 获取 access_token (cache 命中直接返回，过期主动刷新)
@@ -74,6 +109,8 @@ func (c *Client) AccessToken() (string, error) {
 
 // refreshTokenLocked 实际拉 token (必须在 tokenMu 锁内调用)
 func (c *Client) refreshTokenLocked() (string, error) {
+	c.waitRateLimit()
+
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	params := map[string]string{
 		"appKey":    c.AppKey,
@@ -188,6 +225,8 @@ func (c *Client) QueryPurchaseList(req *PurchaseListReq) (*PurchaseListResp, err
 	if err != nil {
 		return nil, err
 	}
+
+	c.waitRateLimit()
 
 	body, err := json.Marshal(req)
 	if err != nil {
