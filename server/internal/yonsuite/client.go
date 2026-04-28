@@ -34,6 +34,8 @@ const (
 	authPath = "/iuap-api-auth/open-auth/selfAppAuth/base/v1/getAccessToken"
 	// purchaseListPath 采购订单列表查询
 	purchaseListPath = "/iuap-api-gateway/yonbip/scm/purchaseorder/list"
+	// subcontractListPath 委外订单列表查询
+	subcontractListPath = "/iuap-api-gateway/yonbip/mfg/subcontractorder/list"
 
 	// tokenSafetyMargin token 提前 5min 过期，避免边界条件
 	tokenSafetyMargin = 5 * time.Minute
@@ -264,6 +266,54 @@ func (c *Client) QueryPurchaseList(req *PurchaseListReq) (*PurchaseListResp, err
 	}
 	if pr.Code != "200" {
 		return nil, fmt.Errorf("yonsuite purchase list non-200: code=%s msg=%s", pr.Code, pr.Message)
+	}
+	return &pr, nil
+}
+
+// QuerySubcontractList 调委外订单列表接口 (POST + access_token query)
+// 实测: vouchdate top-level filter 不工作, 用 simpleVOs vouchdate between 模式
+// 复用 PurchaseListReq/Resp 结构 (字段一致)
+func (c *Client) QuerySubcontractList(req *PurchaseListReq) (*PurchaseListResp, error) {
+	token, err := c.AccessToken()
+	if err != nil {
+		return nil, err
+	}
+	c.waitRateLimit()
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal subcontract req: %w", err)
+	}
+
+	q := url.Values{}
+	q.Set("access_token", token)
+	fullURL := c.BaseURL + subcontractListPath + "?" + q.Encode()
+
+	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("yonsuite subcontract list http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	var pr PurchaseListResp
+	dec := json.NewDecoder(bytes.NewReader(respBody))
+	dec.UseNumber()
+	if err := dec.Decode(&pr); err != nil {
+		return nil, fmt.Errorf("unmarshal subcontract list: %w, body=%s", err, truncate(string(respBody), 500))
+	}
+	if pr.Code != "200" {
+		return nil, fmt.Errorf("yonsuite subcontract non-200: code=%s msg=%s", pr.Code, pr.Message)
 	}
 	return &pr, nil
 }
