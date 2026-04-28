@@ -254,8 +254,12 @@ func (c *Client) QueryPurchaseList(req *PurchaseListReq) (*PurchaseListResp, err
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
+	// 关键: 用 UseNumber() 防止 19 位 id (long) 被默认 float64 截断精度
+	// (YS 主表 id / 行 id 都是 19 位, float64 只能精确表示 ~16 位整数, 不用 Number 会导致 UK 撞车)
 	var pr PurchaseListResp
-	if err := json.Unmarshal(respBody, &pr); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(respBody))
+	dec.UseNumber()
+	if err := dec.Decode(&pr); err != nil {
 		return nil, fmt.Errorf("unmarshal purchase list: %w, body=%s", err, truncate(string(respBody), 500))
 	}
 	if pr.Code != "200" {

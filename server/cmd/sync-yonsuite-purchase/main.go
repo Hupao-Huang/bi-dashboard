@@ -25,8 +25,11 @@ import (
 )
 
 const (
-	pageSize   = 100 // 每页 100 条 (YS 文档默认 10，加大批量减少请求)
-	maxRetries = 3   // 单页失败重试次数
+	// pageSize 每页 500 条 (YS 接口实际单页上限是 500，传更大也只返 500)
+	// 关键: 必须按天分批 + pageSize 足以一页拿完, 避免翻页 bug
+	// (实测 YS 接口翻页时同 UK 在多页重复返回, page_size=100 翻 7 页只能拿到 18% 真实数据)
+	pageSize   = 500
+	maxRetries = 3
 )
 
 func main() {
@@ -61,12 +64,31 @@ func main() {
 		log.Fatalf("endDate 格式错误，应为 yyyy-MM-dd: %v", err)
 	}
 
-	log.Printf("拉取范围: %s ~ %s (vouchdate between)", startDate, endDate)
+	log.Printf("拉取范围: %s ~ %s (按天循环, pageSize=%d)", startDate, endDate, pageSize)
 
 	client := yonsuite.NewClient(cfg.YonSuite.AppKey, cfg.YonSuite.AppSecret, cfg.YonSuite.BaseURL)
 
-	// 翻页拉取
+	// 按天循环 — 避开 YS 接口翻页 bug (多页时同 UK 重复返回, 漏 80%+ 数据)
+	// 每天单独 simpleVOs vouchdate between [day 00:00:00, day 23:59:59], pageSize=500 一页拿完
 	totalInserted, totalUpdated, totalErrored := 0, 0, 0
+	startT, _ := time.Parse("2006-01-02", startDate)
+	endT, _ := time.Parse("2006-01-02", endDate)
+	for d := startT; !d.After(endT); d = d.AddDate(0, 0, 1) {
+		dayStr := d.Format("2006-01-02")
+		dayIns, dayUpd, dayErr := syncOneDay(client, db, dayStr)
+		totalInserted += dayIns
+		totalUpdated += dayUpd
+		totalErrored += dayErr
+	}
+
+	log.Printf("\n========== 完成 ==========")
+	log.Printf("新增: %d / 更新: %d / 失败: %d", totalInserted, totalUpdated, totalErrored)
+}
+
+// syncOneDay 拉取单天数据 (vouchdate=day), 翻页直到 < pageSize
+// 单天数据通常 < 500 条, 一页拿完; 极端场景 (大批量集中下单) 才会翻页
+func syncOneDay(client *yonsuite.Client, db *sql.DB, day string) (int, int, int) {
+	dayIns, dayUpd, dayErr := 0, 0, 0
 	pageIndex := 1
 	for {
 		req := &yonsuite.PurchaseListReq{
@@ -74,10 +96,11 @@ func main() {
 			PageSize:  pageSize,
 			IsSum:     false,
 			SimpleVOs: []yonsuite.SimpleVO{
-				{Field: "vouchdate", Op: "between", Value1: startDate + " 00:00:00", Value2: endDate + " 23:59:59"},
+				{Field: "vouchdate", Op: "between", Value1: day + " 00:00:00", Value2: day + " 23:59:59"},
 			},
 			QueryOrders: []yonsuite.QueryOrder{
 				{Field: "id", Order: "asc"},
+				{Field: "purchaseOrders.id", Order: "asc"},
 			},
 		}
 
@@ -88,44 +111,37 @@ func main() {
 			if lastErr == nil {
 				break
 			}
-			log.Printf("page %d 第 %d 次失败: %v", pageIndex, attempt, lastErr)
+			log.Printf("[%s] page %d 第 %d 次失败: %v", day, pageIndex, attempt, lastErr)
 			if attempt < maxRetries {
 				time.Sleep(time.Duration(attempt) * 2 * time.Second)
 			}
 		}
 		if lastErr != nil {
-			log.Fatalf("page %d 重试 %d 次仍失败: %v", pageIndex, maxRetries, lastErr)
-		}
-
-		if pageIndex == 1 {
-			log.Printf("总数: %d 条 / 共 %d 页", resp.Data.RecordCount, resp.Data.PageCount)
+			log.Printf("[%s] page %d 重试 %d 次仍失败, 跳过本天: %v", day, pageIndex, maxRetries, lastErr)
+			return dayIns, dayUpd, dayErr + 1
 		}
 
 		if len(resp.Data.RecordList) == 0 {
-			log.Printf("page %d 返回空，结束翻页", pageIndex)
 			break
 		}
 
 		for _, rec := range resp.Data.RecordList {
 			ins, upd, err := upsertRecord(db, rec)
 			if err != nil {
-				totalErrored++
-				log.Printf("upsert 失败 id=%v line=%v: %v",
-					rec["id"], rec["purchaseOrders_id"], err)
+				dayErr++
+				log.Printf("[%s] upsert 失败 id=%v line=%v: %v",
+					day, rec["id"], rec["purchaseOrders_id"], err)
 				continue
 			}
 			if ins {
-				totalInserted++
+				dayIns++
 			}
 			if upd {
-				totalUpdated++
+				dayUpd++
 			}
 		}
 
-		log.Printf("page %d 完成: 拿到 %d 条 (累计 +%d / 更新 %d / 失败 %d)",
-			pageIndex, len(resp.Data.RecordList), totalInserted, totalUpdated, totalErrored)
-
-		// 翻页结束条件
+		// 翻页结束条件: 单页 < pageSize 或 已超 pageCount
 		if len(resp.Data.RecordList) < pageSize {
 			break
 		}
@@ -135,8 +151,10 @@ func main() {
 		pageIndex++
 	}
 
-	log.Printf("\n========== 完成 ==========")
-	log.Printf("新增: %d / 更新: %d / 失败: %d", totalInserted, totalUpdated, totalErrored)
+	if dayIns+dayUpd+dayErr > 0 {
+		log.Printf("[%s] 完成: +%d / 更新%d / 失败%d", day, dayIns, dayUpd, dayErr)
+	}
+	return dayIns, dayUpd, dayErr
 }
 
 // upsertRecord 单条 record 入库 (ON DUPLICATE KEY UPDATE 全字段)
@@ -364,6 +382,14 @@ func getInt(m map[string]interface{}, k string) interface{} {
 		return nil
 	}
 	switch x := v.(type) {
+	case json.Number: // UseNumber() 后的所有数字都是这个类型, 必须最先匹配
+		if i, err := x.Int64(); err == nil {
+			return int(i)
+		}
+		if f, err := x.Float64(); err == nil {
+			return int(f)
+		}
+		return nil
 	case float64:
 		return int(x)
 	case int:
@@ -390,6 +416,11 @@ func getInt64(m map[string]interface{}, k string) interface{} {
 		return nil
 	}
 	switch x := v.(type) {
+	case json.Number: // 关键! 19 位 id 必须走 Int64() 不能走 Float64() 否则丢精度撞 UK
+		if i, err := x.Int64(); err == nil {
+			return i
+		}
+		return nil
 	case float64:
 		return int64(x)
 	case int:
@@ -416,6 +447,11 @@ func getFloat(m map[string]interface{}, k string) interface{} {
 		return nil
 	}
 	switch x := v.(type) {
+	case json.Number:
+		if f, err := x.Float64(); err == nil {
+			return f
+		}
+		return nil
 	case float64:
 		return x
 	case int:
@@ -452,6 +488,14 @@ func getBool(m map[string]interface{}, k string) interface{} {
 			return 1
 		}
 		if strings.EqualFold(x, "false") || x == "0" || x == "" {
+			return 0
+		}
+		return nil
+	case json.Number:
+		if i, err := x.Int64(); err == nil {
+			if i != 0 {
+				return 1
+			}
 			return 0
 		}
 		return nil
