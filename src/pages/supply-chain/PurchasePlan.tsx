@@ -154,16 +154,6 @@ const PurchasePlan: React.FC = () => {
 
   return (
     <div>
-      {/* ⚠️ 数据来源警示 */}
-      <div style={{ background: '#fffbeb', border: '1px solid #fbbf24', borderRadius: 6,
-                    padding: '8px 14px', marginBottom: 8, fontSize: 12, color: '#92400e' }}>
-        <span style={{ fontWeight: 600 }}>⚠️ 数据精度提示：</span>
-        包材/原料的"当前库存"目前用吉客云数据 (覆盖 17% 物料)，
-        ys_material_out 出库的 83% 物料库存吉客云没有 → <strong>包材/原料建议采购量偏高 30~50%</strong>。
-        待 YS 现存量接口接通后切换 (跑哥已授权，接口需联调 stockOrgId 必填参数)。
-        <strong style={{ marginLeft: 8, color: '#16a34a' }}>成品 (attr=1) 数据准。</strong>
-      </div>
-
       {/* 公式 + 数据来源说明 */}
       <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6,
                     padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#64748b' }}>

@@ -38,6 +38,8 @@ const (
 	subcontractListPath = "/iuap-api-gateway/yonbip/mfg/subcontractorder/list"
 	// materialOutListPath 材料出库单查询 (委外发料 = 生产倒冲)
 	materialOutListPath = "/iuap-api-gateway/yonbip/scm/materialout/list"
+	// stockListPath 现存量查询 (空 body 全量, data 是直接 array)
+	stockListPath = "/iuap-api-gateway/yonbip/scm/stock/QueryCurrentStocksByCondition"
 
 	// tokenSafetyMargin token 提前 5min 过期，避免边界条件
 	tokenSafetyMargin = 5 * time.Minute
@@ -362,6 +364,65 @@ func (c *Client) QueryMaterialOutList(req *PurchaseListReq) (*PurchaseListResp, 
 	}
 	if pr.Code != "200" {
 		return nil, fmt.Errorf("yonsuite materialout non-200: code=%s msg=%s", pr.Code, pr.Message)
+	}
+	return &pr, nil
+}
+
+// StockListReq 现存量查询请求 (跟其他接口不同, 不用 simpleVOs)
+type StockListReq struct {
+	PageIndex int     `json:"pageIndex"`
+	PageSize  int     `json:"pageSize"`
+	Product   []int64 `json:"product,omitempty"`
+}
+
+// StockListResp 现存量返回 (data 是直接 array, 不是 data.recordList!)
+type StockListResp struct {
+	Code    string                   `json:"code"`
+	Message string                   `json:"message"`
+	Data    []map[string]interface{} `json:"data"`
+}
+
+// QueryStockList 调现存量接口 (data 是直接 array)
+func (c *Client) QueryStockList(req *StockListReq) (*StockListResp, error) {
+	token, err := c.AccessToken()
+	if err != nil {
+		return nil, err
+	}
+	c.waitRateLimit()
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal stock req: %w", err)
+	}
+	q := url.Values{}
+	q.Set("access_token", token)
+	fullURL := c.BaseURL + stockListPath + "?" + q.Encode()
+
+	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("yonsuite stock list http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	var pr StockListResp
+	dec := json.NewDecoder(bytes.NewReader(respBody))
+	dec.UseNumber()
+	if err := dec.Decode(&pr); err != nil {
+		return nil, fmt.Errorf("unmarshal stock: %w, body=%s", err, truncate(string(respBody), 500))
+	}
+	if pr.Code != "200" {
+		return nil, fmt.Errorf("yonsuite stock non-200: code=%s msg=%s", pr.Code, pr.Message)
 	}
 	return &pr, nil
 }

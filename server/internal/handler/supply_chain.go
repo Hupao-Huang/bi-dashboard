@@ -905,29 +905,31 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		GROUP BY sq.goods_no, sq.goods_name
 		HAVING suggested > 0`
 
-	// 4b. 包材 (goods_attr=4, 目标 90 天)
-	matSQL := `SELECT '包材' AS t, sq.goods_no, sq.goods_name,
-		ROUND(SUM(sq.current_qty - sq.locked_qty), 0) AS stock,
-		ROUND(IFNULL(SUM(mo.daily_avg), 0), 1) AS daily_avg,
-		IFNULL(ROUND(SUM(po.in_transit_qty), 0), 0) AS in_transit,
-		GREATEST(0, ROUND(90 * IFNULL(SUM(mo.daily_avg), 0) - SUM(sq.current_qty - sq.locked_qty) - IFNULL(SUM(po.in_transit_qty), 0), 0)) AS suggested,
+	// 4b. 包材/原料 (v0.49 改用 YS 现存量, manage_class 过滤掉成品类)
+	matSQL := `SELECT '包材/原料' AS t,
+		ys.product_code AS goods_no,
+		MAX(ys.product_name) AS goods_name,
+		ROUND(SUM(ys.currentqty), 0) AS stock,
+		ROUND(IFNULL(MAX(mo.daily_avg), 0), 1) AS daily_avg,
+		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
+		GREATEST(0, ROUND(90 * IFNULL(MAX(mo.daily_avg), 0) - SUM(ys.currentqty) - IFNULL(MAX(po.in_transit_qty), 0), 0)) AS suggested,
 		CASE
-		  WHEN IFNULL(SUM(mo.daily_avg), 0) > 0 AND SUM(sq.current_qty - sq.locked_qty) <= 0 THEN -1
-		  WHEN IFNULL(SUM(mo.daily_avg), 0) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / SUM(mo.daily_avg), 1)
+		  WHEN IFNULL(MAX(mo.daily_avg), 0) > 0 AND SUM(ys.currentqty) <= 0 THEN -1
+		  WHEN IFNULL(MAX(mo.daily_avg), 0) > 0 THEN ROUND(SUM(ys.currentqty) / MAX(mo.daily_avg), 1)
 		  ELSE 9999 END AS sellable_days
-		FROM stock_quantity sq
+		FROM ys_stock ys
 		LEFT JOIN (
 		  SELECT product_c_code, SUM(qty)/30 AS daily_avg FROM ys_material_out
 		  WHERE vouchdate >= DATE_SUB((SELECT MAX(vouchdate) FROM ys_material_out), INTERVAL 30 DAY)
 		  GROUP BY product_c_code
-		) mo ON mo.product_c_code = sq.goods_no
+		) mo ON mo.product_c_code = ys.product_code
 		LEFT JOIN (
 		  SELECT product_c_code, SUM(qty - IFNULL(total_in_qty, 0)) AS in_transit_qty
 		  FROM ys_purchase_orders WHERE purchase_orders_in_wh_status IN (2,3) AND qty > IFNULL(total_in_qty, 0)
 		  GROUP BY product_c_code
-		) po ON po.product_c_code = sq.goods_no
-		WHERE sq.goods_attr = 4
-		GROUP BY sq.goods_no, sq.goods_name
+		) po ON po.product_c_code = ys.product_code
+		WHERE ys.manage_class_name NOT IN ('固态','液态','半固态','固体','广宣品','周边品')
+		GROUP BY ys.product_code
 		HAVING suggested > 0`
 
 	for _, q := range []string{prodSQL, matSQL} {
