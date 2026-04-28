@@ -2,9 +2,120 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
+	"os/exec"
+	"strings"
+	"sync"
+	"time"
 )
+
+// syncStockMu 防止 /api/stock/sync-now 并发执行
+var syncStockMu sync.Mutex
+
+// syncStockState 记录上一次/当前同步任务的状态，供 /api/stock/sync-status 查询
+var syncStockState = struct {
+	sync.Mutex
+	Running        bool
+	StartedAt      time.Time
+	LastFinishedAt time.Time
+	LastElapsed    time.Duration
+	LastError      string
+}{}
+
+func setSyncStockStart() {
+	syncStockState.Lock()
+	syncStockState.Running = true
+	syncStockState.StartedAt = time.Now()
+	syncStockState.Unlock()
+}
+
+func setSyncStockFinish(elapsed time.Duration, errMsg string) {
+	syncStockState.Lock()
+	syncStockState.Running = false
+	syncStockState.LastFinishedAt = time.Now()
+	syncStockState.LastElapsed = elapsed
+	syncStockState.LastError = errMsg
+	syncStockState.Unlock()
+}
+
+// SyncStockNow POST /api/stock/sync-now
+// 用户主动触发：拉取吉客云全量库存到 stock_quantity（约 2-3 分钟）
+func (h *DashboardHandler) SyncStockNow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	if writeScopeError(w, requireDomainAccess(r, "supply_chain")) {
+		return
+	}
+	if !syncStockMu.TryLock() {
+		writeError(w, 409, "已有库存同步任务进行中，请稍后再试")
+		return
+	}
+	defer syncStockMu.Unlock()
+
+	setSyncStockStart()
+
+	exePath := `C:\Users\Administrator\bi-dashboard\server\sync-stock.exe`
+	workDir := `C:\Users\Administrator\bi-dashboard\server`
+
+	start := time.Now()
+	cmd := exec.Command(exePath)
+	cmd.Dir = workDir
+	output, err := cmd.CombinedOutput()
+	elapsed := time.Since(start)
+
+	tail := tailLines(string(output), 12)
+	if err != nil {
+		setSyncStockFinish(elapsed, err.Error())
+		writeError(w, 500, fmt.Sprintf("同步失败（耗时 %s）: %v\n最后输出:\n%s", elapsed.Round(time.Second), err, tail))
+		return
+	}
+	setSyncStockFinish(elapsed, "")
+	// 清除库存接口缓存（WithCache TTL 60min），让前端 fetchData 立即拿到新数据
+	cacheCleared := ClearCacheByPrefix("api|/api/stock/")
+	writeJSON(w, map[string]interface{}{
+		"success":      true,
+		"elapsed":      elapsed.Round(time.Second).String(),
+		"cacheCleared": cacheCleared,
+		"tail":         tail,
+	})
+}
+
+// SyncStockStatus GET /api/stock/sync-status
+// 返回当前/上次同步状态，前端进页面 + 轮询用
+func (h *DashboardHandler) SyncStockStatus(w http.ResponseWriter, r *http.Request) {
+	if writeScopeError(w, requireDomainAccess(r, "supply_chain")) {
+		return
+	}
+	syncStockState.Lock()
+	defer syncStockState.Unlock()
+
+	resp := map[string]interface{}{
+		"running": syncStockState.Running,
+	}
+	if syncStockState.Running {
+		resp["startedAt"] = syncStockState.StartedAt.Format(time.RFC3339)
+		resp["elapsedSec"] = int(time.Since(syncStockState.StartedAt).Seconds())
+	}
+	if !syncStockState.LastFinishedAt.IsZero() {
+		resp["lastFinishedAt"] = syncStockState.LastFinishedAt.Format(time.RFC3339)
+		resp["lastElapsedSec"] = int(syncStockState.LastElapsed.Seconds())
+		resp["lastError"] = syncStockState.LastError
+	}
+	writeJSON(w, resp)
+}
+
+// tailLines 取字符串最后 n 行
+func tailLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\r\n"), "\n")
+	if len(lines) <= n {
+		return strings.Join(lines, "\n")
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
+}
 
 // GetStockWarning 库存预警数据
 func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Request) {
@@ -24,8 +135,13 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// 库存预警仓库白名单（与计划看板共用，定义在 supply_chain.go 顶部 planWarehouses）
+	planCond, planArgs := buildPlanWarehouseFilter("warehouse_name")
+
 	// 1. 预警统计卡片（按SKU+仓库维度）
 	var stockout, urgent, low, overstock, dead, total int
+	summaryArgs := append([]interface{}{}, warehouseArgs...)
+	summaryArgs = append(summaryArgs, planArgs...)
 	if err := h.DB.QueryRow(`
 		SELECT
 			COUNT(*) AS total,
@@ -37,8 +153,8 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 			SUM(CASE WHEN (current_qty - locked_qty) > 0 AND month_qty > 0
 				AND (current_qty - locked_qty) / (month_qty/30) > 90 THEN 1 ELSE 0 END),
 			SUM(CASE WHEN month_qty = 0 AND current_qty > 0 THEN 1 ELSE 0 END)
-		FROM stock_quantity WHERE goods_attr = 1 AND warehouse_name != ''`+warehouseCond,
-		warehouseArgs...,
+		FROM stock_quantity WHERE goods_attr = 1 AND warehouse_name != ''`+warehouseCond+planCond,
+		summaryArgs...,
 	).Scan(&total, &stockout, &urgent, &low, &overstock, &dead); err != nil {
 		writeError(w, 500, "database query failed")
 		return
@@ -49,47 +165,52 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		"low": low, "overstock": overstock, "dead": dead,
 	}
 
-	// 2. 查明细数据
+	// 2. 查明细数据（LEFT JOIN goods 拿商品分类 + 产品定位）
 	query := `
-		SELECT goods_no, goods_name, unit_name,
-			warehouse_name,
-			ROUND(current_qty - locked_qty, 2) AS usable_qty,
-			month_qty,
-			ROUND(month_qty / 30, 1) AS daily_avg,
+		SELECT sq.goods_no, sq.goods_name, sq.unit_name,
+			sq.warehouse_name,
+			ROUND(sq.current_qty - sq.locked_qty, 2) AS usable_qty,
+			sq.month_qty,
+			ROUND(sq.month_qty / 30, 1) AS daily_avg,
 			CASE
-				WHEN month_qty > 0 AND (current_qty - locked_qty) <= 0 THEN -1
-				WHEN month_qty > 0 THEN ROUND((current_qty - locked_qty) / (month_qty/30), 1)
-				WHEN current_qty > 0 THEN 9999
+				WHEN sq.month_qty > 0 AND (sq.current_qty - sq.locked_qty) <= 0 THEN -1
+				WHEN sq.month_qty > 0 THEN ROUND((sq.current_qty - sq.locked_qty) / (sq.month_qty/30), 1)
+				WHEN sq.current_qty > 0 THEN 9999
 				ELSE 0
 			END AS sellable_days,
-			current_qty
-		FROM stock_quantity
-		WHERE goods_attr = 1 AND warehouse_name != ''
+			sq.current_qty,
+			IFNULL(g.cate_name,'') AS category,
+			IFNULL(g.goods_field7,'') AS position
+		FROM stock_quantity sq
+		LEFT JOIN (SELECT DISTINCT goods_no, cate_name, goods_field7 FROM goods) g ON g.goods_no = sq.goods_no
+		WHERE sq.goods_attr = 1 AND sq.warehouse_name != ''
 	`
-	query += warehouseCond
+	query += strings.ReplaceAll(warehouseCond, "warehouse_name", "sq.warehouse_name")
+	query += strings.ReplaceAll(planCond, "warehouse_name", "sq.warehouse_name")
 	args := append([]interface{}{}, warehouseArgs...)
+	args = append(args, planArgs...)
 	if keyword != "" {
-		query += " AND (goods_no LIKE ? OR goods_name LIKE ?)"
+		query += " AND (sq.goods_no LIKE ? OR sq.goods_name LIKE ?)"
 		kw := "%" + keyword + "%"
 		args = append(args, kw, kw)
 	}
 
 	switch warning {
 	case "stockout":
-		query += " AND (current_qty - locked_qty) <= 0 AND month_qty > 0"
+		query += " AND (sq.current_qty - sq.locked_qty) <= 0 AND sq.month_qty > 0"
 	case "urgent":
-		query += " AND (current_qty - locked_qty) > 0 AND month_qty > 0 AND (current_qty - locked_qty) / (month_qty/30) < 7"
+		query += " AND (sq.current_qty - sq.locked_qty) > 0 AND sq.month_qty > 0 AND (sq.current_qty - sq.locked_qty) / (sq.month_qty/30) < 7"
 	case "low":
-		query += " AND (current_qty - locked_qty) > 0 AND month_qty > 0 AND (current_qty - locked_qty) / (month_qty/30) BETWEEN 7 AND 14"
+		query += " AND (sq.current_qty - sq.locked_qty) > 0 AND sq.month_qty > 0 AND (sq.current_qty - sq.locked_qty) / (sq.month_qty/30) BETWEEN 7 AND 14"
 	case "overstock":
-		query += " AND (current_qty - locked_qty) > 0 AND month_qty > 0 AND (current_qty - locked_qty) / (month_qty/30) > 90"
+		query += " AND (sq.current_qty - sq.locked_qty) > 0 AND sq.month_qty > 0 AND (sq.current_qty - sq.locked_qty) / (sq.month_qty/30) > 90"
 	case "dead":
-		query += " AND month_qty = 0 AND current_qty > 0"
+		query += " AND sq.month_qty = 0 AND sq.current_qty > 0"
 	default:
-		query += " AND (current_qty > 0 OR month_qty > 0)"
+		query += " AND (sq.current_qty > 0 OR sq.month_qty > 0)"
 	}
 
-	query += " ORDER BY CASE WHEN month_qty > 0 AND (current_qty - locked_qty) <= 0 THEN 0 WHEN month_qty > 0 THEN (current_qty - locked_qty) / (month_qty/30) ELSE 99999 END ASC LIMIT 2000"
+	query += " ORDER BY CASE WHEN sq.month_qty > 0 AND (sq.current_qty - sq.locked_qty) <= 0 THEN 0 WHEN sq.month_qty > 0 THEN (sq.current_qty - sq.locked_qty) / (sq.month_qty/30) ELSE 99999 END ASC LIMIT 2000"
 
 	rows, err := h.DB.Query(query, args...)
 	if err != nil {
@@ -108,6 +229,8 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		DailyAvg      float64
 		SellableDays  float64
 		CurrentQty    float64
+		Category      string
+		Position      string
 	}
 
 	rawItems := []RawItem{}
@@ -115,7 +238,8 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		var item RawItem
 		if writeDatabaseError(w, rows.Scan(&item.GoodsNo, &item.GoodsName, &item.UnitName,
 			&item.WarehouseName, &item.UsableQty,
-			&item.MonthQty, &item.DailyAvg, &item.SellableDays, &item.CurrentQty)) {
+			&item.MonthQty, &item.DailyAvg, &item.SellableDays, &item.CurrentQty,
+			&item.Category, &item.Position)) {
 			return
 		}
 		rawItems = append(rawItems, item)
@@ -129,6 +253,8 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		type FlatItem struct {
 			GoodsNo      string  `json:"goodsNo"`
 			GoodsName    string  `json:"goodsName"`
+			Category     string  `json:"category"`
+			Position     string  `json:"position"`
 			Warehouse    string  `json:"warehouse"`
 			UsableQty    float64 `json:"usableQty"`
 			SellableDays float64 `json:"sellableDays"`
@@ -140,6 +266,7 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		for _, r := range rawItems {
 			flat = append(flat, FlatItem{
 				GoodsNo: r.GoodsNo, GoodsName: r.GoodsName,
+				Category: r.Category, Position: r.Position,
 				Warehouse: r.WarehouseName, UsableQty: r.UsableQty,
 				SellableDays: r.SellableDays, DailyAvg: r.DailyAvg,
 				MonthQty: r.MonthQty, CurrentQty: r.CurrentQty,
@@ -160,6 +287,8 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 	type AggItem struct {
 		GoodsNo      string      `json:"goodsNo"`
 		GoodsName    string      `json:"goodsName"`
+		Category     string      `json:"category"`
+		Position     string      `json:"position"`
 		UsableQty    float64     `json:"usableQty"`
 		SellableDays float64     `json:"sellableDays"`
 		DailyAvg     float64     `json:"dailyAvg"`
@@ -175,7 +304,7 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 	for _, r := range rawItems {
 		agg, ok := aggMap[r.GoodsNo]
 		if !ok {
-			agg = &AggItem{GoodsNo: r.GoodsNo, GoodsName: r.GoodsName}
+			agg = &AggItem{GoodsNo: r.GoodsNo, GoodsName: r.GoodsName, Category: r.Category, Position: r.Position}
 			aggMap[r.GoodsNo] = agg
 			aggOrder = append(aggOrder, r.GoodsNo)
 		}
@@ -243,11 +372,14 @@ func writeStockResponse(
 	warehouseScopeCond string,
 	warehouseScopeArgs []interface{},
 ) {
+	planCond, planArgs := buildPlanWarehouseFilter("warehouse_name")
+	whArgs := append([]interface{}{}, warehouseScopeArgs...)
+	whArgs = append(whArgs, planArgs...)
 	whRows, ok := queryRowsOrWriteError(
 		w,
 		h.DB,
-		`SELECT DISTINCT warehouse_name FROM stock_quantity WHERE goods_attr = 1 AND warehouse_name != ''`+warehouseScopeCond+` AND (current_qty > 0 OR month_qty > 0) ORDER BY warehouse_name`,
-		warehouseScopeArgs...,
+		`SELECT DISTINCT warehouse_name FROM stock_quantity WHERE goods_attr = 1 AND warehouse_name != ''`+warehouseScopeCond+planCond+` AND (current_qty > 0 OR month_qty > 0) ORDER BY warehouse_name`,
+		whArgs...,
 	)
 	if !ok {
 		return

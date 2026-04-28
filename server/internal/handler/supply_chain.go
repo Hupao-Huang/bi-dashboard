@@ -9,6 +9,32 @@ import (
 	"time"
 )
 
+// planWarehouses 计划/采购看板 + 库存预警共用的 7 仓白名单
+// 改这一处即可同步影响：计划看板、库存预警等所有"按仓库白名单"过滤的查询
+var planWarehouses = []string{
+	"南京委外成品仓-公司仓-委外",
+	"天津委外仓-公司仓-外仓",
+	"西安仓库成品-公司仓-外仓",
+	"松鲜鲜&大地密码云仓",
+	"长沙委外成品仓-公司仓-外仓",
+	"安徽郎溪成品-公司仓-自营",
+	"南京分销虚拟仓-公司仓-外仓",
+}
+
+// buildPlanWarehouseFilter 返回 " AND <column> IN (?,?,...)" 子句和对应参数
+func buildPlanWarehouseFilter(column string) (string, []interface{}) {
+	args := make([]interface{}, len(planWarehouses))
+	placeholders := ""
+	for i, w := range planWarehouses {
+		args[i] = w
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+	}
+	return " AND " + column + " IN (" + placeholders + ")", args
+}
+
 // GetSupplyChainMonthlyTrend 月度销售趋势(独立接口，支持月份范围筛选)
 // 参数: start_month=2025-01  end_month=2026-04 (yyyy-MM)
 // 默认: 最近15个月
@@ -40,15 +66,6 @@ func (h *DashboardHandler) GetSupplyChainMonthlyTrend(w http.ResponseWriter, r *
 	startDate := startT.Format("2006-01-02")
 	endDate := endT.AddDate(0, 1, 0).AddDate(0, 0, -1).Format("2006-01-02")
 
-	planWarehouses := []string{
-		"南京委外成品仓-公司仓-委外",
-		"天津委外仓-公司仓-外仓",
-		"西安仓库成品-公司仓-外仓",
-		"松鲜鲜&大地密码云仓",
-		"长沙委外成品仓-公司仓-外仓",
-		"安徽郎溪成品-公司仓-自营",
-		"南京分销虚拟仓-公司仓-外仓",
-	}
 	// 查月表（从日表聚合生成的，数据一致且性能高）
 	_ = startDate // 保留计算（未来可能复用）
 	_ = endDate
@@ -130,15 +147,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	}
 
 	// 计划看板仓库白名单（采购需求：只展示这7个成品仓/委外仓/云仓的数据）
-	planWarehouses := []string{
-		"南京委外成品仓-公司仓-委外",
-		"天津委外仓-公司仓-外仓",
-		"西安仓库成品-公司仓-外仓",
-		"松鲜鲜&大地密码云仓",
-		"长沙委外成品仓-公司仓-外仓",
-		"安徽郎溪成品-公司仓-自营",
-		"南京分销虚拟仓-公司仓-外仓",
-	}
+	// 白名单定义在文件顶部 planWarehouses
 	planWhArgs := make([]interface{}, len(planWarehouses))
 	for i, w := range planWarehouses {
 		planWhArgs[i] = w
