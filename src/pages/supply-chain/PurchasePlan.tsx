@@ -52,6 +52,20 @@ const statusColor: Record<string, string> = {
   '积压': '#7c3aed',
 };
 
+const statusIcon: Record<string, string> = {
+  '断货': '🚫',
+  '紧急': '⚠️',
+  '偏低': '📉',
+  '正常': '✅',
+  '积压': '📦',
+};
+
+const statusBgRow: Record<string, string> = {
+  '断货': 'rgba(220, 38, 38, 0.08)',
+  '紧急': 'rgba(234, 88, 12, 0.06)',
+  '积压': 'rgba(124, 58, 237, 0.06)',
+};
+
 const PurchasePlan: React.FC = () => {
   const [data, setData] = useState<{
     kpis: KPIs;
@@ -150,6 +164,24 @@ const PurchasePlan: React.FC = () => {
         成品 {params.finishedGoodsTargetDays} 天 / 包材 {params.materialTargetDays} 天；
         <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>日均：</span>
         成品=吉客云销量 / 包材=YS 材料出库单近30天 (真实消耗)
+        <div style={{ marginTop: 8, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ color: '#1e293b', fontWeight: 600 }}>状态:</span>
+          {['断货', '紧急', '偏低', '正常', '积压'].map((s) => {
+            const cnt = suggested.filter((x) => x.status === s).length;
+            return (
+              <span key={s} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600,
+                background: statusColor[s], color: '#fff',
+              }}>
+                <span>{statusIcon[s]}</span>
+                {s} <span style={{ background: 'rgba(255,255,255,0.25)', padding: '0 6px',
+                                   borderRadius: 8, marginLeft: 2 }}>{cnt}</span>
+              </span>
+            );
+          })}
+          <span style={{ marginLeft: 4, color: '#64748b' }}>(共 {suggested.length} 项)</span>
+        </div>
       </div>
 
       {/* 4 KPI 卡片 */}
@@ -212,12 +244,27 @@ const PurchasePlan: React.FC = () => {
           size="small"
           pagination={{ defaultPageSize: 50, pageSizeOptions: ['50', '100', '200'], showSizeChanger: true,
                         showTotal: (t) => `共 ${t} 条` }}
-          rowClassName={(r) => r.status === '紧急' || r.status === '断货' ? 'bi-row-urgent' : ''}
+          onRow={(r) => ({
+            style: statusBgRow[r.status] ? { background: statusBgRow[r.status] } : {},
+          })}
           columns={[
             { title: '类型', dataIndex: 'type', width: 70, align: 'center',
               render: (t: string) => <Tag color={t === '成品' ? 'blue' : 'orange'}>{t}</Tag> },
-            { title: '状态', dataIndex: 'status', width: 80, align: 'center',
-              render: (s: string) => <Tag color={statusColor[s] || '#94a3b8'} style={{ color: '#fff', border: 'none' }}>{s}</Tag>,
+            { title: '状态', dataIndex: 'status', width: 110, align: 'center',
+              filters: ['断货', '紧急', '偏低', '正常', '积压'].map((s) => ({ text: `${statusIcon[s]} ${s}`, value: s })),
+              onFilter: (val: any, r: SuggestRow) => r.status === val,
+              render: (s: string) => (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  gap: 4, padding: '3px 10px', borderRadius: 12,
+                  background: statusColor[s] || '#94a3b8',
+                  color: '#fff', fontWeight: 700, fontSize: 13,
+                  minWidth: 80, lineHeight: 1.4,
+                  boxShadow: `0 1px 3px ${statusColor[s] || '#94a3b8'}55`,
+                }}>
+                  <span style={{ fontSize: 14 }}>{statusIcon[s] || '•'}</span>{s}
+                </span>
+              ),
               sorter: (a: SuggestRow, b: SuggestRow) => {
                 const order = ['断货', '紧急', '偏低', '正常', '积压'];
                 return order.indexOf(a.status) - order.indexOf(b.status);
