@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Tag, Input, Select, DatePicker, Space, Card, Typography } from 'antd';
+import { Table, Tag, Input, Select, DatePicker, Card, Typography, Row, Col, Button } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
@@ -113,33 +113,44 @@ const AuditLog: React.FC = () => {
     <div style={{ padding: 0 }}>
       <Title level={4} style={{ marginBottom: 20 }}>审计日志</Title>
 
-      <Card size="small" style={{ marginBottom: 16, borderRadius: 8 }}>
-        <Space wrap>
-          <Select
-            placeholder="操作类型"
-            allowClear
-            style={{ width: 130 }}
-            value={action || undefined}
-            onChange={v => setAction(v || '')}
-          >
-            {Object.entries(actionLabels).map(([k, v]) => (
-              <Select.Option key={k} value={k}>{v.label}</Select.Option>
-            ))}
-          </Select>
-          <Input
-            placeholder="用户名搜索"
-            allowClear
-            style={{ width: 160 }}
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            onPressEnter={fetchData}
-          />
-          <RangePicker
-            value={dateRange}
-            onChange={v => setDateRange(v)}
-          />
-          <a onClick={fetchData} style={{ fontSize: 13 }}>查询</a>
-        </Space>
+      <Card className="bi-filter-card" style={{ marginBottom: 16 }}>
+        <Row align="middle" gutter={[16, 12]} wrap>
+          <Col>
+            <span style={{ fontWeight: 500, marginRight: 8 }}>操作类型：</span>
+            <Select
+              placeholder="全部"
+              allowClear
+              style={{ width: 150 }}
+              value={action || undefined}
+              onChange={v => setAction(v || '')}
+            >
+              {Object.entries(actionLabels).map(([k, v]) => (
+                <Select.Option key={k} value={k}>{v.label}</Select.Option>
+              ))}
+            </Select>
+          </Col>
+          <Col>
+            <span style={{ fontWeight: 500, marginRight: 8 }}>用户：</span>
+            <Input
+              placeholder="用户名搜索"
+              allowClear
+              style={{ width: 180 }}
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              onPressEnter={fetchData}
+            />
+          </Col>
+          <Col>
+            <span style={{ fontWeight: 500, marginRight: 8 }}>时间范围：</span>
+            <RangePicker
+              value={dateRange}
+              onChange={v => setDateRange(v)}
+            />
+          </Col>
+          <Col>
+            <Button type="primary" onClick={fetchData}>查询</Button>
+          </Col>
+        </Row>
       </Card>
 
       <Table

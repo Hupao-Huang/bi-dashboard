@@ -300,13 +300,13 @@ const MainLayout: React.FC = () => {
             />
           )}
           {deptLabel ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 400 }}>{deptLabel}</span>
-              <span style={{ color: '#d1d5db', fontSize: 12 }}>/</span>
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#1e293b' }}>{pageTitle}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 14, color: '#64748b', fontWeight: 500 }}>{deptLabel}</span>
+              <span style={{ color: '#cbd5e1', fontSize: 14, fontWeight: 300 }}>/</span>
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#0f172a', letterSpacing: 0.2 }}>{pageTitle}</h2>
             </div>
           ) : (
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#1e293b' }}>{pageTitle}</h2>
+            <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#0f172a', letterSpacing: 0.2 }}>{pageTitle}</h2>
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 12 }}>
