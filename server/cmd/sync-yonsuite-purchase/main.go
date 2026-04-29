@@ -83,6 +83,7 @@ func main() {
 
 	log.Printf("\n========== 完成 ==========")
 	log.Printf("新增: %d / 更新: %d / 失败: %d", totalInserted, totalUpdated, totalErrored)
+	yonsuite.ClearBIServerCache(cfg.Webhook.Secret)
 }
 
 // syncOneDay 拉取单天数据 (vouchdate=day), 翻页直到 < pageSize

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Table, Tag, Input, Select, Empty } from 'antd';
+import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message } from 'antd';
 import {
   AlertOutlined,
   CarOutlined,
   ToolOutlined,
   DollarOutlined,
   InfoCircleOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import PageLoading from '../../components/PageLoading';
@@ -31,39 +32,41 @@ interface VendorRow {
 
 interface SuggestRow {
   type: string;
-  goodsNo: string;
+  jkyCode: string;
+  ysCode: string;
   goodsName: string;
   stock: number;
   dailyAvg: number;
   inTransit: number;
+  inTransitSubcontract: number;
   suggestedQty: number;
   status: string;
   sellableDays: number;
+  nextArriveDate: string;
+  nextArriveDays: number;
+}
+
+interface DetailRow {
+  warehouse: string;
+  org: string;
+  stock: number;
+  dailyAvg: number;
+  inTransit: number;
+  inTransitSubcontract: number;
+  suggested: number;
+  nextArriveDate: string;
+  nextArriveDays: number;
 }
 
 const fmtAmt = (v: number) => v >= 10000 ? `¥${(v / 10000).toFixed(1)} 万` : `¥${v.toLocaleString()}`;
 const fmtQty = (v: number) => v >= 10000 ? `${(v / 10000).toFixed(1)} 万` : v.toLocaleString();
 
 const statusColor: Record<string, string> = {
-  '断货': '#dc2626',
-  '紧急': '#ea580c',
-  '偏低': '#f59e0b',
-  '正常': '#16a34a',
-  '积压': '#7c3aed',
-};
-
-const statusIcon: Record<string, string> = {
-  '断货': '🚫',
-  '紧急': '⚠️',
-  '偏低': '📉',
-  '正常': '✅',
-  '积压': '📦',
-};
-
-const statusBgRow: Record<string, string> = {
-  '断货': 'rgba(220, 38, 38, 0.08)',
-  '紧急': 'rgba(234, 88, 12, 0.06)',
-  '积压': 'rgba(124, 58, 237, 0.06)',
+  '断货': 'red',
+  '紧急': 'volcano',
+  '偏低': 'orange',
+  '正常': 'green',
+  '积压': 'purple',
 };
 
 const PurchasePlan: React.FC = () => {
@@ -75,11 +78,33 @@ const PurchasePlan: React.FC = () => {
     params: { finishedGoodsTargetDays: number; materialTargetDays: number };
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'全部' | '成品' | '包材'>('全部');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [keyword, setKeyword] = useState('');
+  const [detailMap, setDetailMap] = useState<Record<string, DetailRow[] | 'loading' | 'error'>>({});
 
-  useEffect(() => {
+  const fetchDetail = async (key: string, r: SuggestRow) => {
+    setDetailMap((m) => ({ ...m, [key]: 'loading' }));
+    try {
+      const params = new URLSearchParams({
+        ysCode: r.ysCode || '', jkyCode: r.jkyCode || '', type: r.type,
+      }).toString();
+      const resp = await fetch(`${API_BASE}/api/supply-chain/purchase-plan/detail?${params}`,
+        { credentials: 'include' });
+      const j = await resp.json();
+      if (j.code === 200) {
+        setDetailMap((m) => ({ ...m, [key]: j.data.rows || [] }));
+      } else {
+        setDetailMap((m) => ({ ...m, [key]: 'error' }));
+      }
+    } catch {
+      setDetailMap((m) => ({ ...m, [key]: 'error' }));
+    }
+  };
+
+  const fetchData = () => {
+    setLoading(true);
     fetch(`${API_BASE}/api/supply-chain/purchase-plan`, { credentials: 'include' })
       .then((r) => r.json())
       .then((j) => {
@@ -87,7 +112,43 @@ const PurchasePlan: React.FC = () => {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchData(); }, []);
+
+  // v0.55: layout-content padding-top:20 + overflow:auto 让 padding 区跟着滚, sticky 表头跟数据行重叠
+  // MainLayout 用 inline style 设 padding, useEffect 覆盖会被 re-render 抹掉
+  // 用 body class 配 CSS !important 强制覆盖, React 不动 body class
+  useEffect(() => {
+    document.body.classList.add('purchase-plan-no-content-padding');
+    return () => document.body.classList.remove('purchase-plan-no-content-padding');
   }, []);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    const hide = message.loading('正在拉取用友 BIP 现存量, 通常 30~60 秒...', 0);
+    try {
+      const r = await fetch(`${API_BASE}/api/supply-chain/sync-ys-stock`, {
+        method: 'POST', credentials: 'include',
+      });
+      const j = await r.json();
+      hide();
+      if (j.code === 200) {
+        message.success(
+          `同步完成: 新增 ${j.data.ins} / 更新 ${j.data.upd} / 失败 ${j.data.err} (耗时 ${j.data.durationSec}s)`,
+          5,
+        );
+        fetchData();
+      } else {
+        message.error(`同步失败: ${j.msg || '未知错误'}`, 5);
+      }
+    } catch (e: any) {
+      hide();
+      message.error(`同步异常: ${e?.message || e}`, 5);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   if (loading) return <PageLoading />;
   if (!data) return <Empty description="暂无数据" />;
@@ -98,7 +159,7 @@ const PurchasePlan: React.FC = () => {
   const filtered = suggested.filter((s) => {
     if (typeFilter !== '全部' && s.type !== typeFilter) return false;
     if (statusFilter && s.status !== statusFilter) return false;
-    if (keyword && !(s.goodsNo.includes(keyword) || s.goodsName.includes(keyword))) return false;
+    if (keyword && !(s.jkyCode.includes(keyword) || s.ysCode.includes(keyword) || s.goodsName.includes(keyword))) return false;
     return true;
   });
 
@@ -153,7 +214,24 @@ const PurchasePlan: React.FC = () => {
   };
 
   return (
-    <div>
+    <div style={{ paddingTop: 20 }}>
+      <style>{`
+        /* layout-content padding-top:20 + overflow:auto 让 padding 跟内容滚, sticky 表头被数据行穿透 */
+        body.purchase-plan-no-content-padding .ant-layout-content { padding-top: 0 !important; }
+        /* 打通 ancestor overflow 让 sticky 绑定到 .ant-layout-content */
+        .purchase-plan-card { overflow: visible !important; }
+        .purchase-plan-card .ant-card-body { overflow: visible !important; }
+        .purchase-plan-card .ant-table-wrapper { overflow: visible !important; }
+        .purchase-plan-card .ant-table { overflow: visible !important; }
+        .purchase-plan-card .ant-table-container { overflow: visible !important; }
+        .purchase-plan-card .ant-table-content { overflow: visible !important; }
+        .purchase-plan-sticky .ant-table-thead > tr > th {
+          position: sticky !important;
+          top: 0 !important;
+          z-index: 100 !important;
+          background: #fafafa !important;
+        }
+      `}</style>
       {/* 公式 + 数据来源说明 */}
       <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6,
                     padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#64748b' }}>
@@ -164,23 +242,20 @@ const PurchasePlan: React.FC = () => {
         成品 {params.finishedGoodsTargetDays} 天 / 包材 {params.materialTargetDays} 天；
         <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>日均：</span>
         成品=吉客云销量 / 包材=YS 材料出库单近30天 (真实消耗)
-        <div style={{ marginTop: 8, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ color: '#1e293b', fontWeight: 600 }}>状态:</span>
+        <div style={{ marginTop: 4, color: '#94a3b8' }}>
+          说明：包材/原料常规仅在用友 BIP 流转，吉客云编码列空属正常；成品 YS 编码列空表示 YS 端尚未建立货品档案。
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <span style={{ color: '#1e293b', fontWeight: 600, marginRight: 6 }}>状态分布:</span>
           {['断货', '紧急', '偏低', '正常', '积压'].map((s) => {
             const cnt = suggested.filter((x) => x.status === s).length;
             return (
-              <span key={s} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600,
-                background: statusColor[s], color: '#fff',
-              }}>
-                <span>{statusIcon[s]}</span>
-                {s} <span style={{ background: 'rgba(255,255,255,0.25)', padding: '0 6px',
-                                   borderRadius: 8, marginLeft: 2 }}>{cnt}</span>
-              </span>
+              <Tag key={s} color={statusColor[s]} style={{ marginRight: 6 }}>
+                {s} {cnt}
+              </Tag>
             );
           })}
-          <span style={{ marginLeft: 4, color: '#64748b' }}>(共 {suggested.length} 项)</span>
+          <span style={{ color: '#64748b' }}>共 {suggested.length} 项</span>
         </div>
       </div>
 
@@ -224,7 +299,8 @@ const PurchasePlan: React.FC = () => {
 
       {/* 建议采购清单 */}
       <Card
-        title={`📋 建议采购清单 (共 ${filtered.length} 项, 按建议量倒序)`}
+        className="purchase-plan-card"
+        title={`建议采购清单 (共 ${filtered.length} 项, 按建议量倒序)`}
         style={{ marginTop: 12 }}
         extra={
           <div style={{ display: 'flex', gap: 8 }}>
@@ -233,43 +309,97 @@ const PurchasePlan: React.FC = () => {
             <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 100 }}
               placeholder="状态" allowClear
               options={['断货', '紧急', '偏低', '正常', '积压'].map((s) => ({ value: s, label: s }))} />
-            <Input.Search placeholder="搜索物料编码/名称" value={keyword}
+            <Input.Search placeholder="搜索 吉客云/YS 编码 / 名称" value={keyword}
               onChange={(e) => setKeyword(e.target.value)} style={{ width: 200 }} allowClear />
+            <Tooltip title="拉取用友 BIP 最新现存量并刷新看板, 自动定时: 09:30 / 14:00 / 18:00">
+              <Button type="primary" icon={<SyncOutlined spin={syncing} />}
+                loading={syncing} onClick={handleSync}>
+                立即同步
+              </Button>
+            </Tooltip>
           </div>
         }
       >
         <Table
+          className="purchase-plan-sticky"
           dataSource={filtered}
-          rowKey={(r) => `${r.type}-${r.goodsNo}`}
+          rowKey={(r) => `${r.type}-${r.jkyCode || r.ysCode}`}
           size="small"
           pagination={{ defaultPageSize: 50, pageSizeOptions: ['50', '100', '200'], showSizeChanger: true,
                         showTotal: (t) => `共 ${t} 条` }}
-          onRow={(r) => ({
-            style: statusBgRow[r.status] ? { background: statusBgRow[r.status] } : {},
-          })}
+          expandable={{
+            expandedRowRender: (r) => {
+              const key = `${r.type}-${r.jkyCode || r.ysCode}`;
+              const d = detailMap[key];
+              if (d === 'loading') return <div style={{ padding: 12, color: '#64748b' }}>加载中...</div>;
+              if (d === 'error') return <div style={{ padding: 12, color: '#dc2626' }}>加载失败, 请重试</div>;
+              if (!d) return null;
+              if (d.length === 0) return <div style={{ padding: 12, color: '#64748b' }}>无明细数据</div>;
+              return (
+                <Table
+                  size="small"
+                  dataSource={d}
+                  rowKey={(x) => `${x.warehouse}-${x.org}`}
+                  pagination={false}
+                  style={{ background: '#f8fafc', margin: '8px 0' }}
+                  columns={[
+                    { title: '仓库', dataIndex: 'warehouse', width: 160 },
+                    { title: '组织', dataIndex: 'org', ellipsis: true },
+                    { title: '库存', dataIndex: 'stock', width: 100, align: 'right',
+                      render: (v: number) => fmtQty(v) },
+                    { title: '日均消耗', dataIndex: 'dailyAvg', width: 100, align: 'right',
+                      render: (v: number) => v > 0 ? v.toLocaleString() : <span style={{ color: '#cbd5e1' }}>—</span> },
+                    { title: '在途采购', dataIndex: 'inTransit', width: 100, align: 'right',
+                      render: (v: number) => v > 0 ? <span style={{ color: '#1e40af' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
+                    { title: '在途委外', dataIndex: 'inTransitSubcontract', width: 100, align: 'right',
+                      render: (v: number) => v > 0 ? <span style={{ color: '#7c3aed' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
+                    { title: '最近到货', dataIndex: 'nextArriveDate', width: 130, align: 'center',
+                      render: (date: string, x: DetailRow) => {
+                        if (!date) return <span style={{ color: '#cbd5e1' }}>—</span>;
+                        const dd = x.nextArriveDays;
+                        if (dd === 999) return <span style={{ color: '#94a3b8' }}>{date} (估)</span>;
+                        let color = '#16a34a', label = `${dd} 天后`;
+                        if (dd < 0) { color = '#dc2626'; label = `逾期 ${-dd} 天`; }
+                        else if (dd <= 7) color = '#dc2626';
+                        else if (dd <= 30) color = '#f59e0b';
+                        return <span style={{ color, fontWeight: 600 }}>{label}</span>;
+                      } },
+                    { title: '建议采购量', dataIndex: 'suggested', width: 110, align: 'right',
+                      render: (v: number) => v > 0
+                        ? <span style={{ fontWeight: 700, color: '#dc2626' }}>{fmtQty(v)}</span>
+                        : <span style={{ color: '#cbd5e1' }}>—</span> },
+                  ]}
+                />
+              );
+            },
+            onExpand: (expanded, r) => {
+              const key = `${r.type}-${r.jkyCode || r.ysCode}`;
+              if (expanded && !detailMap[key]) fetchDetail(key, r);
+            },
+          }}
           columns={[
-            { title: '类型', dataIndex: 'type', width: 70, align: 'center',
-              render: (t: string) => <Tag color={t === '成品' ? 'blue' : 'orange'}>{t}</Tag> },
-            { title: '状态', dataIndex: 'status', width: 110, align: 'center',
-              filters: ['断货', '紧急', '偏低', '正常', '积压'].map((s) => ({ text: `${statusIcon[s]} ${s}`, value: s })),
+            { title: '类型', dataIndex: 'type', width: 80, align: 'center',
+              render: (t: string) => <Tag color={t === '成品' ? 'blue' : 'cyan'}>{t}</Tag> },
+            { title: '状态', dataIndex: 'status', width: 80, align: 'center',
+              filters: ['断货', '紧急', '偏低', '正常', '积压'].map((s) => ({ text: s, value: s })),
               onFilter: (val: any, r: SuggestRow) => r.status === val,
-              render: (s: string) => (
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  gap: 4, padding: '3px 10px', borderRadius: 12,
-                  background: statusColor[s] || '#94a3b8',
-                  color: '#fff', fontWeight: 700, fontSize: 13,
-                  minWidth: 80, lineHeight: 1.4,
-                  boxShadow: `0 1px 3px ${statusColor[s] || '#94a3b8'}55`,
-                }}>
-                  <span style={{ fontSize: 14 }}>{statusIcon[s] || '•'}</span>{s}
-                </span>
-              ),
+              render: (s: string) => <Tag color={statusColor[s] || 'default'}>{s}</Tag>,
               sorter: (a: SuggestRow, b: SuggestRow) => {
                 const order = ['断货', '紧急', '偏低', '正常', '积压'];
                 return order.indexOf(a.status) - order.indexOf(b.status);
               } },
-            { title: '物料编码', dataIndex: 'goodsNo', width: 120 },
+            { title: '吉客云编码', dataIndex: 'jkyCode', width: 120,
+              render: (v: string, r: SuggestRow) => v
+                ? v
+                : <Tooltip title={r.type === '包材/原料' ? '包材/原料常规仅在用友 BIP 流转，无吉客云编码属正常' : '吉客云端未维护此货品档案'}>
+                    <span style={{ color: '#cbd5e1' }}>—</span>
+                  </Tooltip> },
+            { title: 'YS 编码', dataIndex: 'ysCode', width: 120,
+              render: (v: string, r: SuggestRow) => v
+                ? v
+                : <Tooltip title={r.type === '成品' ? 'YS 端未建立此货品档案 (需要在用友 BIP 录入外部编码 = 吉客云 goods_no)' : '此包材尚未在 goods 表建立外部编码映射'}>
+                    <span style={{ color: '#cbd5e1' }}>—</span>
+                  </Tooltip> },
             { title: '物料名称', dataIndex: 'goodsName', ellipsis: true },
             { title: '当前库存', dataIndex: 'stock', width: 100, align: 'right',
               render: (v: number) => fmtQty(v),
@@ -284,18 +414,29 @@ const PurchasePlan: React.FC = () => {
                 return <span style={{ color: c, fontWeight: 600 }}>{v} 天</span>;
               },
               sorter: (a: SuggestRow, b: SuggestRow) => a.sellableDays - b.sellableDays },
-            { title: '在途量', dataIndex: 'inTransit', width: 110, align: 'right',
-              render: (v: number) => v > 0 ? <span style={{ color: '#1e40af' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>-</span> },
-            { title: '🎯 建议采购量', dataIndex: 'suggestedQty', width: 130, align: 'right',
-              render: (v: number) => <span style={{ fontWeight: 700, color: '#dc2626' }}>{fmtQty(v)}</span>,
+            { title: '在途采购', dataIndex: 'inTransit', width: 90, align: 'right',
+              render: (v: number) => v > 0 ? <span style={{ color: '#1e40af' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
+            { title: '在途委外', dataIndex: 'inTransitSubcontract', width: 90, align: 'right',
+              render: (v: number) => v > 0 ? <span style={{ color: '#7c3aed' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
+            { title: '最近到货', dataIndex: 'nextArriveDate', width: 130, align: 'center',
+              render: (date: string, r: SuggestRow) => {
+                if (!date) return <span style={{ color: '#cbd5e1' }}>—</span>;
+                const d = r.nextArriveDays;
+                if (d === 999) return <Tooltip title="采购员未填到货日期, 用 vouchdate+30天 估算"><span style={{ color: '#94a3b8' }}>{date} (估)</span></Tooltip>;
+                let color = '#16a34a', label = `${d} 天后`;
+                if (d < 0) { color = '#dc2626'; label = `逾期 ${-d} 天`; }
+                else if (d <= 7) color = '#dc2626';
+                else if (d <= 30) color = '#f59e0b';
+                return <Tooltip title={`预计 ${date} 到货`}><span style={{ color, fontWeight: 600 }}>{label}</span></Tooltip>;
+              },
+              sorter: (a: SuggestRow, b: SuggestRow) => a.nextArriveDays - b.nextArriveDays },
+            { title: '建议采购量', dataIndex: 'suggestedQty', width: 120, align: 'right',
+              render: (v: number) => <span style={{ fontWeight: 600 }}>{fmtQty(v)}</span>,
               sorter: (a: SuggestRow, b: SuggestRow) => a.suggestedQty - b.suggestedQty,
               defaultSortOrder: 'descend' },
           ]}
         />
       </Card>
-
-      <style>{`.bi-row-urgent { background: rgba(220, 38, 38, 0.04) !important; }
-               .bi-row-urgent:hover td { background: rgba(220, 38, 38, 0.08) !important; }`}</style>
     </div>
   );
 };

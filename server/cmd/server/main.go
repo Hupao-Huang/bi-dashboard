@@ -182,6 +182,8 @@ func main() {
 	mux.HandleFunc("/api/supply-chain/dashboard", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetSupplyChainDashboard)))
 	mux.HandleFunc("/api/supply-chain/monthly-trend", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetSupplyChainMonthlyTrend)))
 	mux.HandleFunc("/api/supply-chain/purchase-plan", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetPurchasePlan)))
+	mux.HandleFunc("/api/supply-chain/sync-ys-stock", pageProtected("supply_chain.plan_dashboard:view", h.SyncYSStock))
+	mux.HandleFunc("/api/supply-chain/purchase-plan/detail", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetPurchasePlanDetail)))
 	mux.HandleFunc("/api/admin/tasks", adminRoles(h.GetTaskStatus))
 	mux.HandleFunc("/api/admin/tasks/run", adminRoles(h.RunManualTask))
 	mux.HandleFunc("/api/admin/tasks/running", adminRoles(h.GetRunningTasks))

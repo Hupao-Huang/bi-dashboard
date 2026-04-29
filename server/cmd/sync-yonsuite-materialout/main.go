@@ -78,6 +78,7 @@ func main() {
 
 	log.Printf("\n========== 完成 ==========")
 	log.Printf("新增: %d / 更新: %d / 失败: %d", totalInserted, totalUpdated, totalErrored)
+	yonsuite.ClearBIServerCache(cfg.Webhook.Secret)
 }
 
 func syncOneDay(client *yonsuite.Client, db *sql.DB, day string) (int, int, int) {
