@@ -483,18 +483,20 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. 产品定位 × 部门明细（用于 hover 展开）
+	// 6. 产品定位 × 部门明细（含毛利，总览矩阵表用）
 	type GradeDeptSales struct {
 		Grade      string  `json:"grade"`
 		Department string  `json:"department"`
 		Sales      float64 `json:"sales"`
+		Profit     float64 `json:"profit"`
 	}
 	var gradeDeptSales []GradeDeptSales
 	gdArgs := append([]interface{}{start, end}, scopeArgs...)
 	gdRows, ok := queryRowsOrWriteError(w, h.DB, `
 		SELECT IFNULL(g.goods_field7,'未设置') as grade,
 			IFNULL(s.department,'其他') as department,
-			ROUND(SUM(s.goods_amt), 2) as sales
+			ROUND(SUM(s.goods_amt), 2) as sales,
+			ROUND(SUM(s.gross_profit), 2) as profit
 		FROM sales_goods_summary s
 		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
 		WHERE s.stat_date BETWEEN ? AND ?`+strings.ReplaceAll(scopeCond, "shop_name", "s.shop_name")+`
@@ -506,7 +508,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	defer gdRows.Close()
 	for gdRows.Next() {
 		var gd GradeDeptSales
-		if writeDatabaseError(w, gdRows.Scan(&gd.Grade, &gd.Department, &gd.Sales)) {
+		if writeDatabaseError(w, gdRows.Scan(&gd.Grade, &gd.Department, &gd.Sales, &gd.Profit)) {
 			return
 		}
 		gradeDeptSales = append(gradeDeptSales, gd)
@@ -792,6 +794,8 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	}
 
 	// 3.5 商品渠道分布（为TOP15每个商品查各渠道销售额）
+	// crossDept=1: 跨 4 部门聚合渠道分布（财务·产品利润页用于看商品在各部门/各渠道的全口径分布）
+	crossDept := r.URL.Query().Get("crossDept") == "1"
 	type ChannelSales struct {
 		ShopName string  `json:"shopName"`
 		Sales    float64 `json:"sales"`
@@ -800,33 +804,52 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	goodsChannels := map[string][]ChannelSales{}
 	if len(goods) > 0 {
 		placeholders := make([]string, len(goods))
-		chArgs := []interface{}{dept, start, end}
-		for i, g := range goods {
+		for i := range goods {
 			placeholders[i] = "?"
-			chArgs = append(chArgs, g.GoodsNo)
 		}
-		chArgs = append(chArgs, extraArgs...)
 		var chSQL string
-		if dept == "offline" {
-			chSQL = `SELECT goods_no, ` + offlineRegionExpr + ` as shop_name,
-				ROUND(SUM(local_goods_amt), 2) as sales,
-				ROUND(SUM(goods_qty), 0) as qty
-			FROM sales_goods_summary
-			WHERE department = ? AND stat_date BETWEEN ? AND ?
-			  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
-				offlineRegionPrefilter + shopCond + scopeCond + `
-			GROUP BY goods_no, 2
-			ORDER BY goods_no, sales DESC`
-		} else {
+		var chArgs []interface{}
+		if crossDept {
+			// 跨部门：忽略 dept/shop/platform/scope 过滤，按 stat_date+goods_no 全口径聚合
+			chArgs = []interface{}{start, end}
+			for _, g := range goods {
+				chArgs = append(chArgs, g.GoodsNo)
+			}
 			chSQL = `SELECT goods_no, shop_name,
 				ROUND(SUM(local_goods_amt), 2) as sales,
 				ROUND(SUM(goods_qty), 0) as qty
 			FROM sales_goods_summary
-			WHERE department = ? AND stat_date BETWEEN ? AND ?
-			  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
-				shopCond + platCond + scopeCond + `
+			WHERE stat_date BETWEEN ? AND ?
+			  AND goods_no IN (` + joinStrings(placeholders, ",") + `)
 			GROUP BY goods_no, shop_name
 			ORDER BY goods_no, sales DESC`
+		} else {
+			chArgs = []interface{}{dept, start, end}
+			for _, g := range goods {
+				chArgs = append(chArgs, g.GoodsNo)
+			}
+			chArgs = append(chArgs, extraArgs...)
+			if dept == "offline" {
+				chSQL = `SELECT goods_no, ` + offlineRegionExpr + ` as shop_name,
+					ROUND(SUM(local_goods_amt), 2) as sales,
+					ROUND(SUM(goods_qty), 0) as qty
+				FROM sales_goods_summary
+				WHERE department = ? AND stat_date BETWEEN ? AND ?
+				  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
+					offlineRegionPrefilter + shopCond + scopeCond + `
+				GROUP BY goods_no, 2
+				ORDER BY goods_no, sales DESC`
+			} else {
+				chSQL = `SELECT goods_no, shop_name,
+					ROUND(SUM(local_goods_amt), 2) as sales,
+					ROUND(SUM(goods_qty), 0) as qty
+				FROM sales_goods_summary
+				WHERE department = ? AND stat_date BETWEEN ? AND ?
+				  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
+					shopCond + platCond + scopeCond + `
+				GROUP BY goods_no, shop_name
+				ORDER BY goods_no, sales DESC`
+			}
 		}
 		chRows, ok := queryRowsOrWriteError(w, h.DB, chSQL, chArgs...)
 		if !ok {
@@ -1171,19 +1194,89 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	// crossDept=1 额外返回：产品定位×部门 + 产品定位×店铺 全口径聚合（含毛利）
+	type GradeDeptItem struct {
+		Grade      string  `json:"grade"`
+		Department string  `json:"department"`
+		Sales      float64 `json:"sales"`
+		Profit     float64 `json:"profit"`
+	}
+	type GradeShopItem struct {
+		Grade      string  `json:"grade"`
+		Department string  `json:"department"`
+		ShopName   string  `json:"shopName"`
+		Sales      float64 `json:"sales"`
+		Profit     float64 `json:"profit"`
+	}
+	var gradeDeptSalesAll []GradeDeptItem
+	var gradeShopSalesAll []GradeShopItem
+	if crossDept {
+		gdRows, ok := queryRowsOrWriteError(w, h.DB, `
+			SELECT IFNULL(g.goods_field7,'未设置') as grade, s.department,
+				ROUND(SUM(s.local_goods_amt),2) as sales,
+				ROUND(SUM(s.gross_profit),2) as profit
+			FROM sales_goods_summary s
+			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+			WHERE s.stat_date BETWEEN ? AND ?
+			GROUP BY grade, s.department
+			ORDER BY FIELD(grade,'S','A','B','C','D','未设置'), sales DESC`, start, end)
+		if !ok {
+			return
+		}
+		defer gdRows.Close()
+		for gdRows.Next() {
+			var it GradeDeptItem
+			if writeDatabaseError(w, gdRows.Scan(&it.Grade, &it.Department, &it.Sales, &it.Profit)) {
+				return
+			}
+			gradeDeptSalesAll = append(gradeDeptSalesAll, it)
+		}
+		if writeDatabaseError(w, gdRows.Err()) {
+			return
+		}
+
+		gsRows, ok := queryRowsOrWriteError(w, h.DB, `
+			SELECT IFNULL(g.goods_field7,'未设置') as grade,
+				IFNULL(s.department,'其他') as department,
+				s.shop_name,
+				ROUND(SUM(s.local_goods_amt),2) as sales,
+				ROUND(SUM(s.gross_profit),2) as profit
+			FROM sales_goods_summary s
+			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+			WHERE s.stat_date BETWEEN ? AND ?
+			GROUP BY grade, s.department, s.shop_name
+			ORDER BY FIELD(grade,'S','A','B','C','D','未设置'), sales DESC`, start, end)
+		if !ok {
+			return
+		}
+		defer gsRows.Close()
+		for gsRows.Next() {
+			var it GradeShopItem
+			if writeDatabaseError(w, gsRows.Scan(&it.Grade, &it.Department, &it.ShopName, &it.Sales, &it.Profit)) {
+				return
+			}
+			gradeShopSalesAll = append(gradeShopSalesAll, it)
+		}
+		if writeDatabaseError(w, gsRows.Err()) {
+			return
+		}
+	}
+
 	writeJSON(w, map[string]interface{}{
-		"daily":          daily,
-		"shops":          shops,
-		"goods":          goods,
-		"goodsChannels":  goodsChannels,
-		"brands":         brands,
-		"grades":         grades,
-		"platforms":      platforms,
-		"platformSales":  platformSales,
-		"gradePlatSales": gradePlatSales,
-		"regionTargets":  regionTargets,
-		"dateRange":      map[string]string{"start": start, "end": end},
-		"trendRange":     map[string]string{"start": trendStart, "end": trendEnd},
+		"daily":             daily,
+		"shops":             shops,
+		"goods":             goods,
+		"goodsChannels":     goodsChannels,
+		"brands":            brands,
+		"grades":            grades,
+		"platforms":         platforms,
+		"platformSales":     platformSales,
+		"gradePlatSales":    gradePlatSales,
+		"gradeDeptSalesAll": gradeDeptSalesAll,
+		"gradeShopSalesAll": gradeShopSalesAll,
+		"regionTargets":     regionTargets,
+		"dateRange":         map[string]string{"start": start, "end": end},
+		"trendRange":        map[string]string{"start": trendStart, "end": trendEnd},
 	})
 }
 
@@ -3541,8 +3634,8 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				IFNULL(tc.avg_response_sec, 0) AS response_seconds,
 				IFNULL(te.total_satisfaction_rate, 0) AS satisfaction_rate,
 				CASE
-					WHEN IFNULL(ti.daily_conv_rate, 0) <= 1 THEN IFNULL(ti.daily_conv_rate, 0) * 100
-					ELSE IFNULL(ti.daily_conv_rate, 0)
+					WHEN IFNULL(ti.final_conv_rate, 0) <= 1 THEN IFNULL(ti.final_conv_rate, 0) * 100
+					ELSE IFNULL(ti.final_conv_rate, 0)
 				END AS conv_rate
 			FROM op_tmall_service_consult tc
 			LEFT JOIN op_tmall_service_inquiry ti ON ti.stat_date = tc.stat_date AND ti.shop_name = tc.shop_name

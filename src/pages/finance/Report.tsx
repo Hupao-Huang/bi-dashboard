@@ -542,15 +542,15 @@ const FinanceReportPage: React.FC = () => {
         <Tabs
           defaultActiveKey="table"
           items={[
-            { key: 'table', label: '损益表', children: (
+            { key: 'table', label: '财务报表', children: (
               <>
                 {reportFilter}
                 <ReportTable data={data} loading={loading} />
               </>
             ) },
-            { key: 'trend', label: '跨月跨年趋势', children: <ReportTrend year={year} subjectDict={subjectDict} /> },
-            { key: 'compare', label: '渠道对比', children: <ReportCompare year={year} /> },
-            { key: 'structure', label: '成本/费用结构', children: <ReportStructure year={year} department={department} /> },
+            { key: 'business', label: '业务报表', children: (
+              <Empty description="业务报表数据接入中（财务明天提供新表格）" />
+            ) },
           ]}
         />
       </Card>
