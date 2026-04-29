@@ -26,10 +26,23 @@ yarn-error.log*
 # server binaries
 server/*.exe
 server/*.exe~
+server/*.exe.bak-*
 server/cmd/**/*.exe
 server/*.log
 server/*.log.old
 server/archive/
+server/logs/
+server/manual-sync-*.log
+
+# 一次性探针/调试工具
+server/cmd/probe-trade-fields/
+server/trade-fields-dump.json
+
+# git filter-repo 备份
+.git.bak-*
+
+# 前端 npx serve 日志
+frontend-serve.log
 
 # server config (contains passwords)
 server/config.json
