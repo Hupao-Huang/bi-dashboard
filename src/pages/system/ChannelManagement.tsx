@@ -173,13 +173,19 @@ const ChannelManagement: React.FC = () => {
     <div>
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={8}>
-          <Card><Statistic title="总渠道数" value={total} /></Card>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#1e40af' }}>
+            <Statistic title="总渠道数" value={total} />
+          </Card>
         </Col>
         <Col xs={8}>
-          <Card><Statistic title="已映射" value={total - unmappedCount} styles={{ content: { color: '#52c41a' } }} /></Card>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#52c41a' }}>
+            <Statistic title="已映射" value={total - unmappedCount} />
+          </Card>
         </Col>
         <Col xs={8}>
-          <Card><Statistic title="未映射" value={unmappedCount} styles={{ content: { color: unmappedCount > 0 ? '#f5222d' : '#52c41a' } }} /></Card>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: unmappedCount > 0 ? '#f5222d' : '#52c41a' }}>
+            <Statistic title="未映射" value={unmappedCount} valueStyle={{ color: unmappedCount > 0 ? '#f5222d' : '#52c41a' }} />
+          </Card>
         </Col>
       </Row>
 

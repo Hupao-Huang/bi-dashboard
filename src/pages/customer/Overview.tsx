@@ -158,7 +158,7 @@ const CustomerOverview: React.FC = () => {
   return (
     <div>
       <DateFilter start={startDate} end={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
-      <Card style={{ marginBottom: 12 }}>
+      <Card className="bi-filter-card" style={{ marginBottom: 16 }}>
         <Tabs
           activeKey={activePlatform}
           onChange={setActivePlatform}
