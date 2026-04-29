@@ -127,44 +127,45 @@ func main() {
 	mux.HandleFunc("/api/audit/page-view", protected(h.AuditLogPageView))
 	mux.HandleFunc("/api/admin/audit-logs", adminMeta(h.AdminAuditLogs))
 
-	// 销售/库存/运营类看板数据一天只变一次，缓存60分钟足够
-	// 如需立即生效，调用 /api/webhook/clear-cache（同步脚本自动调用）
-	cache5m := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(60*time.Minute, fn) }
+	// T-1 数据看板：昨天/前天/上月数据永远不变，缓存 24 小时
+	// 同步脚本完成后会调 ClearCacheByPrefix 主动清除（详见 supply_chain.go / stock.go）
+	// 历史背景：曾命名 cache5m 但 TTL 为 60min，现统一为 cache24h（v0.56.7）
+	cache24h := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(24*time.Hour, fn) }
 
-	mux.HandleFunc("/api/overview", pageAnyProtected(cache5m(h.GetOverview),
+	mux.HandleFunc("/api/overview", pageAnyProtected(cache24h(h.GetOverview),
 		"overview:view", "finance.overview:view", "finance.monthly_profit:view",
 	))
-	mux.HandleFunc("/api/department", pageAnyProtected(cache5m(h.GetDepartmentDetail),
+	mux.HandleFunc("/api/department", pageAnyProtected(cache24h(h.GetDepartmentDetail),
 		"ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view",
 		"social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view",
 		"offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view",
 		"distribution.store_preview:view", "distribution.store_dashboard:view", "distribution.product_dashboard:view",
 		"finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view",
 	))
-	mux.HandleFunc("/api/tmall/ops", pageAnyProtected(cache5m(h.GetTmallOps),
+	mux.HandleFunc("/api/tmall/ops", pageAnyProtected(cache24h(h.GetTmallOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/vip/ops", pageAnyProtected(cache5m(h.GetVipOps),
+	mux.HandleFunc("/api/vip/ops", pageAnyProtected(cache24h(h.GetVipOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/pdd/ops", pageAnyProtected(cache5m(h.GetPddOps),
+	mux.HandleFunc("/api/pdd/ops", pageAnyProtected(cache24h(h.GetPddOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/jd/ops", pageAnyProtected(cache5m(h.GetJdOps),
+	mux.HandleFunc("/api/jd/ops", pageAnyProtected(cache24h(h.GetJdOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/tmallcs/ops", pageAnyProtected(cache5m(h.GetTmallcsOps),
+	mux.HandleFunc("/api/tmallcs/ops", pageAnyProtected(cache24h(h.GetTmallcsOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
 	))
-	mux.HandleFunc("/api/feigua", pageProtected("social.feigua:view", cache5m(h.GetFeiguaData)))
-	mux.HandleFunc("/api/douyin/ops", pageProtected("social.marketing:view", cache5m(h.GetDouyinOps)))
-	mux.HandleFunc("/api/douyin-dist/ops", pageProtected("social.marketing:view", cache5m(h.GetDouyinDistOps)))
-	mux.HandleFunc("/api/marketing-cost", pageProtected("ecommerce.marketing_cost:view", cache5m(h.GetMarketingCost)))
-	mux.HandleFunc("/api/customer/overview", pageProtected("customer.overview:view", cache5m(h.GetCustomerOverview)))
-	mux.HandleFunc("/api/s-products", pageAnyProtected(cache5m(h.GetSProducts),
+	mux.HandleFunc("/api/feigua", pageProtected("social.feigua:view", cache24h(h.GetFeiguaData)))
+	mux.HandleFunc("/api/douyin/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinOps)))
+	mux.HandleFunc("/api/douyin-dist/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinDistOps)))
+	mux.HandleFunc("/api/marketing-cost", pageProtected("ecommerce.marketing_cost:view", cache24h(h.GetMarketingCost)))
+	mux.HandleFunc("/api/customer/overview", pageProtected("customer.overview:view", cache24h(h.GetCustomerOverview)))
+	mux.HandleFunc("/api/s-products", pageAnyProtected(cache24h(h.GetSProducts),
 		"ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view",
 	))
-	mux.HandleFunc("/api/channels", pageAnyProtected(cache5m(h.GetChannels),
+	mux.HandleFunc("/api/channels", pageAnyProtected(cache24h(h.GetChannels),
 		"ecommerce.store_preview:view", "ecommerce.store_dashboard:view",
 		"social.store_preview:view", "social.store_dashboard:view",
 		"offline.store_preview:view", "offline.store_dashboard:view",
@@ -176,14 +177,19 @@ func main() {
 	mux.HandleFunc("/api/webhook/sync-ops", corsHandler(h.SyncOps))
 	mux.HandleFunc("/api/webhook/sync-status", corsHandler(h.SyncStatus))
 	mux.HandleFunc("/api/webhook/clear-cache", corsHandler(h.ClearCache))
-	mux.HandleFunc("/api/stock/warning", pageProtected("supply_chain.inventory_warning:view", cache5m(h.GetStockWarning)))
+	mux.HandleFunc("/api/stock/warning", pageProtected("supply_chain.inventory_warning:view", cache24h(h.GetStockWarning)))
 	mux.HandleFunc("/api/stock/sync-now", pageProtected("supply_chain.inventory_warning:view", h.SyncStockNow))
 	mux.HandleFunc("/api/stock/sync-status", pageProtected("supply_chain.inventory_warning:view", h.SyncStockStatus))
-	mux.HandleFunc("/api/supply-chain/dashboard", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetSupplyChainDashboard)))
-	mux.HandleFunc("/api/supply-chain/monthly-trend", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetSupplyChainMonthlyTrend)))
-	mux.HandleFunc("/api/supply-chain/purchase-plan", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetPurchasePlan)))
+	mux.HandleFunc("/api/supply-chain/dashboard", pageProtected("supply_chain.plan_dashboard:view", cache24h(h.GetSupplyChainDashboard)))
+	mux.HandleFunc("/api/supply-chain/monthly-trend", pageProtected("supply_chain.plan_dashboard:view", cache24h(h.GetSupplyChainMonthlyTrend)))
+	mux.HandleFunc("/api/supply-chain/purchase-plan", pageProtected("supply_chain.plan_dashboard:view", cache24h(h.GetPurchasePlan)))
 	mux.HandleFunc("/api/supply-chain/sync-ys-stock", pageProtected("supply_chain.plan_dashboard:view", h.SyncYSStock))
-	mux.HandleFunc("/api/supply-chain/purchase-plan/detail", pageProtected("supply_chain.plan_dashboard:view", cache5m(h.GetPurchasePlanDetail)))
+	mux.HandleFunc("/api/supply-chain/purchase-plan/detail", pageProtected("supply_chain.plan_dashboard:view", cache24h(h.GetPurchasePlanDetail)))
+	// 快递仓储分析 (v0.56)
+	mux.HandleFunc("/api/warehouse-flow/overview", pageProtected("supply_chain.logistics_analysis:view", cache24h(h.GetWarehouseFlowOverview)))
+	mux.HandleFunc("/api/warehouse-flow/matrix", pageProtected("supply_chain.logistics_analysis:view", cache24h(h.GetWarehouseFlowMatrix)))
+	mux.HandleFunc("/api/warehouse-flow/sku", pageProtected("supply_chain.logistics_analysis:view", cache24h(h.GetWarehouseFlowSKU)))
+	mux.HandleFunc("/api/warehouse-flow/sku-list", pageProtected("supply_chain.logistics_analysis:view", cache24h(h.GetWarehouseFlowSKUList)))
 	mux.HandleFunc("/api/admin/tasks", adminRoles(h.GetTaskStatus))
 	mux.HandleFunc("/api/admin/tasks/run", adminRoles(h.RunManualTask))
 	mux.HandleFunc("/api/admin/tasks/running", adminRoles(h.GetRunningTasks))

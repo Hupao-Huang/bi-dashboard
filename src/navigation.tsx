@@ -121,8 +121,6 @@ export const menuDefinitions: MenuDefinition[] = [
     permission: 'finance:view',
     children: [
       { key: '/finance/overview', icon: <DashboardOutlined />, label: '利润总览', permission: 'finance.overview:view' },
-      { key: '/finance/department-profit', icon: <LineChartOutlined />, label: '部门利润分析', permission: 'finance.department_profit:view' },
-      { key: '/finance/monthly-profit', icon: <CalendarOutlined />, label: '月度利润统计', permission: 'finance.monthly_profit:view' },
       { key: '/finance/product-profit', icon: <RiseOutlined />, label: '产品利润统计', permission: 'finance.product_profit:view' },
       { key: '/finance/expense-control', icon: <AccountBookOutlined />, label: '费控管理', permission: 'finance.expense:view' },
       { key: '/finance/report', icon: <FileTextOutlined />, label: '财务报表', permission: 'finance.report:view' },
