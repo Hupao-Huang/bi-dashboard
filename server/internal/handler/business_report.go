@@ -394,9 +394,37 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	}
 	channelsCsv := strings.TrimSpace(q.Get("channels"))
 	if channelsCsv == "" {
-		channelsCsv = "总"
+		channelsCsv = "总|"
 	}
-	channels := splitCsv(channelsCsv)
+	// channels 每项格式 "channel|subChannel"（subChannel 空表示一级渠道汇总）
+	type chPair struct{ channel, subChannel string }
+	rawList := splitCsv(channelsCsv)
+	chPairs := make([]chPair, 0, len(rawList))
+	for _, item := range rawList {
+		parts := strings.SplitN(item, "|", 2)
+		ch := strings.TrimSpace(parts[0])
+		sc := ""
+		if len(parts) == 2 {
+			sc = strings.TrimSpace(parts[1])
+		}
+		if ch != "" {
+			chPairs = append(chPairs, chPair{ch, sc})
+		}
+	}
+	if len(chPairs) == 0 {
+		chPairs = []chPair{{"总", ""}}
+	}
+	// 兼容 byChannel 维度：用 "channel|subChannel" 作字符串标识
+	chKey := func(ch, sc string) string {
+		if sc == "" {
+			return ch
+		}
+		return ch + "|" + sc
+	}
+	channels := make([]string, len(chPairs))
+	for i, p := range chPairs {
+		channels[i] = chKey(p.channel, p.subChannel)
+	}
 
 	// 1. 找 [yearStart..yearEnd] 范围内每年最新 snapshot
 	snapRows, err := h.DB.Query(`
@@ -454,32 +482,33 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		conds = append(conds, "(snapshot_year=? AND snapshot_month=?)")
 		args = append(args, ys.year, ys.month)
 	}
-	chPH := strings.TrimSuffix(strings.Repeat("?,", len(channels)), ",")
-	for _, c := range channels {
-		args = append(args, c)
+	// (channel, sub_channel) tuple WHERE 条件
+	chTupleConds := make([]string, len(chPairs))
+	for i, p := range chPairs {
+		chTupleConds[i] = "(channel=? AND sub_channel=?)"
+		args = append(args, p.channel, p.subChannel)
 	}
+	chTupleClause := "(" + strings.Join(chTupleConds, " OR ") + ")"
 	args = append(args, monthStart, monthEnd)
 
-	// 取所有 sub_channel；前端通过 row.children 实现子渠道下钻展开
 	query := fmt.Sprintf(`
 		SELECT snapshot_year, channel, sub_channel, parent_subject, subject,
 		       subject_level, subject_category, sort_order, period_month,
 		       budget, actual, ratio_actual, achievement_rate
 		FROM business_budget_report
-		WHERE (%s) AND channel IN (%s) AND period_month BETWEEN ? AND ?
+		WHERE (%s) AND %s AND period_month BETWEEN ? AND ?
 		ORDER BY channel, sub_channel, sort_order, period_month`,
-		strings.Join(conds, " OR "), chPH)
+		strings.Join(conds, " OR "), chTupleClause)
 	dataRows, err := h.DB.Query(query, args...)
 	if writeDatabaseError(w, err) {
 		return
 	}
 	defer dataRows.Close()
 
-	// 行结构（跑哥要求"和财务报表一样"）：
-	//   rowKey = (sub_channel, subject) — 不含 channel
-	//   多 channel 选中时同一 subject 1 行，各 channel 数据存 byChannel[channel].cells
-	//   total = 所有 channel 累加
-	type rowKey struct{ subChannel, subject string }
+	// 行结构：rowKey = subject (不含 channel/sub_channel)
+	// (channel, sub_channel) pair 不再做行维度，直接当 byChannel 列展示
+	// 各 pair 数据存 byChannel[chKey].cells；total = 所有 pair 累加
+	type rowKey struct{ subject string }
 	type rowAcc struct {
 		row    *bbrRow
 		byChan map[string]*bbrChannelSeries
@@ -487,48 +516,49 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	rowMap := map[rowKey]*rowAcc{}
 	var order []rowKey
 
-	// 骨架：取所有选中 channel 的 (sub_channel, subject) 去重，sort_order 取最小
-	// 这样多 channel 选中时同 subject 只有 1 行；用 MIN(sort_order) 作排序
+	// 骨架：取所有选中 (channel, sub_channel) pair 的 subject 去重，sort_order 取最小
 	tplArgs := []interface{}{tplYear, tplMonth}
-	for _, c := range channels {
-		tplArgs = append(tplArgs, c)
+	tplTupleConds := make([]string, len(chPairs))
+	for i, p := range chPairs {
+		tplTupleConds[i] = "(channel=? AND sub_channel=?)"
+		tplArgs = append(tplArgs, p.channel, p.subChannel)
 	}
 	tplQuery := fmt.Sprintf(`
-		SELECT sub_channel, subject,
+		SELECT subject,
 		       MIN(subject_level) AS lv,
 		       MAX(parent_subject) AS parent,
 		       MAX(subject_category) AS cat,
 		       MIN(sort_order) AS so
 		FROM business_budget_report
-		WHERE snapshot_year=? AND snapshot_month=? AND channel IN (%s)
-		GROUP BY sub_channel, subject
-		ORDER BY MIN(sort_order), sub_channel`, chPH)
+		WHERE snapshot_year=? AND snapshot_month=? AND %s
+		GROUP BY subject
+		ORDER BY MIN(sort_order)`, strings.Join(tplTupleConds, " OR "))
 	tplRows, err := h.DB.Query(tplQuery, tplArgs...)
 	if writeDatabaseError(w, err) {
 		return
 	}
 	for tplRows.Next() {
 		var (
-			subChannel, parent, subject, cat string
-			level, sortOrd                   int
+			parent, subject, cat string
+			level, sortOrd       int
 		)
-		if writeDatabaseError(w, tplRows.Scan(&subChannel, &subject, &level, &parent, &cat, &sortOrd)) {
+		if writeDatabaseError(w, tplRows.Scan(&subject, &level, &parent, &cat, &sortOrd)) {
 			tplRows.Close()
 			return
 		}
-		rk := rowKey{subChannel, subject}
+		rk := rowKey{subject}
 		if _, exists := rowMap[rk]; exists {
 			continue
 		}
+		_ = sortOrd
 		rowMap[rk] = &rowAcc{
 			row: &bbrRow{
-				Code:       subject,
-				Name:       subject,
-				Level:      level,
-				Parent:     parent,
-				Category:   cat,
-				SubChannel: subChannel,
-				Total:      bbrSeries{Cells: map[string]bbrCell{}},
+				Code:     subject,
+				Name:     subject,
+				Level:    level,
+				Parent:   parent,
+				Category: cat,
+				Total:    bbrSeries{Cells: map[string]bbrCell{}},
 			},
 			byChan: map[string]*bbrChannelSeries{},
 		}
@@ -601,21 +631,21 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		if pm == 0 {
 			continue
 		}
-		rk := rowKey{subChannel, subject}
+		rk := rowKey{subject}
 		acc, exists := rowMap[rk]
 		if !exists {
-			// 模板里没有此 (sub_channel, subject) 组合 → 跳过
 			_ = parent
 			_ = level
 			_ = cat
 			continue
 		}
 		ym := fmt.Sprintf("%d-%d", snapY, pm)
-		// per-channel 子 series
-		cs, csExists := acc.byChan[channel]
+		// per-(channel|sub_channel) series — 用 chKey 字符串作维度
+		ck := chKey(channel, subChannel)
+		cs, csExists := acc.byChan[ck]
 		if !csExists {
-			cs = &bbrChannelSeries{Channel: channel, Series: bbrSeries{Cells: map[string]bbrCell{}}}
-			acc.byChan[channel] = cs
+			cs = &bbrChannelSeries{Channel: ck, Series: bbrSeries{Cells: map[string]bbrCell{}}}
+			acc.byChan[ck] = cs
 		}
 		addCell(cs.Series.Cells, ym, budget, actual, ratio, ar)
 		addRange(&cs.Series.RangeTotal, budget, actual)
@@ -624,56 +654,88 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		addRange(&acc.row.Total.RangeTotal, budget, actual)
 	}
 
-	// 组装 rows: 主行 (sub_channel='') + children (同 subject 的子渠道)
-	mainMap := map[string]*bbrRow{}     // subject → main row
-	childMap := map[string][]bbrRow{}    // subject → 子渠道行
-	seen := map[string]bool{}
-	var subjectOrder []string
-
+	// 组装 rows：rowKey 已经按 subject 唯一，直接 map → byChannel + total
+	rows := make([]bbrRow, 0, len(order))
 	for _, rk := range order {
 		acc := rowMap[rk]
 		if len(channels) > 1 {
-			for _, ch := range channels {
-				if cs, ok := acc.byChan[ch]; ok {
+			for _, ck := range channels {
+				if cs, ok := acc.byChan[ck]; ok {
 					acc.row.ByChannel = append(acc.row.ByChannel, *cs)
 				}
 			}
 		}
-		if !seen[rk.subject] {
-			seen[rk.subject] = true
-			subjectOrder = append(subjectOrder, rk.subject)
-		}
-		if rk.subChannel == "" {
-			mainMap[rk.subject] = acc.row
-		} else {
-			childMap[rk.subject] = append(childMap[rk.subject], *acc.row)
-		}
-	}
-
-	rows := make([]bbrRow, 0, len(subjectOrder))
-	for _, subj := range subjectOrder {
-		main, exists := mainMap[subj]
-		if !exists {
-			children := childMap[subj]
-			if len(children) == 0 {
-				continue
-			}
-			synth := children[0]
-			synth.SubChannel = ""
-			synth.Children = children
-			rows = append(rows, synth)
-			continue
-		}
-		if children, ok := childMap[subj]; ok {
-			main.Children = children
-		}
-		rows = append(rows, *main)
+		rows = append(rows, *acc.row)
 	}
 
 	writeJSON(w, map[string]interface{}{
 		"channels":   channels,
 		"yearMonths": yearMonths,
 		"rows":       rows,
+	})
+}
+
+// GetBusinessReportChannelsList 返回最新 snapshot 下所有 (channel, sub_channel) pair
+// 前端用此渲染 grouped checkbox（一级渠道为分组，二级 sub_channel 平铺）
+func (h *DashboardHandler) GetBusinessReportChannelsList(w http.ResponseWriter, r *http.Request) {
+	var tplYear, tplMonth int
+	err := h.DB.QueryRow(`
+		SELECT snapshot_year, snapshot_month FROM business_budget_report
+		ORDER BY snapshot_year DESC, snapshot_month DESC LIMIT 1`).Scan(&tplYear, &tplMonth)
+	if writeDatabaseError(w, err) {
+		return
+	}
+	rows, err := h.DB.Query(`
+		SELECT channel, sub_channel, COUNT(DISTINCT subject) AS subj_count
+		FROM business_budget_report
+		WHERE snapshot_year=? AND snapshot_month=?
+		GROUP BY channel, sub_channel
+		ORDER BY MIN(sort_order), channel, sub_channel`, tplYear, tplMonth)
+	if writeDatabaseError(w, err) {
+		return
+	}
+	defer rows.Close()
+	type chItem struct {
+		Channel    string `json:"channel"`
+		SubChannel string `json:"subChannel"`
+		Key        string `json:"key"`   // "channel|subChannel"
+		Label      string `json:"label"` // 显示名："电商" / "电商-TOC"
+		SubjCount  int    `json:"subjCount"`
+	}
+	type chGroup struct {
+		Channel string   `json:"channel"`
+		Items   []chItem `json:"items"`
+	}
+	groupMap := map[string]*chGroup{}
+	var groupOrder []string
+	for rows.Next() {
+		var ch, sc string
+		var cnt int
+		if writeDatabaseError(w, rows.Scan(&ch, &sc, &cnt)) {
+			return
+		}
+		key := ch
+		label := ch
+		if sc != "" {
+			key = ch + "|" + sc
+			label = ch + "-" + sc
+		}
+		g, ok := groupMap[ch]
+		if !ok {
+			g = &chGroup{Channel: ch}
+			groupMap[ch] = g
+			groupOrder = append(groupOrder, ch)
+		}
+		g.Items = append(g.Items, chItem{Channel: ch, SubChannel: sc, Key: key, Label: label, SubjCount: cnt})
+	}
+	groups := make([]chGroup, 0, len(groupOrder))
+	for _, k := range groupOrder {
+		groups = append(groups, *groupMap[k])
+	}
+	writeJSON(w, map[string]interface{}{
+		"snapshotYear":  tplYear,
+		"snapshotMonth": tplMonth,
+		"groups":        groups,
 	})
 }
 

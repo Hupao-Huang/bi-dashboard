@@ -260,6 +260,7 @@ func main() {
 	// 业务预决算报表 (v0.58/v0.59)
 	mux.HandleFunc("/api/finance/business-report", pageProtected("finance.report:view", h.GetBusinessReportFinanceLike))
 	mux.HandleFunc("/api/finance/business-report/snapshots", pageProtected("finance.report:view", h.GetBusinessReportSnapshots))
+	mux.HandleFunc("/api/finance/business-report/channels", pageProtected("finance.report:view", h.GetBusinessReportChannelsList))
 
 	// 受保护的上传文件访问（禁止目录浏览）
 	mux.HandleFunc("/api/uploads/", protected(h.ServeUploadFile))

@@ -13,8 +13,10 @@ import { formatWanHint } from '../../chartTheme';
 
 const { Text } = Typography;
 
-const ALL_CHANNELS = ['总', '电商', '私域', '分销', '社媒', '线下', '国际零售', '即时零售', '糙能', '中后台', '经营指标'];
 const YEAR_OPTIONS = [2023, 2024, 2025, 2026];
+
+interface ChannelItem { channel: string; subChannel: string; key: string; label: string; subjCount: number; }
+interface ChannelGroup { channel: string; items: ChannelItem[]; }
 
 interface BBRCell {
   budget?: number;
@@ -54,9 +56,17 @@ const BusinessReport: React.FC = () => {
   const [monthStart, setMonthStart] = useState<number>(1);
   const [monthEnd, setMonthEnd] = useState<number>(12);
   const [channels, setChannels] = useState<string[]>(['总']);
+  const [channelGroups, setChannelGroups] = useState<ChannelGroup[]>([]);
   const [data, setData] = useState<BBRData | null>(null);
   const [loading, setLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/finance/business-report/channels`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(res => setChannelGroups(res?.data?.groups || []))
+      .catch(() => setChannelGroups([]));
+  }, []);
 
   const fetchReport = useCallback(() => {
     if (channels.length === 0) {
@@ -100,11 +110,18 @@ const BusinessReport: React.FC = () => {
         <Select value={monthEnd} onChange={(v) => { setMonthEnd(v); if (v < monthStart) setMonthStart(v); }} style={{ width: 90 }}
           options={Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1}月`, value: i + 1 }))} />
         <span style={{ marginLeft: 12 }}>渠道：</span>
-        <Checkbox.Group
-          value={channels}
-          onChange={(v) => setChannels(v as string[])}
-          options={ALL_CHANNELS.map((c) => ({ label: c, value: c }))}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 1100 }}>
+          {channelGroups.map((g) => (
+            <div key={g.channel} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontSize: 12, color: '#64748b', minWidth: 64, textAlign: 'right' }}>{g.channel}：</span>
+              <Checkbox.Group
+                value={channels}
+                onChange={(v) => setChannels(v as string[])}
+                options={g.items.map((it) => ({ label: it.subChannel === '' ? '汇总' : it.subChannel, value: it.key }))}
+              />
+            </div>
+          ))}
+        </div>
       </Space>
       <Space>
         <Tooltip title="财务自助上传业务预决算 xlsx — 下个版本上线（当前由数据团队 CLI 导入）">
@@ -134,13 +151,12 @@ const BusinessReportTable: React.FC<{ data: BBRData | null; loading: boolean }> 
     <Table
       columns={columns}
       dataSource={data.rows}
-      rowKey={(r) => `${r.channel}|${r.code}|${r.subChannel || ''}`}
+      rowKey={(r) => r.code}
       pagination={false}
       size="small"
       bordered
       scroll={{ x: 'max-content', y: 'calc(100vh - 400px)' }}
       rowClassName={(r) => (r.level === 1 ? 'fin-row-group' : '')}
-      expandable={{ indentSize: 16 }}
     />
   );
 };
@@ -179,12 +195,14 @@ const buildColumns = (data: BBRData): any[] => {
     onCell: () => ({ style: { borderRight: '2px solid #94a3b8' } }),
     onHeaderCell: () => ({ style: { borderRight: '2px solid #94a3b8' } }),
   };
+  // chKey "电商|TOC" → "电商-TOC" 显示；"电商" → "电商"
+  const chLabel = (k: string) => k.includes('|') ? k.replace('|', '-') : k;
   const channelSubCols = (getCell: (row: BBRRow, ch: string) => BBRCell | undefined, keyPrefix: string) => {
     const cols: any[] = [];
     data.channels.forEach((ch, i) => {
       const isLast = i === data.channels.length - 1;
       cols.push({
-        title: ch,
+        title: chLabel(ch),
         key: `${keyPrefix}_${ch}`,
         width: 120,
         render: (_: any, row: BBRRow) => formatCell(getCell(row, ch), row.level, true),
