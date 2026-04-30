@@ -355,27 +355,26 @@ func isValidHeader(r []string) bool {
 	return detectLayout(r) != layoutUnknown
 }
 
-// isGroupHeader 分组 header 行：只有第 0 列有非数字内容，其他列空或 "0"
+// isGroupHeader 分组 header 行：只识别已知的"GMV数据"/"财务数据" + 中后台 sheet 的"品牌费用/管理费用/财务费用"
+// 跑哥 2026-04-30 反馈：旧版本"全 cell 为 0 即 group header"会误判全 0 数据科目（如"样品费用"）
+// 必须用白名单严判，避免误吞数据行
 func isGroupHeader(r []string) bool {
-	if len(r) == 0 || strings.TrimSpace(r[0]) == "" {
+	if len(r) == 0 {
 		return false
 	}
 	first := strings.TrimSpace(r[0])
-	// 排除带数字的金额行（科目行）
-	for i := 1; i < len(r); i++ {
-		v := strings.TrimSpace(r[i])
-		if v == "" || v == "0" || v == "0.00" || v == "0.00%" {
-			continue
-		}
-		// 找到一个非空非 0 的值 → 不是分组 header
+	if first == "" {
 		return false
 	}
-	// 全部为空或 0 → 是分组 header（如 "GMV数据" / "财务数据"）
-	// 排除"验证"
-	if strings.HasPrefix(first, "验证") {
-		return false
+	// 总/各渠道 sheet 的分组 header
+	if first == "GMV数据" || first == "财务数据" {
+		return true
 	}
-	return true
+	// 中后台合计 sheet 的分组 header
+	if first == "品牌费用" || first == "管理费用" || first == "财务费用" || first == "人数" || first == "人均薪酬" {
+		return true
+	}
+	return false
 }
 
 // detectLevel 根据原始 subject 字符串识别层级
