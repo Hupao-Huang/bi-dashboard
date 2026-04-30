@@ -180,7 +180,7 @@ const buildColumns = (data: BBRData): any[] => {
   // 单值渲染：预算 / 实际 / 达成率 各自独立列
   const fmtNum = (v?: number) => v == null ? '-' : v.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
   const achColor = (r?: number) => r == null ? '#94a3b8' : r >= 1 ? '#16a34a' : r >= 0.8 ? '#ca8a04' : '#dc2626';
-  type CellKind = 'budget' | 'actual' | 'ach';
+  type CellKind = 'budget' | 'actual' | 'ratio';
   const formatVal = (c?: BBRCell, kind: CellKind = 'actual', level?: number, isChannel?: boolean) => {
     if (!c) return <Text type="secondary">-</Text>;
     const bold = level === 1;
@@ -192,10 +192,11 @@ const buildColumns = (data: BBRData): any[] => {
       if (c.actual == null) return <Text type="secondary">-</Text>;
       return <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined, fontWeight: bold ? 700 : 500 }}>{fmtNum(c.actual)}</div>;
     }
-    // ach
-    if (c.achievementRate == null || !isFinite(c.achievementRate)) return <Text type="secondary">-</Text>;
-    return <div style={{ textAlign: 'right', color: achColor(c.achievementRate), fontWeight: 500, fontSize: 12 }}>{(c.achievementRate * 100).toFixed(1)}%</div>;
+    // ratio = 科目实际 / 营业收入（xlsx 原值"占比销售"列）
+    if (c.ratio == null || !isFinite(c.ratio)) return <Text type="secondary">-</Text>;
+    return <div style={{ textAlign: 'right', color: '#64748b', fontSize: 12 }}>{(c.ratio * 100).toFixed(2)}%</div>;
   };
+  const _suppress = achColor; void _suppress;
   const isGmvRow = (row: BBRRow) => row.category === 'GMV数据';
   const formatRatio = (c: BBRCell | undefined, row: BBRRow) => {
     if (isGmvRow(row)) return null;
@@ -208,7 +209,7 @@ const buildColumns = (data: BBRData): any[] => {
   };
   // chKey "电商|TOC" → "电商-TOC" 显示；"电商" → "电商"
   const chLabel = (k: string) => k.includes('|') ? k.replace('|', '-') : k;
-  // 多 channel 时每个 channel 拆成 [预算 + 实际] 子列
+  // 多 channel 时每个 channel 拆成 [预算 + 实际 + 占比] 子列
   const channelSubColsBA = (getCell: (row: BBRRow, ch: string) => BBRCell | undefined, keyPrefix: string) => {
     const cols: any[] = [];
     data.channels.forEach((ch, i) => {
@@ -218,7 +219,8 @@ const buildColumns = (data: BBRData): any[] => {
         key: `${keyPrefix}_${ch}`,
         children: [
           { title: '预算', key: `${keyPrefix}_${ch}_b`, width: 110, render: (_: any, row: BBRRow) => formatVal(getCell(row, ch), 'budget', row.level, true) },
-          { title: '实际', key: `${keyPrefix}_${ch}_a`, width: 110, render: (_: any, row: BBRRow) => formatVal(getCell(row, ch), 'actual', row.level, true), ...(isLast ? divider : {}) },
+          { title: '实际', key: `${keyPrefix}_${ch}_a`, width: 110, render: (_: any, row: BBRRow) => formatVal(getCell(row, ch), 'actual', row.level, true) },
+          { title: '占比', key: `${keyPrefix}_${ch}_r`, width: 70, render: (_: any, row: BBRRow) => formatVal(getCell(row, ch), 'ratio', row.level, true), ...(isLast ? divider : {}) },
         ],
       });
     });
@@ -267,13 +269,13 @@ const buildColumns = (data: BBRData): any[] => {
         ? [
             { title: '总-预算', key: 'r_b', width: 120, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'budget', row.level) },
             { title: '总-实际', key: 'r_a', width: 120, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'actual', row.level) },
-            { title: '达成', key: 'r_ach', width: 80, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'ach', row.level), ...divider },
+            { title: '总-占比', key: 'r_r', width: 70, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'ratio', row.level), ...divider },
             ...channelSubColsBA((row, ch) => findChannel(row, ch)?.series.rangeTotal, 'range'),
           ]
         : [
             { title: '预算', key: 'r_b', width: 120, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'budget', row.level) },
             { title: '实际', key: 'r_a', width: 120, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'actual', row.level) },
-            { title: '达成', key: 'r_ach', width: 80, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'ach', row.level), ...divider },
+            { title: '占比', key: 'r_r', width: 70, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'ratio', row.level), ...divider },
           ],
     },
     ...data.yearMonths.map((ym) => ({
@@ -282,12 +284,14 @@ const buildColumns = (data: BBRData): any[] => {
       children: multi
         ? [
             { title: '总-预算', key: `${ym}_b`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'budget', row.level) },
-            { title: '总-实际', key: `${ym}_a`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'actual', row.level), ...divider },
+            { title: '总-实际', key: `${ym}_a`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'actual', row.level) },
+            { title: '总-占比', key: `${ym}_r`, width: 70, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'ratio', row.level), ...divider },
             ...channelSubColsBA((row, ch) => findChannel(row, ch)?.series.cells[ym], ym),
           ]
         : [
             { title: '预算', key: `${ym}_b`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'budget', row.level) },
-            { title: '实际', key: `${ym}_a`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'actual', row.level), ...divider },
+            { title: '实际', key: `${ym}_a`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'actual', row.level) },
+            { title: '占比', key: `${ym}_r`, width: 70, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'ratio', row.level), ...divider },
           ],
     })),
   ];
