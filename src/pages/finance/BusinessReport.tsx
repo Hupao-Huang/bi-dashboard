@@ -1,131 +1,94 @@
-// 业务预决算报表 (v0.58)
-// 替换 Report.tsx tab "业务报表" 的 Empty 占位
-// 4 子 tab:
-//   - 渠道明细：snapshot + channel + sub_channel → 完整 4×12 月数据表
-//   - 渠道总览：所有 channel 的 GMV合计 达成率横向对比
-//   - 月度趋势：单 subject 跨 12 月 budget vs actual 折线图
-//   - 经营 KPI：经营指标 sheet 的 22 项核心指标
+// 业务预决算报表 (v0.59)
+// 跑哥要求"前端所有的设计都和财务报表一样" — 1:1 复刻 Report.tsx 的 filter + 主表格
+//
+// 顶部 filter: 年份范围 + 月份范围 + 渠道 checkbox 多选 + 上传 Excel 按钮（占位）
+// 主表格: 科目 (fixed) + 区间合计 + 各 (year, month) 矩阵
+// 多 channel 时: 每个 (year, month) 列下展开 channel 子列
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Select, Tabs, Table, Spin, Empty, Tag, Row, Col, Typography, Space, Statistic, Checkbox, Button, Tooltip } from 'antd';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Select, Spin, Table, Empty, Typography, Space, Checkbox, Button, Tooltip } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
 import { API_BASE } from '../../config';
+import { formatWanHint } from '../../chartTheme';
 
 const { Text } = Typography;
 
-// 后端 writeJSON 包 {code, data}，统一用 .data 解包
-const fetchJson = async (url: string): Promise<any> => {
-  const r = await fetch(url, { credentials: 'include' });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const j = await r.json();
-  return j?.data ?? j;
-};
-
-interface Snapshot {
-  snapshotYear: number;
-  snapshotMonth: number;
-  year: number;
-  label: string;
-  rowCount: number;
-  channelCount: number;
-}
-
-interface BudgetMonth {
-  month: number;
-  budget?: number;
-  ratioBudget?: number;
-  actual?: number;
-  ratioActual?: number;
-}
-
-interface BudgetCell {
-  subject: string;
-  subjectLevel: number;
-  subjectCategory: string;
-  parentSubject: string;
-  sortOrder: number;
-  budgetYearStart?: number;
-  ratioYearStart?: number;
-  budgetTotal?: number;
-  ratioBudget?: number;
-  actualTotal?: number;
-  ratioActual?: number;
-  achievementRate?: number;
-  months: BudgetMonth[];
-}
-
-interface DetailResp {
-  snapshotYear: number;
-  snapshotMonth: number;
-  channel: string;
-  subChannel: string;
-  subChannels: string[];
-  cells: BudgetCell[];
-}
-
-interface ChannelOverviewItem {
-  channel: string;
-  subChannel: string;
-  subject: string;
-  budgetTotal?: number;
-  actualTotal?: number;
-  achievementRate?: number;
-}
-
-const fmt = (v: number | null | undefined, opts?: { pct?: boolean; wan?: boolean }) => {
-  if (v == null || v === 0) return v === 0 ? '0' : '-';
-  if (opts?.pct) return `${(v * 100).toFixed(2)}%`;
-  if (opts?.wan && Math.abs(v) >= 10000) return `${(v / 10000).toFixed(2)}万`;
-  return v.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
-};
-
-const achievementColor = (r?: number) => {
-  if (r == null) return undefined;
-  if (r >= 1) return 'green';
-  if (r >= 0.8) return 'gold';
-  return 'red';
-};
-
 const ALL_CHANNELS = ['总', '电商', '私域', '分销', '社媒', '线下', '国际零售', '即时零售', '糙能', '中后台', '经营指标'];
+const YEAR_OPTIONS = [2023, 2024, 2025, 2026];
+
+interface BBRCell {
+  amount: number;
+  ratio?: number;
+}
+interface BBRSeries {
+  rangeTotal: BBRCell;
+  cells: Record<string, BBRCell>;
+}
+interface BBRChannelSeries {
+  channel: string;
+  series: BBRSeries;
+}
+interface BBRRow {
+  code: string;
+  name: string;
+  level: number;
+  parent: string;
+  category: string;
+  subChannel: string;
+  total: BBRSeries;
+  byChannel?: BBRChannelSeries[];
+}
+interface BBRData {
+  channels: string[];
+  yearMonths: string[];
+  rows: BBRRow[];
+}
 
 const BusinessReport: React.FC = () => {
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
-  const [snap, setSnap] = useState<string>(''); // "YYYY-MM"
-  const [loadingSnap, setLoadingSnap] = useState(false);
-  const [channels, setChannels] = useState<string[]>(['总']);
+  const [yearStart, setYearStart] = useState<number>(2026);
+  const [yearEnd, setYearEnd] = useState<number>(2026);
   const [monthStart, setMonthStart] = useState<number>(1);
   const [monthEnd, setMonthEnd] = useState<number>(12);
+  const [channels, setChannels] = useState<string[]>(['总']);
+  const [data, setData] = useState<BBRData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetchReport = useCallback(() => {
+    if (channels.length === 0) {
+      setData(null);
+      return;
+    }
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setLoading(true);
+    const params = new URLSearchParams({
+      yearStart: String(yearStart),
+      yearEnd: String(yearEnd),
+      monthStart: String(monthStart),
+      monthEnd: String(monthEnd),
+      channels: channels.join(','),
+    });
+    fetch(`${API_BASE}/api/finance/business-report?${params.toString()}`, { credentials: 'include', signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((res) => setData(res.data))
+      .catch((e: any) => { if (e?.name !== 'AbortError') setData(null); })
+      .finally(() => setLoading(false));
+  }, [yearStart, yearEnd, monthStart, monthEnd, channels]);
 
   useEffect(() => {
-    setLoadingSnap(true);
-    fetchJson(`${API_BASE}/api/finance/business-report/snapshots`)
-      .then(d => {
-        const list: Snapshot[] = d?.snapshots || [];
-        setSnapshots(list);
-        if (list.length > 0) {
-          setSnap(`${list[0].snapshotYear}-${String(list[0].snapshotMonth).padStart(2, '0')}`);
-        }
-      })
-      .finally(() => setLoadingSnap(false));
-  }, []);
+    const t = setTimeout(() => fetchReport(), 250);
+    return () => clearTimeout(t);
+  }, [fetchReport]);
 
-  // 顶部筛选条 — 跟 Report.tsx reportFilter 一致：灰底圆角 + Space wrap 横排 + 右侧上传按钮
   const reportFilter = (
     <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f8fafc', borderRadius: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' }}>
       <Space wrap size="middle">
-        <span>快照：</span>
-        <Select
-          loading={loadingSnap}
-          value={snap || undefined}
-          style={{ minWidth: 220 }}
-          options={snapshots.map(s => ({
-            value: `${s.snapshotYear}-${String(s.snapshotMonth).padStart(2, '0')}`,
-            label: `${s.label}  ·  ${s.rowCount.toLocaleString()} 行 / ${s.channelCount} 渠道`,
-          }))}
-          onChange={setSnap}
-          placeholder="选择快照"
-        />
+        <span>年份：</span>
+        <Select value={yearStart} onChange={(v) => { setYearStart(v); if (v > yearEnd) setYearEnd(v); }} style={{ width: 90 }} options={YEAR_OPTIONS.map((y) => ({ label: y, value: y }))} />
+        <span>至</span>
+        <Select value={yearEnd} onChange={(v) => { setYearEnd(v); if (v < yearStart) setYearStart(v); }} style={{ width: 90 }} options={YEAR_OPTIONS.map((y) => ({ label: y, value: y }))} />
         <span style={{ marginLeft: 12 }}>月份：</span>
         <Select value={monthStart} onChange={(v) => { setMonthStart(v); if (v > monthEnd) setMonthEnd(v); }} style={{ width: 90 }}
           options={Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1}月`, value: i + 1 }))} />
@@ -147,283 +110,117 @@ const BusinessReport: React.FC = () => {
     </div>
   );
 
-  if (!snap) {
-    return <Card>{reportFilter}<Empty description="无业务报表数据，请先导入" style={{ marginTop: 32 }} /></Card>;
-  }
-
   return (
-    <Card>
+    <>
       {reportFilter}
-      <Tabs
-        defaultActiveKey="detail"
-        items={[
-          { key: 'detail', label: '渠道明细', children: <DetailTab snap={snap} channels={channels} monthStart={monthStart} monthEnd={monthEnd} /> },
-          { key: 'overview', label: '渠道总览', children: <OverviewTab snap={snap} channels={channels} /> },
-          { key: 'trend', label: '月度趋势', children: <TrendTab snap={snap} channels={channels} monthStart={monthStart} monthEnd={monthEnd} /> },
-          { key: 'kpi', label: '经营 KPI', children: <KPITab snap={snap} monthStart={monthStart} monthEnd={monthEnd} /> },
-        ]}
-      />
-    </Card>
+      <BusinessReportTable data={data} loading={loading} />
+    </>
   );
 };
 
-// ----------------- DetailTab -----------------
-const DetailTab: React.FC<{ snap: string; channels: string[]; monthStart: number; monthEnd: number }> = ({ snap, channels, monthStart, monthEnd }) => {
-  const [channel, setChannel] = useState<string>(channels[0] || '总');
-  const [subChannel, setSubChannel] = useState<string>('');
-  const [data, setData] = useState<DetailResp | null>(null);
-  const [loading, setLoading] = useState(false);
+// ============= 主表格 (1:1 复刻 ReportTable 视觉) =============
+const BusinessReportTable: React.FC<{ data: BBRData | null; loading: boolean }> = ({ data, loading }) => {
+  const columns = useMemo(() => {
+    if (!data) return [] as any[];
+    return buildColumns(data);
+  }, [data]);
+  if (loading) return <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>;
+  if (!data || data.rows.length === 0) return <Empty description="暂无数据" />;
+  return (
+    <Table
+      columns={columns}
+      dataSource={data.rows}
+      rowKey={(r) => `${r.code}|${r.subChannel || ''}`}
+      pagination={false}
+      size="small"
+      bordered
+      scroll={{ x: 'max-content', y: 'calc(100vh - 400px)' }}
+      rowClassName={(r) => (r.level === 1 ? 'fin-row-group' : '')}
+    />
+  );
+};
 
-  useEffect(() => { if (!channels.includes(channel) && channels.length > 0) setChannel(channels[0]); }, [channels, channel]);
-  useEffect(() => { setSubChannel(''); }, [channel, snap]);
+const buildColumns = (data: BBRData): any[] => {
+  const multi = data.channels.length > 1;
+  const findChannel = (row: BBRRow, ch: string) => row.byChannel?.find((x) => x.channel === ch);
 
-  useEffect(() => {
-    if (!snap || !channel) return;
-    setLoading(true);
-    fetchJson(`${API_BASE}/api/finance/business-report/detail?snapshot=${snap}&channel=${encodeURIComponent(channel)}&sub_channel=${encodeURIComponent(subChannel)}`)
-      .then(setData)
-      .finally(() => setLoading(false));
-  }, [snap, channel, subChannel]);
+  const formatCell = (c?: BBRCell, level?: number, isChannel?: boolean) => {
+    if (level === 1) return null;
+    if (!c || c.amount === 0) return <Text type="secondary">-</Text>;
+    const hint = formatWanHint(c.amount);
+    return (
+      <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined }}>
+        <div>{c.amount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</div>
+        {hint && <div style={{ fontSize: 11, color: '#94a3b8' }}>{hint}</div>}
+      </div>
+    );
+  };
+  const isGmvRow = (row: BBRRow) => row.category === 'GMV数据';
+  const formatRatio = (c: BBRCell | undefined, row: BBRRow) => {
+    if (row.level === 1 || isGmvRow(row)) return null;
+    if (!c || c.ratio === undefined || c.ratio === null || !isFinite(c.ratio)) return <Text type="secondary">-</Text>;
+    return <div style={{ textAlign: 'right', color: '#64748b', fontSize: 11 }}>{(c.ratio * 100).toFixed(2)}%</div>;
+  };
+  const divider = {
+    onCell: () => ({ style: { borderRight: '2px solid #94a3b8' } }),
+    onHeaderCell: () => ({ style: { borderRight: '2px solid #94a3b8' } }),
+  };
+  const channelSubCols = (getCell: (row: BBRRow, ch: string) => BBRCell | undefined, keyPrefix: string) => {
+    const cols: any[] = [];
+    data.channels.forEach((ch, i) => {
+      const isLast = i === data.channels.length - 1;
+      cols.push({
+        title: ch,
+        key: `${keyPrefix}_${ch}`,
+        width: 120,
+        render: (_: any, row: BBRRow) => formatCell(getCell(row, ch), row.level, true),
+      });
+      cols.push({
+        title: '占比',
+        key: `${keyPrefix}_${ch}_r`,
+        width: 60,
+        render: (_: any, row: BBRRow) => formatRatio(getCell(row, ch), row),
+        ...(isLast ? divider : {}),
+      });
+    });
+    return cols;
+  };
 
-  const cells = data?.cells || [];
-  const subOptions = (data?.subChannels || []).filter(s => s !== '');
-
-  // 月份范围（只显示 monthStart..monthEnd）
-  const monthCols = Array.from({ length: monthEnd - monthStart + 1 }, (_, i) => monthStart + i).map(m => ({
-    title: `${m}月`,
-    children: [
-      {
-        title: '预算',
-        key: `b${m}`,
-        align: 'right' as const,
-        width: 90,
-        render: (_: unknown, row: BudgetCell) => fmt(row.months[m - 1]?.budget, { wan: true }),
-      },
-      {
-        title: '实际',
-        key: `a${m}`,
-        align: 'right' as const,
-        width: 90,
-        render: (_: unknown, row: BudgetCell) => fmt(row.months[m - 1]?.actual, { wan: true }),
-      },
-    ],
-  }));
-
-  const columns = [
+  const cols: any[] = [
     {
       title: '科目',
-      dataIndex: 'subject',
+      key: 'name',
+      width: 220,
       fixed: 'left' as const,
-      width: 200,
-      render: (text: string, row: BudgetCell) => (
-        <span style={{ paddingLeft: (row.subjectLevel - 1) * 12, fontWeight: row.subjectLevel === 1 ? 600 : 400 }}>
-          {text}
-          {row.subjectCategory && row.subjectLevel === 2 && <Tag style={{ marginLeft: 6 }} color="blue">{row.subjectCategory}</Tag>}
-        </span>
-      ),
+      render: (_: any, row: BBRRow) => {
+        if (row.level === 1) {
+          return <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>{row.name}</div>;
+        }
+        const indent = (row.level - 1) * 16;
+        const label = row.subChannel ? `· ${row.subChannel}` : row.name;
+        return <div style={{ paddingLeft: indent, fontSize: 13 }}>{label}</div>;
+      },
     },
-    { title: '年初预算', key: 'bys', fixed: 'left' as const, width: 110, align: 'right' as const, render: (_: unknown, r: BudgetCell) => fmt(r.budgetYearStart, { wan: true }) },
-    { title: '合计预算', key: 'bt', fixed: 'left' as const, width: 110, align: 'right' as const, render: (_: unknown, r: BudgetCell) => fmt(r.budgetTotal, { wan: true }) },
-    { title: '合计实际', key: 'at', fixed: 'left' as const, width: 110, align: 'right' as const, render: (_: unknown, r: BudgetCell) => fmt(r.actualTotal, { wan: true }) },
     {
-      title: '达成率',
-      key: 'ar',
-      fixed: 'left' as const,
-      width: 90,
-      align: 'right' as const,
-      render: (_: unknown, r: BudgetCell) => r.achievementRate == null ? '-' : <Tag color={achievementColor(r.achievementRate)}>{fmt(r.achievementRate, { pct: true })}</Tag>,
-    },
-    ...monthCols,
-  ];
-
-  return (
-    <Spin spinning={loading}>
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Text>当前查看渠道：</Text>
-        <Select value={channel} onChange={setChannel} options={(channels.length > 0 ? channels : ['总']).map(c => ({ value: c, label: c }))} style={{ minWidth: 120 }} />
-        {subOptions.length > 0 && (
-          <>
-            <Text>子渠道：</Text>
-            <Select
-              value={subChannel || ''}
-              onChange={setSubChannel}
-              options={[{ value: '', label: '【汇总】' }, ...subOptions.map(s => ({ value: s, label: s }))]}
-              style={{ minWidth: 160 }}
-            />
-          </>
-        )}
-      </Space>
-      <Table
-        rowKey="sortOrder"
-        size="small"
-        bordered
-        scroll={{ x: 'max-content', y: 600 }}
-        columns={columns as any}
-        dataSource={cells}
-        pagination={false}
-      />
-    </Spin>
-  );
-};
-
-// ----------------- OverviewTab -----------------
-const OverviewTab: React.FC<{ snap: string; channels: string[] }> = ({ snap, channels }) => {
-  const [subject, setSubject] = useState<string>('GMV合计');
-  const [data, setData] = useState<ChannelOverviewItem[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!snap) return;
-    setLoading(true);
-    fetchJson(`${API_BASE}/api/finance/business-report/overview?snapshot=${snap}&subject=${encodeURIComponent(subject)}`)
-      .then(d => setData(d?.channels || []))
-      .finally(() => setLoading(false));
-  }, [snap, subject]);
-
-  // 只展示 sub_channel='' 的（即一级渠道汇总）+ 顶部 channels 过滤
-  const channelSet = new Set(channels);
-  const filtered = channels.length > 0 ? data.filter(d => channelSet.has(d.channel)) : data;
-  const top = filtered.filter(d => d.subChannel === '');
-  const totalBudget = top.reduce((s, d) => s + (d.budgetTotal || 0), 0);
-  const totalActual = top.reduce((s, d) => s + (d.actualTotal || 0), 0);
-
-  const columns = [
-    { title: '渠道', dataIndex: 'channel', width: 140 },
-    { title: '子渠道', dataIndex: 'subChannel', width: 120, render: (v: string) => v || <Text type="secondary">汇总</Text> },
-    { title: '合计预算', dataIndex: 'budgetTotal', align: 'right' as const, render: (v: number) => fmt(v, { wan: true }) },
-    { title: '合计实际', dataIndex: 'actualTotal', align: 'right' as const, render: (v: number) => fmt(v, { wan: true }) },
-    {
-      title: '达成率',
-      dataIndex: 'achievementRate',
-      align: 'right' as const,
-      render: (v?: number) => v == null ? '-' : <Tag color={achievementColor(v)}>{fmt(v, { pct: true })}</Tag>,
-    },
-  ];
-
-  return (
-    <Spin spinning={loading}>
-      <Space style={{ marginBottom: 12 }}>
-        <Text>科目：</Text>
-        <Select
-          value={subject}
-          onChange={setSubject}
-          style={{ minWidth: 200 }}
-          options={['GMV合计', '退款金额', '一、营业收入', '减：营业成本', '营业毛利', '减：销售费用', '运营利润', '减：管理费用（不可控成本）', '利润总额', '二：净利润'].map(s => ({ value: s, label: s }))}
-        />
-      </Space>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card><Statistic title="一级渠道数" value={top.length} /></Card></Col>
-        <Col span={6}><Card><Statistic title={`${subject} 合计预算`} value={fmt(totalBudget, { wan: true })} /></Card></Col>
-        <Col span={6}><Card><Statistic title={`${subject} 合计实际`} value={fmt(totalActual, { wan: true })} /></Card></Col>
-        <Col span={6}><Card><Statistic title="整体达成率" value={totalBudget ? fmt(totalActual / totalBudget, { pct: true }) : '-'} /></Card></Col>
-      </Row>
-      <Table rowKey={(r) => `${r.channel}_${r.subChannel}`} size="small" bordered columns={columns} dataSource={filtered} pagination={false} />
-    </Spin>
-  );
-};
-
-// ----------------- TrendTab -----------------
-const TrendTab: React.FC<{ snap: string; channels: string[]; monthStart: number; monthEnd: number }> = ({ snap, channels, monthStart, monthEnd }) => {
-  const [channel, setChannel] = useState<string>(channels[0] || '总');
-  const [subChannel, setSubChannel] = useState<string>('');
-  const [subject, setSubject] = useState<string>('GMV合计');
-  const [points, setPoints] = useState<{ month: number; budget?: number; actual?: number }[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => { if (!channels.includes(channel) && channels.length > 0) setChannel(channels[0]); }, [channels, channel]);
-
-  useEffect(() => {
-    if (!snap || !channel || !subject) return;
-    setLoading(true);
-    fetchJson(`${API_BASE}/api/finance/business-report/trend?snapshot=${snap}&channel=${encodeURIComponent(channel)}&sub_channel=${encodeURIComponent(subChannel)}&subject=${encodeURIComponent(subject)}`)
-      .then(d => setPoints(d?.points || []))
-      .finally(() => setLoading(false));
-  }, [snap, channel, subChannel, subject]);
-
-  const option = useMemo(() => {
-    const months = Array.from({ length: monthEnd - monthStart + 1 }, (_, i) => monthStart + i);
-    const ptMap = new Map(points.map(p => [p.month, p]));
-    const budgets = months.map(m => ptMap.get(m)?.budget ?? null);
-    const actuals = months.map(m => ptMap.get(m)?.actual ?? null);
-    return {
-      tooltip: { trigger: 'axis', valueFormatter: (v: any) => v == null ? '-' : fmt(v, { wan: true }) },
-      legend: { data: ['预算', '实际'] },
-      xAxis: { type: 'category', data: months.map(m => `${m}月`) },
-      yAxis: { type: 'value', name: '金额', axisLabel: { formatter: (v: number) => Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(0)}万` : `${v}` } },
-      series: [
-        { name: '预算', type: 'bar', data: budgets, itemStyle: { color: '#94a3b8' } },
-        { name: '实际', type: 'line', data: actuals, smooth: true, itemStyle: { color: '#1e40af' }, lineStyle: { width: 3 } },
+      title: '区间合计',
+      key: 'range',
+      children: [
+        { title: multi ? '总' : '金额', key: 'range_total', width: 130, render: (_: any, row: BBRRow) => formatCell(row.total.rangeTotal, row.level) },
+        { title: '占比', key: 'range_ratio', width: 70, render: (_: any, row: BBRRow) => formatRatio(row.total.rangeTotal, row), ...(multi ? {} : divider) },
+        ...(multi ? channelSubCols((row, ch) => findChannel(row, ch)?.series.rangeTotal, 'range') : []),
       ],
-    };
-  }, [points, monthStart, monthEnd]);
-
-  return (
-    <Spin spinning={loading}>
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Text>当前查看渠道：</Text>
-        <Select value={channel} onChange={(v) => { setChannel(v); setSubChannel(''); }} options={(channels.length > 0 ? channels : ['总']).map(c => ({ value: c, label: c }))} style={{ minWidth: 120 }} />
-        <Text>子渠道：</Text>
-        <Select value={subChannel || ''} onChange={setSubChannel} options={[{ value: '', label: '【汇总】' }]} style={{ minWidth: 120 }} />
-        <Text>科目：</Text>
-        <Select value={subject} onChange={setSubject} style={{ minWidth: 200 }}
-          options={['GMV合计', '退款金额', '一、营业收入', '营业毛利', '运营利润', '利润总额', '二：净利润'].map(s => ({ value: s, label: s }))}
-        />
-      </Space>
-      <ReactECharts option={option} style={{ height: 400 }} />
-    </Spin>
-  );
-};
-
-// ----------------- KPITab -----------------
-const KPITab: React.FC<{ snap: string; monthStart: number; monthEnd: number }> = ({ snap, monthStart, monthEnd }) => {
-  const [data, setData] = useState<DetailResp | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!snap) return;
-    setLoading(true);
-    fetchJson(`${API_BASE}/api/finance/business-report/detail?snapshot=${snap}&channel=${encodeURIComponent('经营指标')}&sub_channel=`)
-      .then(setData)
-      .finally(() => setLoading(false));
-  }, [snap]);
-
-  const cells = data?.cells || [];
-  if (!loading && cells.length === 0) {
-    return <Empty description="此快照无经营指标数据（仅 2026-04 快照含经营指标 sheet）" />;
-  }
-
-  const columns = [
-    { title: '指标', dataIndex: 'subject', width: 200 },
-    { title: '年度预算', key: 'bt', align: 'right' as const, render: (_: unknown, r: BudgetCell) => fmt(r.budgetTotal, { wan: true }) },
-    { title: '上年值', key: 'at', align: 'right' as const, render: (_: unknown, r: BudgetCell) => fmt(r.actualTotal, { wan: true }) },
-    {
-      title: '增长率',
-      key: 'ar',
-      align: 'right' as const,
-      render: (_: unknown, r: BudgetCell) => r.achievementRate == null ? '-' : <Tag color={(r.achievementRate || 0) > 0 ? 'green' : 'red'}>{fmt(r.achievementRate, { pct: true })}</Tag>,
     },
-    ...Array.from({ length: monthEnd - monthStart + 1 }, (_, i) => monthStart + i).map(m => ({
-      title: `${m}月`,
-      key: `m${m}`,
-      align: 'right' as const,
-      width: 90,
-      render: (_: unknown, r: BudgetCell) => fmt(r.months[m - 1]?.actual, { wan: true }),
+    ...data.yearMonths.map((ym) => ({
+      title: ym,
+      key: ym,
+      children: [
+        { title: multi ? '总' : '金额', key: `${ym}_total`, width: 120, render: (_: any, row: BBRRow) => formatCell(row.total.cells[ym], row.level) },
+        { title: '占比', key: `${ym}_ratio`, width: 65, render: (_: any, row: BBRRow) => formatRatio(row.total.cells[ym], row), ...(multi ? {} : divider) },
+        ...(multi ? channelSubCols((row, ch) => findChannel(row, ch)?.series.cells[ym], ym) : []),
+      ],
     })),
   ];
-
-  return (
-    <Spin spinning={loading}>
-      <Table
-        rowKey="sortOrder"
-        size="small"
-        bordered
-        scroll={{ x: 'max-content', y: 600 }}
-        columns={columns as any}
-        dataSource={cells}
-        pagination={false}
-      />
-    </Spin>
-  );
+  return cols;
 };
 
 export default BusinessReport;

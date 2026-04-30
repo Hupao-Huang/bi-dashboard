@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -327,4 +328,233 @@ func nullToPtr(n sql.NullFloat64) *float64 {
 	}
 	v := n.Float64
 	return &v
+}
+
+// ============= ReportData 兼容 API（v0.59 跑哥要求"和财务报表一样"）=============
+//
+// GET /api/finance/business-report?yearStart=2024&yearEnd=2026&monthStart=1&monthEnd=12&channels=总,电商,私域
+//
+// 返回结构跟 finance_report 的 ReportData 一致：
+//   { channels, yearMonths, rows: [{ code, name, level, parent, category, subChannel, total{rangeTotal, cells{}}, byChannel[]}] }
+//
+// 每个 (year, month) 取该 year 已有的最新 snapshot 数据：
+//   yearStart=2024..2026 → 自动用 (2024-12, 2025-12, 2026-04) 三份 snapshot
+//   yearMonths = ["2024-1", ..., "2024-12", "2025-1", ..., "2026-12"]
+
+type bbrCell struct {
+	Amount float64  `json:"amount"`
+	Ratio  *float64 `json:"ratio,omitempty"`
+}
+
+type bbrChannelSeries struct {
+	Channel string `json:"channel"`
+	Series  bbrSeries `json:"series"`
+}
+
+type bbrSeries struct {
+	RangeTotal bbrCell            `json:"rangeTotal"`
+	Cells      map[string]bbrCell `json:"cells"`
+}
+
+type bbrRow struct {
+	Code       string             `json:"code"`
+	Name       string             `json:"name"`
+	Level      int                `json:"level"`
+	Parent     string             `json:"parent"`
+	Category   string             `json:"category"`
+	SubChannel string             `json:"subChannel"`
+	Total      bbrSeries          `json:"total"`
+	ByChannel  []bbrChannelSeries `json:"byChannel,omitempty"`
+}
+
+func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	yearStart, _ := strconv.Atoi(q.Get("yearStart"))
+	yearEnd, _ := strconv.Atoi(q.Get("yearEnd"))
+	monthStart, _ := strconv.Atoi(q.Get("monthStart"))
+	monthEnd, _ := strconv.Atoi(q.Get("monthEnd"))
+	if yearStart == 0 || yearEnd == 0 {
+		yearStart, yearEnd = 2024, 2026
+	}
+	if monthStart < 1 || monthStart > 12 {
+		monthStart = 1
+	}
+	if monthEnd < 1 || monthEnd > 12 {
+		monthEnd = 12
+	}
+	if yearStart > yearEnd {
+		yearStart, yearEnd = yearEnd, yearStart
+	}
+	channelsCsv := strings.TrimSpace(q.Get("channels"))
+	if channelsCsv == "" {
+		channelsCsv = "总"
+	}
+	channels := splitCsv(channelsCsv)
+
+	// 1. 找 [yearStart..yearEnd] 范围内每年最新 snapshot
+	snapRows, err := h.DB.Query(`
+		SELECT snapshot_year, MAX(snapshot_month) AS sm
+		FROM business_budget_report
+		WHERE snapshot_year BETWEEN ? AND ?
+		GROUP BY snapshot_year
+		ORDER BY snapshot_year`, yearStart, yearEnd)
+	if writeDatabaseError(w, err) {
+		return
+	}
+	type yearSnap struct{ year, month int }
+	var snaps []yearSnap
+	for snapRows.Next() {
+		var ys yearSnap
+		if writeDatabaseError(w, snapRows.Scan(&ys.year, &ys.month)) {
+			snapRows.Close()
+			return
+		}
+		snaps = append(snaps, ys)
+	}
+	snapRows.Close()
+	if len(snaps) == 0 {
+		writeJSON(w, map[string]interface{}{
+			"channels":   channels,
+			"yearMonths": []string{},
+			"rows":       []bbrRow{},
+		})
+		return
+	}
+
+	// 2. 构造 yearMonths 列表 (空 month 也保留方便对比，但只显示有数据的年)
+	yearMonths := []string{}
+	for _, ys := range snaps {
+		for m := monthStart; m <= monthEnd; m++ {
+			yearMonths = append(yearMonths, fmt.Sprintf("%d-%d", ys.year, m))
+		}
+	}
+
+	// 3. 一次性 fetch 所有数据（按 snapshot OR 拼）
+	conds := []string{}
+	args := []interface{}{}
+	for _, ys := range snaps {
+		conds = append(conds, "(snapshot_year=? AND snapshot_month=?)")
+		args = append(args, ys.year, ys.month)
+	}
+	chPH := strings.TrimSuffix(strings.Repeat("?,", len(channels)), ",")
+	for _, c := range channels {
+		args = append(args, c)
+	}
+	args = append(args, monthStart, monthEnd)
+
+	query := fmt.Sprintf(`
+		SELECT snapshot_year, channel, sub_channel, parent_subject, subject,
+		       subject_level, subject_category, sort_order, period_month, actual, ratio_actual
+		FROM business_budget_report
+		WHERE (%s) AND channel IN (%s) AND period_month BETWEEN ? AND ?
+		ORDER BY channel, sub_channel, sort_order, period_month`,
+		strings.Join(conds, " OR "), chPH)
+	dataRows, err := h.DB.Query(query, args...)
+	if writeDatabaseError(w, err) {
+		return
+	}
+	defer dataRows.Close()
+
+	// 行 key: (subject, sub_channel) — 跟财务报表 keyOf 风格一致
+	type rowKey struct{ subject, subChannel string }
+	type rowAcc struct {
+		row    *bbrRow
+		byChan map[string]*bbrChannelSeries // channel → series
+	}
+	rowMap := map[rowKey]*rowAcc{}
+	var order []rowKey
+
+	for dataRows.Next() {
+		var (
+			snapY, level, sortOrd, pm                int
+			channel, subChannel, parent, subject, cat string
+			actual, ratio                            sql.NullFloat64
+		)
+		if writeDatabaseError(w, dataRows.Scan(&snapY, &channel, &subChannel, &parent, &subject,
+			&level, &cat, &sortOrd, &pm, &actual, &ratio)) {
+			return
+		}
+		// 跳过 period_month=0（合计列我们用 rangeTotal 计算，避免重复）
+		if pm == 0 {
+			continue
+		}
+		rk := rowKey{subject, subChannel}
+		acc, exists := rowMap[rk]
+		if !exists {
+			acc = &rowAcc{
+				row: &bbrRow{
+					Code:       subject,
+					Name:       subject,
+					Level:      level,
+					Parent:     parent,
+					Category:   cat,
+					SubChannel: subChannel,
+					Total: bbrSeries{
+						Cells: map[string]bbrCell{},
+					},
+				},
+				byChan: map[string]*bbrChannelSeries{},
+			}
+			rowMap[rk] = acc
+			order = append(order, rk)
+		}
+		ym := fmt.Sprintf("%d-%d", snapY, pm)
+		amount := 0.0
+		if actual.Valid {
+			amount = actual.Float64
+		}
+		var rPtr *float64
+		if ratio.Valid {
+			rv := ratio.Float64
+			rPtr = &rv
+		}
+
+		// per-channel
+		cs, csExists := acc.byChan[channel]
+		if !csExists {
+			cs = &bbrChannelSeries{Channel: channel, Series: bbrSeries{Cells: map[string]bbrCell{}}}
+			acc.byChan[channel] = cs
+		}
+		cell := bbrCell{Amount: amount, Ratio: rPtr}
+		cs.Series.Cells[ym] = cell
+		cs.Series.RangeTotal = bbrCell{Amount: cs.Series.RangeTotal.Amount + amount, Ratio: nil}
+
+		// total 跨 channel 累加（如果只 1 个 channel，total = byChannel[0]）
+		t := acc.row.Total.Cells[ym]
+		t.Amount += amount
+		acc.row.Total.Cells[ym] = t
+		acc.row.Total.RangeTotal = bbrCell{Amount: acc.row.Total.RangeTotal.Amount + amount, Ratio: nil}
+	}
+
+	// 组装 rows
+	rows := make([]bbrRow, 0, len(order))
+	for _, rk := range order {
+		acc := rowMap[rk]
+		if len(channels) > 1 {
+			for _, ch := range channels {
+				if cs, ok := acc.byChan[ch]; ok {
+					acc.row.ByChannel = append(acc.row.ByChannel, *cs)
+				}
+			}
+		}
+		rows = append(rows, *acc.row)
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"channels":   channels,
+		"yearMonths": yearMonths,
+		"rows":       rows,
+	})
+}
+
+func splitCsv(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

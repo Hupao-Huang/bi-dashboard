@@ -257,11 +257,9 @@ func main() {
 	mux.HandleFunc("/api/finance/report/import/confirm", pageProtected("finance.report:import", h.ImportFinanceConfirm))
 	mux.HandleFunc("/api/finance/report/export", pageAllProtected(h.ExportFinanceReport, "finance.report:view", "data:export"))
 
-	// 业务预决算报表 (v0.58)
+	// 业务预决算报表 (v0.58/v0.59)
+	mux.HandleFunc("/api/finance/business-report", pageProtected("finance.report:view", h.GetBusinessReportFinanceLike))
 	mux.HandleFunc("/api/finance/business-report/snapshots", pageProtected("finance.report:view", h.GetBusinessReportSnapshots))
-	mux.HandleFunc("/api/finance/business-report/detail", pageProtected("finance.report:view", h.GetBusinessReportDetail))
-	mux.HandleFunc("/api/finance/business-report/overview", pageProtected("finance.report:view", h.GetBusinessReportOverview))
-	mux.HandleFunc("/api/finance/business-report/trend", pageProtected("finance.report:view", h.GetBusinessReportTrend))
 
 	// 受保护的上传文件访问（禁止目录浏览）
 	mux.HandleFunc("/api/uploads/", protected(h.ServeUploadFile))
