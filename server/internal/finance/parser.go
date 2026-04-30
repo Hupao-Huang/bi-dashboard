@@ -349,8 +349,126 @@ func ParseFile(fpath string, year int, dict map[string]*DictEntry) (*ParseResult
 	for d := range deptSet {
 		result.Departments = append(result.Departments, d)
 	}
+
+	result.Rows = RecomputeAggregateSubjects(result.Rows, dict, year)
+
 	result.RowCount = len(result.Rows)
 	return result, nil
+}
+
+// aggregateRule 父项 = SUM(子项) 的覆盖规则
+type aggregateRule struct {
+	ParentCode string
+	ChildCodes []string
+}
+
+// aggregateRules 需要后端重算的父项清单
+// 财务 xlsx 中这些父项是手填合计，导入时 SUM 子项覆盖，避免财务手算错
+var aggregateRules = []aggregateRule{
+	{
+		ParentCode: "COST_MAIN.仓储物流费用",
+		ChildCodes: []string{
+			"COST_MAIN.物流费用",
+			"COST_MAIN.临时工费用",
+			"COST_MAIN.发货耗材成本",
+		},
+	},
+}
+
+// RecomputeAggregateSubjects 父项 amount = SUM(子项 amount)
+//
+// 跑哥 2026-04-30 决策："有就加，没有就不加"
+// 这里"有/没有"指**字典 finance_subject_dict 里有没有 subject_code**:
+//   - 字典里有此 subject_code（aggregateRules 已配置）→ 加 SUM（覆盖已有 row 或补建 row）
+//   - 字典里没有 → 不加（不新增 subject_code，本函数也不会管）
+//
+// 父项 finance_report 数据 row 的处理:
+//   - 已存在 → 用 SUM 覆盖 amount + ratio
+//   - 不存在但子项存在 → 用 SUM 自动补一行（字典查 name/category）
+//   - 子项有但缺值 → 当 0 处理
+//
+// 不新增 subject_code 字典项；只补 finance_report 数据 row
+func RecomputeAggregateSubjects(rows []FinanceRow, dict map[string]*DictEntry, year int) []FinanceRow {
+	type key struct {
+		dept  string
+		month int
+	}
+
+	for _, rule := range aggregateRules {
+		childSet := map[string]bool{}
+		for _, c := range rule.ChildCodes {
+			childSet[c] = true
+		}
+
+		// 收集 SUM + REV_TOTAL + 子项是否出现
+		sumMap := map[key]float64{}
+		hasChild := map[key]bool{}
+		revMap := map[key]float64{}
+		for _, r := range rows {
+			k := key{r.Department, r.Month}
+			if childSet[r.SubjectCode] {
+				sumMap[k] += r.Amount
+				hasChild[k] = true
+			}
+			if r.SubjectCode == "REV_TOTAL" {
+				revMap[k] = r.Amount
+			}
+		}
+
+		// 已存在父项 row → 覆盖 amount + ratio
+		existsParent := map[key]bool{}
+		for i, r := range rows {
+			if r.SubjectCode != rule.ParentCode {
+				continue
+			}
+			k := key{r.Department, r.Month}
+			existsParent[k] = true
+			sum := sumMap[k]
+			rows[i].Amount = sum
+			if rev, ok := revMap[k]; ok && rev != 0 {
+				ratio := sum / rev
+				rows[i].Ratio = &ratio
+			} else {
+				rows[i].Ratio = nil
+			}
+		}
+
+		// 父项 row 缺失但子项存在 → 自动补一行（不新增 subject_code，仅补 finance_report 数据）
+		dictEntry := dict[rule.ParentCode]
+		for k := range hasChild {
+			if existsParent[k] {
+				continue
+			}
+			subjectName := rule.ParentCode
+			subjectCategory := ""
+			parentCode := ""
+			if dictEntry != nil {
+				subjectName = dictEntry.Name
+				subjectCategory = dictEntry.Category
+				parentCode = dictEntry.Parent
+			}
+			sum := sumMap[k]
+			var ratioPtr *float64
+			if rev, ok := revMap[k]; ok && rev != 0 {
+				ratio := sum / rev
+				ratioPtr = &ratio
+			}
+			rows = append(rows, FinanceRow{
+				Year:            year,
+				Month:           k.month,
+				Department:      k.dept,
+				SubjectCode:     rule.ParentCode,
+				SubjectName:     subjectName,
+				SubjectCategory: subjectCategory,
+				SubjectLevel:    3,
+				ParentCode:      parentCode,
+				SortOrder:       9999, // 父项排到本组末尾
+				Amount:          sum,
+				Ratio:           ratioPtr,
+			})
+		}
+	}
+	return rows
 }
 
 type colInfo struct {
