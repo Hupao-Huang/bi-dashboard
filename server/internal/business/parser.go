@@ -45,6 +45,7 @@ type BudgetRow struct {
 	Year            int
 	Channel         string
 	SubChannel      string
+	SheetOrder      int // sheet 在 xlsx 中的排序索引（按 GetSheetList 返回顺序）
 	Subject         string // trim 后的科目名
 	SubjectLevel    int    // 1/2/3
 	SubjectCategory string // GMV数据 / 财务数据 / ""
@@ -95,13 +96,13 @@ func ParseFile(fpath string, snapshotYear, snapshotMonth, year int) (*ParseResul
 	}
 	channelSet := map[string]bool{}
 
-	for _, sheetName := range f.GetSheetList() {
+	for sheetIdx, sheetName := range f.GetSheetList() {
 		t := strings.TrimSpace(sheetName)
 		// 经营指标 sheet（KPI 表，结构特殊）
 		if strings.Contains(t, "经营指标") {
 			rows, err := f.GetRows(sheetName)
 			if err == nil && len(rows) >= 4 {
-				newRows := parseKPISheet(rows, snapshotYear, snapshotMonth, year)
+				newRows := parseKPISheet(rows, snapshotYear, snapshotMonth, year, sheetIdx)
 				if len(newRows) > 0 {
 					result.Rows = append(result.Rows, newRows...)
 					channelSet["经营指标"] = true
@@ -116,7 +117,7 @@ func ParseFile(fpath string, snapshotYear, snapshotMonth, year int) (*ParseResul
 		if t == "中后台合计" {
 			rows, err := f.GetRows(sheetName)
 			if err == nil && len(rows) >= 6 {
-				newRows := parseBackOfficeSheet(rows, snapshotYear, snapshotMonth, year)
+				newRows := parseBackOfficeSheet(rows, snapshotYear, snapshotMonth, year, sheetIdx)
 				if len(newRows) > 0 {
 					result.Rows = append(result.Rows, newRows...)
 					channelSet["中后台"] = true
@@ -187,6 +188,7 @@ func ParseFile(fpath string, snapshotYear, snapshotMonth, year int) (*ParseResul
 				br.Year = year
 				br.Channel = channel
 				br.SubChannel = subChannel
+				br.SheetOrder = sheetIdx
 				br.Subject = subject
 				br.SubjectLevel = level
 				br.SubjectCategory = currentCategory
@@ -580,12 +582,12 @@ func WriteResult(db *sql.DB, result *ParseResult) error {
 	// 2. 批量 INSERT
 	const batchSize = 500
 	stmt := `INSERT INTO business_budget_report
-		(snapshot_year, snapshot_month, year, channel, sub_channel, subject, subject_level,
+		(snapshot_year, snapshot_month, year, channel, sub_channel, sheet_order, subject, subject_level,
 		 subject_category, parent_subject, sort_order, period_month,
 		 budget_year_start, ratio_year_start, budget, ratio_budget,
 		 actual, ratio_actual, achievement_rate)
 		VALUES `
-	rowVals := "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+	rowVals := "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
 
 	rows := result.Rows
 	totalInserted := int64(0)
@@ -599,7 +601,7 @@ func WriteResult(db *sql.DB, result *ParseResult) error {
 		args := make([]interface{}, 0, len(batch)*18)
 		for _, r := range batch {
 			valsList = append(valsList, rowVals)
-			args = append(args, r.SnapshotYear, r.SnapshotMonth, r.Year, r.Channel, r.SubChannel,
+			args = append(args, r.SnapshotYear, r.SnapshotMonth, r.Year, r.Channel, r.SubChannel, r.SheetOrder,
 				r.Subject, r.SubjectLevel, r.SubjectCategory, r.ParentSubject, r.SortOrder, r.PeriodMonth,
 				nullIfNil(r.BudgetYearStart), nullIfNil(r.RatioYearStart),
 				nullIfNil(r.Budget), nullIfNil(r.RatioBudget),
@@ -661,7 +663,7 @@ func FormatTimestamp(t time.Time) string {
 //   Row 7+: "品牌费用"/"管理费用"/"财务费用" 分组 header (1 级科目)
 //           然后是科目 + 12 月数据；"合计"/"利润"/"人数"/"人均薪酬" 计算或元数据
 //   "验证"/"数据维度" 跳过
-func parseBackOfficeSheet(rows [][]string, snapshotYear, snapshotMonth, year int) []BudgetRow {
+func parseBackOfficeSheet(rows [][]string, snapshotYear, snapshotMonth, year, sheetIdx int) []BudgetRow {
 	var out []BudgetRow
 	const channel = "中后台"
 	var currentCategory, level1Parent string
@@ -708,6 +710,7 @@ func parseBackOfficeSheet(rows [][]string, snapshotYear, snapshotMonth, year int
 				Year:            year,
 				Channel:         channel,
 				SubChannel:      "",
+				SheetOrder:      sheetIdx,
 				Subject:         subject,
 				SubjectLevel:    level,
 				SubjectCategory: currentCategory,
@@ -732,6 +735,7 @@ func parseBackOfficeSheet(rows [][]string, snapshotYear, snapshotMonth, year int
 			br.Year = year
 			br.Channel = channel
 			br.SubChannel = ""
+			br.SheetOrder = sheetIdx
 			br.Subject = subject
 			br.SubjectLevel = level
 			br.SubjectCategory = currentCategory
@@ -758,7 +762,7 @@ func parseBackOfficeSheet(rows [][]string, snapshotYear, snapshotMonth, year int
 // 落库时：
 //   period_month=0: budget=col[2], actual=col[3], achievement_rate=col[4]
 //   period_month 1-12: actual=col[5+m-1] (单值，按位置当实际值)
-func parseKPISheet(rows [][]string, snapshotYear, snapshotMonth, year int) []BudgetRow {
+func parseKPISheet(rows [][]string, snapshotYear, snapshotMonth, year, sheetIdx int) []BudgetRow {
 	var out []BudgetRow
 	const channel = "经营指标"
 	for i := 3; i < len(rows); i++ {
@@ -785,6 +789,7 @@ func parseKPISheet(rows [][]string, snapshotYear, snapshotMonth, year int) []Bud
 			Year:            year,
 			Channel:         channel,
 			SubChannel:      "",
+			SheetOrder:      sheetIdx,
 			Subject:         subject,
 			SubjectLevel:    2, // KPI 都是同级指标
 			SubjectCategory: "核心指标",

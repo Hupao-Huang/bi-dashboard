@@ -516,24 +516,14 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	rowMap := map[rowKey]*rowAcc{}
 	var order []rowKey
 
-	// 骨架：取所有选中 (channel, sub_channel) pair 的 subject 去重，sort_order 取最小
-	tplArgs := []interface{}{tplYear, tplMonth}
-	tplTupleConds := make([]string, len(chPairs))
-	for i, p := range chPairs {
-		tplTupleConds[i] = "(channel=? AND sub_channel=?)"
-		tplArgs = append(tplArgs, p.channel, p.subChannel)
-	}
-	tplQuery := fmt.Sprintf(`
-		SELECT subject,
-		       MIN(subject_level) AS lv,
-		       MAX(parent_subject) AS parent,
-		       MAX(subject_category) AS cat,
-		       MIN(sort_order) AS so
+	// 骨架固定取 "总" sheet 的科目顺序和数量（跑哥 2026-04-30 要求）
+	// 切换其他渠道时只是数字变化，行结构不变；其他渠道没有此科目时 cell 显示 "-"
+	tplQuery := `
+		SELECT subject, subject_level, parent_subject, subject_category, sort_order
 		FROM business_budget_report
-		WHERE snapshot_year=? AND snapshot_month=? AND %s
-		GROUP BY subject
-		ORDER BY MIN(sort_order)`, strings.Join(tplTupleConds, " OR "))
-	tplRows, err := h.DB.Query(tplQuery, tplArgs...)
+		WHERE snapshot_year=? AND snapshot_month=? AND channel='总' AND sub_channel=''
+		ORDER BY sort_order`
+	tplRows, err := h.DB.Query(tplQuery, tplYear, tplMonth)
 	if writeDatabaseError(w, err) {
 		return
 	}
@@ -690,7 +680,7 @@ func (h *DashboardHandler) GetBusinessReportChannelsList(w http.ResponseWriter, 
 		FROM business_budget_report
 		WHERE snapshot_year=? AND snapshot_month=?
 		GROUP BY channel, sub_channel
-		ORDER BY MIN(sort_order), channel, sub_channel`, tplYear, tplMonth)
+		ORDER BY MIN(sheet_order), channel, sub_channel`, tplYear, tplMonth)
 	if writeDatabaseError(w, err) {
 		return
 	}
