@@ -110,18 +110,14 @@ const BusinessReport: React.FC = () => {
         <Select value={monthEnd} onChange={(v) => { setMonthEnd(v); if (v < monthStart) setMonthStart(v); }} style={{ width: 90 }}
           options={Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1}月`, value: i + 1 }))} />
         <span style={{ marginLeft: 12 }}>渠道：</span>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 1100 }}>
-          {channelGroups.map((g) => (
-            <div key={g.channel} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span style={{ fontSize: 12, color: '#64748b', minWidth: 64, textAlign: 'right' }}>{g.channel}：</span>
-              <Checkbox.Group
-                value={channels}
-                onChange={(v) => setChannels(v as string[])}
-                options={g.items.map((it) => ({ label: it.subChannel === '' ? '汇总' : it.subChannel, value: it.key }))}
-              />
-            </div>
-          ))}
-        </div>
+        <Checkbox.Group
+          value={channels}
+          onChange={(v) => setChannels(v as string[])}
+          options={channelGroups.flatMap((g) => g.items.map((it) => ({
+            label: it.subChannel === '' ? it.channel : `${it.channel}-${it.subChannel}`,
+            value: it.key,
+          })))}
+        />
       </Space>
       <Space>
         <Tooltip title="财务自助上传业务预决算 xlsx — 下个版本上线（当前由数据团队 CLI 导入）">
