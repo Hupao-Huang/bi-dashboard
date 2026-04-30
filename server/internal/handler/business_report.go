@@ -467,11 +467,34 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		return
 	}
 
-	// 2. 构造 yearMonths 列表 (空 month 也保留方便对比，但只显示有数据的年)
+	// 2. 构造 yearMonths：只含每个 snapshot 实际存在的 period_month
+	// 跑哥反馈：2023 xlsx 只有 11/12 月数据，前端不要展示空的 1-10 月列
+	periodSetMap := map[int]map[int]bool{}
+	for _, ys := range snaps {
+		periodRows, perr := h.DB.Query(`
+			SELECT DISTINCT period_month FROM business_budget_report
+			WHERE snapshot_year=? AND snapshot_month=? AND period_month BETWEEN 1 AND 12`, ys.year, ys.month)
+		if perr != nil {
+			continue
+		}
+		pm := map[int]bool{}
+		for periodRows.Next() {
+			var p int
+			if scanErr := periodRows.Scan(&p); scanErr == nil {
+				pm[p] = true
+			}
+		}
+		periodRows.Close()
+		periodSetMap[ys.year] = pm
+	}
+
 	yearMonths := []string{}
 	for _, ys := range snaps {
+		pm := periodSetMap[ys.year]
 		for m := monthStart; m <= monthEnd; m++ {
-			yearMonths = append(yearMonths, fmt.Sprintf("%d-%d", ys.year, m))
+			if pm[m] {
+				yearMonths = append(yearMonths, fmt.Sprintf("%d-%d", ys.year, m))
+			}
 		}
 	}
 
