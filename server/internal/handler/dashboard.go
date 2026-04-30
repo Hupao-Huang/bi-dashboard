@@ -246,7 +246,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	deptArgs := append([]interface{}{start, end}, scopeArgs...)
 	deptRows, ok := queryRowsOrWriteError(w, h.DB, `
 		SELECT CASE WHEN department IS NULL OR department = '' THEN 'other' ELSE department END as dept,
-			ROUND(SUM(goods_amt), 2) as sales,
+			ROUND(SUM(IFNULL(local_goods_amt, goods_amt)), 2) as sales,
 			ROUND(SUM(goods_qty), 0) as qty,
 			ROUND(SUM(gross_profit), 2) as profit,
 			ROUND(SUM(goods_cost), 2) as cost,
@@ -308,7 +308,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	trendRows, ok := queryRowsOrWriteError(w, h.DB, `
 		SELECT DATE_FORMAT(stat_date, '%Y-%m-%d') as d,
 			CASE WHEN department IS NULL OR department = '' THEN 'other' ELSE department END as dept,
-			ROUND(SUM(goods_amt), 2) as sales,
+			ROUND(SUM(IFNULL(local_goods_amt, goods_amt)), 2) as sales,
 			ROUND(SUM(goods_qty), 0) as qty
 		FROM sales_goods_summary
 		WHERE stat_date BETWEEN ? AND ?`+scopeCond+`
@@ -395,7 +395,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		chArgs = append(chArgs, scopeArgs...)
 		chRows, ok := queryRowsOrWriteError(w, h.DB, `
 			SELECT goods_no, shop_name,
-				ROUND(SUM(goods_amt), 2) as sales,
+				ROUND(SUM(IFNULL(local_goods_amt, goods_amt)), 2) as sales,
 				ROUND(SUM(goods_qty), 0) as qty
 			FROM sales_goods_summary
 			WHERE stat_date BETWEEN ? AND ?
@@ -423,7 +423,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	shopArgs := append([]interface{}{start, end}, scopeArgs...)
 	shopRows, ok := queryRowsOrWriteError(w, h.DB, `
 		SELECT shop_name, department,
-			ROUND(SUM(goods_amt), 2) as sales,
+			ROUND(SUM(IFNULL(local_goods_amt, goods_amt)), 2) as sales,
 			ROUND(SUM(goods_qty), 0) as qty
 		FROM sales_goods_summary
 		WHERE shop_name IS NOT NULL AND shop_name != ''
