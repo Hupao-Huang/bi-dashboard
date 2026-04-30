@@ -475,9 +475,11 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	}
 	defer dataRows.Close()
 
-	// 行结构：先按 (channel, sub_channel, subject) 分组聚合 cell
-	// 再按 (channel, sub_channel) 切分 sheet，sub_channel='' 主行 + 非空子渠道作为 children
-	type rowKey struct{ channel, subChannel, subject string }
+	// 行结构（跑哥要求"和财务报表一样"）：
+	//   rowKey = (sub_channel, subject) — 不含 channel
+	//   多 channel 选中时同一 subject 1 行，各 channel 数据存 byChannel[channel].cells
+	//   total = 所有 channel 累加
+	type rowKey struct{ subChannel, subject string }
 	type rowAcc struct {
 		row    *bbrRow
 		byChan map[string]*bbrChannelSeries
@@ -485,31 +487,36 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	rowMap := map[rowKey]*rowAcc{}
 	var order []rowKey
 
-	// 用最新 snapshot 的科目集合作骨架（即使本次查询年份没数据，行也保留）
+	// 骨架：取所有选中 channel 的 (sub_channel, subject) 去重，sort_order 取最小
+	// 这样多 channel 选中时同 subject 只有 1 行；用 MIN(sort_order) 作排序
 	tplArgs := []interface{}{tplYear, tplMonth}
 	for _, c := range channels {
 		tplArgs = append(tplArgs, c)
 	}
 	tplQuery := fmt.Sprintf(`
-		SELECT DISTINCT channel, sub_channel, parent_subject, subject,
-		       subject_level, subject_category, sort_order
+		SELECT sub_channel, subject,
+		       MIN(subject_level) AS lv,
+		       MAX(parent_subject) AS parent,
+		       MAX(subject_category) AS cat,
+		       MIN(sort_order) AS so
 		FROM business_budget_report
 		WHERE snapshot_year=? AND snapshot_month=? AND channel IN (%s)
-		ORDER BY channel, sub_channel, sort_order`, chPH)
+		GROUP BY sub_channel, subject
+		ORDER BY MIN(sort_order), sub_channel`, chPH)
 	tplRows, err := h.DB.Query(tplQuery, tplArgs...)
 	if writeDatabaseError(w, err) {
 		return
 	}
 	for tplRows.Next() {
 		var (
-			channel, subChannel, parent, subject, cat string
-			level, sortOrd                            int
+			subChannel, parent, subject, cat string
+			level, sortOrd                   int
 		)
-		if writeDatabaseError(w, tplRows.Scan(&channel, &subChannel, &parent, &subject, &level, &cat, &sortOrd)) {
+		if writeDatabaseError(w, tplRows.Scan(&subChannel, &subject, &level, &parent, &cat, &sortOrd)) {
 			tplRows.Close()
 			return
 		}
-		rk := rowKey{channel, subChannel, subject}
+		rk := rowKey{subChannel, subject}
 		if _, exists := rowMap[rk]; exists {
 			continue
 		}
@@ -520,7 +527,6 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 				Level:      level,
 				Parent:     parent,
 				Category:   cat,
-				Channel:    channel,
 				SubChannel: subChannel,
 				Total:      bbrSeries{Cells: map[string]bbrCell{}},
 			},
@@ -595,11 +601,10 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		if pm == 0 {
 			continue
 		}
-		rk := rowKey{channel, subChannel, subject}
+		rk := rowKey{subChannel, subject}
 		acc, exists := rowMap[rk]
 		if !exists {
-			// 模板（最新 snapshot）里没有此 (channel, sub_channel, subject) 组合 → 跳过
-			// 这是跑哥要求："以最新 snapshot 科目为模板，老数据没有的不展示"
+			// 模板里没有此 (sub_channel, subject) 组合 → 跳过
 			_ = parent
 			_ = level
 			_ = cat
@@ -619,12 +624,11 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		addRange(&acc.row.Total.RangeTotal, budget, actual)
 	}
 
-	// 组装 rows: 主行（sub_channel=''）+ children（同 channel 不同 sub_channel）
-	type mainKey struct{ channel, subject string }
-	mainMap := map[mainKey]*bbrRow{}
-	childMap := map[mainKey][]bbrRow{}
-	seen := map[mainKey]bool{}
-	var mainOrder []mainKey
+	// 组装 rows: 主行 (sub_channel='') + children (同 subject 的子渠道)
+	mainMap := map[string]*bbrRow{}     // subject → main row
+	childMap := map[string][]bbrRow{}    // subject → 子渠道行
+	seen := map[string]bool{}
+	var subjectOrder []string
 
 	for _, rk := range order {
 		acc := rowMap[rk]
@@ -635,23 +639,22 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 				}
 			}
 		}
-		mk := mainKey{rk.channel, rk.subject}
-		if !seen[mk] {
-			seen[mk] = true
-			mainOrder = append(mainOrder, mk)
+		if !seen[rk.subject] {
+			seen[rk.subject] = true
+			subjectOrder = append(subjectOrder, rk.subject)
 		}
 		if rk.subChannel == "" {
-			mainMap[mk] = acc.row
+			mainMap[rk.subject] = acc.row
 		} else {
-			childMap[mk] = append(childMap[mk], *acc.row)
+			childMap[rk.subject] = append(childMap[rk.subject], *acc.row)
 		}
 	}
 
-	rows := make([]bbrRow, 0, len(mainOrder))
-	for _, mk := range mainOrder {
-		main, exists := mainMap[mk]
+	rows := make([]bbrRow, 0, len(subjectOrder))
+	for _, subj := range subjectOrder {
+		main, exists := mainMap[subj]
 		if !exists {
-			children := childMap[mk]
+			children := childMap[subj]
 			if len(children) == 0 {
 				continue
 			}
@@ -661,7 +664,7 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 			rows = append(rows, synth)
 			continue
 		}
-		if children, ok := childMap[mk]; ok {
+		if children, ok := childMap[subj]; ok {
 			main.Children = children
 		}
 		rows = append(rows, *main)
