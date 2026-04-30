@@ -341,13 +341,17 @@ func nullToPtr(n sql.NullFloat64) *float64 {
 //   yearStart=2024..2026 → 自动用 (2024-12, 2025-12, 2026-04) 三份 snapshot
 //   yearMonths = ["2024-1", ..., "2024-12", "2025-1", ..., "2026-12"]
 
+// bbrCell 业务报表单元格 — 同时含 budget / actual / achievement_rate / ratio
+// （v0.59 跑哥要求："我看预算怎么没有展示出来"）
 type bbrCell struct {
-	Amount float64  `json:"amount"`
-	Ratio  *float64 `json:"ratio,omitempty"`
+	Budget          *float64 `json:"budget,omitempty"`
+	Actual          *float64 `json:"actual,omitempty"`
+	AchievementRate *float64 `json:"achievementRate,omitempty"` // = actual/budget
+	Ratio           *float64 `json:"ratio,omitempty"`            // 占比销售
 }
 
 type bbrChannelSeries struct {
-	Channel string `json:"channel"`
+	Channel string    `json:"channel"`
 	Series  bbrSeries `json:"series"`
 }
 
@@ -356,15 +360,18 @@ type bbrSeries struct {
 	Cells      map[string]bbrCell `json:"cells"`
 }
 
+// bbrRow 业务报表行 — children 用于子渠道下钻（点电商展开看 TOC/TOB）
 type bbrRow struct {
 	Code       string             `json:"code"`
 	Name       string             `json:"name"`
 	Level      int                `json:"level"`
 	Parent     string             `json:"parent"`
 	Category   string             `json:"category"`
+	Channel    string             `json:"channel"`
 	SubChannel string             `json:"subChannel"`
 	Total      bbrSeries          `json:"total"`
 	ByChannel  []bbrChannelSeries `json:"byChannel,omitempty"`
+	Children   []bbrRow           `json:"children,omitempty"`
 }
 
 func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r *http.Request) {
@@ -442,53 +449,97 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	}
 	args = append(args, monthStart, monthEnd)
 
-	// 默认只返一级渠道汇总（sub_channel=''），避免 TOC/TOB/礼品/非礼品 等子渠道行
-	// 与同 subject 的汇总行混排（跑哥 2026-04-30 反馈"营收收入下面全是TOB和TOC"）
-	// 子渠道下钻待后续加 subChannel= 参数支持
-	subChannelFilter := strings.TrimSpace(q.Get("subChannel"))
-	subChannelClause := "AND sub_channel = ''"
-	if subChannelFilter != "" {
-		subChannelClause = "AND sub_channel = ?"
-		args = append(args, subChannelFilter)
-	}
-
+	// 取所有 sub_channel；前端通过 row.children 实现子渠道下钻展开
 	query := fmt.Sprintf(`
 		SELECT snapshot_year, channel, sub_channel, parent_subject, subject,
-		       subject_level, subject_category, sort_order, period_month, actual, ratio_actual
+		       subject_level, subject_category, sort_order, period_month,
+		       budget, actual, ratio_actual, achievement_rate
 		FROM business_budget_report
-		WHERE (%s) AND channel IN (%s) AND period_month BETWEEN ? AND ? %s
+		WHERE (%s) AND channel IN (%s) AND period_month BETWEEN ? AND ?
 		ORDER BY channel, sub_channel, sort_order, period_month`,
-		strings.Join(conds, " OR "), chPH, subChannelClause)
+		strings.Join(conds, " OR "), chPH)
 	dataRows, err := h.DB.Query(query, args...)
 	if writeDatabaseError(w, err) {
 		return
 	}
 	defer dataRows.Close()
 
-	// 行 key: (subject, sub_channel) — 跟财务报表 keyOf 风格一致
-	type rowKey struct{ subject, subChannel string }
+	// 行结构：先按 (channel, sub_channel, subject) 分组聚合 cell
+	// 再按 (channel, sub_channel) 切分 sheet，sub_channel='' 主行 + 非空子渠道作为 children
+	type rowKey struct{ channel, subChannel, subject string }
 	type rowAcc struct {
 		row    *bbrRow
-		byChan map[string]*bbrChannelSeries // channel → series
+		byChan map[string]*bbrChannelSeries
 	}
 	rowMap := map[rowKey]*rowAcc{}
 	var order []rowKey
+
+	addCell := func(cells map[string]bbrCell, ym string, b, a, r, ar sql.NullFloat64) {
+		c := cells[ym]
+		if b.Valid {
+			v := b.Float64
+			if c.Budget != nil {
+				v += *c.Budget
+			}
+			c.Budget = &v
+		}
+		if a.Valid {
+			v := a.Float64
+			if c.Actual != nil {
+				v += *c.Actual
+			}
+			c.Actual = &v
+		}
+		if r.Valid {
+			rv := r.Float64
+			c.Ratio = &rv
+		}
+		if ar.Valid {
+			arv := ar.Float64
+			c.AchievementRate = &arv
+		}
+		// 单 channel 时直接用 budget/actual 算达成率
+		if c.AchievementRate == nil && c.Budget != nil && *c.Budget != 0 && c.Actual != nil {
+			d := *c.Actual / *c.Budget
+			c.AchievementRate = &d
+		}
+		cells[ym] = c
+	}
+	addRange := func(rt *bbrCell, b, a sql.NullFloat64) {
+		if b.Valid {
+			v := b.Float64
+			if rt.Budget != nil {
+				v += *rt.Budget
+			}
+			rt.Budget = &v
+		}
+		if a.Valid {
+			v := a.Float64
+			if rt.Actual != nil {
+				v += *rt.Actual
+			}
+			rt.Actual = &v
+		}
+		if rt.Budget != nil && *rt.Budget != 0 && rt.Actual != nil {
+			d := *rt.Actual / *rt.Budget
+			rt.AchievementRate = &d
+		}
+	}
 
 	for dataRows.Next() {
 		var (
 			snapY, level, sortOrd, pm                int
 			channel, subChannel, parent, subject, cat string
-			actual, ratio                            sql.NullFloat64
+			budget, actual, ratio, ar                sql.NullFloat64
 		)
 		if writeDatabaseError(w, dataRows.Scan(&snapY, &channel, &subChannel, &parent, &subject,
-			&level, &cat, &sortOrd, &pm, &actual, &ratio)) {
+			&level, &cat, &sortOrd, &pm, &budget, &actual, &ratio, &ar)) {
 			return
 		}
-		// 跳过 period_month=0（合计列我们用 rangeTotal 计算，避免重复）
 		if pm == 0 {
 			continue
 		}
-		rk := rowKey{subject, subChannel}
+		rk := rowKey{channel, subChannel, subject}
 		acc, exists := rowMap[rk]
 		if !exists {
 			acc = &rowAcc{
@@ -498,10 +549,9 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 					Level:      level,
 					Parent:     parent,
 					Category:   cat,
+					Channel:    channel,
 					SubChannel: subChannel,
-					Total: bbrSeries{
-						Cells: map[string]bbrCell{},
-					},
+					Total:      bbrSeries{Cells: map[string]bbrCell{}},
 				},
 				byChan: map[string]*bbrChannelSeries{},
 			}
@@ -509,35 +559,26 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 			order = append(order, rk)
 		}
 		ym := fmt.Sprintf("%d-%d", snapY, pm)
-		amount := 0.0
-		if actual.Valid {
-			amount = actual.Float64
-		}
-		var rPtr *float64
-		if ratio.Valid {
-			rv := ratio.Float64
-			rPtr = &rv
-		}
-
-		// per-channel
+		// per-channel 子 series
 		cs, csExists := acc.byChan[channel]
 		if !csExists {
 			cs = &bbrChannelSeries{Channel: channel, Series: bbrSeries{Cells: map[string]bbrCell{}}}
 			acc.byChan[channel] = cs
 		}
-		cell := bbrCell{Amount: amount, Ratio: rPtr}
-		cs.Series.Cells[ym] = cell
-		cs.Series.RangeTotal = bbrCell{Amount: cs.Series.RangeTotal.Amount + amount, Ratio: nil}
-
-		// total 跨 channel 累加（如果只 1 个 channel，total = byChannel[0]）
-		t := acc.row.Total.Cells[ym]
-		t.Amount += amount
-		acc.row.Total.Cells[ym] = t
-		acc.row.Total.RangeTotal = bbrCell{Amount: acc.row.Total.RangeTotal.Amount + amount, Ratio: nil}
+		addCell(cs.Series.Cells, ym, budget, actual, ratio, ar)
+		addRange(&cs.Series.RangeTotal, budget, actual)
+		// total
+		addCell(acc.row.Total.Cells, ym, budget, actual, ratio, ar)
+		addRange(&acc.row.Total.RangeTotal, budget, actual)
 	}
 
-	// 组装 rows
-	rows := make([]bbrRow, 0, len(order))
+	// 组装 rows: 主行（sub_channel=''）+ children（同 channel 不同 sub_channel）
+	type mainKey struct{ channel, subject string }
+	mainMap := map[mainKey]*bbrRow{}
+	childMap := map[mainKey][]bbrRow{}
+	seen := map[mainKey]bool{}
+	var mainOrder []mainKey
+
 	for _, rk := range order {
 		acc := rowMap[rk]
 		if len(channels) > 1 {
@@ -547,7 +588,36 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 				}
 			}
 		}
-		rows = append(rows, *acc.row)
+		mk := mainKey{rk.channel, rk.subject}
+		if !seen[mk] {
+			seen[mk] = true
+			mainOrder = append(mainOrder, mk)
+		}
+		if rk.subChannel == "" {
+			mainMap[mk] = acc.row
+		} else {
+			childMap[mk] = append(childMap[mk], *acc.row)
+		}
+	}
+
+	rows := make([]bbrRow, 0, len(mainOrder))
+	for _, mk := range mainOrder {
+		main, exists := mainMap[mk]
+		if !exists {
+			children := childMap[mk]
+			if len(children) == 0 {
+				continue
+			}
+			synth := children[0]
+			synth.SubChannel = ""
+			synth.Children = children
+			rows = append(rows, synth)
+			continue
+		}
+		if children, ok := childMap[mk]; ok {
+			main.Children = children
+		}
+		rows = append(rows, *main)
 	}
 
 	writeJSON(w, map[string]interface{}{

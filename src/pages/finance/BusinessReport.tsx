@@ -17,7 +17,9 @@ const ALL_CHANNELS = ['总', '电商', '私域', '分销', '社媒', '线下', '
 const YEAR_OPTIONS = [2023, 2024, 2025, 2026];
 
 interface BBRCell {
-  amount: number;
+  budget?: number;
+  actual?: number;
+  achievementRate?: number;
   ratio?: number;
 }
 interface BBRSeries {
@@ -34,9 +36,11 @@ interface BBRRow {
   level: number;
   parent: string;
   category: string;
+  channel: string;
   subChannel: string;
   total: BBRSeries;
   byChannel?: BBRChannelSeries[];
+  children?: BBRRow[];
 }
 interface BBRData {
   channels: string[];
@@ -130,12 +134,13 @@ const BusinessReportTable: React.FC<{ data: BBRData | null; loading: boolean }> 
     <Table
       columns={columns}
       dataSource={data.rows}
-      rowKey={(r) => `${r.code}|${r.subChannel || ''}`}
+      rowKey={(r) => `${r.channel}|${r.code}|${r.subChannel || ''}`}
       pagination={false}
       size="small"
       bordered
       scroll={{ x: 'max-content', y: 'calc(100vh - 400px)' }}
       rowClassName={(r) => (r.level === 1 ? 'fin-row-group' : '')}
+      expandable={{ indentSize: 16 }}
     />
   );
 };
@@ -144,14 +149,21 @@ const buildColumns = (data: BBRData): any[] => {
   const multi = data.channels.length > 1;
   const findChannel = (row: BBRRow, ch: string) => row.byChannel?.find((x) => x.channel === ch);
 
+  // 单元格三段：预算 / 实际 / 达成率（达成率用颜色 tag 标识）
+  const fmtNum = (v?: number) => v == null ? '-' : v.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+  const achColor = (r?: number) => r == null ? '#94a3b8' : r >= 1 ? '#16a34a' : r >= 0.8 ? '#ca8a04' : '#dc2626';
   const formatCell = (c?: BBRCell, level?: number, isChannel?: boolean) => {
     if (level === 1) return null;
-    if (!c || c.amount === 0) return <Text type="secondary">-</Text>;
-    const hint = formatWanHint(c.amount);
+    if (!c || (c.budget == null && c.actual == null)) return <Text type="secondary">-</Text>;
     return (
-      <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined }}>
-        <div>{c.amount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</div>
-        {hint && <div style={{ fontSize: 11, color: '#94a3b8' }}>{hint}</div>}
+      <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined, lineHeight: 1.3 }}>
+        <div style={{ fontSize: 11, color: '#94a3b8' }}>预 {fmtNum(c.budget)}</div>
+        <div style={{ fontWeight: 500 }}>{fmtNum(c.actual)}</div>
+        {c.achievementRate != null && isFinite(c.achievementRate) && (
+          <div style={{ fontSize: 11, color: achColor(c.achievementRate), fontWeight: 500 }}>
+            {(c.achievementRate * 100).toFixed(1)}%
+          </div>
+        )}
       </div>
     );
   };
