@@ -25,6 +25,7 @@ interface BBRCell {
   ratio?: number;
 }
 interface BBRSeries {
+  yearStart: BBRCell;
   rangeTotal: BBRCell;
   cells: Record<string, BBRCell>;
 }
@@ -243,6 +244,14 @@ const buildColumns = (data: BBRData): any[] => {
         const label = row.subChannel ? `· ${row.subChannel}` : row.name;
         return <div style={{ paddingLeft: indent, fontSize: 13 }}>{label}</div>;
       },
+    },
+    {
+      title: '年度预算',
+      key: 'yearStart',
+      children: [
+        { title: multi ? '总' : '金额', key: 'ys_total', width: 130, render: (_: any, row: BBRRow) => formatCell(row.total.yearStart, row.level) },
+        ...(multi ? channelSubCols((row, ch) => findChannel(row, ch)?.series.yearStart, 'ys') : []),
+      ],
     },
     {
       title: '区间合计',
