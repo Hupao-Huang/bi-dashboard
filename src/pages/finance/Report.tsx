@@ -6,6 +6,7 @@ import Chart from '../../components/Chart';
 import { API_BASE } from '../../config';
 import { CHART_COLORS, formatMoney, formatWanHint } from '../../chartTheme';
 import { useAuth } from '../../auth/AuthContext';
+import BusinessReport from './BusinessReport';
 
 const { Text } = Typography;
 
@@ -549,7 +550,7 @@ const FinanceReportPage: React.FC = () => {
               </>
             ) },
             { key: 'business', label: '业务报表', children: (
-              <Empty description="业务报表数据接入中（财务明天提供新表格）" />
+              <BusinessReport />
             ) },
           ]}
         />
