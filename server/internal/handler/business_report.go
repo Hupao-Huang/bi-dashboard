@@ -428,6 +428,17 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		return
 	}
 
+	// 1.5 找全库最新 snapshot 作为科目模板骨架（跑哥 2026-04-30 要求）
+	// 所有年份 row 用最新 snapshot 的 (channel, sub_channel, subject) 集合作骨架
+	// 缺数据的 cell 留空，避免因早年缺科目导致行序不齐
+	var tplYear, tplMonth int
+	err = h.DB.QueryRow(`
+		SELECT snapshot_year, snapshot_month FROM business_budget_report
+		ORDER BY snapshot_year DESC, snapshot_month DESC LIMIT 1`).Scan(&tplYear, &tplMonth)
+	if writeDatabaseError(w, err) {
+		return
+	}
+
 	// 2. 构造 yearMonths 列表 (空 month 也保留方便对比，但只显示有数据的年)
 	yearMonths := []string{}
 	for _, ys := range snaps {
@@ -473,6 +484,51 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	}
 	rowMap := map[rowKey]*rowAcc{}
 	var order []rowKey
+
+	// 用最新 snapshot 的科目集合作骨架（即使本次查询年份没数据，行也保留）
+	tplArgs := []interface{}{tplYear, tplMonth}
+	for _, c := range channels {
+		tplArgs = append(tplArgs, c)
+	}
+	tplQuery := fmt.Sprintf(`
+		SELECT DISTINCT channel, sub_channel, parent_subject, subject,
+		       subject_level, subject_category, sort_order
+		FROM business_budget_report
+		WHERE snapshot_year=? AND snapshot_month=? AND channel IN (%s)
+		ORDER BY channel, sub_channel, sort_order`, chPH)
+	tplRows, err := h.DB.Query(tplQuery, tplArgs...)
+	if writeDatabaseError(w, err) {
+		return
+	}
+	for tplRows.Next() {
+		var (
+			channel, subChannel, parent, subject, cat string
+			level, sortOrd                            int
+		)
+		if writeDatabaseError(w, tplRows.Scan(&channel, &subChannel, &parent, &subject, &level, &cat, &sortOrd)) {
+			tplRows.Close()
+			return
+		}
+		rk := rowKey{channel, subChannel, subject}
+		if _, exists := rowMap[rk]; exists {
+			continue
+		}
+		rowMap[rk] = &rowAcc{
+			row: &bbrRow{
+				Code:       subject,
+				Name:       subject,
+				Level:      level,
+				Parent:     parent,
+				Category:   cat,
+				Channel:    channel,
+				SubChannel: subChannel,
+				Total:      bbrSeries{Cells: map[string]bbrCell{}},
+			},
+			byChan: map[string]*bbrChannelSeries{},
+		}
+		order = append(order, rk)
+	}
+	tplRows.Close()
 
 	addCell := func(cells map[string]bbrCell, ym string, b, a, r, ar sql.NullFloat64) {
 		c := cells[ym]
@@ -542,21 +598,12 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		rk := rowKey{channel, subChannel, subject}
 		acc, exists := rowMap[rk]
 		if !exists {
-			acc = &rowAcc{
-				row: &bbrRow{
-					Code:       subject,
-					Name:       subject,
-					Level:      level,
-					Parent:     parent,
-					Category:   cat,
-					Channel:    channel,
-					SubChannel: subChannel,
-					Total:      bbrSeries{Cells: map[string]bbrCell{}},
-				},
-				byChan: map[string]*bbrChannelSeries{},
-			}
-			rowMap[rk] = acc
-			order = append(order, rk)
+			// 模板（最新 snapshot）里没有此 (channel, sub_channel, subject) 组合 → 跳过
+			// 这是跑哥要求："以最新 snapshot 科目为模板，老数据没有的不展示"
+			_ = parent
+			_ = level
+			_ = cat
+			continue
 		}
 		ym := fmt.Sprintf("%d-%d", snapY, pm)
 		// per-channel 子 series
