@@ -177,25 +177,24 @@ const buildColumns = (data: BBRData): any[] => {
   const multi = data.channels.length > 1;
   const findChannel = (row: BBRRow, ch: string) => row.byChannel?.find((x) => x.channel === ch);
 
-  // 单元格三段：预算 / 实际 / 达成率
-  // 注意：业务报表 level=1 是计算行（一、营业收入/减：营业成本/营业毛利/利润总额/净利润）必须显示数据
-  // 不像财务报表 level=1 是无数据的分组 header
+  // 单值渲染：预算 / 实际 / 达成率 各自独立列
   const fmtNum = (v?: number) => v == null ? '-' : v.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
   const achColor = (r?: number) => r == null ? '#94a3b8' : r >= 1 ? '#16a34a' : r >= 0.8 ? '#ca8a04' : '#dc2626';
-  const formatCell = (c?: BBRCell, level?: number, isChannel?: boolean) => {
-    if (!c || (c.budget == null && c.actual == null)) return <Text type="secondary">-</Text>;
+  type CellKind = 'budget' | 'actual' | 'ach';
+  const formatVal = (c?: BBRCell, kind: CellKind = 'actual', level?: number, isChannel?: boolean) => {
+    if (!c) return <Text type="secondary">-</Text>;
     const bold = level === 1;
-    return (
-      <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined, lineHeight: 1.3 }}>
-        <div style={{ fontSize: 11, color: '#94a3b8' }}>预 {fmtNum(c.budget)}</div>
-        <div style={{ fontWeight: bold ? 700 : 500 }}>{fmtNum(c.actual)}</div>
-        {c.achievementRate != null && isFinite(c.achievementRate) && (
-          <div style={{ fontSize: 11, color: achColor(c.achievementRate), fontWeight: 500 }}>
-            {(c.achievementRate * 100).toFixed(1)}%
-          </div>
-        )}
-      </div>
-    );
+    if (kind === 'budget') {
+      if (c.budget == null) return <Text type="secondary">-</Text>;
+      return <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined, fontWeight: bold ? 700 : 400 }}>{fmtNum(c.budget)}</div>;
+    }
+    if (kind === 'actual') {
+      if (c.actual == null) return <Text type="secondary">-</Text>;
+      return <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined, fontWeight: bold ? 700 : 500 }}>{fmtNum(c.actual)}</div>;
+    }
+    // ach
+    if (c.achievementRate == null || !isFinite(c.achievementRate)) return <Text type="secondary">-</Text>;
+    return <div style={{ textAlign: 'right', color: achColor(c.achievementRate), fontWeight: 500, fontSize: 12 }}>{(c.achievementRate * 100).toFixed(1)}%</div>;
   };
   const isGmvRow = (row: BBRRow) => row.category === 'GMV数据';
   const formatRatio = (c: BBRCell | undefined, row: BBRRow) => {
@@ -209,25 +208,31 @@ const buildColumns = (data: BBRData): any[] => {
   };
   // chKey "电商|TOC" → "电商-TOC" 显示；"电商" → "电商"
   const chLabel = (k: string) => k.includes('|') ? k.replace('|', '-') : k;
-  const channelSubCols = (getCell: (row: BBRRow, ch: string) => BBRCell | undefined, keyPrefix: string) => {
+  // 多 channel 时每个 channel 拆成 [预算 + 实际] 子列
+  const channelSubColsBA = (getCell: (row: BBRRow, ch: string) => BBRCell | undefined, keyPrefix: string) => {
     const cols: any[] = [];
     data.channels.forEach((ch, i) => {
       const isLast = i === data.channels.length - 1;
       cols.push({
         title: chLabel(ch),
         key: `${keyPrefix}_${ch}`,
-        width: 120,
-        render: (_: any, row: BBRRow) => formatCell(getCell(row, ch), row.level, true),
-      });
-      cols.push({
-        title: '占比',
-        key: `${keyPrefix}_${ch}_r`,
-        width: 60,
-        render: (_: any, row: BBRRow) => formatRatio(getCell(row, ch), row),
-        ...(isLast ? divider : {}),
+        children: [
+          { title: '预算', key: `${keyPrefix}_${ch}_b`, width: 110, render: (_: any, row: BBRRow) => formatVal(getCell(row, ch), 'budget', row.level, true) },
+          { title: '实际', key: `${keyPrefix}_${ch}_a`, width: 110, render: (_: any, row: BBRRow) => formatVal(getCell(row, ch), 'actual', row.level, true), ...(isLast ? divider : {}) },
+        ],
       });
     });
     return cols;
+  };
+  // 多 channel 年度预算只有 budget 一列
+  const channelSubColsBudget = (getCell: (row: BBRRow, ch: string) => BBRCell | undefined, keyPrefix: string) => {
+    return data.channels.map((ch, i) => ({
+      title: chLabel(ch),
+      key: `${keyPrefix}_${ch}`,
+      width: 120,
+      render: (_: any, row: BBRRow) => formatVal(getCell(row, ch), 'budget', row.level, true),
+      ...(i === data.channels.length - 1 ? divider : {}),
+    }));
   };
 
   const cols: any[] = [
@@ -248,28 +253,42 @@ const buildColumns = (data: BBRData): any[] => {
     {
       title: '年度预算',
       key: 'yearStart',
-      children: [
-        { title: multi ? '总' : '金额', key: 'ys_total', width: 130, render: (_: any, row: BBRRow) => formatCell(row.total.yearStart, row.level) },
-        ...(multi ? channelSubCols((row, ch) => findChannel(row, ch)?.series.yearStart, 'ys') : []),
-      ],
+      children: multi
+        ? [
+            { title: '总', key: 'ys_total', width: 130, render: (_: any, row: BBRRow) => formatVal(row.total.yearStart, 'budget', row.level), ...divider },
+            ...channelSubColsBudget((row, ch) => findChannel(row, ch)?.series.yearStart, 'ys'),
+          ]
+        : [{ title: '金额', key: 'ys_total', width: 130, render: (_: any, row: BBRRow) => formatVal(row.total.yearStart, 'budget', row.level), ...divider }],
     },
     {
       title: '区间合计',
       key: 'range',
-      children: [
-        { title: multi ? '总' : '金额', key: 'range_total', width: 130, render: (_: any, row: BBRRow) => formatCell(row.total.rangeTotal, row.level) },
-        { title: '占比', key: 'range_ratio', width: 70, render: (_: any, row: BBRRow) => formatRatio(row.total.rangeTotal, row), ...(multi ? {} : divider) },
-        ...(multi ? channelSubCols((row, ch) => findChannel(row, ch)?.series.rangeTotal, 'range') : []),
-      ],
+      children: multi
+        ? [
+            { title: '总-预算', key: 'r_b', width: 120, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'budget', row.level) },
+            { title: '总-实际', key: 'r_a', width: 120, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'actual', row.level) },
+            { title: '达成', key: 'r_ach', width: 80, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'ach', row.level), ...divider },
+            ...channelSubColsBA((row, ch) => findChannel(row, ch)?.series.rangeTotal, 'range'),
+          ]
+        : [
+            { title: '预算', key: 'r_b', width: 120, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'budget', row.level) },
+            { title: '实际', key: 'r_a', width: 120, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'actual', row.level) },
+            { title: '达成', key: 'r_ach', width: 80, render: (_: any, row: BBRRow) => formatVal(row.total.rangeTotal, 'ach', row.level), ...divider },
+          ],
     },
     ...data.yearMonths.map((ym) => ({
       title: ym,
       key: ym,
-      children: [
-        { title: multi ? '总' : '金额', key: `${ym}_total`, width: 120, render: (_: any, row: BBRRow) => formatCell(row.total.cells[ym], row.level) },
-        { title: '占比', key: `${ym}_ratio`, width: 65, render: (_: any, row: BBRRow) => formatRatio(row.total.cells[ym], row), ...(multi ? {} : divider) },
-        ...(multi ? channelSubCols((row, ch) => findChannel(row, ch)?.series.cells[ym], ym) : []),
-      ],
+      children: multi
+        ? [
+            { title: '总-预算', key: `${ym}_b`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'budget', row.level) },
+            { title: '总-实际', key: `${ym}_a`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'actual', row.level), ...divider },
+            ...channelSubColsBA((row, ch) => findChannel(row, ch)?.series.cells[ym], ym),
+          ]
+        : [
+            { title: '预算', key: `${ym}_b`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'budget', row.level) },
+            { title: '实际', key: `${ym}_a`, width: 110, render: (_: any, row: BBRRow) => formatVal(row.total.cells[ym], 'actual', row.level), ...divider },
+          ],
     })),
   ];
   return cols;
