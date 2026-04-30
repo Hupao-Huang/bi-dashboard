@@ -7,7 +7,8 @@
 //   - 经营 KPI：经营指标 sheet 的 22 项核心指标
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Select, Tabs, Table, Spin, Empty, Tag, Row, Col, Typography, Space, Statistic } from 'antd';
+import { Card, Select, Tabs, Table, Spin, Empty, Tag, Row, Col, Typography, Space, Statistic, Checkbox, Button, Tooltip } from 'antd';
+import { UploadOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { API_BASE } from '../../config';
 
@@ -86,10 +87,15 @@ const achievementColor = (r?: number) => {
   return 'red';
 };
 
+const ALL_CHANNELS = ['总', '电商', '私域', '分销', '社媒', '线下', '国际零售', '即时零售', '糙能', '中后台', '经营指标'];
+
 const BusinessReport: React.FC = () => {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [snap, setSnap] = useState<string>(''); // "YYYY-MM"
   const [loadingSnap, setLoadingSnap] = useState(false);
+  const [channels, setChannels] = useState<string[]>(['总']);
+  const [monthStart, setMonthStart] = useState<number>(1);
+  const [monthEnd, setMonthEnd] = useState<number>(12);
 
   useEffect(() => {
     setLoadingSnap(true);
@@ -104,10 +110,11 @@ const BusinessReport: React.FC = () => {
       .finally(() => setLoadingSnap(false));
   }, []);
 
-  const snapHeader = (
-    <Space size={16} wrap>
-      <Space>
-        <Text strong>快照：</Text>
+  // 顶部筛选条 — 跟 Report.tsx reportFilter 一致：灰底圆角 + Space wrap 横排 + 右侧上传按钮
+  const reportFilter = (
+    <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f8fafc', borderRadius: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' }}>
+      <Space wrap size="middle">
+        <span>快照：</span>
         <Select
           loading={loadingSnap}
           value={snap || undefined}
@@ -119,24 +126,41 @@ const BusinessReport: React.FC = () => {
           onChange={setSnap}
           placeholder="选择快照"
         />
+        <span style={{ marginLeft: 12 }}>月份：</span>
+        <Select value={monthStart} onChange={(v) => { setMonthStart(v); if (v > monthEnd) setMonthEnd(v); }} style={{ width: 90 }}
+          options={Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1}月`, value: i + 1 }))} />
+        <span>至</span>
+        <Select value={monthEnd} onChange={(v) => { setMonthEnd(v); if (v < monthStart) setMonthStart(v); }} style={{ width: 90 }}
+          options={Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1}月`, value: i + 1 }))} />
+        <span style={{ marginLeft: 12 }}>渠道：</span>
+        <Checkbox.Group
+          value={channels}
+          onChange={(v) => setChannels(v as string[])}
+          options={ALL_CHANNELS.map((c) => ({ label: c, value: c }))}
+        />
       </Space>
-    </Space>
+      <Space>
+        <Tooltip title="财务自助上传业务预决算 xlsx — 下个版本上线（当前由数据团队 CLI 导入）">
+          <Button icon={<UploadOutlined />} disabled>上传 Excel</Button>
+        </Tooltip>
+      </Space>
+    </div>
   );
 
   if (!snap) {
-    return <Card>{snapHeader}<Empty description="无业务报表数据，请先用 import-business-report.exe 导入" style={{ marginTop: 32 }} /></Card>;
+    return <Card>{reportFilter}<Empty description="无业务报表数据，请先导入" style={{ marginTop: 32 }} /></Card>;
   }
 
   return (
     <Card>
-      <div style={{ marginBottom: 12 }}>{snapHeader}</div>
+      {reportFilter}
       <Tabs
         defaultActiveKey="detail"
         items={[
-          { key: 'detail', label: '渠道明细', children: <DetailTab snap={snap} /> },
-          { key: 'overview', label: '渠道总览', children: <OverviewTab snap={snap} /> },
-          { key: 'trend', label: '月度趋势', children: <TrendTab snap={snap} /> },
-          { key: 'kpi', label: '经营 KPI', children: <KPITab snap={snap} /> },
+          { key: 'detail', label: '渠道明细', children: <DetailTab snap={snap} channels={channels} monthStart={monthStart} monthEnd={monthEnd} /> },
+          { key: 'overview', label: '渠道总览', children: <OverviewTab snap={snap} channels={channels} /> },
+          { key: 'trend', label: '月度趋势', children: <TrendTab snap={snap} channels={channels} monthStart={monthStart} monthEnd={monthEnd} /> },
+          { key: 'kpi', label: '经营 KPI', children: <KPITab snap={snap} monthStart={monthStart} monthEnd={monthEnd} /> },
         ]}
       />
     </Card>
@@ -144,14 +168,13 @@ const BusinessReport: React.FC = () => {
 };
 
 // ----------------- DetailTab -----------------
-const CHANNEL_OPTIONS = ['总', '电商', '私域', '分销', '社媒', '线下', '国际零售', '即时零售', '糙能', '中后台'];
-
-const DetailTab: React.FC<{ snap: string }> = ({ snap }) => {
-  const [channel, setChannel] = useState<string>('总');
+const DetailTab: React.FC<{ snap: string; channels: string[]; monthStart: number; monthEnd: number }> = ({ snap, channels, monthStart, monthEnd }) => {
+  const [channel, setChannel] = useState<string>(channels[0] || '总');
   const [subChannel, setSubChannel] = useState<string>('');
   const [data, setData] = useState<DetailResp | null>(null);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => { if (!channels.includes(channel) && channels.length > 0) setChannel(channels[0]); }, [channels, channel]);
   useEffect(() => { setSubChannel(''); }, [channel, snap]);
 
   useEffect(() => {
@@ -165,8 +188,8 @@ const DetailTab: React.FC<{ snap: string }> = ({ snap }) => {
   const cells = data?.cells || [];
   const subOptions = (data?.subChannels || []).filter(s => s !== '');
 
-  // 列：subject + 年初 + 合计预算 + 合计实际 + 达成率 + 12 月（每月 实际 / 预算两行）
-  const monthCols = Array.from({ length: 12 }, (_, i) => i + 1).map(m => ({
+  // 月份范围（只显示 monthStart..monthEnd）
+  const monthCols = Array.from({ length: monthEnd - monthStart + 1 }, (_, i) => monthStart + i).map(m => ({
     title: `${m}月`,
     children: [
       {
@@ -216,8 +239,8 @@ const DetailTab: React.FC<{ snap: string }> = ({ snap }) => {
   return (
     <Spin spinning={loading}>
       <Space style={{ marginBottom: 12 }} wrap>
-        <Text>渠道：</Text>
-        <Select value={channel} onChange={setChannel} options={CHANNEL_OPTIONS.map(c => ({ value: c, label: c }))} style={{ minWidth: 120 }} />
+        <Text>当前查看渠道：</Text>
+        <Select value={channel} onChange={setChannel} options={(channels.length > 0 ? channels : ['总']).map(c => ({ value: c, label: c }))} style={{ minWidth: 120 }} />
         {subOptions.length > 0 && (
           <>
             <Text>子渠道：</Text>
@@ -244,7 +267,7 @@ const DetailTab: React.FC<{ snap: string }> = ({ snap }) => {
 };
 
 // ----------------- OverviewTab -----------------
-const OverviewTab: React.FC<{ snap: string }> = ({ snap }) => {
+const OverviewTab: React.FC<{ snap: string; channels: string[] }> = ({ snap, channels }) => {
   const [subject, setSubject] = useState<string>('GMV合计');
   const [data, setData] = useState<ChannelOverviewItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -257,8 +280,10 @@ const OverviewTab: React.FC<{ snap: string }> = ({ snap }) => {
       .finally(() => setLoading(false));
   }, [snap, subject]);
 
-  // 只展示 sub_channel='' 的（即一级渠道汇总）
-  const top = data.filter(d => d.subChannel === '');
+  // 只展示 sub_channel='' 的（即一级渠道汇总）+ 顶部 channels 过滤
+  const channelSet = new Set(channels);
+  const filtered = channels.length > 0 ? data.filter(d => channelSet.has(d.channel)) : data;
+  const top = filtered.filter(d => d.subChannel === '');
   const totalBudget = top.reduce((s, d) => s + (d.budgetTotal || 0), 0);
   const totalActual = top.reduce((s, d) => s + (d.actualTotal || 0), 0);
 
@@ -292,18 +317,20 @@ const OverviewTab: React.FC<{ snap: string }> = ({ snap }) => {
         <Col span={6}><Card><Statistic title={`${subject} 合计实际`} value={fmt(totalActual, { wan: true })} /></Card></Col>
         <Col span={6}><Card><Statistic title="整体达成率" value={totalBudget ? fmt(totalActual / totalBudget, { pct: true }) : '-'} /></Card></Col>
       </Row>
-      <Table rowKey={(r) => `${r.channel}_${r.subChannel}`} size="small" bordered columns={columns} dataSource={data} pagination={false} />
+      <Table rowKey={(r) => `${r.channel}_${r.subChannel}`} size="small" bordered columns={columns} dataSource={filtered} pagination={false} />
     </Spin>
   );
 };
 
 // ----------------- TrendTab -----------------
-const TrendTab: React.FC<{ snap: string }> = ({ snap }) => {
-  const [channel, setChannel] = useState<string>('总');
+const TrendTab: React.FC<{ snap: string; channels: string[]; monthStart: number; monthEnd: number }> = ({ snap, channels, monthStart, monthEnd }) => {
+  const [channel, setChannel] = useState<string>(channels[0] || '总');
   const [subChannel, setSubChannel] = useState<string>('');
   const [subject, setSubject] = useState<string>('GMV合计');
   const [points, setPoints] = useState<{ month: number; budget?: number; actual?: number }[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => { if (!channels.includes(channel) && channels.length > 0) setChannel(channels[0]); }, [channels, channel]);
 
   useEffect(() => {
     if (!snap || !channel || !subject) return;
@@ -314,7 +341,7 @@ const TrendTab: React.FC<{ snap: string }> = ({ snap }) => {
   }, [snap, channel, subChannel, subject]);
 
   const option = useMemo(() => {
-    const months = Array.from({ length: 12 }, (_, i) => i + 1);
+    const months = Array.from({ length: monthEnd - monthStart + 1 }, (_, i) => monthStart + i);
     const ptMap = new Map(points.map(p => [p.month, p]));
     const budgets = months.map(m => ptMap.get(m)?.budget ?? null);
     const actuals = months.map(m => ptMap.get(m)?.actual ?? null);
@@ -328,13 +355,13 @@ const TrendTab: React.FC<{ snap: string }> = ({ snap }) => {
         { name: '实际', type: 'line', data: actuals, smooth: true, itemStyle: { color: '#1e40af' }, lineStyle: { width: 3 } },
       ],
     };
-  }, [points]);
+  }, [points, monthStart, monthEnd]);
 
   return (
     <Spin spinning={loading}>
       <Space style={{ marginBottom: 12 }} wrap>
-        <Text>渠道：</Text>
-        <Select value={channel} onChange={(v) => { setChannel(v); setSubChannel(''); }} options={CHANNEL_OPTIONS.map(c => ({ value: c, label: c }))} style={{ minWidth: 120 }} />
+        <Text>当前查看渠道：</Text>
+        <Select value={channel} onChange={(v) => { setChannel(v); setSubChannel(''); }} options={(channels.length > 0 ? channels : ['总']).map(c => ({ value: c, label: c }))} style={{ minWidth: 120 }} />
         <Text>子渠道：</Text>
         <Select value={subChannel || ''} onChange={setSubChannel} options={[{ value: '', label: '【汇总】' }]} style={{ minWidth: 120 }} />
         <Text>科目：</Text>
@@ -348,7 +375,7 @@ const TrendTab: React.FC<{ snap: string }> = ({ snap }) => {
 };
 
 // ----------------- KPITab -----------------
-const KPITab: React.FC<{ snap: string }> = ({ snap }) => {
+const KPITab: React.FC<{ snap: string; monthStart: number; monthEnd: number }> = ({ snap, monthStart, monthEnd }) => {
   const [data, setData] = useState<DetailResp | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -375,7 +402,7 @@ const KPITab: React.FC<{ snap: string }> = ({ snap }) => {
       align: 'right' as const,
       render: (_: unknown, r: BudgetCell) => r.achievementRate == null ? '-' : <Tag color={(r.achievementRate || 0) > 0 ? 'green' : 'red'}>{fmt(r.achievementRate, { pct: true })}</Tag>,
     },
-    ...Array.from({ length: 12 }, (_, i) => i + 1).map(m => ({
+    ...Array.from({ length: monthEnd - monthStart + 1 }, (_, i) => monthStart + i).map(m => ({
       title: `${m}月`,
       key: `m${m}`,
       align: 'right' as const,
