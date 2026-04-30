@@ -442,13 +442,23 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	}
 	args = append(args, monthStart, monthEnd)
 
+	// 默认只返一级渠道汇总（sub_channel=''），避免 TOC/TOB/礼品/非礼品 等子渠道行
+	// 与同 subject 的汇总行混排（跑哥 2026-04-30 反馈"营收收入下面全是TOB和TOC"）
+	// 子渠道下钻待后续加 subChannel= 参数支持
+	subChannelFilter := strings.TrimSpace(q.Get("subChannel"))
+	subChannelClause := "AND sub_channel = ''"
+	if subChannelFilter != "" {
+		subChannelClause = "AND sub_channel = ?"
+		args = append(args, subChannelFilter)
+	}
+
 	query := fmt.Sprintf(`
 		SELECT snapshot_year, channel, sub_channel, parent_subject, subject,
 		       subject_level, subject_category, sort_order, period_month, actual, ratio_actual
 		FROM business_budget_report
-		WHERE (%s) AND channel IN (%s) AND period_month BETWEEN ? AND ?
+		WHERE (%s) AND channel IN (%s) AND period_month BETWEEN ? AND ? %s
 		ORDER BY channel, sub_channel, sort_order, period_month`,
-		strings.Join(conds, " OR "), chPH)
+		strings.Join(conds, " OR "), chPH, subChannelClause)
 	dataRows, err := h.DB.Query(query, args...)
 	if writeDatabaseError(w, err) {
 		return
