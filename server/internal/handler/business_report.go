@@ -356,6 +356,7 @@ type bbrChannelSeries struct {
 }
 
 type bbrSeries struct {
+	YearStart  bbrCell            `json:"yearStart"`  // 全年预算（period_month=0 行的合计-预算/合计-实际/达成率，含 budget_year_start）
 	RangeTotal bbrCell            `json:"rangeTotal"`
 	Cells      map[string]bbrCell `json:"cells"`
 }
@@ -517,9 +518,9 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	query := fmt.Sprintf(`
 		SELECT snapshot_year, channel, sub_channel, parent_subject, subject,
 		       subject_level, subject_category, sort_order, period_month,
-		       budget, actual, ratio_actual, achievement_rate
+		       budget, actual, ratio_actual, achievement_rate, budget_year_start
 		FROM business_budget_report
-		WHERE (%s) AND %s AND period_month BETWEEN ? AND ?
+		WHERE (%s) AND %s AND (period_month = 0 OR period_month BETWEEN ? AND ?)
 		ORDER BY channel, sub_channel, sort_order, period_month`,
 		strings.Join(conds, " OR "), chTupleClause)
 	dataRows, err := h.DB.Query(query, args...)
@@ -632,18 +633,26 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		}
 	}
 
+	// 单 channel cell 直接赋值；多 channel time cell 累加
+	setOrAdd := func(p **float64, v float64, accumulate bool) {
+		if *p == nil || !accumulate {
+			t := v
+			*p = &t
+		} else {
+			t := **p + v
+			*p = &t
+		}
+	}
+
 	for dataRows.Next() {
 		var (
 			snapY, level, sortOrd, pm                int
 			channel, subChannel, parent, subject, cat string
-			budget, actual, ratio, ar                sql.NullFloat64
+			budget, actual, ratio, ar, bys           sql.NullFloat64
 		)
 		if writeDatabaseError(w, dataRows.Scan(&snapY, &channel, &subChannel, &parent, &subject,
-			&level, &cat, &sortOrd, &pm, &budget, &actual, &ratio, &ar)) {
+			&level, &cat, &sortOrd, &pm, &budget, &actual, &ratio, &ar, &bys)) {
 			return
-		}
-		if pm == 0 {
-			continue
 		}
 		rk := rowKey{parent, subject}
 		acc, exists := rowMap[rk]
@@ -652,17 +661,37 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 			_ = cat
 			continue
 		}
-		ym := fmt.Sprintf("%d-%d", snapY, pm)
-		// per-(channel|sub_channel) series — 用 chKey 字符串作维度
 		ck := chKey(channel, subChannel)
 		cs, csExists := acc.byChan[ck]
 		if !csExists {
 			cs = &bbrChannelSeries{Channel: ck, Series: bbrSeries{Cells: map[string]bbrCell{}}}
 			acc.byChan[ck] = cs
 		}
+		if pm == 0 {
+			// pm=0 行：budget_year_start=年度预算 actual=合计实际
+			// YearStart.Budget = 年度预算 (单 channel 直接赋值；total 多 channel 累加)
+			if bys.Valid {
+				setOrAdd(&cs.Series.YearStart.Budget, bys.Float64, false)
+				setOrAdd(&acc.row.Total.YearStart.Budget, bys.Float64, true)
+			}
+			if actual.Valid {
+				setOrAdd(&cs.Series.YearStart.Actual, actual.Float64, false)
+				setOrAdd(&acc.row.Total.YearStart.Actual, actual.Float64, true)
+			}
+			// 达成率 = actual / budget_year_start
+			if cs.Series.YearStart.Budget != nil && *cs.Series.YearStart.Budget != 0 && cs.Series.YearStart.Actual != nil {
+				d := *cs.Series.YearStart.Actual / *cs.Series.YearStart.Budget
+				cs.Series.YearStart.AchievementRate = &d
+			}
+			if acc.row.Total.YearStart.Budget != nil && *acc.row.Total.YearStart.Budget != 0 && acc.row.Total.YearStart.Actual != nil {
+				d := *acc.row.Total.YearStart.Actual / *acc.row.Total.YearStart.Budget
+				acc.row.Total.YearStart.AchievementRate = &d
+			}
+			continue
+		}
+		ym := fmt.Sprintf("%d-%d", snapY, pm)
 		addCell(cs.Series.Cells, ym, budget, actual, ratio, ar)
 		addRange(&cs.Series.RangeTotal, budget, actual)
-		// total
 		addCell(acc.row.Total.Cells, ym, budget, actual, ratio, ar)
 		addRange(&acc.row.Total.RangeTotal, budget, actual)
 	}
