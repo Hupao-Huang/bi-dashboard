@@ -6,7 +6,7 @@
 // 多 channel 时: 每个 (year, month) 列下展开 channel 子列
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Select, Spin, Table, Empty, Typography, Space, Checkbox, Button, Tooltip } from 'antd';
+import { Select, Spin, Table, Empty, Typography, Space, Button, Tooltip, TreeSelect } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 import { formatWanHint } from '../../chartTheme';
@@ -110,13 +110,28 @@ const BusinessReport: React.FC = () => {
         <Select value={monthEnd} onChange={(v) => { setMonthEnd(v); if (v < monthStart) setMonthStart(v); }} style={{ width: 90 }}
           options={Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1}月`, value: i + 1 }))} />
         <span style={{ marginLeft: 12 }}>渠道：</span>
-        <Checkbox.Group
+        <TreeSelect
+          multiple
           value={channels}
           onChange={(v) => setChannels(v as string[])}
-          options={channelGroups.flatMap((g) => g.items.map((it) => ({
-            label: it.subChannel === '' ? it.channel : `${it.channel}-${it.subChannel}`,
-            value: it.key,
-          })))}
+          treeData={channelGroups.map((g) => {
+            // 父节点用一级渠道汇总（电商|''），children 为非空子渠道
+            const summary = g.items.find((it) => it.subChannel === '');
+            const subs = g.items.filter((it) => it.subChannel !== '');
+            return {
+              title: g.channel,
+              value: summary ? summary.key : `${g.channel}-group`,
+              selectable: !!summary,
+              children: subs.map((it) => ({ title: it.subChannel, value: it.key })),
+            };
+          })}
+          treeDefaultExpandAll={false}
+          showCheckedStrategy="SHOW_ALL"
+          treeCheckable={false}
+          allowClear
+          maxTagCount="responsive"
+          placeholder="选择渠道（支持多选 + 子渠道）"
+          style={{ minWidth: 360, maxWidth: 600 }}
         />
       </Space>
       <Space>
