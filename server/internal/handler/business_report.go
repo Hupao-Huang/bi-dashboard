@@ -505,10 +505,10 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	}
 	defer dataRows.Close()
 
-	// 行结构：rowKey = subject (不含 channel/sub_channel)
+	// 行结构：rowKey = (parent_subject, subject) 区分跨父级同名 subject
+	// 例如"人工成本"在销售费用和管理费用下都有 — 必须分行展示，不能去重
 	// (channel, sub_channel) pair 不再做行维度，直接当 byChannel 列展示
-	// 各 pair 数据存 byChannel[chKey].cells；total = 所有 pair 累加
-	type rowKey struct{ subject string }
+	type rowKey struct{ parent, subject string }
 	type rowAcc struct {
 		row    *bbrRow
 		byChan map[string]*bbrChannelSeries
@@ -516,10 +516,11 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 	rowMap := map[rowKey]*rowAcc{}
 	var order []rowKey
 
-	// 骨架固定取 "总" sheet 的科目顺序和数量（跑哥 2026-04-30 要求）
-	// 切换其他渠道时只是数字变化，行结构不变；其他渠道没有此科目时 cell 显示 "-"
+	// 骨架固定取 "总" sheet 的科目顺序和数量
+	// SELECT 加 DISTINCT 避免 0-12 month 数据 row 重复返回 13 次同 subject
+	// ORDER BY sort_order 保证按 xlsx 行序展示
 	tplQuery := `
-		SELECT subject, subject_level, parent_subject, subject_category, sort_order
+		SELECT DISTINCT subject, subject_level, parent_subject, subject_category, sort_order
 		FROM business_budget_report
 		WHERE snapshot_year=? AND snapshot_month=? AND channel='总' AND sub_channel=''
 		ORDER BY sort_order`
@@ -536,7 +537,7 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 			tplRows.Close()
 			return
 		}
-		rk := rowKey{subject}
+		rk := rowKey{parent, subject}
 		if _, exists := rowMap[rk]; exists {
 			continue
 		}
@@ -621,10 +622,9 @@ func (h *DashboardHandler) GetBusinessReportFinanceLike(w http.ResponseWriter, r
 		if pm == 0 {
 			continue
 		}
-		rk := rowKey{subject}
+		rk := rowKey{parent, subject}
 		acc, exists := rowMap[rk]
 		if !exists {
-			_ = parent
 			_ = level
 			_ = cat
 			continue
