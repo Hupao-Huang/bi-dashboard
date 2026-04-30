@@ -678,7 +678,7 @@ func (h *DashboardHandler) GetBusinessReportChannelsList(w http.ResponseWriter, 
 	rows, err := h.DB.Query(`
 		SELECT channel, sub_channel, COUNT(DISTINCT subject) AS subj_count
 		FROM business_budget_report
-		WHERE snapshot_year=? AND snapshot_month=?
+		WHERE snapshot_year=? AND snapshot_month=? AND channel != '经营指标'
 		GROUP BY channel, sub_channel
 		ORDER BY MIN(sheet_order), channel, sub_channel`, tplYear, tplMonth)
 	if writeDatabaseError(w, err) {
