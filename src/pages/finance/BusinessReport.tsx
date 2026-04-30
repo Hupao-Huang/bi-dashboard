@@ -149,16 +149,18 @@ const buildColumns = (data: BBRData): any[] => {
   const multi = data.channels.length > 1;
   const findChannel = (row: BBRRow, ch: string) => row.byChannel?.find((x) => x.channel === ch);
 
-  // 单元格三段：预算 / 实际 / 达成率（达成率用颜色 tag 标识）
+  // 单元格三段：预算 / 实际 / 达成率
+  // 注意：业务报表 level=1 是计算行（一、营业收入/减：营业成本/营业毛利/利润总额/净利润）必须显示数据
+  // 不像财务报表 level=1 是无数据的分组 header
   const fmtNum = (v?: number) => v == null ? '-' : v.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
   const achColor = (r?: number) => r == null ? '#94a3b8' : r >= 1 ? '#16a34a' : r >= 0.8 ? '#ca8a04' : '#dc2626';
   const formatCell = (c?: BBRCell, level?: number, isChannel?: boolean) => {
-    if (level === 1) return null;
     if (!c || (c.budget == null && c.actual == null)) return <Text type="secondary">-</Text>;
+    const bold = level === 1;
     return (
       <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined, lineHeight: 1.3 }}>
         <div style={{ fontSize: 11, color: '#94a3b8' }}>预 {fmtNum(c.budget)}</div>
-        <div style={{ fontWeight: 500 }}>{fmtNum(c.actual)}</div>
+        <div style={{ fontWeight: bold ? 700 : 500 }}>{fmtNum(c.actual)}</div>
         {c.achievementRate != null && isFinite(c.achievementRate) && (
           <div style={{ fontSize: 11, color: achColor(c.achievementRate), fontWeight: 500 }}>
             {(c.achievementRate * 100).toFixed(1)}%
@@ -169,7 +171,7 @@ const buildColumns = (data: BBRData): any[] => {
   };
   const isGmvRow = (row: BBRRow) => row.category === 'GMV数据';
   const formatRatio = (c: BBRCell | undefined, row: BBRRow) => {
-    if (row.level === 1 || isGmvRow(row)) return null;
+    if (isGmvRow(row)) return null;
     if (!c || c.ratio === undefined || c.ratio === null || !isFinite(c.ratio)) return <Text type="secondary">-</Text>;
     return <div style={{ textAlign: 'right', color: '#64748b', fontSize: 11 }}>{(c.ratio * 100).toFixed(2)}%</div>;
   };
