@@ -388,10 +388,20 @@ var aggregateRules = []aggregateRule{
 //   - 子项有但缺值 → 当 0 处理
 //
 // 不新增 subject_code 字典项；只补 finance_report 数据 row
+//
+// 分组 key = (dept, month, sub_channel)，跟 finance_report 的 5 列 UK 保持一致
+// (year, month, department, sub_channel, subject_code)。当前 aggregateRules 里
+// 的子项（COST_MAIN.*）实际全 sub_channel=""，但显式带上 sub_channel 维度可以
+// 防止未来加 GMV_SUB 类（sub_channel 非空）规则时跨维度错求 SUM。
+//
+// SortOrder=9999 是 sentinel：标记此 row 是"自动补建"而非 dict 配置 row。
+// 前端展示用 finance_subject_dict.display_order 排序，不看 finance_report.sort_order，
+// 所以这个 sentinel 不影响展示，仅用于 SQL 直查时识别"补建" row。
 func RecomputeAggregateSubjects(rows []FinanceRow, dict map[string]*DictEntry, year int) []FinanceRow {
 	type key struct {
-		dept  string
-		month int
+		dept       string
+		month      int
+		subChannel string
 	}
 
 	for _, rule := range aggregateRules {
@@ -405,7 +415,7 @@ func RecomputeAggregateSubjects(rows []FinanceRow, dict map[string]*DictEntry, y
 		hasChild := map[key]bool{}
 		revMap := map[key]float64{}
 		for _, r := range rows {
-			k := key{r.Department, r.Month}
+			k := key{r.Department, r.Month, r.SubChannel}
 			if childSet[r.SubjectCode] {
 				sumMap[k] += r.Amount
 				hasChild[k] = true
@@ -421,7 +431,7 @@ func RecomputeAggregateSubjects(rows []FinanceRow, dict map[string]*DictEntry, y
 			if r.SubjectCode != rule.ParentCode {
 				continue
 			}
-			k := key{r.Department, r.Month}
+			k := key{r.Department, r.Month, r.SubChannel}
 			existsParent[k] = true
 			sum := sumMap[k]
 			rows[i].Amount = sum
@@ -457,12 +467,13 @@ func RecomputeAggregateSubjects(rows []FinanceRow, dict map[string]*DictEntry, y
 				Year:            year,
 				Month:           k.month,
 				Department:      k.dept,
+				SubChannel:      k.subChannel,
 				SubjectCode:     rule.ParentCode,
 				SubjectName:     subjectName,
 				SubjectCategory: subjectCategory,
 				SubjectLevel:    3,
 				ParentCode:      parentCode,
-				SortOrder:       9999, // 父项排到本组末尾
+				SortOrder:       9999, // sentinel: 标识"自动补建" row（详见函数注释）
 				Amount:          sum,
 				Ratio:           ratioPtr,
 			})
