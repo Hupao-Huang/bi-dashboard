@@ -3410,8 +3410,8 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 func mergeCpcDaily(arr []CpcDaily, item CpcDaily) []CpcDaily {
 	for i, a := range arr {
 		if a.Date == item.Date {
-			arr[i].Cost += item.Cost
-			arr[i].PayAmount += item.PayAmount
+			arr[i].Cost = round2(arr[i].Cost + item.Cost)
+			arr[i].PayAmount = round2(arr[i].PayAmount + item.PayAmount)
 			arr[i].Clicks += item.Clicks
 			arr[i].Impr += item.Impr
 			if arr[i].Cost > 0 {
@@ -3420,6 +3420,8 @@ func mergeCpcDaily(arr []CpcDaily, item CpcDaily) []CpcDaily {
 			return arr
 		}
 	}
+	item.Cost = round2(item.Cost)
+	item.PayAmount = round2(item.PayAmount)
 	return append(arr, item)
 }
 
@@ -3436,13 +3438,20 @@ type CpcDaily struct {
 func mergeCpsDaily(arr []CpsDaily, item CpsDaily) []CpsDaily {
 	for i, a := range arr {
 		if a.Date == item.Date {
-			arr[i].PayAmount += item.PayAmount
-			arr[i].PayCommission += item.PayCommission
+			arr[i].PayAmount = round2(arr[i].PayAmount + item.PayAmount)
+			arr[i].PayCommission = round2(arr[i].PayCommission + item.PayCommission)
 			arr[i].PayUsers += item.PayUsers
 			return arr
 		}
 	}
+	item.PayAmount = round2(item.PayAmount)
+	item.PayCommission = round2(item.PayCommission)
 	return append(arr, item)
+}
+
+// round2 浮点数累加防精度尾巴(0.090000000001 → 0.09)
+func round2(v float64) float64 {
+	return math.Round(v*100) / 100
 }
 
 type CpsDaily struct {
