@@ -60,8 +60,7 @@ func (h *DashboardHandler) AdminChannels(w http.ResponseWriter, r *http.Request)
 	query += " ORDER BY department, online_plat_name, channel_name"
 
 	rows, err := h.DB.Query(query, args...)
-	if err != nil {
-		writeError(w, 500, err.Error())
+	if writeDatabaseError(w, err) {
 		return
 	}
 	defer rows.Close()
@@ -69,10 +68,9 @@ func (h *DashboardHandler) AdminChannels(w http.ResponseWriter, r *http.Request)
 	var channels []ChannelInfo
 	for rows.Next() {
 		var c ChannelInfo
-		if err := rows.Scan(&c.ID, &c.ChannelID, &c.ChannelName, &c.ChannelCode,
+		if writeDatabaseError(w, rows.Scan(&c.ID, &c.ChannelID, &c.ChannelName, &c.ChannelCode,
 			&c.OnlinePlatName, &c.CateName, &c.ChannelTypeName,
-			&c.DepartName, &c.CompanyName, &c.ResponsibleUser, &c.Department); err != nil {
-			writeError(w, 500, err.Error())
+			&c.DepartName, &c.CompanyName, &c.ResponsibleUser, &c.Department)) {
 			return
 		}
 		channels = append(channels, c)
@@ -155,15 +153,13 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 
 	// 两表更新包事务，保证 sales_channel 和 sales_goods_summary 的 department 强一致
 	tx, err := h.DB.Begin()
-	if err != nil {
-		writeError(w, 500, err.Error())
+	if writeDatabaseError(w, err) {
 		return
 	}
 	defer tx.Rollback()
 
 	result, err := tx.Exec("UPDATE sales_channel SET department = ? WHERE id = ?", req.Department, id)
-	if err != nil {
-		writeError(w, 500, err.Error())
+	if writeDatabaseError(w, err) {
 		return
 	}
 	affected, _ := result.RowsAffected()
@@ -174,19 +170,16 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 
 	// 同步更新 sales_goods_summary 中对应渠道的 department
 	var channelID string
-	if err := tx.QueryRow("SELECT channel_id FROM sales_channel WHERE id = ?", id).Scan(&channelID); err != nil {
-		writeError(w, 500, "查询channel_id失败: "+err.Error())
+	if writeDatabaseError(w, tx.QueryRow("SELECT channel_id FROM sales_channel WHERE id = ?", id).Scan(&channelID)) {
 		return
 	}
 	if channelID != "" {
-		if _, err := tx.Exec("UPDATE sales_goods_summary SET department = ? WHERE shop_id = ?", req.Department, channelID); err != nil {
-			writeError(w, 500, "同步sales_goods_summary部门失败: "+err.Error())
+		if _, err := tx.Exec("UPDATE sales_goods_summary SET department = ? WHERE shop_id = ?", req.Department, channelID); writeDatabaseError(w, err) {
 			return
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		writeError(w, 500, "commit failed: "+err.Error())
+	if writeDatabaseError(w, tx.Commit()) {
 		return
 	}
 
@@ -204,7 +197,9 @@ func (h *DashboardHandler) SyncChannels(w http.ResponseWriter, r *http.Request) 
 	cmd.Dir = `C:\Users\Administrator\bi-dashboard\server`
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		writeError(w, 500, "同步失败: "+err.Error()+"\n"+string(output))
+		// 不暴露 stderr 含路径给前端 (含 C:\Users\... 等), 内部日志保留全文
+		log.Printf("sync-channels exec failed: %v output=%s", err, string(output))
+		writeError(w, 500, "渠道同步失败, 请联系管理员")
 		return
 	}
 
