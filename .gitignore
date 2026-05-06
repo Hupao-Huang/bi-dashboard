@@ -58,6 +58,7 @@ server/backup-mysql.bat
 server/backup-mysql.ps1
 server/test_backup.bat
 server/test_backup.*
+server/check-trade-gaps.sh
 
 # go cache
 server/.gocache/
@@ -74,6 +75,8 @@ frontend.log
 *.err.log
 .codex-*.log
 sync-trades-*.log
+/bi-server.stderr.log
+/bi-server.stdout.log
 
 # codex / agents
 .agents/
