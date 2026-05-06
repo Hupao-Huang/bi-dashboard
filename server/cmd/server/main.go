@@ -81,7 +81,12 @@ func main() {
 				return
 			}
 			if r.Method == "POST" || r.Method == "PUT" {
-				r.Body = http.MaxBytesReader(w, r.Body, 2<<20) // 2MB
+				// 文件上传路径放大到 10MB (头像 5MB + 反馈附件 5×2MB), 其他路径 2MB 防 DoS
+				if r.URL.Path == "/api/feedback" || r.URL.Path == "/api/user/avatar" {
+					r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
+				} else {
+					r.Body = http.MaxBytesReader(w, r.Body, 2<<20) // 2MB
+				}
 			}
 			next(w, r)
 		}
