@@ -116,6 +116,41 @@ func (f flowFilter) needsGoods() bool {
 	return f.skuKw != "" || f.skuNo != ""
 }
 
+// canUseSummary 判断能否走物化预聚合表 warehouse_flow_summary
+// 没 SKU 过滤 + 该 ym 已物化 才走物化路径(切月场景 7s → <50ms)
+// 未物化的 ym 自动降级到原 SQL 兜底(探测查询 <5ms)
+func (f flowFilter) canUseSummary(db *sql.DB, ym string) bool {
+	if f.needsGoods() {
+		return false
+	}
+	var cnt int
+	db.QueryRow(`SELECT COUNT(*) FROM warehouse_flow_summary WHERE ym = ? LIMIT 1`,
+		ym[:4]+"-"+ym[4:]).Scan(&cnt)
+	return cnt > 0
+}
+
+// buildSummaryWhere 物化表过滤(ym必传 + 可选 shop/warehouse/province)
+// 注意: ym 用 'YYYY-MM' 格式而非 'YYYYMM'
+func (f flowFilter) buildSummaryWhere(ym string) (string, []interface{}) {
+	var sb strings.Builder
+	args := []interface{}{}
+	sb.WriteString(" AND ym = ?")
+	args = append(args, ym[:4]+"-"+ym[4:])
+	if f.shop != "" {
+		sb.WriteString(" AND shop_name = ?")
+		args = append(args, f.shop)
+	}
+	if f.warehouse != "" {
+		sb.WriteString(" AND warehouse_name = ?")
+		args = append(args, f.warehouse)
+	}
+	if f.province != "" {
+		sb.WriteString(" AND province = ?")
+		args = append(args, f.province)
+	}
+	return sb.String(), args
+}
+
 // buildJoins 动态拼装 JOIN 子句, 永远 LEFT JOIN trade_package, 仅 SKU 过滤激活时 JOIN trade_goods
 func (f flowFilter) buildJoins(tradeT, goodsT, pkgT string) string {
 	joins := fmt.Sprintf("FROM %s t LEFT JOIN %s p ON p.trade_id = t.trade_id", tradeT, pkgT)
@@ -172,22 +207,47 @@ func (h *DashboardHandler) GetWarehouseFlowOverview(w http.ResponseWriter, r *ht
 		return
 	}
 	flt := parseFlowFilter(r, ym)
-	where, args := flt.buildWhere()
 
-	tradeT := "trade_" + ym
-	goodsT := "trade_goods_" + ym
-	pkgT := "trade_package_" + ym
-	joins := flt.buildJoins(tradeT, goodsT, pkgT)
+	// v0.60: 双轨路由 — 没 SKU 过滤走物化表 warehouse_flow_summary, 切月 7s → <200ms
+	useSummary := flt.canUseSummary(h.DB, ym)
 
-	// === KPI ===
-	kpiSQL := fmt.Sprintf(`
-		SELECT
-			COUNT(DISTINCT t.trade_id)                                    AS orders,
-			COUNT(DISTINCT CONCAT(t.trade_id, '|', p.logistic_no))        AS packages,
-			COUNT(DISTINCT (%s))                                          AS province_cnt,
-			COUNT(DISTINCT t.warehouse_name)                              AS warehouse_cnt
-		%s
-		WHERE 1=1 %s`, provinceNormSQL, joins, where)
+	var kpiSQL, provSQL, whSQL string
+	var args []interface{}
+
+	if useSummary {
+		// 物化路径
+		var sumWhere string
+		sumWhere, args = flt.buildSummaryWhere(ym)
+		// KPI: SUM(orders) + SUM(packages) + COUNT DISTINCT province/warehouse
+		kpiSQL = `SELECT SUM(orders), SUM(packages),
+			COUNT(DISTINCT province), COUNT(DISTINCT warehouse_name)
+			FROM warehouse_flow_summary WHERE 1=1` + sumWhere
+		provSQL = `SELECT province, SUM(orders), SUM(packages)
+			FROM warehouse_flow_summary WHERE 1=1` + sumWhere +
+			` GROUP BY province ORDER BY 2 DESC`
+		whSQL = `SELECT warehouse_name, SUM(orders), SUM(packages)
+			FROM warehouse_flow_summary WHERE 1=1` + sumWhere +
+			` GROUP BY warehouse_name ORDER BY 2 DESC`
+	} else {
+		// 原 SQL 路径(SKU 过滤激活时降级)
+		var where string
+		where, args = flt.buildWhere()
+		tradeT := "trade_" + ym
+		goodsT := "trade_goods_" + ym
+		pkgT := "trade_package_" + ym
+		joins := flt.buildJoins(tradeT, goodsT, pkgT)
+		kpiSQL = fmt.Sprintf(`
+			SELECT
+				COUNT(DISTINCT t.trade_id), COUNT(DISTINCT CONCAT(t.trade_id, '|', p.logistic_no)),
+				COUNT(DISTINCT (%s)), COUNT(DISTINCT t.warehouse_name)
+			%s WHERE 1=1 %s`, provinceNormSQL, joins, where)
+		provSQL = fmt.Sprintf(`SELECT (%s) AS prov, %s
+			%s WHERE 1=1 %s GROUP BY prov ORDER BY orders DESC`,
+			provinceNormSQL, allMetricsSelect, joins, where)
+		whSQL = fmt.Sprintf(`SELECT t.warehouse_name, %s
+			%s WHERE 1=1 %s GROUP BY t.warehouse_name ORDER BY orders DESC`,
+			allMetricsSelect, joins, where)
+	}
 
 	var kpi struct {
 		Orders       int64 `json:"orders"`
@@ -196,27 +256,14 @@ func (h *DashboardHandler) GetWarehouseFlowOverview(w http.ResponseWriter, r *ht
 		WarehouseCnt int   `json:"warehouseCnt"`
 	}
 
-	// === 省份分布 (normalize + 2 指标同时聚合) ===
-	provSQL := fmt.Sprintf(`
-		SELECT (%s) AS prov, %s
-		%s
-		WHERE 1=1 %s
-		GROUP BY prov
-		ORDER BY orders DESC`, provinceNormSQL, allMetricsSelect, joins, where)
-
 	type rowMM struct {
 		Name     string `json:"name"`
 		Orders   int64  `json:"orders"`
 		Packages int64  `json:"packages"`
 	}
 
-	// === 仓库分布 (2 指标) ===
-	whSQL := fmt.Sprintf(`
-		SELECT t.warehouse_name, %s
-		%s
-		WHERE 1=1 %s
-		GROUP BY t.warehouse_name
-		ORDER BY orders DESC`, allMetricsSelect, joins, where)
+	// 渠道下拉/ymList 走原表(物化里 shop_name 也有但要保持口径一致, 历史 trade 表全)
+	tradeT := "trade_" + ym
 
 	// === 渠道(shop) 分布 - 用于筛选下拉 (限定 7 仓白名单内有销售单的渠道) ===
 	whCondForShop, whArgsForShop := buildPlanWarehouseFilter("t.warehouse_name")
@@ -333,19 +380,28 @@ func (h *DashboardHandler) GetWarehouseFlowMatrix(w http.ResponseWriter, r *http
 		return
 	}
 	flt := parseFlowFilter(r, ym)
-	where, args := flt.buildWhere()
 
-	tradeT := "trade_" + ym
-	goodsT := "trade_goods_" + ym
-	pkgT := "trade_package_" + ym
-	joins := flt.buildJoins(tradeT, goodsT, pkgT)
-
-	// 一次查全 (warehouse × normalized province), 2 指标全返回, Top N 由前端做
-	rawSQL := fmt.Sprintf(`
-		SELECT t.warehouse_name, (%s) AS prov, %s
-		%s
-		WHERE 1=1 %s
-		GROUP BY t.warehouse_name, prov`, provinceNormSQL, allMetricsSelect, joins, where)
+	// v0.60: 双轨路由 — 没 SKU 过滤走物化表 (7s → <50ms)
+	var rawSQL string
+	var args []interface{}
+	if flt.canUseSummary(h.DB, ym) {
+		var sumWhere string
+		sumWhere, args = flt.buildSummaryWhere(ym)
+		rawSQL = `SELECT warehouse_name, province, SUM(orders), SUM(packages)
+			FROM warehouse_flow_summary WHERE 1=1` + sumWhere +
+			` GROUP BY warehouse_name, province`
+	} else {
+		var where string
+		where, args = flt.buildWhere()
+		tradeT := "trade_" + ym
+		goodsT := "trade_goods_" + ym
+		pkgT := "trade_package_" + ym
+		joins := flt.buildJoins(tradeT, goodsT, pkgT)
+		rawSQL = fmt.Sprintf(`
+			SELECT t.warehouse_name, (%s) AS prov, %s
+			%s WHERE 1=1 %s
+			GROUP BY t.warehouse_name, prov`, provinceNormSQL, allMetricsSelect, joins, where)
+	}
 
 	rs, err := h.DB.Query(rawSQL, args...)
 	if err != nil {
