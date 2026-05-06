@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,20 +31,24 @@ func (h *DashboardHandler) logAudit(r *http.Request, action, resource string, de
 	}
 
 	go func() {
-		_, _ = h.DB.Exec(
+		if _, err := h.DB.Exec(
 			`INSERT INTO audit_logs (user_id, username, real_name, action, resource, detail, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			userID, username, realName, action, resource, detailStr, ip, ua,
-		)
+		); err != nil {
+			log.Printf("audit insert failed: action=%s resource=%s user=%s err=%v", action, resource, username, err)
+		}
 	}()
 }
 
 // logAuditNoRequest 不依赖 http.Request 的审计记录（用于 Login/Logout 等场景）
 func (h *DashboardHandler) logAuditNoRequest(userID int64, username, realName, action, resource, detail, ip, ua string) {
 	go func() {
-		_, _ = h.DB.Exec(
+		if _, err := h.DB.Exec(
 			`INSERT INTO audit_logs (user_id, username, real_name, action, resource, detail, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			userID, username, realName, action, resource, detail, ip, ua,
-		)
+		); err != nil {
+			log.Printf("audit insert failed: action=%s resource=%s user=%s err=%v", action, resource, username, err)
+		}
 	}()
 }
 
