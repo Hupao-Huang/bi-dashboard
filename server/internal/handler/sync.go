@@ -132,8 +132,14 @@ func (h *DashboardHandler) ClearCache(w http.ResponseWriter, r *http.Request) {
 }
 
 // SyncStatus 查询同步状态
-// GET /api/webhook/sync-status
+// GET /api/webhook/sync-status (RPA 端 polling 用 — 必须带 X-Webhook-Secret)
+// 前端用的是 /api/stock/sync-status (走 pageProtected), 不走这个
 func (h *DashboardHandler) SyncStatus(w http.ResponseWriter, r *http.Request) {
+	token := r.Header.Get("X-Webhook-Secret")
+	if !hmac.Equal([]byte(token), []byte(h.WebhookSecret)) {
+		writeError(w, 403, "unauthorized")
+		return
+	}
 	syncMu.Lock()
 	defer syncMu.Unlock()
 	writeJSON(w, map[string]interface{}{
