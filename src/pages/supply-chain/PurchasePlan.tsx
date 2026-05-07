@@ -432,8 +432,8 @@ const PurchasePlan: React.FC = () => {
         style={{ marginTop: 12 }}
         extra={
           <div style={{ display: 'flex', gap: 8 }}>
-            <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 100 }}
-              placeholder="状态" allowClear
+            <Select value={statusFilter || undefined} onChange={(v) => setStatusFilter(v || '')} style={{ width: 110 }}
+              placeholder="状态筛选" allowClear
               options={['断货', '紧急', '偏低', '正常', '积压'].map((s) => ({ value: s, label: s }))} />
             <Input.Search placeholder="搜索 吉客云/用友编码 / 名称" value={keyword}
               onChange={(e) => setKeyword(e.target.value)} style={{ width: 200 }} allowClear />
