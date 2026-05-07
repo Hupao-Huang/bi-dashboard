@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message } from 'antd';
+import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message, Tabs } from 'antd';
 import {
   AlertOutlined,
   CarOutlined,
@@ -68,7 +68,7 @@ const PurchasePlan: React.FC = () => {
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [typeFilter, setTypeFilter] = useState<'全部' | '成品' | '包材'>('全部');
+  const [typeFilter, setTypeFilter] = useState<'成品' | '包材/原料'>('成品');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [keyword, setKeyword] = useState('');
 
@@ -126,7 +126,7 @@ const PurchasePlan: React.FC = () => {
 
   // 筛选
   const filtered = suggested.filter((s) => {
-    if (typeFilter !== '全部' && s.type !== typeFilter) return false;
+    if (typeFilter && s.type !== typeFilter) return false;
     if (statusFilter && s.status !== statusFilter) return false;
     if (keyword && !(s.jkyCode.includes(keyword) || s.ysCode.includes(keyword) || s.goodsName.includes(keyword))) return false;
     return true;
@@ -201,30 +201,58 @@ const PurchasePlan: React.FC = () => {
           background: #fafafa !important;
         }
       `}</style>
+
+      {/* 顶部分类 Tab — 成品 / 包材 */}
+      <Tabs
+        activeKey={typeFilter}
+        onChange={(k) => setTypeFilter(k as '成品' | '包材/原料')}
+        items={[
+          { key: '成品', label: <span style={{ fontSize: 15, fontWeight: 600 }}>📦 成品采购计划</span> },
+          { key: '包材/原料', label: <span style={{ fontSize: 15, fontWeight: 600 }}>🏷 包材原料采购计划</span> },
+        ]}
+        size="large"
+        style={{ marginBottom: 8 }}
+      />
+
       {/* 公式 + 数据来源说明 */}
       <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6,
                     padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#64748b' }}>
         <InfoCircleOutlined style={{ marginRight: 6, color: '#1e40af' }} />
-        <span style={{ color: '#1e293b', fontWeight: 600 }}>建议采购量公式：</span>
-        max(0, 目标天数 × 日均消耗 - 当前库存 - 在途采购 - 在途委外)；
-        <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>目标天数：</span>
-        成品 {params.finishedGoodsTargetDays} 天 / 包材 {params.materialTargetDays} 天；
-        <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>日均：</span>
-        成品=吉客云销量 / 包材=YS 材料出库单近30天 (真实消耗)
+        {typeFilter === '成品' ? (
+          <>
+            <span style={{ color: '#1e293b', fontWeight: 600 }}>成品建议采购量：</span>
+            max(0, {params.finishedGoodsTargetDays} 天 × 日均销售 - 当前库存 - 在途采购 - 在途委外)；
+            <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>当前库存：</span>
+            取自吉客云, 仅 7 个核心仓 (已排除京东/天猫超市/朴朴 等平台外仓)；
+            <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>日均销售：</span>
+            吉客云近 30 天销售出库 ÷ 30
+          </>
+        ) : (
+          <>
+            <span style={{ color: '#1e293b', fontWeight: 600 }}>包材原料建议采购量：</span>
+            max(0, {params.materialTargetDays} 天 × 日均消耗 - 当前库存 - 在途采购 - 在途委外)；
+            <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>当前库存：</span>
+            取自用友 BIP, 全部 YS 仓库相加 (排安徽香松)；
+            <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>日均消耗：</span>
+            用友 BIP 近 30 天领料消耗 ÷ 30
+          </>
+        )}
         <div style={{ marginTop: 4, color: '#94a3b8' }}>
-          说明：包材/原料常规仅在用友 BIP 流转，吉客云编码列空属正常；成品 YS 编码列空表示 YS 端尚未建立货品档案。
+          {typeFilter === '成品'
+            ? '说明: 成品 YS 编码列空表示用友 BIP 端尚未建立货品档案'
+            : '说明: 包材原料常规仅在用友 BIP 流转, 吉客云编码列空属正常'}
         </div>
         <div style={{ marginTop: 6 }}>
           <span style={{ color: '#1e293b', fontWeight: 600, marginRight: 6 }}>状态分布:</span>
           {['断货', '紧急', '偏低', '正常', '积压'].map((s) => {
-            const cnt = suggested.filter((x) => x.status === s).length;
+            const cnt = suggested.filter((x) => x.type === typeFilter && x.status === s).length;
             return (
               <Tag key={s} color={statusColor[s]} style={{ marginRight: 6 }}>
                 {s} {cnt}
               </Tag>
             );
           })}
-          <span style={{ color: '#64748b' }}>共 {suggested.length} 项</span>
+          <span style={{ color: '#64748b' }}>当前 {typeFilter} 共 {suggested.filter((x) => x.type === typeFilter).length} 项</span>
         </div>
       </div>
 
@@ -273,8 +301,6 @@ const PurchasePlan: React.FC = () => {
         style={{ marginTop: 12 }}
         extra={
           <div style={{ display: 'flex', gap: 8 }}>
-            <Select value={typeFilter} onChange={setTypeFilter} style={{ width: 100 }}
-              options={[{ value: '全部', label: '全部' }, { value: '成品', label: '成品' }, { value: '包材', label: '包材' }]} />
             <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 100 }}
               placeholder="状态" allowClear
               options={['断货', '紧急', '偏低', '正常', '积压'].map((s) => ({ value: s, label: s }))} />
@@ -327,43 +353,58 @@ const PurchasePlan: React.FC = () => {
                   </Tooltip> },
             { title: '物料名称', dataIndex: 'goodsName', ellipsis: true },
             { title: <Tooltip title={
-                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                  <div><b>当前库存</b> = 实物库存 - 已被订单锁定的</div>
-                  <div style={{ marginTop: 4 }}>📦 <b>成品</b>: 取自 <b>吉客云</b>, 仅 7 个核心仓相加:</div>
-                  <div>　南京委外成品 / 天津委外 / 西安成品</div>
-                  <div>　松鲜鲜&大地密码云仓 / 长沙委外成品</div>
-                  <div>　安徽郎溪成品 / 南京分销虚拟仓</div>
-                  <div style={{ marginTop: 4, color: '#dc2626' }}>　❌ 排除: 京东自营/天猫超市/朴朴 等平台外仓</div>
-                  <div>　❌ 排除: 采购外仓 / 不合格仓 / 安徽香松</div>
-                  <div style={{ marginTop: 4 }}>📦 <b>包材</b>: 取自 <b>用友 BIP</b>, 全部仓库相加 (排安徽香松)</div>
-                </div>
+                typeFilter === '成品' ? (
+                  <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                    <div><b>当前库存</b> = 实物库存 - 已被订单锁定的</div>
+                    <div style={{ marginTop: 4 }}>取自 <b>吉客云</b>, 仅 7 个核心仓相加:</div>
+                    <div>　南京委外成品 / 天津委外 / 西安成品</div>
+                    <div>　松鲜鲜&大地密码云仓 / 长沙委外成品</div>
+                    <div>　安徽郎溪成品 / 南京分销虚拟仓</div>
+                    <div style={{ marginTop: 4, color: '#dc2626' }}>　❌ 排除: 京东自营/天猫超市/朴朴 等平台外仓</div>
+                    <div>　❌ 排除: 采购外仓 / 不合格仓 / 安徽香松</div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                    <div><b>当前库存</b> = 实物库存 - 已被订单锁定的</div>
+                    <div style={{ marginTop: 4 }}>取自 <b>用友 BIP</b>, 所有 YS 仓库相加</div>
+                    <div style={{ marginTop: 4, color: '#dc2626' }}>　❌ 排除: 安徽香松组织</div>
+                    <div>　❌ 排除: 固态/液态/半固态/广宣品/周边品(这些是成品分类)</div>
+                  </div>
+                )
               }><span>当前库存 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
               dataIndex: 'stock', width: 110, align: 'right',
               render: (v: number) => fmtQty(v),
               sorter: (a: SuggestRow, b: SuggestRow) => a.stock - b.stock },
             { title: <Tooltip title={
-                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                  <div><b>日均</b> = 近 30 天总用量 ÷ 30 天</div>
-                  <div style={{ marginTop: 4 }}>📦 <b>成品</b>: 销售出库 (取自 <b>吉客云</b>)</div>
-                  <div>　仅累计上面 7 个核心仓的销量, 跟"当前库存"口径一致</div>
-                  <div style={{ marginTop: 4 }}>📦 <b>包材</b>: 领料消耗 (取自 <b>用友 BIP</b>, 排安徽香松)</div>
-                </div>
-              }><span>日均(销售/消耗) <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
+                typeFilter === '成品' ? (
+                  <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                    <div><b>日均销售</b> = 近 30 天销售出库 ÷ 30 天</div>
+                    <div style={{ marginTop: 4 }}>取自 <b>吉客云</b> 的销售出库数据</div>
+                    <div>仅累计上面 7 个核心仓的销量, 跟"当前库存"口径一致</div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                    <div><b>日均消耗</b> = 近 30 天领料消耗 ÷ 30 天</div>
+                    <div style={{ marginTop: 4 }}>取自 <b>用友 BIP</b> 的材料出库单</div>
+                    <div>排除安徽香松组织</div>
+                  </div>
+                )
+              }><span>{typeFilter === '成品' ? '日均销售' : '日均消耗'} <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
               dataIndex: 'dailyAvg', width: 140, align: 'right',
               render: (v: number) => v > 0 ? v.toLocaleString() : <span style={{ color: '#cbd5e1' }}>-</span> },
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                  <div><b>可售天数</b> = 当前库存 ÷ 日均</div>
+                  <div><b>{typeFilter === '成品' ? '可售天数' : '可用天数'}</b> = 当前库存 ÷ 日均{typeFilter === '成品' ? '销售' : '消耗'}</div>
                   <div style={{ marginTop: 4 }}>含义: 不补货的话, 现有库存还能撑多少天</div>
                   <div style={{ marginTop: 4 }}>分档:</div>
-                  <div>　🔴 断货: 库存 ≤ 0 但还在卖</div>
+                  <div>　🔴 断货: 库存 ≤ 0 但还在{typeFilter === '成品' ? '卖' : '用'}</div>
                   <div>　🔴 紧急: 不够 7 天</div>
                   <div>　🟠 偏低: 7-14 天</div>
                   <div>　🟢 正常: 14-90 天</div>
                   <div>　🟣 积压: 超过 90 天</div>
-                  <div>　— : 没销售记录</div>
+                  <div>　— : 没{typeFilter === '成品' ? '销售' : '消耗'}记录</div>
                 </div>
-              }><span>可售天数 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
+              }><span>{typeFilter === '成品' ? '可售天数' : '可用天数'} <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
               dataIndex: 'sellableDays', width: 110, align: 'right',
               render: (v: number) => {
                 if (v < 0) return <span style={{ color: '#dc2626', fontWeight: 600 }}>断货</span>;
@@ -418,10 +459,9 @@ const PurchasePlan: React.FC = () => {
               sorter: (a: SuggestRow, b: SuggestRow) => a.nextArriveDays - b.nextArriveDays },
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                  <div><b>建议采购量</b> = 目标天数 × 日均 - 当前库存 - 在途采购 - 在途委外</div>
+                  <div><b>建议采购量</b> = 目标天数 × 日均{typeFilter === '成品' ? '销售' : '消耗'} - 当前库存 - 在途采购 - 在途委外</div>
                   <div style={{ marginTop: 4 }}>(算出来 ≤ 0 时取 0)</div>
-                  <div style={{ marginTop: 4 }}>📦 <b>成品</b>目标备货 45 天</div>
-                  <div>📦 <b>包材</b>目标备货 90 天</div>
+                  <div style={{ marginTop: 4 }}>{typeFilter === '成品' ? '📦 成品目标备货: 45 天' : '🏷 包材原料目标备货: 90 天'}</div>
                   <div style={{ marginTop: 4 }}>含义: 把库存补到能撑"目标天数", 减掉已经有的 + 在路上的</div>
                   <div style={{ marginTop: 4 }}>= 0: 库存 + 在途已经够用, 不用再下单</div>
                 </div>
