@@ -3,7 +3,6 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -1237,8 +1236,9 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 var syncYSStockMu sync.Mutex
 var syncYSStockRunning bool
 
-// SyncYSStock 触发用友 BIP 现存量全量同步 (启动 sync-yonsuite-stock.exe 子进程, 等完成后清缓存)
-// POST /api/supply-chain/sync-ys-stock
+// SyncYSStock v0.68: 一键全量同步 YS 4 类数据 (现存量+采购订单+委外订单+材料出库)
+// POST /api/supply-chain/sync-ys-stock (路由名保留以保持兼容, 内部行为已升级)
+// 串行执行避免 YS API 限流, 总耗时约 60-120s
 func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		writeError(w, 405, "method not allowed")
@@ -1260,46 +1260,78 @@ func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	start := time.Now()
-
-	// 找 exe — 优先 bi-server 同目录, 否则 server/ 根目录
 	exeDir, _ := filepath.Abs(filepath.Dir(os.Args[0]))
-	exePath := filepath.Join(exeDir, "sync-yonsuite-stock.exe")
-	if _, err := os.Stat(exePath); err != nil {
-		writeError(w, 500, fmt.Sprintf("找不到 sync-yonsuite-stock.exe: %s", exePath))
-		return
+
+	type stepResult struct {
+		Name        string `json:"name"`
+		Ins         int    `json:"ins"`
+		Upd         int    `json:"upd"`
+		Err         int    `json:"err"`
+		DurationSec int    `json:"durationSec"`
+		Failed      bool   `json:"failed"`
+		Message     string `json:"message,omitempty"`
 	}
 
-	cmd := exec.Command(exePath)
-	cmd.Dir = exeDir
-	out, err := cmd.CombinedOutput()
-	output := string(out)
-	if err != nil {
-		log.Printf("[sync-ys-stock] err=%v output=%s", err, output)
-		writeError(w, 500, fmt.Sprintf("同步失败: %v", err))
-		return
+	exes := []struct{ name, exe string }{
+		{"现存量", "sync-yonsuite-stock.exe"},
+		{"采购订单", "sync-yonsuite-purchase.exe"},
+		{"委外订单", "sync-yonsuite-subcontract.exe"},
+		{"材料出库", "sync-yonsuite-materialout.exe"},
 	}
 
-	// 解析末尾 "新增 N / 更新 N / 失败 N"
-	var ins, upd, errN int
 	re := regexp.MustCompile(`新增 (\d+) / 更新 (\d+) / 失败 (\d+)`)
-	if m := re.FindStringSubmatch(output); len(m) == 4 {
-		ins, _ = strconv.Atoi(m[1])
-		upd, _ = strconv.Atoi(m[2])
-		errN, _ = strconv.Atoi(m[3])
+	results := make([]stepResult, 0, len(exes))
+	var totalIns, totalUpd, totalErr int
+
+	for _, item := range exes {
+		stepStart := time.Now()
+		exePath := filepath.Join(exeDir, item.exe)
+		if _, err := os.Stat(exePath); err != nil {
+			results = append(results, stepResult{
+				Name: item.name, Failed: true, Message: "exe 文件缺失: " + item.exe,
+				DurationSec: 0,
+			})
+			continue
+		}
+		cmd := exec.Command(exePath)
+		cmd.Dir = exeDir
+		out, err := cmd.CombinedOutput()
+		output := string(out)
+		var ins, upd, errN int
+		if m := re.FindStringSubmatch(output); len(m) == 4 {
+			ins, _ = strconv.Atoi(m[1])
+			upd, _ = strconv.Atoi(m[2])
+			errN, _ = strconv.Atoi(m[3])
+		}
+		failed := err != nil
+		msg := ""
+		if failed {
+			msg = err.Error()
+			log.Printf("[sync-ys-all] %s 失败: err=%v output=%s", item.name, err, output)
+		}
+		results = append(results, stepResult{
+			Name: item.name, Ins: ins, Upd: upd, Err: errN,
+			DurationSec: int(time.Since(stepStart).Seconds()),
+			Failed:      failed, Message: msg,
+		})
+		totalIns += ins
+		totalUpd += upd
+		totalErr += errN
 	}
 
 	// 清缓存 — 计划采购 + 库存 + 供应链整段
 	cleared := ClearCacheByPrefix("api|/api/supply-chain")
 	cleared += ClearCacheByPrefix("api|/api/stock/")
 
-	log.Printf("[sync-ys-stock] 完成 ins=%d upd=%d err=%d cache=%d 耗时=%.1fs",
-		ins, upd, errN, cleared, time.Since(start).Seconds())
+	log.Printf("[sync-ys-all] 完成 总 ins=%d upd=%d err=%d cache=%d 耗时=%.1fs",
+		totalIns, totalUpd, totalErr, cleared, time.Since(start).Seconds())
 
 	writeJSON(w, map[string]interface{}{
 		"ok":           true,
-		"ins":          ins,
-		"upd":          upd,
-		"err":          errN,
+		"steps":        results,
+		"ins":          totalIns,
+		"upd":          totalUpd,
+		"err":          totalErr,
 		"cacheCleared": cleared,
 		"durationSec":  int(time.Since(start).Seconds()),
 	})
