@@ -10,7 +10,7 @@ import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../../config';
 const inquiryLagTitle = (
   <span>
     询单人数
-    <Tooltip title="生意参谋业绩询单数据由 RPA 采集，通常存在 T-3 左右延迟（例：4-20 采集的是 4-17 的数据）。近 3 日空值为正常现象。">
+    <Tooltip title="询单数据从生意参谋采集回来，通常会延迟 3 天左右（例：4-20 看到的是 4-17 的数据）。近 3 日空值是正常的。">
       <InfoCircleOutlined style={{ marginLeft: 4, color: '#94a3b8', fontSize: 12 }} />
     </Tooltip>
   </span>

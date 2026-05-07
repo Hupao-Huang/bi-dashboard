@@ -226,8 +226,6 @@ const PurchasePlan: React.FC = () => {
       });
     });
     if (!confirmed) return;
-    // v0.74 诊断: 记录 fetch 调用来源, 帮排查"为什么浏览器自动发第 2 次请求"
-    console.log('🔍 [SYNC] handleSync 被调用, 时间=', new Date().toISOString(), 'stack=', new Error().stack);
     setSyncing(true);
     setSyncProgress({ running: true, done: false, totalSteps: 5, currentStep: 0, currentName: '准备中...', results: [], elapsedSec: 0, startedAt: '' });
 
@@ -247,20 +245,17 @@ const PurchasePlan: React.FC = () => {
     }, 1500);
 
     try {
-      console.log('🔍 [SYNC] 即将发出 POST /sync-ys-stock, 时间=', new Date().toISOString());
       const r = await fetch(`${API_BASE}/api/supply-chain/sync-ys-stock`, {
         method: 'POST', credentials: 'include',
       });
       const j = await r.json();
-      console.log('🔍 [SYNC] POST 返回 code=', j.code, '时间=', new Date().toISOString());
       clearInterval(pollInterval);
       if (j.code === 200) {
         setSyncProgress((p) => p ? { ...p, running: false, done: true, results: j.data.steps || p.results, elapsedSec: j.data.durationSec } : p);
         message.success(`数据已刷新, 耗时 ${j.data.durationSec} 秒`, 5);
         fetchData();
       } else if (j.code === 429) {
-        // v0.78: 被后端 cooldown 拒绝 → 必须关闭 Modal, 否则用户看到"僵尸 Modal"以为又在跑
-        console.warn('🟡 [SYNC] 被后端 cooldown 拒绝 (上次同步刚完成):', j.msg);
+        // 被后端 60s cooldown 拒绝, 关闭 Modal
         setSyncProgress(null);
         message.warning(j.msg || '上次刷新刚完成, 请稍后再试', 5);
       } else {
