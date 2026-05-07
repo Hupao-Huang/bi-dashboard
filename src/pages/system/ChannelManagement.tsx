@@ -69,12 +69,12 @@ const ChannelManagement: React.FC = () => {
     })
       .then(res => res.json())
       .then(res => {
-        if (res.data?.message || res.message) {
+        if (res.code === 200) {
           message.success('保存成功');
           setEditingDepts(prev => { const n = { ...prev }; delete n[id]; return n; });
           fetchData();
         } else {
-          message.error(res.error || '保存失败');
+          message.error(res.msg || res.error || '保存失败');
         }
       })
       .catch(err => { console.warn('ChannelManagement save:', err); message.error('保存失败'); })
@@ -91,11 +91,11 @@ const ChannelManagement: React.FC = () => {
           .then(res => res.json())
           .then(res => {
             setSyncing(false);
-            if (res.data?.message || res.message) {
+            if (res.code === 200) {
               message.success('同步完成');
               fetchData();
             } else {
-              message.error(res.error || '同步失败');
+              message.error(res.msg || res.error || '同步失败');
             }
           })
           .catch(err => { console.warn('ChannelManagement sync:', err); setSyncing(false); message.error('同步失败'); });

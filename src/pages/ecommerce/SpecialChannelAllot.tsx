@@ -225,8 +225,8 @@ const SpecialChannelAllot: React.FC = () => {
           type="warning"
           showIcon
           icon={<ExclamationCircleOutlined />}
-          message={`价格表缺失 ${missing.length} 个 SKU(销售额按 0 算了)`}
-          description="价格体系.xlsx 漏维护这些 SKU, 跑哥补完后跑 import-channel-price.exe + sync-allocate.exe 即可"
+          message={`价格表缺失 ${missing.length} 个商品(销售额暂按 0 计算)`}
+          description="价格表里漏配了这些商品，请联系数据组补上后会自动同步"
           style={{ marginBottom: 16 }}
         />
       )}

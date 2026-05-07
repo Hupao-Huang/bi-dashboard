@@ -467,7 +467,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 				SUM(CASE WHEN s.current_qty-s.locked_qty<=0 AND s.month_qty>0 THEN 1 ELSE 0 END),
 				SUM(CASE WHEN s.month_qty>0 THEN 1 ELSE 0 END)
 			FROM stock_quantity_daily s
-			LEFT JOIN goods g ON s.goods_no = g.goods_no AND g.is_delete=0
+			LEFT JOIN (SELECT goods_no, MAX(cate_full_name) AS cate_full_name FROM goods WHERE is_delete=0 GROUP BY goods_no) g ON g.goods_no = s.goods_no
 			WHERE s.snapshot_date=? AND s.goods_attr=1 AND s.warehouse_name!=''`+planWhCondS+warehouseCondS+`
 			GROUP BY category
 			HAVING SUM(s.current_qty * s.cost_price) > 0

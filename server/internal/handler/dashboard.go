@@ -1852,7 +1852,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 			s.department,
 			ROUND(SUM(s.local_goods_amt),2), ROUND(SUM(s.goods_qty),0)
 		FROM sales_goods_summary s
-		JOIN goods g ON g.goods_no = s.goods_no AND g.goods_field7 = 'S'
+		INNER JOIN (SELECT DISTINCT goods_no FROM goods WHERE goods_field7 = 'S') g ON g.goods_no = s.goods_no
 		WHERE s.stat_date BETWEEN ? AND ?
 		  AND s.shop_name IS NOT NULL AND s.shop_name != ''` + deptCond + `
 		GROUP BY platform_name, s.department
@@ -1861,7 +1861,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 		shopSQL = `
 		SELECT s.shop_name, s.department, ROUND(SUM(s.local_goods_amt),2), ROUND(SUM(s.goods_qty),0)
 		FROM sales_goods_summary s
-		JOIN goods g ON g.goods_no = s.goods_no AND g.goods_field7 = 'S'
+		INNER JOIN (SELECT DISTINCT goods_no FROM goods WHERE goods_field7 = 'S') g ON g.goods_no = s.goods_no
 		WHERE s.stat_date BETWEEN ? AND ?
 		  AND s.shop_name IS NOT NULL AND s.shop_name != ''` + deptCond + `
 		GROUP BY s.shop_name, s.department
@@ -1904,7 +1904,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 				ELSE '其他'
 			END)
 		FROM sales_goods_summary s
-		JOIN goods g ON g.goods_no = s.goods_no AND g.goods_field7 = 'S'
+		INNER JOIN (SELECT goods_no, MAX(goods_name) AS goods_name FROM goods WHERE goods_field7 = 'S' GROUP BY goods_no) g ON g.goods_no = s.goods_no
 		WHERE s.stat_date BETWEEN ? AND ?` + deptCond + `
 		GROUP BY s.goods_no, g.goods_name
 		ORDER BY SUM(s.local_goods_amt) DESC`
@@ -1913,7 +1913,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 		SELECT s.goods_no, g.goods_name, ROUND(SUM(s.local_goods_amt),2), ROUND(SUM(s.goods_qty),0),
 			COUNT(DISTINCT s.shop_name)
 		FROM sales_goods_summary s
-		JOIN goods g ON g.goods_no = s.goods_no AND g.goods_field7 = 'S'
+		INNER JOIN (SELECT goods_no, MAX(goods_name) AS goods_name FROM goods WHERE goods_field7 = 'S' GROUP BY goods_no) g ON g.goods_no = s.goods_no
 		WHERE s.stat_date BETWEEN ? AND ?` + deptCond + `
 		GROUP BY s.goods_no, g.goods_name
 		ORDER BY SUM(s.local_goods_amt) DESC`
@@ -1942,7 +1942,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 	tRows, ok := queryRowsOrWriteError(w, h.DB, `
 		SELECT DATE_FORMAT(s.stat_date,'%Y-%m-%d'), ROUND(SUM(s.local_goods_amt),2), ROUND(SUM(s.goods_qty),0)
 		FROM sales_goods_summary s
-		JOIN goods g ON g.goods_no = s.goods_no AND g.goods_field7 = 'S'
+		INNER JOIN (SELECT DISTINCT goods_no FROM goods WHERE goods_field7 = 'S') g ON g.goods_no = s.goods_no
 		WHERE s.stat_date BETWEEN ? AND ?`+deptCond+`
 		GROUP BY s.stat_date ORDER BY s.stat_date`, args3...)
 	if !ok {
@@ -1981,7 +1981,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 			END as platform_name,
 			ROUND(SUM(s.local_goods_amt),2), ROUND(SUM(s.goods_qty),0)
 		FROM sales_goods_summary s
-		JOIN goods g ON g.goods_no = s.goods_no AND g.goods_field7 = 'S'
+		INNER JOIN (SELECT goods_no, MAX(goods_name) AS goods_name FROM goods WHERE goods_field7 = 'S' GROUP BY goods_no) g ON g.goods_no = s.goods_no
 		WHERE s.stat_date BETWEEN ? AND ?
 		  AND s.shop_name IS NOT NULL AND s.shop_name != ''` + deptCond + `
 		GROUP BY g.goods_name, platform_name
@@ -1991,7 +1991,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 		detailSQL = `
 		SELECT g.goods_name, s.shop_name, ROUND(SUM(s.local_goods_amt),2), ROUND(SUM(s.goods_qty),0)
 		FROM sales_goods_summary s
-		JOIN goods g ON g.goods_no = s.goods_no AND g.goods_field7 = 'S'
+		INNER JOIN (SELECT goods_no, MAX(goods_name) AS goods_name FROM goods WHERE goods_field7 = 'S' GROUP BY goods_no) g ON g.goods_no = s.goods_no
 		WHERE s.stat_date BETWEEN ? AND ?
 		  AND s.shop_name IS NOT NULL AND s.shop_name != ''` + deptCond + `
 		GROUP BY g.goods_name, s.shop_name
