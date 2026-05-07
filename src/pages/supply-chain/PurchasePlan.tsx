@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message, Tabs, Popover, Spin } from 'antd';
+import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message, Tabs, Popover, Spin, Modal, Progress } from 'antd';
 import {
   AlertOutlined,
   CarOutlined,
@@ -169,33 +169,50 @@ const PurchasePlan: React.FC = () => {
     return () => document.body.classList.remove('purchase-plan-no-content-padding');
   }, []);
 
+  // v0.71: 同步进度状态 (轮询展示)
+  type SyncStep = { name: string; ins: number; upd: number; err: number; durationSec: number; failed: boolean; message?: string };
+  type SyncProgress = {
+    running: boolean; done: boolean;
+    totalSteps: number; currentStep: number; currentName: string;
+    results: SyncStep[]; elapsedSec: number; startedAt: string;
+  };
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+
   const handleSync = async () => {
+    if (syncing) {
+      message.warning('已有同步任务在执行, 请稍候');
+      return;
+    }
     setSyncing(true);
-    const hide = message.loading('正在同步用友 BIP 全部数据 (现存量+采购+委外+材料出库), 约 1-2 分钟...', 0);
+    setSyncProgress({ running: true, done: false, totalSteps: 4, currentStep: 0, currentName: '准备中...', results: [], elapsedSec: 0, startedAt: '' });
+
+    // 启动轮询
+    const pollInterval = setInterval(async () => {
+      try {
+        const pr = await fetch(`${API_BASE}/api/supply-chain/sync-ys-progress`, { credentials: 'include' });
+        const pj = await pr.json();
+        if (pj.code === 200 && pj.data) setSyncProgress(pj.data);
+      } catch { /* 忽略瞬时错误 */ }
+    }, 1500);
+
     try {
       const r = await fetch(`${API_BASE}/api/supply-chain/sync-ys-stock`, {
         method: 'POST', credentials: 'include',
       });
       const j = await r.json();
-      hide();
+      clearInterval(pollInterval);
       if (j.code === 200) {
-        const steps = j.data.steps || [];
-        const stepText = steps.map((s: any) =>
-          `${s.failed ? '✗' : '✓'} ${s.name} (新增${s.ins}/更新${s.upd}/失败${s.err}, ${s.durationSec}s)`
-        ).join('\n');
-        message.success({
-          content: <div style={{ whiteSpace: 'pre-line', fontSize: 13 }}>
-            <b>同步完成 (总耗时 {j.data.durationSec}s):</b>{'\n'}{stepText}
-          </div>,
-          duration: 8,
-        });
+        setSyncProgress((p) => p ? { ...p, running: false, done: true, results: j.data.steps || p.results, elapsedSec: j.data.durationSec } : p);
+        message.success(`同步完成: 总耗时 ${j.data.durationSec}s, 新增 ${j.data.ins} / 更新 ${j.data.upd} / 失败 ${j.data.err}`, 5);
         fetchData();
       } else {
         message.error(`同步失败: ${j.msg || '未知错误'}`, 5);
+        setSyncProgress(null);
       }
     } catch (e: any) {
-      hide();
+      clearInterval(pollInterval);
       message.error(`同步异常: ${e?.message || e}`, 5);
+      setSyncProgress(null);
     } finally {
       setSyncing(false);
     }
@@ -561,6 +578,65 @@ const PurchasePlan: React.FC = () => {
           ]}
         />
       </Card>
+
+      {/* v0.71: 同步进度 Modal */}
+      <Modal
+        open={!!syncProgress}
+        title={syncProgress?.done ? '✅ 同步完成' : '🔄 正在同步用友 BIP 数据'}
+        onCancel={() => syncProgress?.done && setSyncProgress(null)}
+        closable={!!syncProgress?.done}
+        maskClosable={false}
+        keyboard={false}
+        footer={syncProgress?.done ? [
+          <Button key="close" type="primary" onClick={() => setSyncProgress(null)}>关闭</Button>
+        ] : null}
+        width={560}
+      >
+        {syncProgress && (
+          <div>
+            <Progress
+              percent={syncProgress.totalSteps > 0 ? Math.round((syncProgress.results.length / syncProgress.totalSteps) * 100) : 0}
+              status={syncProgress.done ? 'success' : 'active'}
+              strokeColor={syncProgress.done ? '#52c41a' : '#1677ff'}
+            />
+            <div style={{ marginTop: 12, fontSize: 13, color: '#475569' }}>
+              {!syncProgress.done && (
+                <div>
+                  ⏱ 已用时 <b>{syncProgress.elapsedSec}s</b> / 第 <b>{syncProgress.currentStep}/{syncProgress.totalSteps}</b> 步
+                  <div style={{ marginTop: 4 }}>当前: <b style={{ color: '#1677ff' }}>{syncProgress.currentName || '准备中...'}</b></div>
+                </div>
+              )}
+              {syncProgress.done && (
+                <div style={{ marginBottom: 8 }}>
+                  ✅ 总耗时 <b>{syncProgress.elapsedSec}s</b>
+                </div>
+              )}
+            </div>
+            <div style={{ marginTop: 12, padding: 12, background: '#f8fafc', borderRadius: 6, fontSize: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6, color: '#1e293b' }}>步骤明细:</div>
+              {syncProgress.results.length === 0 && !syncProgress.done && (
+                <div style={{ color: '#94a3b8' }}>等待第一步开始...</div>
+              )}
+              {syncProgress.results.map((r, idx) => (
+                <div key={idx} style={{ marginBottom: 4, color: r.failed ? '#dc2626' : '#16a34a' }}>
+                  {r.failed ? '✗' : '✓'} <b>{r.name}</b>
+                  <span style={{ marginLeft: 8, color: '#64748b' }}>
+                    新增 {r.ins} / 更新 {r.upd} / 失败 {r.err} ({r.durationSec}s)
+                  </span>
+                  {r.failed && r.message && (
+                    <div style={{ color: '#dc2626', marginLeft: 16, fontSize: 11 }}>{r.message}</div>
+                  )}
+                </div>
+              ))}
+              {!syncProgress.done && syncProgress.currentStep > syncProgress.results.length && (
+                <div style={{ marginTop: 4, color: '#1677ff' }}>
+                  ⏳ <b>{syncProgress.currentName}</b> 进行中...
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
