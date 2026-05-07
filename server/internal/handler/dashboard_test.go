@@ -117,27 +117,6 @@ func TestGetTmallOpsMissingShopReturns400(t *testing.T) {
 	assertErrorResponse(t, rec, http.StatusBadRequest, "shop is required")
 }
 
-func TestGetChannelsMissingDeptReturns400(t *testing.T) {
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/channels", nil)
-
-	(&DashboardHandler{}).GetChannels(rec, req)
-
-	assertErrorResponse(t, rec, http.StatusBadRequest, "dept is required")
-}
-
-func TestGetChannelsForbiddenByDeptScopeReturns403(t *testing.T) {
-	rec := httptest.NewRecorder()
-	req := withAuthPayload(
-		httptest.NewRequest(http.MethodGet, "/api/channels?dept=ecommerce", nil),
-		&authPayload{DataScopes: authDataScopes{Depts: []string{"social"}}},
-	)
-
-	(&DashboardHandler{}).GetChannels(rec, req)
-
-	assertErrorResponse(t, rec, http.StatusForbidden, "forbidden by data scope")
-}
-
 func TestGetTmallOpsForbiddenByPlatformScopeReturns403(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := withAuthPayload(

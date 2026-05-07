@@ -604,50 +604,6 @@ func (h *DashboardHandler) GetFinanceSubjects(w http.ResponseWriter, r *http.Req
 	writeJSON(w, map[string]interface{}{"subjects": subs})
 }
 
-func (h *DashboardHandler) GetFinanceImportLogs(w http.ResponseWriter, r *http.Request) {
-	rows, ok := queryRowsOrWriteError(w, h.DB, `SELECT id, year, filename, file_size, md5, sheet_count, row_count, unmapped_subjects, status, error_msg, user_id, created_at FROM finance_import_log ORDER BY created_at DESC LIMIT 50`)
-	if !ok {
-		return
-	}
-	defer rows.Close()
-	type Log struct {
-		ID         int64           `json:"id"`
-		Year       int             `json:"year"`
-		Filename   string          `json:"filename"`
-		FileSize   int64           `json:"fileSize"`
-		MD5        string          `json:"md5"`
-		SheetCount int             `json:"sheetCount"`
-		RowCount   int             `json:"rowCount"`
-		Unmapped   json.RawMessage `json:"unmappedSubjects"`
-		Status     string          `json:"status"`
-		ErrorMsg   string          `json:"errorMsg"`
-		UserID     int             `json:"userId"`
-		CreatedAt  time.Time       `json:"createdAt"`
-	}
-	var logs []Log
-	for rows.Next() {
-		var l Log
-		var md5 sql.NullString
-		var unmap sql.NullString
-		var errMsg sql.NullString
-		if writeDatabaseError(w, rows.Scan(&l.ID, &l.Year, &l.Filename, &l.FileSize, &md5, &l.SheetCount, &l.RowCount, &unmap, &l.Status, &errMsg, &l.UserID, &l.CreatedAt)) {
-			return
-		}
-		if md5.Valid {
-			l.MD5 = md5.String
-		}
-		if errMsg.Valid {
-			l.ErrorMsg = errMsg.String
-		}
-		if unmap.Valid && unmap.String != "" {
-			l.Unmapped = json.RawMessage(unmap.String)
-		} else {
-			l.Unmapped = json.RawMessage("[]")
-		}
-		logs = append(logs, l)
-	}
-	writeJSON(w, map[string]interface{}{"logs": logs})
-}
 
 // ImportFinancePreview 第一步：上传 + 解析（不写库）+ 生成 token + 返回预览 diff
 // POST /api/finance/report/import/preview
