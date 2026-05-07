@@ -1272,17 +1272,43 @@ func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
 		Message     string `json:"message,omitempty"`
 	}
 
-	// v0.69: 立即同步按钮拉最近 30 天的采购/委外单, 覆盖长尾未结单状态变化
-	// 定时任务保持默认 (昨天+今天) 节省日常资源, 仅 BI 看板手动触发时拉 30 天
-	rangeStart := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+	// v0.70: 立即同步按钮动态算范围 — 按本地"未关闭"单的最早 vouchdate 算起点
+	// 业务规则: 已关闭单不会再变化, 只要覆盖未关闭单的 vouchdate 范围即可
+	// 兜底 30 天 (防止本地暂时无未结单, 仍保留近期窗口)
 	rangeEnd := time.Now().Format("2006-01-02")
+	defaultStart := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+
+	// 采购未结单 = status IN (2,3,4) AND qty > total_in_qty
+	purchaseStart := defaultStart
+	var minPurchase sql.NullString
+	if err := h.DB.QueryRow(`SELECT DATE_FORMAT(MIN(vouchdate), '%Y-%m-%d') FROM ys_purchase_orders
+		WHERE purchase_orders_in_wh_status IN (2,3,4) AND qty > IFNULL(total_in_qty, 0)`).Scan(&minPurchase); err == nil {
+		if minPurchase.Valid && minPurchase.String != "" && minPurchase.String < purchaseStart {
+			purchaseStart = minPurchase.String
+		}
+	}
+
+	// 委外未结单 = status NOT IN (2) AND quantity > incoming
+	subcontractStart := defaultStart
+	var minSubcontract sql.NullString
+	if err := h.DB.QueryRow(`SELECT DATE_FORMAT(MIN(vouchdate), '%Y-%m-%d') FROM ys_subcontract_orders
+		WHERE status NOT IN (2)
+		  AND order_product_subcontract_quantity_mu > IFNULL(order_product_incoming_quantity, 0)`).Scan(&minSubcontract); err == nil {
+		if minSubcontract.Valid && minSubcontract.String != "" && minSubcontract.String < subcontractStart {
+			subcontractStart = minSubcontract.String
+		}
+	}
+
+	purchaseLabel := "采购订单 (" + purchaseStart + " ~ " + rangeEnd + ")"
+	subcontractLabel := "委外订单 (" + subcontractStart + " ~ " + rangeEnd + ")"
+
 	exes := []struct {
 		name, exe string
 		args      []string
 	}{
 		{"现存量", "sync-yonsuite-stock.exe", nil},
-		{"采购订单 (近30天)", "sync-yonsuite-purchase.exe", []string{rangeStart, rangeEnd}},
-		{"委外订单 (近30天)", "sync-yonsuite-subcontract.exe", []string{rangeStart, rangeEnd}},
+		{purchaseLabel, "sync-yonsuite-purchase.exe", []string{purchaseStart, rangeEnd}},
+		{subcontractLabel, "sync-yonsuite-subcontract.exe", []string{subcontractStart, rangeEnd}},
 		{"材料出库", "sync-yonsuite-materialout.exe", nil},
 	}
 
