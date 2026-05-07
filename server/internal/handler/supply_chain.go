@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -1235,6 +1236,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 // syncYSStockMu 防止并发触发同步 (一次只允许一个跑)
 var syncYSStockMu sync.Mutex
 var syncYSStockRunning bool
+var syncYSLastEndTime time.Time // v0.74: 全局后端 cooldown, 防止任何来源(包括前端 bug) 60s 内重复触发
 
 // syncYSProgress v0.71: 同步进度状态 (前端轮询用)
 type syncStepProgress struct {
@@ -1265,7 +1267,12 @@ var syncYSProgress syncProgressState
 // POST /api/supply-chain/sync-ys-stock (路由名保留以保持兼容, 内部行为已升级)
 // 串行执行避免 YS API 限流, 总耗时约 60-120s
 func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
+	// v0.73 诊断日志: 记录每次 sync 请求的来源, 排查"自动重新同步"问题
+	log.Printf("[sync-ys-stock] 收到请求 method=%s remote=%s referer=%q ua=%q origin=%q",
+		r.Method, r.RemoteAddr, r.Header.Get("Referer"), r.Header.Get("User-Agent"), r.Header.Get("Origin"))
+
 	if r.Method != "POST" {
+		log.Printf("[sync-ys-stock] 拒绝: 非 POST")
 		writeError(w, 405, "method not allowed")
 		return
 	}
@@ -1273,10 +1280,24 @@ func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
 	syncYSStockMu.Lock()
 	if syncYSStockRunning {
 		syncYSStockMu.Unlock()
+		log.Printf("[sync-ys-stock] 拒绝: 已有同步在执行")
 		writeError(w, 429, "已有同步任务正在执行, 请稍后再试")
 		return
 	}
+	// v0.74: 全局后端 cooldown 60s — 防止任何来源(浏览器 bug/扩展/双 tab/手抖)在上次同步完成后立即触发新一轮
+	if !syncYSLastEndTime.IsZero() {
+		since := time.Since(syncYSLastEndTime)
+		if since < 60*time.Second {
+			wait := int((60*time.Second - since).Seconds())
+			syncYSStockMu.Unlock()
+			log.Printf("[sync-ys-stock] 拒绝: 上次同步 %.0fs 前结束, cooldown 还需 %ds (来源 %s referer=%s)",
+				since.Seconds(), wait, r.RemoteAddr, r.Header.Get("Referer"))
+			writeError(w, 429, fmt.Sprintf("上次同步刚完成, 请 %d 秒后再试", wait))
+			return
+		}
+	}
 	syncYSStockRunning = true
+	log.Printf("[sync-ys-stock] ★ 启动新一轮同步, 锁已获取")
 	// v0.71: 重置进度状态
 	syncYSProgress = syncProgressState{
 		Running:   true,
@@ -1288,6 +1309,7 @@ func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		syncYSStockMu.Lock()
 		syncYSStockRunning = false
+		syncYSLastEndTime = time.Now() // v0.74: 记录完成时间, 触发 60s 全局 cooldown
 		syncYSProgress.Running = false
 		syncYSProgress.Done = true
 		syncYSProgress.ElapsedSec = int(time.Since(syncYSProgress.StartTime).Seconds())
