@@ -46,7 +46,7 @@ func main() {
 	client := jackyun.NewClient(cfg.JackYun.AppKey, cfg.JackYun.Secret, cfg.JackYun.APIURL)
 
 	// 游标方式拉取全部库存（避免超1万条限制）
-	pageSize := 50
+	pageSize := 200 // v0.79.1 提速: 50→200 (吉客云接口最大支持 200, 4 倍提速)
 	totalInserted := 0
 	startTime := time.Now()
 	maxQuantityId := "0"
@@ -130,7 +130,7 @@ func main() {
 		maxQuantityId = lastQid
 
 		// 限速，避免频率过高
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond) // v0.79.1: 限流 30/s 间隔 ≥ 33ms 即可
 	}
 
 	elapsed := time.Since(startTime)
