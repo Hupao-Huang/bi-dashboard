@@ -44,7 +44,7 @@ const Profile: React.FC = () => {
         message.success('保存成功');
         fetchProfile();
       } else {
-        message.error(data.error || '保存失败');
+        message.error(data.msg || data.error || '保存失败');
       }
     } catch {} finally {
       setSaving(false);
@@ -64,7 +64,7 @@ const Profile: React.FC = () => {
       message.success('头像更新成功');
       fetchProfile();
     } else {
-      message.error(data.error || '上传失败');
+      message.error(data.msg || data.error || '上传失败');
     }
     return false;
   };
@@ -132,15 +132,22 @@ const Profile: React.FC = () => {
                     type="link"
                     danger
                     onClick={async () => {
-                      const res = await fetch(`${API_BASE}/api/user/dingtalk`, {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'unbind' }),
-                      });
-                      if (res.ok) {
-                        message.success('已解绑钉钉');
-                        fetchProfile();
+                      try {
+                        const res = await fetch(`${API_BASE}/api/user/dingtalk`, {
+                          method: 'POST',
+                          credentials: 'include',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ action: 'unbind' }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (res.ok) {
+                          message.success('已解绑钉钉');
+                          fetchProfile();
+                        } else {
+                          message.error(data.msg || data.error || '解绑失败');
+                        }
+                      } catch {
+                        message.error('网络错误，解绑失败');
                       }
                     }}
                   >
@@ -231,7 +238,7 @@ const Profile: React.FC = () => {
                     message.success('密码修改成功');
                     pwForm.resetFields();
                   } else {
-                    message.error(data.error || '修改失败');
+                    message.error(data.msg || data.error || '修改失败');
                   }
                 } catch {} finally {
                   setPwSaving(false);
