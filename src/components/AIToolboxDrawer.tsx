@@ -393,6 +393,7 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
               block
               href={`https://mcp.dingtalk.com/#/detail/skill?skillId=${selectedSkill.skillId}`}
               target="_blank"
+              rel="noopener noreferrer"
               style={{
                 height: 48, fontSize: 16, fontWeight: 600,
                 background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
@@ -478,6 +479,7 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
               block
               href={`https://mcp.dingtalk.com/#/detail?mcpId=${selectedMcp.mcpId}&detailType=marketMcpDetail`}
               target="_blank"
+              rel="noopener noreferrer"
               style={{
                 height: 48, fontSize: 16, fontWeight: 600,
                 background: 'linear-gradient(135deg, #10b981 0%, #0ea5e9 100%)',

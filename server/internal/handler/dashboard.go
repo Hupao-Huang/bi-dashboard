@@ -946,7 +946,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			ROUND(SUM(s.local_goods_amt),2) as sales
 			FROM sales_goods_summary s
 			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
-			LEFT JOIN sales_channel sc ON s.shop_name = sc.channel_name AND sc.department = s.department
+			LEFT JOIN (SELECT channel_name, department, MAX(online_plat_name) AS online_plat_name FROM sales_channel GROUP BY channel_name, department) sc ON sc.channel_name = s.shop_name AND sc.department = s.department
 			WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?`+scopeCond+`
 			GROUP BY grade, plat
 			ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`, dept, start, end)
@@ -1117,7 +1117,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		END AS plat,
 		ROUND(SUM(s.local_goods_amt),2), ROUND(SUM(s.goods_qty),0)
 		FROM sales_goods_summary s
-		LEFT JOIN sales_channel sc ON s.shop_name = sc.channel_name AND sc.department = s.department
+		LEFT JOIN (SELECT channel_name, department, MAX(online_plat_name) AS online_plat_name FROM sales_channel GROUP BY channel_name, department) sc ON sc.channel_name = s.shop_name AND sc.department = s.department
 		WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?`+scopeCond+`
 		GROUP BY plat
 		ORDER BY SUM(s.local_goods_amt) DESC`, dept, start, end)

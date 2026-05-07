@@ -42,8 +42,9 @@ const AuditLog: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/admin/audit-logs?${params}`, { credentials: 'include' });
       if (!res.ok) throw new Error();
       const json = await res.json();
-      setData(json.list || []);
-      setTotal(json.total || 0);
+      const payload = json.data || json;
+      setData(payload.list || []);
+      setTotal(payload.total || 0);
     } catch {
       setData([]);
       setTotal(0);
