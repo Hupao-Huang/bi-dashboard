@@ -1355,10 +1355,11 @@ func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
 		name, exe string
 		args      []string
 	}{
-		{"现存量", "sync-yonsuite-stock.exe", nil},
+		{"吉客云库存", "sync-stock.exe", nil}, // v0.76: 成品 Tab 数据源
+		{"YS 现存量", "sync-yonsuite-stock.exe", nil},
 		{purchaseLabel, "sync-yonsuite-purchase.exe", []string{purchaseStart, rangeEnd}},
 		{subcontractLabel, "sync-yonsuite-subcontract.exe", []string{subcontractStart, rangeEnd}},
-		{"材料出库", "sync-yonsuite-materialout.exe", nil},
+		{"YS 材料出库", "sync-yonsuite-materialout.exe", nil},
 	}
 
 	re := regexp.MustCompile(`新增 (\d+) / 更新 (\d+) / 失败 (\d+)`)
