@@ -60,7 +60,7 @@ const PlanDashboard: React.FC = () => {
   useEffect(() => { fetchData(startDate, endDate, warehouse); }, [fetchData, startDate, endDate, warehouse]);
   useEffect(() => { fetchTrend(trendStart, trendEnd); }, [fetchTrend, trendStart, trendEnd]);
 
-  if (loading && !data) return <PageLoading />;
+  if (loading) return <PageLoading />;
   if (!data) return <div>加载失败</div>;
 
   const kpi = data.kpi || {};

@@ -141,7 +141,7 @@ const LogisticsAnalysis: React.FC = () => {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  if (loading && !overview) return <PageLoading />;
+  if (loading) return <PageLoading />;
   if (!overview) return <Empty description="暂无数据" />;
 
   const k = overview.kpi;
