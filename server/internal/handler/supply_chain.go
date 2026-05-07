@@ -948,7 +948,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		ROUND(SUM(sq.month_qty)/30, 1) AS daily_avg,
 		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
 		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
-		IFNULL(MAX(gm.ys_class_name), '') AS ys_class_name,
+		COALESCE(NULLIF(MAX(gm.ys_class_name), ''), MAX(ys_direct.direct_class_name), '') AS ys_class_name,
 		GREATEST(0, ROUND(45 * SUM(sq.month_qty)/30 - SUM(sq.current_qty - sq.locked_qty) - IFNULL(MAX(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
 		CASE
 		  WHEN SUM(sq.month_qty) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
@@ -1006,8 +1006,16 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		             FROM ys_stock GROUP BY product_code) yc ON yc.product_code = g.sku_code
 		  WHERE g.sku_code IS NOT NULL AND g.sku_code != '' GROUP BY g.goods_no
 		) gm ON gm.goods_no = sq.goods_no
+		LEFT JOIN (
+		  -- v0.65 直连兜底: 当 goods.sku_code 缺失时, 用 sq.goods_no 直接对 ys_stock.product_code
+		  SELECT product_code,
+		    MAX(manage_class_name) AS direct_class_name,
+		    MAX(manage_class_code) AS direct_class_code
+		  FROM ys_stock GROUP BY product_code
+		) ys_direct ON ys_direct.product_code = sq.goods_no
 		WHERE sq.goods_attr = 1 AND sq.month_qty > 0
-		  AND (gm.ys_class_code IS NULL OR gm.ys_class_code NOT LIKE '05%')` + planSqWhCond + prodExclCond + `
+		  AND IFNULL(gm.ys_class_code, '') NOT LIKE '05%'
+		  AND IFNULL(ys_direct.direct_class_code, '') NOT LIKE '05%'` + planSqWhCond + prodExclCond + `
 		GROUP BY sq.goods_no, sq.goods_name`
 
 	// 4b. 包材/原料 (v0.49 改用 YS 现存量) — 主表 ys_stock, 反向通过 goods.sku_code 映射回吉客云 goods_no
@@ -1088,7 +1096,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		ROUND(SUM(sq.month_qty)/30, 1) AS daily_avg,
 		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
 		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
-		IFNULL(MAX(gm.ys_class_name), '') AS ys_class_name,
+		COALESCE(NULLIF(MAX(gm.ys_class_name), ''), MAX(ys_direct.direct_class_name), '') AS ys_class_name,
 		GREATEST(0, ROUND(45 * SUM(sq.month_qty)/30 - SUM(sq.current_qty - sq.locked_qty) - IFNULL(MAX(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
 		CASE
 		  WHEN SUM(sq.month_qty) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
@@ -1145,8 +1153,15 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		             FROM ys_stock GROUP BY product_code) yc ON yc.product_code = g.sku_code
 		  WHERE g.sku_code IS NOT NULL AND g.sku_code != '' GROUP BY g.goods_no
 		) gm ON gm.goods_no = sq.goods_no
+		LEFT JOIN (
+		  -- v0.65 直连兜底: 当 goods.sku_code 缺失时, 用 sq.goods_no 直接对 ys_stock.product_code
+		  SELECT product_code,
+		    MAX(manage_class_name) AS direct_class_name,
+		    MAX(manage_class_code) AS direct_class_code
+		  FROM ys_stock GROUP BY product_code
+		) ys_direct ON ys_direct.product_code = sq.goods_no
 		WHERE sq.month_qty > 0
-		  AND gm.ys_class_code LIKE '05%'` + otherPlanSqWhCond + otherProdExclCond + `
+		  AND (gm.ys_class_code LIKE '05%' OR ys_direct.direct_class_code LIKE '05%')` + otherPlanSqWhCond + otherProdExclCond + `
 		GROUP BY sq.goods_no, sq.goods_name`
 
 	type queryWithArgs struct {
