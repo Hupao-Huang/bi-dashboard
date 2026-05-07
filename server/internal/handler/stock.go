@@ -50,12 +50,34 @@ func (h *DashboardHandler) SyncStockNow(w http.ResponseWriter, r *http.Request) 
 	if writeScopeError(w, requireDomainAccess(r, "supply_chain")) {
 		return
 	}
-	if !syncStockMu.TryLock() {
+
+	elapsed, output, locked, err := RunSyncStockOnce()
+	if locked {
 		writeError(w, 409, "已有库存同步任务进行中，请稍后再试")
 		return
 	}
-	defer syncStockMu.Unlock()
+	tail := tailLines(output, 12)
+	if err != nil {
+		writeError(w, 500, fmt.Sprintf("同步失败（耗时 %s）: %v\n最后输出:\n%s", elapsed.Round(time.Second), err, tail))
+		return
+	}
+	cacheCleared := ClearCacheByPrefix("api|/api/stock/")
+	writeJSON(w, map[string]interface{}{
+		"success":      true,
+		"elapsed":      elapsed.Round(time.Second).String(),
+		"cacheCleared": cacheCleared,
+		"tail":         tail,
+	})
+}
 
+// RunSyncStockOnce v0.79: 公共入口 - 跑 sync-stock.exe 同步吉客云库存
+// 任何 handler 都用这个, 共享 syncStockMu 锁防并发, 共享 syncStockState 让两个页面看到一致状态
+// 返回: 耗时, exe 输出, 是否被锁拒绝(true=已有任务在跑), 执行错误
+func RunSyncStockOnce() (elapsed time.Duration, output string, locked bool, err error) {
+	if !syncStockMu.TryLock() {
+		return 0, "", true, nil
+	}
+	defer syncStockMu.Unlock()
 	setSyncStockStart()
 
 	exePath := `C:\Users\Administrator\bi-dashboard\server\sync-stock.exe`
@@ -64,24 +86,15 @@ func (h *DashboardHandler) SyncStockNow(w http.ResponseWriter, r *http.Request) 
 	start := time.Now()
 	cmd := exec.Command(exePath)
 	cmd.Dir = workDir
-	output, err := cmd.CombinedOutput()
-	elapsed := time.Since(start)
-
-	tail := tailLines(string(output), 12)
-	if err != nil {
-		setSyncStockFinish(elapsed, err.Error())
-		writeError(w, 500, fmt.Sprintf("同步失败（耗时 %s）: %v\n最后输出:\n%s", elapsed.Round(time.Second), err, tail))
-		return
+	out, runErr := cmd.CombinedOutput()
+	elapsed = time.Since(start)
+	output = string(out)
+	errMsg := ""
+	if runErr != nil {
+		errMsg = runErr.Error()
 	}
-	setSyncStockFinish(elapsed, "")
-	// 清除库存接口缓存（WithCache TTL 60min），让前端 fetchData 立即拿到新数据
-	cacheCleared := ClearCacheByPrefix("api|/api/stock/")
-	writeJSON(w, map[string]interface{}{
-		"success":      true,
-		"elapsed":      elapsed.Round(time.Second).String(),
-		"cacheCleared": cacheCleared,
-		"tail":         tail,
-	})
+	setSyncStockFinish(elapsed, errMsg)
+	return elapsed, output, false, runErr
 }
 
 // SyncStockStatus GET /api/stock/sync-status
