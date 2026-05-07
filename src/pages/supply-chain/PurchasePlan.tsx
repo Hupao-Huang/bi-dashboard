@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message, Tabs } from 'antd';
+import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message, Tabs, Popover, Spin } from 'antd';
 import {
   AlertOutlined,
   CarOutlined,
@@ -72,6 +72,81 @@ const PurchasePlan: React.FC = () => {
   const isSalesType = typeFilter !== '原材料/包材'; // 成品/半成品 + 其他 都用吉客云销售口径(45天)，原材料/包材用 YS 消耗口径(90天)
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [keyword, setKeyword] = useState('');
+
+  // v0.67: 在途订单详情按需异步加载 (hover Popover 触发)
+  type InTransitOrder = {
+    code: string; vendorName: string; orgName: string;
+    vouchDate: string; arriveDate: string;
+    totalQty: number; incomingQty: number; inTransitQty: number;
+    statusText: string;
+  };
+  type InTransitDetail = {
+    loading: boolean;
+    purchaseOrders?: InTransitOrder[];
+    subcontractOrders?: InTransitOrder[];
+  };
+  const [inTransitCache, setInTransitCache] = useState<Record<string, InTransitDetail>>({});
+  const loadInTransitDetail = (goodsNo: string) => {
+    if (!goodsNo) return;
+    const cur = inTransitCache[goodsNo];
+    if (cur && !cur.loading) return; // 已缓存
+    setInTransitCache((c) => ({ ...c, [goodsNo]: { loading: true } }));
+    fetch(`${API_BASE}/api/supply-chain/in-transit-detail?goodsNo=${encodeURIComponent(goodsNo)}`, { credentials: 'include' })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.code === 200 && j.data) {
+          setInTransitCache((c) => ({ ...c, [goodsNo]: {
+            loading: false,
+            purchaseOrders: j.data.purchaseOrders || [],
+            subcontractOrders: j.data.subcontractOrders || [],
+          }}));
+        } else {
+          setInTransitCache((c) => ({ ...c, [goodsNo]: { loading: false, purchaseOrders: [], subcontractOrders: [] } }));
+        }
+      })
+      .catch(() => {
+        setInTransitCache((c) => ({ ...c, [goodsNo]: { loading: false, purchaseOrders: [], subcontractOrders: [] } }));
+      });
+  };
+  const renderInTransitPopover = (goodsNo: string, kind: 'purchase' | 'subcontract') => {
+    const detail = inTransitCache[goodsNo];
+    if (!detail || detail.loading) {
+      return <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8' }}><Spin size="small" /> 加载中...</div>;
+    }
+    const orders = kind === 'purchase' ? detail.purchaseOrders : detail.subcontractOrders;
+    if (!orders || orders.length === 0) {
+      return <div style={{ padding: 12, color: '#94a3b8' }}>暂无在途{kind === 'purchase' ? '采购' : '委外'}订单</div>;
+    }
+    const totalIn = orders.reduce((s, o) => s + (o.inTransitQty || 0), 0);
+    return (
+      <div style={{ maxHeight: 420, overflow: 'auto' }}>
+        <div style={{ marginBottom: 6, fontSize: 12, color: '#64748b' }}>
+          共 <b style={{ color: kind === 'purchase' ? '#1e40af' : '#7c3aed' }}>{orders.length}</b> 单, 在途合计 <b>{fmtQty(totalIn)}</b>
+        </div>
+        <Table
+          size="small"
+          pagination={false}
+          dataSource={orders}
+          rowKey={(r, i) => `${r.code}-${i}`}
+          columns={[
+            { title: '用友单号', dataIndex: 'code', width: 160,
+              render: (v: string) => <span style={{ fontFamily: 'Consolas', fontSize: 12 }}>{v}</span> },
+            { title: '供应商', dataIndex: 'vendorName', width: 180, ellipsis: true },
+            { title: '开单', dataIndex: 'vouchDate', width: 95 },
+            { title: '到货', dataIndex: 'arriveDate', width: 95,
+              render: (v: string) => v ? v : <span style={{ color: '#cbd5e1' }}>—</span> },
+            { title: '订单量', dataIndex: 'totalQty', width: 80, align: 'right',
+              render: (v: number) => fmtQty(v) },
+            { title: '已入', dataIndex: 'incomingQty', width: 80, align: 'right',
+              render: (v: number) => <span style={{ color: '#16a34a' }}>{fmtQty(v)}</span> },
+            { title: '在途', dataIndex: 'inTransitQty', width: 80, align: 'right',
+              render: (v: number) => <span style={{ color: kind === 'purchase' ? '#1e40af' : '#7c3aed', fontWeight: 600 }}>{fmtQty(v)}</span> },
+            { title: '状态', dataIndex: 'statusText', width: 110 },
+          ]}
+        />
+      </div>
+    );
+  };
 
   const fetchData = () => {
     setLoading(true);
@@ -399,7 +474,17 @@ const PurchasePlan: React.FC = () => {
                 </div>
               }><span>在途采购 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
               dataIndex: 'inTransit', width: 100, align: 'right',
-              render: (v: number) => v > 0 ? <span style={{ color: '#1e40af' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
+              render: (v: number, r: SuggestRow) => v > 0 ? (
+                <Popover
+                  content={renderInTransitPopover(r.jkyCode, 'purchase')}
+                  trigger="hover"
+                  placement="left"
+                  overlayStyle={{ maxWidth: 820 }}
+                  onOpenChange={(open) => open && loadInTransitDetail(r.jkyCode)}
+                >
+                  <span style={{ color: '#1e40af', cursor: 'help', borderBottom: '1px dashed #1e40af' }}>{fmtQty(v)}</span>
+                </Popover>
+              ) : <span style={{ color: '#cbd5e1' }}>—</span> },
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                   <div><b>在途委外</b> = 委外加工单已下但还没回成品的量</div>
@@ -411,7 +496,17 @@ const PurchasePlan: React.FC = () => {
                 </div>
               }><span>在途委外 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
               dataIndex: 'inTransitSubcontract', width: 100, align: 'right',
-              render: (v: number) => v > 0 ? <span style={{ color: '#7c3aed' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
+              render: (v: number, r: SuggestRow) => v > 0 ? (
+                <Popover
+                  content={renderInTransitPopover(r.jkyCode, 'subcontract')}
+                  trigger="hover"
+                  placement="left"
+                  overlayStyle={{ maxWidth: 820 }}
+                  onOpenChange={(open) => open && loadInTransitDetail(r.jkyCode)}
+                >
+                  <span style={{ color: '#7c3aed', cursor: 'help', borderBottom: '1px dashed #7c3aed' }}>{fmtQty(v)}</span>
+                </Popover>
+              ) : <span style={{ color: '#cbd5e1' }}>—</span> },
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                   <div><b>最近到货</b> = 所有在途单中最早到货那一天</div>
