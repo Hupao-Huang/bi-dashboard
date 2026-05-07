@@ -136,7 +136,7 @@ const BusinessReport: React.FC = () => {
         />
       </Space>
       <Space>
-        <Tooltip title="财务自助上传业务预决算 xlsx — 下个版本上线（当前由数据团队 CLI 导入）">
+        <Tooltip title="下个版本支持自助上传，目前请联系数据组导入">
           <Button icon={<UploadOutlined />} disabled>上传 Excel</Button>
         </Tooltip>
       </Space>
