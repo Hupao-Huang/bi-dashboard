@@ -364,13 +364,14 @@ const PurchasePlan: React.FC = () => {
               onChange={(e) => setKeyword(e.target.value)} style={{ width: 200 }} allowClear />
             <Tooltip title={
               <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-                <div><b>立即同步用友 BIP 全部数据</b> (约 1-2 分钟)</div>
+                <div><b>立即同步用友 BIP 全部数据</b> (约 2-3 分钟)</div>
                 <div style={{ marginTop: 4 }}>串行拉取 4 类:</div>
                 <div>　• 现存量 (库存)</div>
-                <div>　• 采购订单 (在途采购)</div>
-                <div>　• 委外订单 (在途委外)</div>
+                <div>　• 采购订单 — 近 30 天范围全量刷新 (含状态变化)</div>
+                <div>　• 委外订单 — 近 30 天范围全量刷新 (含状态变化)</div>
                 <div>　• 材料出库 (日均消耗)</div>
-                <div style={{ marginTop: 4 }}>自动定时: 每天 09:00-09:30 各跑一次, 现存量额外 14:00 / 18:00 再刷</div>
+                <div style={{ marginTop: 4 }}>v0.69 修复: 立即同步会覆盖近 30 天历史单, 把"已部分入库/已关闭"的状态变化拉过来, 不再只看"今天的新单"</div>
+                <div style={{ marginTop: 4 }}>自动定时: 每天 09:00-09:30 各跑一次 (定时只拉昨天+今天, 节省资源)</div>
               </div>
             }>
               <Button type="primary" icon={<SyncOutlined spin={syncing} />}

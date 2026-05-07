@@ -1272,11 +1272,18 @@ func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
 		Message     string `json:"message,omitempty"`
 	}
 
-	exes := []struct{ name, exe string }{
-		{"现存量", "sync-yonsuite-stock.exe"},
-		{"采购订单", "sync-yonsuite-purchase.exe"},
-		{"委外订单", "sync-yonsuite-subcontract.exe"},
-		{"材料出库", "sync-yonsuite-materialout.exe"},
+	// v0.69: 立即同步按钮拉最近 30 天的采购/委外单, 覆盖长尾未结单状态变化
+	// 定时任务保持默认 (昨天+今天) 节省日常资源, 仅 BI 看板手动触发时拉 30 天
+	rangeStart := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+	rangeEnd := time.Now().Format("2006-01-02")
+	exes := []struct {
+		name, exe string
+		args      []string
+	}{
+		{"现存量", "sync-yonsuite-stock.exe", nil},
+		{"采购订单 (近30天)", "sync-yonsuite-purchase.exe", []string{rangeStart, rangeEnd}},
+		{"委外订单 (近30天)", "sync-yonsuite-subcontract.exe", []string{rangeStart, rangeEnd}},
+		{"材料出库", "sync-yonsuite-materialout.exe", nil},
 	}
 
 	re := regexp.MustCompile(`新增 (\d+) / 更新 (\d+) / 失败 (\d+)`)
@@ -1293,7 +1300,7 @@ func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		cmd := exec.Command(exePath)
+		cmd := exec.Command(exePath, item.args...)
 		cmd.Dir = exeDir
 		out, err := cmd.CombinedOutput()
 		output := string(out)
