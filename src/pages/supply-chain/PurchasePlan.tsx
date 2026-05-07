@@ -69,7 +69,7 @@ const PurchasePlan: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'成品/半成品' | '原材料/包材' | '其他'>('成品/半成品');
-  const isSalesType = typeFilter !== '原材料/包材'; // 成品/半成品 + 其他 都用吉客云销售口径(45天)，原材料/包材用 YS 消耗口径(90天)
+  const isSalesType = typeFilter !== '原材料/包材'; // 成品/半成品 + 其他 都用吉客云销售口径(45天)，原材料/包材用用友消耗口径(90天)
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [keyword, setKeyword] = useState('');
 
@@ -221,19 +221,19 @@ const PurchasePlan: React.FC = () => {
       clearInterval(pollInterval);
       if (j.code === 200) {
         setSyncProgress((p) => p ? { ...p, running: false, done: true, results: j.data.steps || p.results, elapsedSec: j.data.durationSec } : p);
-        message.success(`同步完成: 总耗时 ${j.data.durationSec}s, 新增 ${j.data.ins} / 更新 ${j.data.upd} / 失败 ${j.data.err}`, 5);
+        message.success(`数据已刷新, 耗时 ${j.data.durationSec} 秒`, 5);
         fetchData();
       } else if (j.code === 429) {
         // v0.74: 被后端 cooldown 拒绝, 不显示成失败 — 这通常是浏览器/扩展自动发的重复请求
         console.warn('🟡 [SYNC] 被后端 cooldown 拒绝 (上次同步刚完成):', j.msg);
         // 不更新 Modal, 不弹 error toast (避免吓到用户)
       } else {
-        message.error(`同步失败: ${j.msg || '未知错误'}`, 5);
+        message.error(`刷新失败: ${j.msg || '未知错误'}`, 5);
         setSyncProgress(null);
       }
     } catch (e: any) {
       clearInterval(pollInterval);
-      message.error(`同步异常: ${e?.message || e}`, 5);
+      message.error(`刷新异常: ${e?.message || e}`, 5);
       setSyncProgress(null);
     } finally {
       setSyncing(false);
@@ -400,27 +400,21 @@ const PurchasePlan: React.FC = () => {
             <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 100 }}
               placeholder="状态" allowClear
               options={['断货', '紧急', '偏低', '正常', '积压'].map((s) => ({ value: s, label: s }))} />
-            <Input.Search placeholder="搜索 吉客云/YS 编码 / 名称" value={keyword}
+            <Input.Search placeholder="搜索 吉客云/用友编码 / 名称" value={keyword}
               onChange={(e) => setKeyword(e.target.value)} style={{ width: 200 }} allowClear />
             <Tooltip title={
               <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-                <div><b>立即同步全部数据</b> (约 4-6 分钟)</div>
-                <div style={{ marginTop: 4 }}>串行拉取 5 类:</div>
-                <div>　• 吉客云库存 (成品 Tab + 其他 Tab 数据源) ★ v0.76 新增</div>
-                <div>　• 用友 BIP 现存量 (原材料/包材 Tab 数据源)</div>
-                <div>　• 用友 BIP 采购订单 — 自动覆盖所有"未关闭"单的开单日范围</div>
-                <div>　• 用友 BIP 委外订单 — 自动覆盖所有"未关闭"单的开单日范围</div>
-                <div>　• 用友 BIP 材料出库 (日均消耗)</div>
-                <div style={{ marginTop: 4 }}>v0.76 修复: 之前漏了吉客云库存同步, 跑哥点同步看到的成品数字其实是 1 小时前的旧数据。现已加入</div>
-                <div style={{ marginTop: 4 }}>采购/委外订单: 系统自动判断本地未关闭单的最早开单日, 动态拉对应范围。1 月有未结单就拉到 1 月, 全部已关闭就只拉近 30 天</div>
-                <div style={{ marginTop: 4 }}>自动定时: 吉客云每小时跑, 用友每天 09:00-09:30 跑一轮</div>
+                <div><b>把吉客云和用友里所有最新数据拉到看板</b></div>
+                <div style={{ marginTop: 4 }}>包含: 库存 / 采购单 / 委外单 / 领料消耗</div>
+                <div style={{ marginTop: 4 }}>大概 4-6 分钟, 完成后所有标签的数据都是最新的</div>
+                <div style={{ marginTop: 6, color: '#f59e0b' }}>没有特殊情况不用经常点, 系统每小时会自动拉一次</div>
               </div>
             }>
               <Button type="primary" icon={<SyncOutlined spin={syncing} />}
                 loading={syncing}
                 disabled={syncing || !!syncProgress}
                 onClick={handleSync}>
-                立即同步全部数据
+                刷新看板数据
               </Button>
             </Tooltip>
           </div>
@@ -453,13 +447,13 @@ const PurchasePlan: React.FC = () => {
             { title: '吉客云编码', dataIndex: 'jkyCode', width: 120,
               render: (v: string, r: SuggestRow) => v
                 ? v
-                : <Tooltip title={r.type === '原材料/包材' ? '包材/原料常规仅在用友 BIP 流转，无吉客云编码属正常' : '吉客云端未维护此货品档案'}>
+                : <Tooltip title={r.type === '原材料/包材' ? '原材料/包材通常只在用友里流转, 没有吉客云编码是正常的' : '吉客云里没有这个商品的档案'}>
                     <span style={{ color: '#cbd5e1' }}>—</span>
                   </Tooltip> },
-            { title: 'YS 编码', dataIndex: 'ysCode', width: 120,
+            { title: '用友编码', dataIndex: 'ysCode', width: 120,
               render: (v: string, r: SuggestRow) => v
                 ? v
-                : <Tooltip title={r.type === '成品' ? 'YS 端未建立此货品档案 (需要在用友 BIP 录入外部编码 = 吉客云 goods_no)' : '此包材尚未在 goods 表建立外部编码映射'}>
+                : <Tooltip title={r.type === '成品' ? '用友里还没建这个商品的档案 (需要在用友录入对应的吉客云编码)' : '吉客云里还没建这个商品的档案'}>
                     <span style={{ color: '#cbd5e1' }}>—</span>
                   </Tooltip> },
             { title: '物料名称', dataIndex: 'goodsName', ellipsis: true },
@@ -477,7 +471,7 @@ const PurchasePlan: React.FC = () => {
                 ) : (
                   <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                     <div><b>当前库存</b> = 实物库存 - 已被订单锁定的</div>
-                    <div style={{ marginTop: 4 }}>取自 <b>用友 BIP</b>, 所有 YS 仓库相加</div>
+                    <div style={{ marginTop: 4 }}>取自 <b>用友</b>, 所有 用友仓库相加</div>
                     <div style={{ marginTop: 4, color: '#dc2626' }}>　❌ 排除: 安徽香松组织</div>
                     <div>　❌ 排除: 固态/液态/半固态/广宣品/周边品(这些是成品分类)</div>
                   </div>
@@ -496,7 +490,7 @@ const PurchasePlan: React.FC = () => {
                 ) : (
                   <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                     <div><b>日均消耗</b> = 近 30 天领料消耗 ÷ 30 天</div>
-                    <div style={{ marginTop: 4 }}>取自 <b>用友 BIP</b> 的材料出库单</div>
+                    <div style={{ marginTop: 4 }}>取自 <b>用友</b> 的材料出库单</div>
                     <div>排除安徽香松组织</div>
                   </div>
                 )
@@ -527,7 +521,7 @@ const PurchasePlan: React.FC = () => {
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                   <div><b>在途采购</b> = 已下采购单但还没全部到货的剩余量</div>
-                  <div style={{ marginTop: 4 }}>取自 <b>用友 BIP</b> 的采购订单</div>
+                  <div style={{ marginTop: 4 }}>取自 <b>用友</b> 的采购订单</div>
                   <div style={{ marginTop: 4 }}>过滤规则:</div>
                   <div>　• 单据状态 = 已审核或部分入库</div>
                   <div>　• 预计 90 天内到货 (远期超期单不算)</div>
@@ -549,7 +543,7 @@ const PurchasePlan: React.FC = () => {
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                   <div><b>在途委外</b> = 委外加工单已下但还没回成品的量</div>
-                  <div style={{ marginTop: 4 }}>取自 <b>用友 BIP</b> 的委外加工单</div>
+                  <div style={{ marginTop: 4 }}>取自 <b>用友</b> 的委外加工单</div>
                   <div style={{ marginTop: 4 }}>过滤规则:</div>
                   <div>　• 单据未关闭</div>
                   <div>　• 预计 90 天内交货</div>
@@ -608,7 +602,7 @@ const PurchasePlan: React.FC = () => {
       {/* v0.71: 同步进度 Modal */}
       <Modal
         open={!!syncProgress}
-        title={syncProgress?.done ? '✅ 同步完成' : '🔄 正在同步用友 BIP 数据'}
+        title={syncProgress?.done ? '✅ 数据已刷新' : '🔄 正在刷新看板数据'}
         onCancel={() => syncProgress?.done && setSyncProgress(null)}
         closable={!!syncProgress?.done}
         maskClosable={false}
