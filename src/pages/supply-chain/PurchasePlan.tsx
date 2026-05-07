@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message, Tabs, Popover, Spin, Modal, Progress } from 'antd';
+import { ExclamationCircleOutlined } from '@ant-design/icons';
 import {
   AlertOutlined,
   CarOutlined,
@@ -197,6 +198,33 @@ const PurchasePlan: React.FC = () => {
       message.warning(`上次刷新刚完成, ${wait} 秒后再试`);
       return;
     }
+
+    // v0.80: 二次确认弹窗 — 防误点击 (同步耗时 4-6 分钟)
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title: '确认刷新看板数据?',
+        icon: <ExclamationCircleOutlined style={{ color: '#faad14' }} />,
+        content: (
+          <div style={{ fontSize: 13, lineHeight: 1.7, marginTop: 8 }}>
+            <div>系统会拉取吉客云和用友里所有最新数据:</div>
+            <div style={{ marginTop: 4 }}>　• 吉客云库存 (~1 分钟)</div>
+            <div>　• 用友库存 / 采购单 / 委外单 / 领料消耗 (~3-5 分钟)</div>
+            <div style={{ marginTop: 8, color: '#dc2626' }}>
+              ⚠ 总耗时 4-6 分钟, 期间无法再触发新一轮
+            </div>
+            <div style={{ marginTop: 4, color: '#64748b' }}>
+              系统每小时会自动同步一次, 没有特殊情况不用手动点
+            </div>
+          </div>
+        ),
+        okText: '确认刷新',
+        cancelText: '再想想',
+        okButtonProps: { type: 'primary' },
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+    if (!confirmed) return;
     // v0.74 诊断: 记录 fetch 调用来源, 帮排查"为什么浏览器自动发第 2 次请求"
     console.log('🔍 [SYNC] handleSync 被调用, 时间=', new Date().toISOString(), 'stack=', new Error().stack);
     setSyncing(true);
