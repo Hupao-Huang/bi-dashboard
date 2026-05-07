@@ -46,6 +46,8 @@ interface SuggestRow {
   nextArriveDate: string;
   nextArriveDays: number;
   ysClassName: string;
+  position: string;
+  cateName: string;
 }
 
 const fmtAmt = (v: number) => v >= 10000 ? `¥${(v / 10000).toFixed(1)} 万` : `¥${v.toLocaleString()}`;
@@ -492,6 +494,22 @@ const PurchasePlan: React.FC = () => {
                     <span style={{ color: '#cbd5e1' }}>—</span>
                   </Tooltip> },
             { title: '物料名称', dataIndex: 'goodsName', ellipsis: true },
+            { title: '产品定位', dataIndex: 'position', width: 90, align: 'center',
+              filters: Array.from(new Set(filtered.map((r) => r.position).filter(Boolean)))
+                .sort()
+                .map((v) => ({ text: v, value: v })),
+              onFilter: (val: any, r: SuggestRow) => r.position === val,
+              render: (v: string) => {
+                if (!v) return <span style={{ color: '#cbd5e1' }}>—</span>;
+                const colorMap: Record<string, string> = { 'S': 'red', 'A': 'volcano', 'B': 'gold', 'C': 'blue', 'D': 'default' };
+                return <Tag color={colorMap[v] || 'default'}>{v}</Tag>;
+              } },
+            { title: '吉客云分类', dataIndex: 'cateName', width: 130, ellipsis: true,
+              filters: Array.from(new Set(filtered.map((r) => r.cateName).filter(Boolean)))
+                .sort()
+                .map((v) => ({ text: v, value: v })),
+              onFilter: (val: any, r: SuggestRow) => r.cateName === val,
+              render: (v: string) => v || <span style={{ color: '#cbd5e1' }}>—</span> },
             { title: <Tooltip title={
                 isSalesType ? (
                   <div style={{ fontSize: 12, lineHeight: 1.6 }}>
