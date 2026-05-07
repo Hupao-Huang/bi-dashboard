@@ -929,7 +929,6 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		DailyAvg             float64 `json:"dailyAvg"`
 		InTransit            float64 `json:"inTransit"`            // 在途采购量
 		InTransitSubcontract float64 `json:"inTransitSubcontract"` // v0.54: 在途委外量 (委外加工未完工)
-		SuggestedQty         float64 `json:"suggestedQty"`
 		Status               string  `json:"status"`         // 紧急 / 偏低 / 正常 / 积压
 		SellableDays         float64 `json:"sellableDays"`   // 可售天数
 		NextArriveDate       string  `json:"nextArriveDate"` // 最近一笔在途(采购+委外)到货日期
@@ -952,7 +951,6 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
 		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
 		COALESCE(NULLIF(MAX(gm.ys_class_name), ''), MAX(ys_direct.direct_class_name), '') AS ys_class_name,
-		GREATEST(0, ROUND(45 * SUM(sq.month_qty)/30 - SUM(sq.current_qty - sq.locked_qty) - IFNULL(MAX(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
 		CASE
 		  WHEN SUM(sq.month_qty) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
 		  WHEN SUM(sq.month_qty) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / (SUM(sq.month_qty)/30), 1)
@@ -1037,7 +1035,6 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
 		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
 		IFNULL(MAX(ys.manage_class_name), '') AS ys_class_name,
-		GREATEST(0, ROUND(90 * IFNULL(MAX(mo.daily_avg), 0) - SUM(ys.currentqty) - IFNULL(MAX(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
 		CASE
 		  WHEN IFNULL(MAX(mo.daily_avg), 0) > 0 AND SUM(ys.currentqty) <= 0 THEN -1
 		  WHEN IFNULL(MAX(mo.daily_avg), 0) > 0 THEN ROUND(SUM(ys.currentqty) / MAX(mo.daily_avg), 1)
@@ -1110,7 +1107,6 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
 		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
 		COALESCE(NULLIF(MAX(gm.ys_class_name), ''), MAX(ys_direct.direct_class_name), '') AS ys_class_name,
-		GREATEST(0, ROUND(45 * SUM(sq.month_qty)/30 - SUM(sq.current_qty - sq.locked_qty) - IFNULL(MAX(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
 		CASE
 		  WHEN SUM(sq.month_qty) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
 		  WHEN SUM(sq.month_qty) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / (SUM(sq.month_qty)/30), 1)
@@ -1202,7 +1198,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		for sRows.Next() {
 			var s suggestRow
 			if err := sRows.Scan(&s.Type, &s.JkyCode, &s.YsCode, &s.GoodsName, &s.Stock, &s.DailyAvg,
-				&s.InTransit, &s.InTransitSubcontract, &s.YsClassName, &s.SuggestedQty, &s.SellableDays,
+				&s.InTransit, &s.InTransitSubcontract, &s.YsClassName, &s.SellableDays,
 				&s.NextArriveDate, &s.NextArriveDays, &s.Position, &s.CateName); err != nil {
 				log.Printf("[suggest] scan err: %v", err)
 				continue
@@ -1225,10 +1221,10 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		sRows.Close()
 	}
 
-	// 按 suggestedQty 倒序
+	// v0.82: 按可售天数升序 (天数少的紧急 SKU 排前)
 	for i := 0; i < len(suggested); i++ {
 		for j := i + 1; j < len(suggested); j++ {
-			if suggested[j].SuggestedQty > suggested[i].SuggestedQty {
+			if suggested[j].SellableDays < suggested[i].SellableDays {
 				suggested[i], suggested[j] = suggested[j], suggested[i]
 			}
 		}

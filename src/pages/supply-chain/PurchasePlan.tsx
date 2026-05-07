@@ -40,7 +40,6 @@ interface SuggestRow {
   dailyAvg: number;
   inTransit: number;
   inTransitSubcontract: number;
-  suggestedQty: number;
   status: string;
   sellableDays: number;
   nextArriveDate: string;
@@ -635,19 +634,6 @@ const PurchasePlan: React.FC = () => {
                 return <Tooltip title={`预计 ${date} 到货`}><span style={{ color, fontWeight: 600 }}>{label}</span></Tooltip>;
               },
               sorter: (a: SuggestRow, b: SuggestRow) => a.nextArriveDays - b.nextArriveDays },
-            { title: <Tooltip title={
-                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                  <div><b>建议采购量</b> = 目标天数 × 日均{isSalesType ? '销售' : '消耗'} - 当前库存 - 在途采购 - 在途委外</div>
-                  <div style={{ marginTop: 4 }}>(算出来 ≤ 0 时取 0)</div>
-                  <div style={{ marginTop: 4 }}>{isSalesType ? '📦' : '🏷'} {typeFilter} 目标备货: {isSalesType ? params.finishedGoodsTargetDays : params.materialTargetDays} 天</div>
-                  <div style={{ marginTop: 4 }}>含义: 把库存补到能撑"目标天数", 减掉已经有的 + 在路上的</div>
-                  <div style={{ marginTop: 4 }}>= 0: 库存 + 在途已经够用, 不用再下单</div>
-                </div>
-              }><span>建议采购量 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
-              dataIndex: 'suggestedQty', width: 130, align: 'right',
-              render: (v: number) => <span style={{ fontWeight: 600 }}>{fmtQty(v)}</span>,
-              sorter: (a: SuggestRow, b: SuggestRow) => a.suggestedQty - b.suggestedQty,
-              defaultSortOrder: 'descend' },
           ]}
         />
       </Card>
