@@ -216,48 +216,19 @@ const PurchasePlan: React.FC = () => {
         style={{ marginBottom: 8 }}
       />
 
-      {/* 公式 + 数据来源说明 */}
+      {/* 状态分布 (公式说明已在列名 Tooltip 体现, 不重复) */}
       <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6,
-                    padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#64748b' }}>
-        <InfoCircleOutlined style={{ marginRight: 6, color: '#1e40af' }} />
-        {isSalesType ? (
-          <>
-            <span style={{ color: '#1e293b', fontWeight: 600 }}>{typeFilter}建议采购量：</span>
-            max(0, {params.finishedGoodsTargetDays} 天 × 日均销售 - 当前库存 - 在途采购 - 在途委外)；
-            <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>当前库存：</span>
-            取自吉客云, 仅 7 个核心仓 (已排除京东/天猫超市/朴朴 等平台外仓)；
-            <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>日均销售：</span>
-            吉客云近 30 天销售出库 ÷ 30
-          </>
-        ) : (
-          <>
-            <span style={{ color: '#1e293b', fontWeight: 600 }}>{typeFilter}建议采购量：</span>
-            max(0, {params.materialTargetDays} 天 × 日均消耗 - 当前库存 - 在途采购 - 在途委外)；
-            <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>当前库存：</span>
-            取自用友 BIP, 全部 YS 仓库相加 (排安徽香松)；
-            <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 8 }}>日均消耗：</span>
-            用友 BIP 近 30 天领料消耗 ÷ 30
-          </>
-        )}
-        <div style={{ marginTop: 4, color: '#94a3b8' }}>
-          {typeFilter === '成品/半成品'
-            ? '说明: 成品 YS 编码列空表示用友 BIP 端尚未建立货品档案'
-            : typeFilter === '其他'
-            ? '说明: 其他类(广宣品/周边品/物流易耗品/其它)用吉客云销售口径计算; YS 分类列展示具体细分'
-            : '说明: 原材料/包材常规仅在用友 BIP 流转, 吉客云编码列空属正常'}
-        </div>
-        <div style={{ marginTop: 6 }}>
-          <span style={{ color: '#1e293b', fontWeight: 600, marginRight: 6 }}>状态分布:</span>
-          {['断货', '紧急', '偏低', '正常', '积压'].map((s) => {
-            const cnt = suggested.filter((x) => x.type === typeFilter && x.status === s).length;
-            return (
-              <Tag key={s} color={statusColor[s]} style={{ marginRight: 6 }}>
-                {s} {cnt}
-              </Tag>
-            );
-          })}
-          <span style={{ color: '#64748b' }}>当前 {typeFilter} 共 {suggested.filter((x) => x.type === typeFilter).length} 项</span>
-        </div>
+                    padding: '8px 14px', marginBottom: 12, fontSize: 13 }}>
+        <span style={{ color: '#1e293b', fontWeight: 600, marginRight: 6 }}>状态分布:</span>
+        {['断货', '紧急', '偏低', '正常', '积压'].map((s) => {
+          const cnt = suggested.filter((x) => x.type === typeFilter && x.status === s).length;
+          return (
+            <Tag key={s} color={statusColor[s]} style={{ marginRight: 6 }}>
+              {s} {cnt}
+            </Tag>
+          );
+        })}
+        <span style={{ color: '#64748b' }}>当前 {typeFilter} 共 {suggested.filter((x) => x.type === typeFilter).length} 项</span>
       </div>
 
       {/* 4 KPI 卡片 */}
