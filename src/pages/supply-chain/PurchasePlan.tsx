@@ -171,7 +171,7 @@ const PurchasePlan: React.FC = () => {
 
   const handleSync = async () => {
     setSyncing(true);
-    const hide = message.loading('正在拉取用友 BIP 现存量, 通常 30~60 秒...', 0);
+    const hide = message.loading('正在同步用友 BIP 全部数据 (现存量+采购+委外+材料出库), 约 1-2 分钟...', 0);
     try {
       const r = await fetch(`${API_BASE}/api/supply-chain/sync-ys-stock`, {
         method: 'POST', credentials: 'include',
@@ -179,10 +179,16 @@ const PurchasePlan: React.FC = () => {
       const j = await r.json();
       hide();
       if (j.code === 200) {
-        message.success(
-          `同步完成: 新增 ${j.data.ins} / 更新 ${j.data.upd} / 失败 ${j.data.err} (耗时 ${j.data.durationSec}s)`,
-          5,
-        );
+        const steps = j.data.steps || [];
+        const stepText = steps.map((s: any) =>
+          `${s.failed ? '✗' : '✓'} ${s.name} (新增${s.ins}/更新${s.upd}/失败${s.err}, ${s.durationSec}s)`
+        ).join('\n');
+        message.success({
+          content: <div style={{ whiteSpace: 'pre-line', fontSize: 13 }}>
+            <b>同步完成 (总耗时 {j.data.durationSec}s):</b>{'\n'}{stepText}
+          </div>,
+          duration: 8,
+        });
         fetchData();
       } else {
         message.error(`同步失败: ${j.msg || '未知错误'}`, 5);
@@ -356,10 +362,20 @@ const PurchasePlan: React.FC = () => {
               options={['断货', '紧急', '偏低', '正常', '积压'].map((s) => ({ value: s, label: s }))} />
             <Input.Search placeholder="搜索 吉客云/YS 编码 / 名称" value={keyword}
               onChange={(e) => setKeyword(e.target.value)} style={{ width: 200 }} allowClear />
-            <Tooltip title="拉取用友 BIP 最新现存量并刷新看板, 自动定时: 09:30 / 14:00 / 18:00">
+            <Tooltip title={
+              <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+                <div><b>立即同步用友 BIP 全部数据</b> (约 1-2 分钟)</div>
+                <div style={{ marginTop: 4 }}>串行拉取 4 类:</div>
+                <div>　• 现存量 (库存)</div>
+                <div>　• 采购订单 (在途采购)</div>
+                <div>　• 委外订单 (在途委外)</div>
+                <div>　• 材料出库 (日均消耗)</div>
+                <div style={{ marginTop: 4 }}>自动定时: 每天 09:00-09:30 各跑一次, 现存量额外 14:00 / 18:00 再刷</div>
+              </div>
+            }>
               <Button type="primary" icon={<SyncOutlined spin={syncing} />}
                 loading={syncing} onClick={handleSync}>
-                立即同步
+                立即同步全部 YS 数据
               </Button>
             </Tooltip>
           </div>
