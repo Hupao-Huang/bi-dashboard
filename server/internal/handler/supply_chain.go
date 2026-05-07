@@ -1221,10 +1221,10 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		sRows.Close()
 	}
 
-	// v0.82: 按可售天数升序 (天数少的紧急 SKU 排前)
+	// v0.83: 按库存降序 (库存多的排前)
 	for i := 0; i < len(suggested); i++ {
 		for j := i + 1; j < len(suggested); j++ {
-			if suggested[j].SellableDays < suggested[i].SellableDays {
+			if suggested[j].Stock > suggested[i].Stock {
 				suggested[i], suggested[j] = suggested[j], suggested[i]
 			}
 		}
