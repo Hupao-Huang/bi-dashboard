@@ -197,6 +197,8 @@ const PurchasePlan: React.FC = () => {
       message.warning(`上次同步刚完成, ${wait}s 后再试`);
       return;
     }
+    // v0.74 诊断: 记录 fetch 调用来源, 帮排查"为什么浏览器自动发第 2 次请求"
+    console.log('🔍 [SYNC] handleSync 被调用, 时间=', new Date().toISOString(), 'stack=', new Error().stack);
     setSyncing(true);
     setSyncProgress({ running: true, done: false, totalSteps: 4, currentStep: 0, currentName: '准备中...', results: [], elapsedSec: 0, startedAt: '' });
 
@@ -210,15 +212,21 @@ const PurchasePlan: React.FC = () => {
     }, 1500);
 
     try {
+      console.log('🔍 [SYNC] 即将发出 POST /sync-ys-stock, 时间=', new Date().toISOString());
       const r = await fetch(`${API_BASE}/api/supply-chain/sync-ys-stock`, {
         method: 'POST', credentials: 'include',
       });
       const j = await r.json();
+      console.log('🔍 [SYNC] POST 返回 code=', j.code, '时间=', new Date().toISOString());
       clearInterval(pollInterval);
       if (j.code === 200) {
         setSyncProgress((p) => p ? { ...p, running: false, done: true, results: j.data.steps || p.results, elapsedSec: j.data.durationSec } : p);
         message.success(`同步完成: 总耗时 ${j.data.durationSec}s, 新增 ${j.data.ins} / 更新 ${j.data.upd} / 失败 ${j.data.err}`, 5);
         fetchData();
+      } else if (j.code === 429) {
+        // v0.74: 被后端 cooldown 拒绝, 不显示成失败 — 这通常是浏览器/扩展自动发的重复请求
+        console.warn('🟡 [SYNC] 被后端 cooldown 拒绝 (上次同步刚完成):', j.msg);
+        // 不更新 Modal, 不弹 error toast (避免吓到用户)
       } else {
         message.error(`同步失败: ${j.msg || '未知错误'}`, 5);
         setSyncProgress(null);
