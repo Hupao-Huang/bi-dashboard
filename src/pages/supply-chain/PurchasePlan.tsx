@@ -190,11 +190,11 @@ const PurchasePlan: React.FC = () => {
       message.warning('上一次同步结果还未关闭, 请先关闭进度框');
       return;
     }
-    // 防御 3: 30 秒 cooldown — 防止异步竞态/误双击
+    // 防御 3: 60 秒 cooldown (跟后端一致) — 防止异步竞态/误双击
     const now = Date.now();
-    if (now - lastSyncEndRef.current < 30000 && lastSyncEndRef.current > 0) {
-      const wait = Math.ceil((30000 - (now - lastSyncEndRef.current)) / 1000);
-      message.warning(`上次同步刚完成, ${wait}s 后再试`);
+    if (now - lastSyncEndRef.current < 60000 && lastSyncEndRef.current > 0) {
+      const wait = Math.ceil((60000 - (now - lastSyncEndRef.current)) / 1000);
+      message.warning(`上次刷新刚完成, ${wait} 秒后再试`);
       return;
     }
     // v0.74 诊断: 记录 fetch 调用来源, 帮排查"为什么浏览器自动发第 2 次请求"
@@ -207,7 +207,13 @@ const PurchasePlan: React.FC = () => {
       try {
         const pr = await fetch(`${API_BASE}/api/supply-chain/sync-ys-progress`, { credentials: 'include' });
         const pj = await pr.json();
-        if (pj.code === 200 && pj.data) setSyncProgress(pj.data);
+        if (pj.code === 200 && pj.data) {
+          // v0.78: 防 polling 把已 done=true 的状态覆盖回 running=true (race condition)
+          setSyncProgress((cur) => {
+            if (cur && cur.done && !pj.data.done) return cur;
+            return pj.data;
+          });
+        }
       } catch { /* 忽略瞬时错误 */ }
     }, 1500);
 
@@ -224,9 +230,10 @@ const PurchasePlan: React.FC = () => {
         message.success(`数据已刷新, 耗时 ${j.data.durationSec} 秒`, 5);
         fetchData();
       } else if (j.code === 429) {
-        // v0.74: 被后端 cooldown 拒绝, 不显示成失败 — 这通常是浏览器/扩展自动发的重复请求
+        // v0.78: 被后端 cooldown 拒绝 → 必须关闭 Modal, 否则用户看到"僵尸 Modal"以为又在跑
         console.warn('🟡 [SYNC] 被后端 cooldown 拒绝 (上次同步刚完成):', j.msg);
-        // 不更新 Modal, 不弹 error toast (避免吓到用户)
+        setSyncProgress(null);
+        message.warning(j.msg || '上次刷新刚完成, 请稍后再试', 5);
       } else {
         message.error(`刷新失败: ${j.msg || '未知错误'}`, 5);
         setSyncProgress(null);
