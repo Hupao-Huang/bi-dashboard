@@ -1380,22 +1380,41 @@ func (h *DashboardHandler) SyncYSStock(w http.ResponseWriter, r *http.Request) {
 		syncYSStockMu.Unlock()
 
 		stepStart := time.Now()
-		exePath := filepath.Join(exeDir, item.exe)
-		if _, err := os.Stat(exePath); err != nil {
-			r := stepResult{
-				Name: item.name, Failed: true, Message: "exe 文件缺失: " + item.exe,
-				DurationSec: 0,
+
+		// v0.79: 吉客云库存走公共入口, 跟 InventoryWarning 页面共享 syncStockMu + state
+		var output string
+		var err error
+		if item.exe == "sync-stock.exe" {
+			elap, out, locked, runErr := RunSyncStockOnce()
+			if locked {
+				r := stepResult{Name: item.name, Failed: true,
+					Message: "另一处吉客云库存同步在跑, 已跳过这一步"}
+				results = append(results, r)
+				syncYSStockMu.Lock()
+				syncYSProgress.Results = append(syncYSProgress.Results, r)
+				syncYSStockMu.Unlock()
+				continue
 			}
-			results = append(results, r)
-			syncYSStockMu.Lock()
-			syncYSProgress.Results = append(syncYSProgress.Results, r)
-			syncYSStockMu.Unlock()
-			continue
+			_ = elap
+			output = out
+			err = runErr
+		} else {
+			exePath := filepath.Join(exeDir, item.exe)
+			if _, statErr := os.Stat(exePath); statErr != nil {
+				r := stepResult{Name: item.name, Failed: true,
+					Message: "exe 文件缺失: " + item.exe}
+				results = append(results, r)
+				syncYSStockMu.Lock()
+				syncYSProgress.Results = append(syncYSProgress.Results, r)
+				syncYSStockMu.Unlock()
+				continue
+			}
+			cmd := exec.Command(exePath, item.args...)
+			cmd.Dir = exeDir
+			out, runErr := cmd.CombinedOutput()
+			output = string(out)
+			err = runErr
 		}
-		cmd := exec.Command(exePath, item.args...)
-		cmd.Dir = exeDir
-		out, err := cmd.CombinedOutput()
-		output := string(out)
 		var ins, upd, errN int
 		if m := re.FindStringSubmatch(output); len(m) == 4 {
 			ins, _ = strconv.Atoi(m[1])
