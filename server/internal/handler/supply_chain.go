@@ -935,6 +935,8 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		NextArriveDate       string  `json:"nextArriveDate"` // 最近一笔在途(采购+委外)到货日期
 		NextArriveDays       int     `json:"nextArriveDays"` // 距今天数 (负=已逾期, NULL→999)
 		YsClassName          string  `json:"ysClassName"`    // YS 分类(固态/液态/标签/纸箱 等)
+		Position             string  `json:"position"`       // v0.81: 产品定位 (S/A/B/C/D)
+		CateName             string  `json:"cateName"`       // v0.81: 吉客云分类
 	}
 	suggested := []suggestRow{}
 
@@ -958,7 +960,9 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN ''
 		     ELSE DATE_FORMAT(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), '%Y-%m-%d') END AS next_arrive_date,
 		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN 999
-		     ELSE DATEDIFF(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), CURDATE()) END AS next_arrive_days
+		     ELSE DATEDIFF(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), CURDATE()) END AS next_arrive_days,
+		IFNULL(MAX(gm.position), '') AS position,
+		IFNULL(MAX(gm.cate_name), '') AS cate_name
 		FROM stock_quantity sq
 		LEFT JOIN (
 		  -- v0.54 fix: ys_purchase_orders.product_c_code 是 YS 编码, 必须通过 goods.sku_code 桥接到吉客云 goods_no
@@ -999,7 +1003,9 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  SELECT g.goods_no,
 		    MAX(NULLIF(g.sku_code,'')) AS ys_code,
 		    MAX(yc.manage_class_name) AS ys_class_name,
-		    MAX(yc.manage_class_code) AS ys_class_code
+		    MAX(yc.manage_class_code) AS ys_class_code,
+		    MAX(NULLIF(g.goods_field7,'')) AS position,
+		    MAX(NULLIF(g.cate_name,'')) AS cate_name
 		  FROM goods g
 		  LEFT JOIN (SELECT product_code,
 		                    MAX(manage_class_name) AS manage_class_name,
@@ -1039,7 +1045,9 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN ''
 		     ELSE DATE_FORMAT(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), '%Y-%m-%d') END AS next_arrive_date,
 		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN 999
-		     ELSE DATEDIFF(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), CURDATE()) END AS next_arrive_days
+		     ELSE DATEDIFF(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), CURDATE()) END AS next_arrive_days,
+		IFNULL(MAX(gm.position), '') AS position,
+		IFNULL(MAX(gm.cate_name), '') AS cate_name
 		FROM ys_stock ys
 		LEFT JOIN (
 		  SELECT product_c_code, SUM(qty)/30 AS daily_avg FROM ys_material_out
@@ -1077,7 +1085,11 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  GROUP BY order_product_material_code
 		) sc_arr ON sc_arr.pcode = ys.product_code
 		LEFT JOIN (
-		  SELECT sku_code, MAX(goods_no) AS goods_no FROM goods
+		  SELECT sku_code,
+		    MAX(goods_no) AS goods_no,
+		    MAX(NULLIF(goods_field7,'')) AS position,
+		    MAX(NULLIF(cate_name,'')) AS cate_name
+		  FROM goods
 		  WHERE sku_code IS NOT NULL AND sku_code != '' GROUP BY sku_code
 		) gm ON gm.sku_code = ys.product_code
 		WHERE (ys.manage_class_code LIKE '01%' OR ys.manage_class_code LIKE '02%')` + excludeAnhuiOrgYsWHERE + `
@@ -1106,7 +1118,9 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN ''
 		     ELSE DATE_FORMAT(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), '%Y-%m-%d') END AS next_arrive_date,
 		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN 999
-		     ELSE DATEDIFF(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), CURDATE()) END AS next_arrive_days
+		     ELSE DATEDIFF(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), CURDATE()) END AS next_arrive_days,
+		IFNULL(MAX(gm.position), '') AS position,
+		IFNULL(MAX(gm.cate_name), '') AS cate_name
 		FROM stock_quantity sq
 		LEFT JOIN (
 		  SELECT g.goods_no AS jky_no, SUM(p.qty - IFNULL(p.total_in_qty, 0)) AS in_transit_qty
@@ -1146,7 +1160,9 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  SELECT g.goods_no,
 		    MAX(NULLIF(g.sku_code,'')) AS ys_code,
 		    MAX(yc.manage_class_name) AS ys_class_name,
-		    MAX(yc.manage_class_code) AS ys_class_code
+		    MAX(yc.manage_class_code) AS ys_class_code,
+		    MAX(NULLIF(g.goods_field7,'')) AS position,
+		    MAX(NULLIF(g.cate_name,'')) AS cate_name
 		  FROM goods g
 		  LEFT JOIN (SELECT product_code,
 		                    MAX(manage_class_name) AS manage_class_name,
@@ -1187,7 +1203,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 			var s suggestRow
 			if err := sRows.Scan(&s.Type, &s.JkyCode, &s.YsCode, &s.GoodsName, &s.Stock, &s.DailyAvg,
 				&s.InTransit, &s.InTransitSubcontract, &s.YsClassName, &s.SuggestedQty, &s.SellableDays,
-				&s.NextArriveDate, &s.NextArriveDays); err != nil {
+				&s.NextArriveDate, &s.NextArriveDays, &s.Position, &s.CateName); err != nil {
 				log.Printf("[suggest] scan err: %v", err)
 				continue
 			}
