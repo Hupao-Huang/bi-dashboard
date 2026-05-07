@@ -153,7 +153,7 @@ const CustomerOverview: React.FC = () => {
     ];
   }, [consultLabel, convLabel, isKS, isPDD, isTmall, isXHS, responseLabel, satisfactionLabel]);
 
-  if (loading && !data) return <PageLoading />;
+  if (loading) return <PageLoading />;
 
   return (
     <div>

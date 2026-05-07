@@ -352,7 +352,7 @@ const InventoryWarning: React.FC = () => {
     },
   );
 
-  if (loading && items.length === 0) return <PageLoading />;
+  if (loading) return <PageLoading />;
 
   return (
     <div>
