@@ -34,11 +34,10 @@ var planWarehouses = []string{
 }
 
 // planExcludeGoods 计划/采购看板排除 SKU 名单 (虚拟商品/邮费/差价补拍 等)
-// 通用 goods_no 黑名单, 影响 prodSQL + matSQL + lookup
-// 跑哥后续要排除别的虚拟品, 加这一行即可
+// 通用 goods_no 黑名单, 影响 prodSQL + matSQL + otherSQL
+// v0.64: 删除 05010493 (广宣品已分流到"其他"Tab, 不再需要全黑名单)
 var planExcludeGoods = []string{
-	"yflj",     // 运费说明及差价补拍链接 邮费
-	"05010493", // 广宣品-天猫华为watch fit 4手表
+	"yflj", // 运费说明及差价补拍链接 邮费
 }
 
 // buildExcludeGoodsFilter 返回 " AND <column> NOT IN (?,?,...)" 子句和参数
@@ -941,7 +940,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	// 4a. 成品 (goods_attr=1, 目标 45 天) — 主表 stock_quantity, 通过 goods.sku_code (吉客云外部编码) 映射 YS 编码
 	// v0.54: 加在途委外量 (sc 子查询) + next_arrive 综合采购+委外两种到货
 	// 公式: max(0, 45 × 吉客云日均 - 吉客云库存 - YS 在途采购 - YS 在途委外)
-	prodSQL := `SELECT '成品' AS t,
+	prodSQL := `SELECT '成品/半成品' AS t,
 		sq.goods_no AS jky_code,
 		IFNULL(MAX(gm.ys_code), '') AS ys_code,
 		sq.goods_name,
@@ -998,19 +997,23 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		LEFT JOIN (
 		  SELECT g.goods_no,
 		    MAX(NULLIF(g.sku_code,'')) AS ys_code,
-		    MAX(yc.manage_class_name) AS ys_class_name
+		    MAX(yc.manage_class_name) AS ys_class_name,
+		    MAX(yc.manage_class_code) AS ys_class_code
 		  FROM goods g
-		  LEFT JOIN (SELECT product_code, MAX(manage_class_name) AS manage_class_name
+		  LEFT JOIN (SELECT product_code,
+		                    MAX(manage_class_name) AS manage_class_name,
+		                    MAX(manage_class_code) AS manage_class_code
 		             FROM ys_stock GROUP BY product_code) yc ON yc.product_code = g.sku_code
 		  WHERE g.sku_code IS NOT NULL AND g.sku_code != '' GROUP BY g.goods_no
 		) gm ON gm.goods_no = sq.goods_no
-		WHERE sq.goods_attr = 1 AND sq.month_qty > 0` + planSqWhCond + prodExclCond + `
+		WHERE sq.goods_attr = 1 AND sq.month_qty > 0
+		  AND (gm.ys_class_code IS NULL OR gm.ys_class_code NOT LIKE '05%')` + planSqWhCond + prodExclCond + `
 		GROUP BY sq.goods_no, sq.goods_name`
 
 	// 4b. 包材/原料 (v0.49 改用 YS 现存量) — 主表 ys_stock, 反向通过 goods.sku_code 映射回吉客云 goods_no
 	// v0.54: 加在途委外 (sc) 子查询 + next_arrive 综合采购+委外
 	// 公式: max(0, 90 × YS日均 - YS库存 - YS在途采购 - YS在途委外)
-	matSQL := `SELECT '包材/原料' AS t,
+	matSQL := `SELECT '原材料/包材' AS t,
 		IFNULL(MAX(gm.goods_no), '') AS jky_code,
 		ys.product_code AS ys_code,
 		MAX(ys.product_name) AS goods_name,
@@ -1068,8 +1071,83 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  SELECT sku_code, MAX(goods_no) AS goods_no FROM goods
 		  WHERE sku_code IS NOT NULL AND sku_code != '' GROUP BY sku_code
 		) gm ON gm.sku_code = ys.product_code
-		WHERE ys.manage_class_name NOT IN ('固态','液态','半固态','固体','广宣品','周边品')` + excludeAnhuiOrgYsWHERE + `
+		WHERE (ys.manage_class_code LIKE '01%' OR ys.manage_class_code LIKE '02%')` + excludeAnhuiOrgYsWHERE + `
 		GROUP BY ys.product_code`
+
+	// 4c. 其他 (含广宣品/周边品/物流易耗品/其它) — v0.64 新增
+	// 跑哥指示: 用吉客云的库存和销量 (业务对广宣品的"消耗"走销售出库, 不走YS生产领料)
+	// 公式: max(0, 45 × 吉客云日均 - 吉客云库存 - YS在途采购 - YS在途委外)
+	// 范围: ys_stock manage_class_code LIKE '05%' 圈定 SKU, stock_quantity 取 7 仓白名单, 有月销
+	otherPlanSqWhCond, otherPlanSqWhArgs := buildPlanWarehouseFilter("sq.warehouse_name")
+	otherProdExclCond, otherProdExclArgs := buildExcludeGoodsFilter("sq.goods_no")
+	otherSQL := `SELECT '其他' AS t,
+		sq.goods_no AS jky_code,
+		IFNULL(MAX(gm.ys_code), '') AS ys_code,
+		sq.goods_name,
+		ROUND(SUM(sq.current_qty - sq.locked_qty), 0) AS stock,
+		ROUND(SUM(sq.month_qty)/30, 1) AS daily_avg,
+		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
+		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
+		IFNULL(MAX(gm.ys_class_name), '') AS ys_class_name,
+		GREATEST(0, ROUND(45 * SUM(sq.month_qty)/30 - SUM(sq.current_qty - sq.locked_qty) - IFNULL(MAX(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
+		CASE
+		  WHEN SUM(sq.month_qty) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
+		  WHEN SUM(sq.month_qty) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / (SUM(sq.month_qty)/30), 1)
+		  ELSE 9999 END AS sellable_days,
+		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN ''
+		     ELSE DATE_FORMAT(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), '%Y-%m-%d') END AS next_arrive_date,
+		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN 999
+		     ELSE DATEDIFF(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), CURDATE()) END AS next_arrive_days
+		FROM stock_quantity sq
+		LEFT JOIN (
+		  SELECT g.goods_no AS jky_no, SUM(p.qty - IFNULL(p.total_in_qty, 0)) AS in_transit_qty
+		  FROM ys_purchase_orders p JOIN goods g ON g.sku_code = p.product_c_code
+		  WHERE p.purchase_orders_in_wh_status IN (2,3) AND p.qty > IFNULL(p.total_in_qty, 0)
+		    AND (p.recieve_date IS NULL OR p.recieve_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))
+		    AND p.org_name != '安徽香松自然调味品有限公司'
+		  GROUP BY g.goods_no
+		) po ON po.jky_no = sq.goods_no
+		LEFT JOIN (
+		  SELECT g.goods_no AS jky_no, MIN(IFNULL(p.recieve_date, DATE_ADD(p.vouchdate, INTERVAL 30 DAY))) AS next_arrive
+		  FROM ys_purchase_orders p JOIN goods g ON g.sku_code = p.product_c_code
+		  WHERE p.purchase_orders_in_wh_status IN (2,3) AND p.qty > IFNULL(p.total_in_qty, 0)
+		    AND p.org_name != '安徽香松自然调味品有限公司'
+		  GROUP BY g.goods_no
+		) po_arr ON po_arr.jky_no = sq.goods_no
+		LEFT JOIN (
+		  SELECT g.goods_no AS jky_no,
+		    SUM(s.order_product_subcontract_quantity_mu - IFNULL(s.order_product_incoming_quantity, 0)) AS in_transit_qty
+		  FROM ys_subcontract_orders s JOIN goods g ON g.sku_code = s.order_product_material_code
+		  WHERE s.status NOT IN (2)
+		    AND s.order_product_subcontract_quantity_mu > IFNULL(s.order_product_incoming_quantity, 0)
+		    AND (s.order_product_delivery_date IS NULL OR s.order_product_delivery_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))
+		    AND s.org_name != '安徽香松自然调味品有限公司'
+		  GROUP BY g.goods_no
+		) sc ON sc.jky_no = sq.goods_no
+		LEFT JOIN (
+		  SELECT g.goods_no AS jky_no,
+		    MIN(IFNULL(s.order_product_delivery_date, DATE_ADD(s.vouchdate, INTERVAL 30 DAY))) AS next_arrive
+		  FROM ys_subcontract_orders s JOIN goods g ON g.sku_code = s.order_product_material_code
+		  WHERE s.status NOT IN (2)
+		    AND s.order_product_subcontract_quantity_mu > IFNULL(s.order_product_incoming_quantity, 0)
+		    AND s.org_name != '安徽香松自然调味品有限公司'
+		  GROUP BY g.goods_no
+		) sc_arr ON sc_arr.jky_no = sq.goods_no
+		LEFT JOIN (
+		  SELECT g.goods_no,
+		    MAX(NULLIF(g.sku_code,'')) AS ys_code,
+		    MAX(yc.manage_class_name) AS ys_class_name,
+		    MAX(yc.manage_class_code) AS ys_class_code
+		  FROM goods g
+		  LEFT JOIN (SELECT product_code,
+		                    MAX(manage_class_name) AS manage_class_name,
+		                    MAX(manage_class_code) AS manage_class_code
+		             FROM ys_stock GROUP BY product_code) yc ON yc.product_code = g.sku_code
+		  WHERE g.sku_code IS NOT NULL AND g.sku_code != '' GROUP BY g.goods_no
+		) gm ON gm.goods_no = sq.goods_no
+		WHERE sq.month_qty > 0
+		  AND gm.ys_class_code LIKE '05%'` + otherPlanSqWhCond + otherProdExclCond + `
+		GROUP BY sq.goods_no, sq.goods_name`
 
 	type queryWithArgs struct {
 		sql  string
@@ -1077,9 +1155,12 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	}
 	prodArgs := append([]interface{}{}, planSqWhArgs...)
 	prodArgs = append(prodArgs, prodExclArgs...)
+	otherArgs := append([]interface{}{}, otherPlanSqWhArgs...)
+	otherArgs = append(otherArgs, otherProdExclArgs...)
 	for _, qa := range []queryWithArgs{
-		{prodSQL, prodArgs}, // 成品 7 仓白名单 + 虚拟品排除
-		{matSQL, nil},       // 包材 YS 全仓
+		{prodSQL, prodArgs},   // 成品/半成品 7 仓白名单 + 虚拟品排除 + 排除广宣品(05%)
+		{matSQL, nil},         // 原材料/包材 YS 全仓 (限定 01%/02%)
+		{otherSQL, otherArgs}, // 其他 7 仓白名单 + 限定广宣品(05%)
 	} {
 		sRows, err := h.DB.Query(qa.sql, qa.args...)
 		if err != nil {
