@@ -77,40 +77,68 @@ const NoticesPage: React.FC = () => {
         setModalOpen(false);
         fetchNotices();
       } else {
-        message.error(data.error || '操作失败');
+        message.error(data.msg || data.error || '操作失败');
       }
-    } catch {}
+    } catch (e) {
+      console.warn('Notices submit:', e);
+    }
   };
 
   const handleDelete = async (id: number) => {
-    const res = await fetch(`${API_BASE}/api/admin/notices/${id}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    });
-    if (res.ok) {
-      message.success('删除成功');
-      fetchNotices();
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/notices/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        message.success('删除成功');
+        fetchNotices();
+      } else {
+        message.error(data.msg || data.error || '删除失败');
+      }
+    } catch (e) {
+      console.warn('Notices delete:', e);
+      message.error('网络错误，删除失败');
     }
   };
 
   const handleToggleActive = async (record: Notice) => {
-    await fetch(`${API_BASE}/api/admin/notices/${record.id}`, {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive: !record.isActive }),
-    });
-    fetchNotices();
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/notices/${record.id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !record.isActive }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        message.error(data.msg || data.error || '切换状态失败');
+      }
+      fetchNotices();
+    } catch (e) {
+      console.warn('Notices toggleActive:', e);
+      message.error('网络错误，切换状态失败');
+    }
   };
 
   const handleTogglePin = async (record: Notice) => {
-    await fetch(`${API_BASE}/api/admin/notices/${record.id}`, {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isPinned: !record.isPinned }),
-    });
-    fetchNotices();
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/notices/${record.id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPinned: !record.isPinned }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        message.error(data.msg || data.error || '切换置顶失败');
+      }
+      fetchNotices();
+    } catch (e) {
+      console.warn('Notices togglePin:', e);
+      message.error('网络错误，切换置顶失败');
+    }
   };
 
   const columns = [
