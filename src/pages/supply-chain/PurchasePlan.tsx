@@ -364,13 +364,14 @@ const PurchasePlan: React.FC = () => {
               onChange={(e) => setKeyword(e.target.value)} style={{ width: 200 }} allowClear />
             <Tooltip title={
               <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-                <div><b>立即同步用友 BIP 全部数据</b> (约 2-3 分钟)</div>
+                <div><b>立即同步用友 BIP 全部数据</b> (约 3-5 分钟)</div>
                 <div style={{ marginTop: 4 }}>串行拉取 4 类:</div>
                 <div>　• 现存量 (库存)</div>
-                <div>　• 采购订单 — 近 30 天范围全量刷新 (含状态变化)</div>
-                <div>　• 委外订单 — 近 30 天范围全量刷新 (含状态变化)</div>
+                <div>　• 采购订单 — 自动覆盖所有"未关闭"单的开单日范围</div>
+                <div>　• 委外订单 — 自动覆盖所有"未关闭"单的开单日范围</div>
                 <div>　• 材料出库 (日均消耗)</div>
-                <div style={{ marginTop: 4 }}>v0.69 修复: 立即同步会覆盖近 30 天历史单, 把"已部分入库/已关闭"的状态变化拉过来, 不再只看"今天的新单"</div>
+                <div style={{ marginTop: 4 }}>v0.70: 系统自动判断本地未关闭单的最早开单日, 动态拉对应范围。例如 1 月有未结单, 就拉到 1 月; 全部已关闭就只拉近 30 天</div>
+                <div style={{ marginTop: 4 }}>已关闭的单永远不会再变化, 不在拉取范围内, 节省资源</div>
                 <div style={{ marginTop: 4 }}>自动定时: 每天 09:00-09:30 各跑一次 (定时只拉昨天+今天, 节省资源)</div>
               </div>
             }>
