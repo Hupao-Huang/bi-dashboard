@@ -16,6 +16,7 @@ const EcommerceStorePreview = lazy(() => import('./pages/ecommerce/StorePreview'
 const EcommerceStoreDashboard = lazy(() => import('./pages/ecommerce/StoreDashboard'));
 const EcommerceProductDashboard = lazy(() => import('./pages/ecommerce/ProductDashboard'));
 const EcommerceMarketingCost = lazy(() => import('./pages/ecommerce/MarketingCost'));
+const EcommerceSpecialChannelAllot = lazy(() => import('./pages/ecommerce/SpecialChannelAllot'));
 const SocialPage = lazy(() => import('./pages/social'));
 const SocialStorePreview = lazy(() => import('./pages/social/StorePreview'));
 const SocialStoreDashboard = lazy(() => import('./pages/social/StoreDashboard'));
@@ -121,6 +122,7 @@ const App: React.FC = () => (
               <Route path="/ecommerce/store-dashboard" element={guard('ecommerce.store_dashboard:view', <EcommerceStoreDashboard />)} />
               <Route path="/ecommerce/product-dashboard" element={guard('ecommerce.product_dashboard:view', <EcommerceProductDashboard />)} />
               <Route path="/ecommerce/marketing-cost" element={guard('ecommerce.marketing_cost:view', <EcommerceMarketingCost />)} />
+              <Route path="/ecommerce/special-channel-allot" element={guard('ecommerce:view', <EcommerceSpecialChannelAllot />)} />
 
               <Route path="/social" element={guard('social:view', <SocialPage />)} />
               <Route path="/social/store-preview" element={guard('social.store_preview:view', <SocialStorePreview />)} />

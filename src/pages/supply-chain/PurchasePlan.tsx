@@ -44,18 +44,7 @@ interface SuggestRow {
   sellableDays: number;
   nextArriveDate: string;
   nextArriveDays: number;
-}
-
-interface DetailRow {
-  warehouse: string;
-  org: string;
-  stock: number;
-  dailyAvg: number;
-  inTransit: number;
-  inTransitSubcontract: number;
-  suggested: number;
-  nextArriveDate: string;
-  nextArriveDays: number;
+  ysClassName: string;
 }
 
 const fmtAmt = (v: number) => v >= 10000 ? `¥${(v / 10000).toFixed(1)} 万` : `¥${v.toLocaleString()}`;
@@ -82,26 +71,6 @@ const PurchasePlan: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<'全部' | '成品' | '包材'>('全部');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [keyword, setKeyword] = useState('');
-  const [detailMap, setDetailMap] = useState<Record<string, DetailRow[] | 'loading' | 'error'>>({});
-
-  const fetchDetail = async (key: string, r: SuggestRow) => {
-    setDetailMap((m) => ({ ...m, [key]: 'loading' }));
-    try {
-      const params = new URLSearchParams({
-        ysCode: r.ysCode || '', jkyCode: r.jkyCode || '', type: r.type,
-      }).toString();
-      const resp = await fetch(`${API_BASE}/api/supply-chain/purchase-plan/detail?${params}`,
-        { credentials: 'include' });
-      const j = await resp.json();
-      if (j.code === 200) {
-        setDetailMap((m) => ({ ...m, [key]: j.data.rows || [] }));
-      } else {
-        setDetailMap((m) => ({ ...m, [key]: 'error' }));
-      }
-    } catch {
-      setDetailMap((m) => ({ ...m, [key]: 'error' }));
-    }
-  };
 
   const fetchData = () => {
     setLoading(true);
@@ -327,59 +296,15 @@ const PurchasePlan: React.FC = () => {
           size="small"
           pagination={{ defaultPageSize: 50, pageSizeOptions: ['50', '100', '200'], showSizeChanger: true,
                         showTotal: (t) => `共 ${t} 条` }}
-          expandable={{
-            expandedRowRender: (r) => {
-              const key = `${r.type}-${r.jkyCode || r.ysCode}`;
-              const d = detailMap[key];
-              if (d === 'loading') return <div style={{ padding: 12, color: '#64748b' }}>加载中...</div>;
-              if (d === 'error') return <div style={{ padding: 12, color: '#dc2626' }}>加载失败, 请重试</div>;
-              if (!d) return null;
-              if (d.length === 0) return <div style={{ padding: 12, color: '#64748b' }}>无明细数据</div>;
-              return (
-                <Table
-                  size="small"
-                  dataSource={d}
-                  rowKey={(x) => `${x.warehouse}-${x.org}`}
-                  pagination={false}
-                  style={{ background: '#f8fafc', margin: '8px 0' }}
-                  columns={[
-                    { title: '仓库', dataIndex: 'warehouse', width: 160 },
-                    { title: '组织', dataIndex: 'org', ellipsis: true },
-                    { title: '库存', dataIndex: 'stock', width: 100, align: 'right',
-                      render: (v: number) => fmtQty(v) },
-                    { title: '日均消耗', dataIndex: 'dailyAvg', width: 100, align: 'right',
-                      render: (v: number) => v > 0 ? v.toLocaleString() : <span style={{ color: '#cbd5e1' }}>—</span> },
-                    { title: '在途采购', dataIndex: 'inTransit', width: 100, align: 'right',
-                      render: (v: number) => v > 0 ? <span style={{ color: '#1e40af' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
-                    { title: '在途委外', dataIndex: 'inTransitSubcontract', width: 100, align: 'right',
-                      render: (v: number) => v > 0 ? <span style={{ color: '#7c3aed' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
-                    { title: '最近到货', dataIndex: 'nextArriveDate', width: 130, align: 'center',
-                      render: (date: string, x: DetailRow) => {
-                        if (!date) return <span style={{ color: '#cbd5e1' }}>—</span>;
-                        const dd = x.nextArriveDays;
-                        if (dd === 999) return <span style={{ color: '#94a3b8' }}>{date} (估)</span>;
-                        let color = '#16a34a', label = `${dd} 天后`;
-                        if (dd < 0) { color = '#dc2626'; label = `逾期 ${-dd} 天`; }
-                        else if (dd <= 7) color = '#dc2626';
-                        else if (dd <= 30) color = '#f59e0b';
-                        return <span style={{ color, fontWeight: 600 }}>{label}</span>;
-                      } },
-                    { title: '建议采购量', dataIndex: 'suggested', width: 110, align: 'right',
-                      render: (v: number) => v > 0
-                        ? <span style={{ fontWeight: 700, color: '#dc2626' }}>{fmtQty(v)}</span>
-                        : <span style={{ color: '#cbd5e1' }}>—</span> },
-                  ]}
-                />
-              );
-            },
-            onExpand: (expanded, r) => {
-              const key = `${r.type}-${r.jkyCode || r.ysCode}`;
-              if (expanded && !detailMap[key]) fetchDetail(key, r);
-            },
-          }}
           columns={[
-            { title: '类型', dataIndex: 'type', width: 80, align: 'center',
-              render: (t: string) => <Tag color={t === '成品' ? 'blue' : 'cyan'}>{t}</Tag> },
+            { title: '分类', dataIndex: 'ysClassName', width: 110, align: 'center',
+              filters: Array.from(new Set(filtered.map((r) => r.ysClassName).filter(Boolean)))
+                .sort()
+                .map((v) => ({ text: v, value: v })),
+              onFilter: (val: any, r: SuggestRow) => r.ysClassName === val,
+              render: (v: string, r: SuggestRow) => v
+                ? <Tag color={r.type === '成品' ? 'geekblue' : 'orange'}>{v}</Tag>
+                : <span style={{ color: '#cbd5e1' }}>—</span> },
             { title: '状态', dataIndex: 'status', width: 80, align: 'center',
               filters: ['断货', '紧急', '偏低', '正常', '积压'].map((s) => ({ text: s, value: s })),
               onFilter: (val: any, r: SuggestRow) => r.status === val,
@@ -401,12 +326,45 @@ const PurchasePlan: React.FC = () => {
                     <span style={{ color: '#cbd5e1' }}>—</span>
                   </Tooltip> },
             { title: '物料名称', dataIndex: 'goodsName', ellipsis: true },
-            { title: '当前库存', dataIndex: 'stock', width: 100, align: 'right',
+            { title: <Tooltip title={
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div><b>当前库存</b> = 实物库存 - 已被订单锁定的</div>
+                  <div style={{ marginTop: 4 }}>📦 <b>成品</b>: 取自 <b>吉客云</b>, 仅 7 个核心仓相加:</div>
+                  <div>　南京委外成品 / 天津委外 / 西安成品</div>
+                  <div>　松鲜鲜&大地密码云仓 / 长沙委外成品</div>
+                  <div>　安徽郎溪成品 / 南京分销虚拟仓</div>
+                  <div style={{ marginTop: 4, color: '#dc2626' }}>　❌ 排除: 京东自营/天猫超市/朴朴 等平台外仓</div>
+                  <div>　❌ 排除: 采购外仓 / 不合格仓 / 安徽香松</div>
+                  <div style={{ marginTop: 4 }}>📦 <b>包材</b>: 取自 <b>用友 BIP</b>, 全部仓库相加 (排安徽香松)</div>
+                </div>
+              }><span>当前库存 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
+              dataIndex: 'stock', width: 110, align: 'right',
               render: (v: number) => fmtQty(v),
               sorter: (a: SuggestRow, b: SuggestRow) => a.stock - b.stock },
-            { title: '日均(销售/消耗)', dataIndex: 'dailyAvg', width: 130, align: 'right',
+            { title: <Tooltip title={
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div><b>日均</b> = 近 30 天总用量 ÷ 30 天</div>
+                  <div style={{ marginTop: 4 }}>📦 <b>成品</b>: 销售出库 (取自 <b>吉客云</b>)</div>
+                  <div>　仅累计上面 7 个核心仓的销量, 跟"当前库存"口径一致</div>
+                  <div style={{ marginTop: 4 }}>📦 <b>包材</b>: 领料消耗 (取自 <b>用友 BIP</b>, 排安徽香松)</div>
+                </div>
+              }><span>日均(销售/消耗) <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
+              dataIndex: 'dailyAvg', width: 140, align: 'right',
               render: (v: number) => v > 0 ? v.toLocaleString() : <span style={{ color: '#cbd5e1' }}>-</span> },
-            { title: '可售天数', dataIndex: 'sellableDays', width: 100, align: 'right',
+            { title: <Tooltip title={
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div><b>可售天数</b> = 当前库存 ÷ 日均</div>
+                  <div style={{ marginTop: 4 }}>含义: 不补货的话, 现有库存还能撑多少天</div>
+                  <div style={{ marginTop: 4 }}>分档:</div>
+                  <div>　🔴 断货: 库存 ≤ 0 但还在卖</div>
+                  <div>　🔴 紧急: 不够 7 天</div>
+                  <div>　🟠 偏低: 7-14 天</div>
+                  <div>　🟢 正常: 14-90 天</div>
+                  <div>　🟣 积压: 超过 90 天</div>
+                  <div>　— : 没销售记录</div>
+                </div>
+              }><span>可售天数 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
+              dataIndex: 'sellableDays', width: 110, align: 'right',
               render: (v: number) => {
                 if (v < 0) return <span style={{ color: '#dc2626', fontWeight: 600 }}>断货</span>;
                 if (v >= 9999) return <span style={{ color: '#cbd5e1' }}>-</span>;
@@ -414,11 +372,39 @@ const PurchasePlan: React.FC = () => {
                 return <span style={{ color: c, fontWeight: 600 }}>{v} 天</span>;
               },
               sorter: (a: SuggestRow, b: SuggestRow) => a.sellableDays - b.sellableDays },
-            { title: '在途采购', dataIndex: 'inTransit', width: 90, align: 'right',
+            { title: <Tooltip title={
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div><b>在途采购</b> = 已下采购单但还没全部到货的剩余量</div>
+                  <div style={{ marginTop: 4 }}>取自 <b>用友 BIP</b> 的采购订单</div>
+                  <div style={{ marginTop: 4 }}>过滤规则:</div>
+                  <div>　• 单据状态 = 已审核或部分入库</div>
+                  <div>　• 预计 90 天内到货 (远期超期单不算)</div>
+                  <div>　• 排除安徽香松供应商</div>
+                </div>
+              }><span>在途采购 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
+              dataIndex: 'inTransit', width: 100, align: 'right',
               render: (v: number) => v > 0 ? <span style={{ color: '#1e40af' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
-            { title: '在途委外', dataIndex: 'inTransitSubcontract', width: 90, align: 'right',
+            { title: <Tooltip title={
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div><b>在途委外</b> = 委外加工单已下但还没回成品的量</div>
+                  <div style={{ marginTop: 4 }}>取自 <b>用友 BIP</b> 的委外加工单</div>
+                  <div style={{ marginTop: 4 }}>过滤规则:</div>
+                  <div>　• 单据未关闭</div>
+                  <div>　• 预计 90 天内交货</div>
+                  <div>　• 排除安徽香松组织</div>
+                </div>
+              }><span>在途委外 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
+              dataIndex: 'inTransitSubcontract', width: 100, align: 'right',
               render: (v: number) => v > 0 ? <span style={{ color: '#7c3aed' }}>{fmtQty(v)}</span> : <span style={{ color: '#cbd5e1' }}>—</span> },
-            { title: '最近到货', dataIndex: 'nextArriveDate', width: 130, align: 'center',
+            { title: <Tooltip title={
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div><b>最近到货</b> = 所有在途单中最早到货那一天</div>
+                  <div style={{ marginTop: 4 }}>采购+委外两类单一起比, 取最早的</div>
+                  <div style={{ marginTop: 4 }}>📌 显示"(估)" = 采购员/委外没填具体到货日</div>
+                  <div>　 系统按"开单日 + 30 天"估算</div>
+                </div>
+              }><span>最近到货 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
+              dataIndex: 'nextArriveDate', width: 140, align: 'center',
               render: (date: string, r: SuggestRow) => {
                 if (!date) return <span style={{ color: '#cbd5e1' }}>—</span>;
                 const d = r.nextArriveDays;
@@ -430,7 +416,17 @@ const PurchasePlan: React.FC = () => {
                 return <Tooltip title={`预计 ${date} 到货`}><span style={{ color, fontWeight: 600 }}>{label}</span></Tooltip>;
               },
               sorter: (a: SuggestRow, b: SuggestRow) => a.nextArriveDays - b.nextArriveDays },
-            { title: '建议采购量', dataIndex: 'suggestedQty', width: 120, align: 'right',
+            { title: <Tooltip title={
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div><b>建议采购量</b> = 目标天数 × 日均 - 当前库存 - 在途采购 - 在途委外</div>
+                  <div style={{ marginTop: 4 }}>(算出来 ≤ 0 时取 0)</div>
+                  <div style={{ marginTop: 4 }}>📦 <b>成品</b>目标备货 45 天</div>
+                  <div>📦 <b>包材</b>目标备货 90 天</div>
+                  <div style={{ marginTop: 4 }}>含义: 把库存补到能撑"目标天数", 减掉已经有的 + 在路上的</div>
+                  <div style={{ marginTop: 4 }}>= 0: 库存 + 在途已经够用, 不用再下单</div>
+                </div>
+              }><span>建议采购量 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
+              dataIndex: 'suggestedQty', width: 130, align: 'right',
               render: (v: number) => <span style={{ fontWeight: 600 }}>{fmtQty(v)}</span>,
               sorter: (a: SuggestRow, b: SuggestRow) => a.suggestedQty - b.suggestedQty,
               defaultSortOrder: 'descend' },

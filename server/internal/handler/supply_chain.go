@@ -33,6 +33,31 @@ var planWarehouses = []string{
 	"南京分销虚拟仓-公司仓-外仓",
 }
 
+// planExcludeGoods 计划/采购看板排除 SKU 名单 (虚拟商品/邮费/差价补拍 等)
+// 通用 goods_no 黑名单, 影响 prodSQL + matSQL + lookup
+// 跑哥后续要排除别的虚拟品, 加这一行即可
+var planExcludeGoods = []string{
+	"yflj",     // 运费说明及差价补拍链接 邮费
+	"05010493", // 广宣品-天猫华为watch fit 4手表
+}
+
+// buildExcludeGoodsFilter 返回 " AND <column> NOT IN (?,?,...)" 子句和参数
+func buildExcludeGoodsFilter(column string) (string, []interface{}) {
+	if len(planExcludeGoods) == 0 {
+		return "", nil
+	}
+	args := make([]interface{}, len(planExcludeGoods))
+	placeholders := ""
+	for i, g := range planExcludeGoods {
+		args[i] = g
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+	}
+	return " AND " + column + " NOT IN (" + placeholders + ")", args
+}
+
 // buildPlanWarehouseFilter 返回 " AND <column> IN (?,?,...)" 子句和对应参数
 func buildPlanWarehouseFilter(column string) (string, []interface{}) {
 	args := make([]interface{}, len(planWarehouses))
@@ -820,10 +845,15 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	}
 	var kpi kpiData
 
-	// 紧急 SKU 数 (成品可售天数 < 7)
-	if err := h.DB.QueryRow(`SELECT COUNT(*) FROM stock_quantity
-		WHERE goods_attr=1 AND month_qty > 0 AND (current_qty - locked_qty) > 0
-		  AND (current_qty - locked_qty) / (month_qty/30) < 7`).Scan(&kpi.UrgentSKU); err != nil {
+	// 紧急 SKU 数 (成品可售天数 < 7) — 必须按 SKU 聚合再算, 不能 row-level
+	// row-level 会因为同 SKU 散在多仓而把虚高计数, 实际全公司库存充裕也会算紧急
+	if err := h.DB.QueryRow(`SELECT COUNT(*) FROM (
+		SELECT goods_no, SUM(current_qty - locked_qty) AS stock_total, SUM(month_qty)/30 AS daily_avg
+		FROM stock_quantity
+		WHERE goods_attr=1 AND month_qty > 0
+		GROUP BY goods_no
+		HAVING stock_total > 0 AND stock_total / daily_avg < 7
+	) t`).Scan(&kpi.UrgentSKU); err != nil {
 		log.Printf("kpi urgent: %v", err)
 	}
 
@@ -886,6 +916,10 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	// === 4. 建议采购清单 (UNION 成品 + 包材, 按建议量倒序) ===
 	// v0.51: 在途量按 recieve_date <= today+90天 过滤 (远期/超期排除); 加 nextArriveDate 显示最近到货
 	// 编码两套并存: jkyCode + ysCode 通过 goods.sku_code 映射
+	// v0.62 改: 成品段限定 7 仓白名单(planWarehouses), 不含京东/天猫超市/朴朴外仓+采购外仓+不合格仓
+	//          展示全部 SKU(去掉 HAVING > 0 过滤), 跑哥要核对
+	planSqWhCond, planSqWhArgs := buildPlanWarehouseFilter("sq.warehouse_name")
+	prodExclCond, prodExclArgs := buildExcludeGoodsFilter("sq.goods_no")
 	type suggestRow struct {
 		Type                 string  `json:"type"`    // 成品 / 包材
 		JkyCode              string  `json:"jkyCode"` // 吉客云编码
@@ -900,6 +934,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		SellableDays         float64 `json:"sellableDays"`   // 可售天数
 		NextArriveDate       string  `json:"nextArriveDate"` // 最近一笔在途(采购+委外)到货日期
 		NextArriveDays       int     `json:"nextArriveDays"` // 距今天数 (负=已逾期, NULL→999)
+		YsClassName          string  `json:"ysClassName"`    // YS 分类(固态/液态/标签/纸箱 等)
 	}
 	suggested := []suggestRow{}
 
@@ -912,9 +947,10 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		sq.goods_name,
 		ROUND(SUM(sq.current_qty - sq.locked_qty), 0) AS stock,
 		ROUND(SUM(sq.month_qty)/30, 1) AS daily_avg,
-		IFNULL(ROUND(SUM(po.in_transit_qty), 0), 0) AS in_transit,
+		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
 		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
-		GREATEST(0, ROUND(45 * SUM(sq.month_qty)/30 - SUM(sq.current_qty - sq.locked_qty) - IFNULL(SUM(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
+		IFNULL(MAX(gm.ys_class_name), '') AS ys_class_name,
+		GREATEST(0, ROUND(45 * SUM(sq.month_qty)/30 - SUM(sq.current_qty - sq.locked_qty) - IFNULL(MAX(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
 		CASE
 		  WHEN SUM(sq.month_qty) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
 		  WHEN SUM(sq.month_qty) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / (SUM(sq.month_qty)/30), 1)
@@ -960,12 +996,16 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  GROUP BY g.goods_no
 		) sc_arr ON sc_arr.jky_no = sq.goods_no
 		LEFT JOIN (
-		  SELECT goods_no, MAX(NULLIF(sku_code,'')) AS ys_code FROM goods
-		  WHERE sku_code IS NOT NULL AND sku_code != '' GROUP BY goods_no
+		  SELECT g.goods_no,
+		    MAX(NULLIF(g.sku_code,'')) AS ys_code,
+		    MAX(yc.manage_class_name) AS ys_class_name
+		  FROM goods g
+		  LEFT JOIN (SELECT product_code, MAX(manage_class_name) AS manage_class_name
+		             FROM ys_stock GROUP BY product_code) yc ON yc.product_code = g.sku_code
+		  WHERE g.sku_code IS NOT NULL AND g.sku_code != '' GROUP BY g.goods_no
 		) gm ON gm.goods_no = sq.goods_no
-		WHERE sq.goods_attr = 1 AND sq.month_qty > 0
-		GROUP BY sq.goods_no, sq.goods_name
-		HAVING suggested > 0`
+		WHERE sq.goods_attr = 1 AND sq.month_qty > 0` + planSqWhCond + prodExclCond + `
+		GROUP BY sq.goods_no, sq.goods_name`
 
 	// 4b. 包材/原料 (v0.49 改用 YS 现存量) — 主表 ys_stock, 反向通过 goods.sku_code 映射回吉客云 goods_no
 	// v0.54: 加在途委外 (sc) 子查询 + next_arrive 综合采购+委外
@@ -978,6 +1018,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		ROUND(IFNULL(MAX(mo.daily_avg), 0), 1) AS daily_avg,
 		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
 		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
+		IFNULL(MAX(ys.manage_class_name), '') AS ys_class_name,
 		GREATEST(0, ROUND(90 * IFNULL(MAX(mo.daily_avg), 0) - SUM(ys.currentqty) - IFNULL(MAX(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
 		CASE
 		  WHEN IFNULL(MAX(mo.daily_avg), 0) > 0 AND SUM(ys.currentqty) <= 0 THEN -1
@@ -1028,11 +1069,19 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  WHERE sku_code IS NOT NULL AND sku_code != '' GROUP BY sku_code
 		) gm ON gm.sku_code = ys.product_code
 		WHERE ys.manage_class_name NOT IN ('固态','液态','半固态','固体','广宣品','周边品')` + excludeAnhuiOrgYsWHERE + `
-		GROUP BY ys.product_code
-		HAVING suggested > 0`
+		GROUP BY ys.product_code`
 
-	for _, q := range []string{prodSQL, matSQL} {
-		sRows, err := h.DB.Query(q)
+	type queryWithArgs struct {
+		sql  string
+		args []interface{}
+	}
+	prodArgs := append([]interface{}{}, planSqWhArgs...)
+	prodArgs = append(prodArgs, prodExclArgs...)
+	for _, qa := range []queryWithArgs{
+		{prodSQL, prodArgs}, // 成品 7 仓白名单 + 虚拟品排除
+		{matSQL, nil},       // 包材 YS 全仓
+	} {
+		sRows, err := h.DB.Query(qa.sql, qa.args...)
 		if err != nil {
 			log.Printf("suggest query err: %v", err)
 			continue
@@ -1040,7 +1089,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		for sRows.Next() {
 			var s suggestRow
 			if err := sRows.Scan(&s.Type, &s.JkyCode, &s.YsCode, &s.GoodsName, &s.Stock, &s.DailyAvg,
-				&s.InTransit, &s.InTransitSubcontract, &s.SuggestedQty, &s.SellableDays,
+				&s.InTransit, &s.InTransitSubcontract, &s.YsClassName, &s.SuggestedQty, &s.SellableDays,
 				&s.NextArriveDate, &s.NextArriveDays); err != nil {
 				log.Printf("[suggest] scan err: %v", err)
 				continue
@@ -1084,139 +1133,6 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 			"lowThresholdDays":         14,
 			"overstockThresholdDays":   90,
 		},
-	})
-}
-
-// GetPurchasePlanDetail 单物料钻取: 按 (warehouse × org) 拆解库存/在途/消耗/建议量
-// GET /api/supply-chain/purchase-plan/detail?ysCode=xxx&jkyCode=yyy&type=成品|包材/原料
-func (h *DashboardHandler) GetPurchasePlanDetail(w http.ResponseWriter, r *http.Request) {
-	ysCode := r.URL.Query().Get("ysCode")
-	jkyCode := r.URL.Query().Get("jkyCode")
-	rowType := r.URL.Query().Get("type") // "成品" 或 "包材/原料"
-
-	type detailRow struct {
-		Warehouse            string  `json:"warehouse"`
-		Org                  string  `json:"org"`
-		Stock                float64 `json:"stock"`
-		DailyAvg             float64 `json:"dailyAvg"`
-		InTransit            float64 `json:"inTransit"`
-		InTransitSubcontract float64 `json:"inTransitSubcontract"` // v0.54
-		Suggested            float64 `json:"suggested"`
-		NextArriveDate       string  `json:"nextArriveDate"`
-		NextArriveDays       int     `json:"nextArriveDays"`
-	}
-	rows := []detailRow{}
-
-	var sqlStr string
-	var args []interface{}
-
-	if rowType == "成品" {
-		// v0.54: 加 sc 在途委外, next_arrive 综合采购+委外
-		sqlStr = `SELECT
-			ys.warehouse_name AS wh,
-			IFNULL(ys.org_name, '') AS org,
-			ROUND(SUM(ys.currentqty), 0) AS stock,
-			0 AS daily_avg,
-			IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
-			IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
-			0 AS suggested,
-			CASE WHEN LEAST(IFNULL(MAX(po.next_arrive), '9999-12-31'), IFNULL(MAX(sc.next_arrive), '9999-12-31')) = '9999-12-31' THEN ''
-			     ELSE DATE_FORMAT(LEAST(IFNULL(MAX(po.next_arrive), '9999-12-31'), IFNULL(MAX(sc.next_arrive), '9999-12-31')), '%Y-%m-%d') END AS next_arrive,
-			CASE WHEN LEAST(IFNULL(MAX(po.next_arrive), '9999-12-31'), IFNULL(MAX(sc.next_arrive), '9999-12-31')) = '9999-12-31' THEN 999
-			     ELSE DATEDIFF(LEAST(IFNULL(MAX(po.next_arrive), '9999-12-31'), IFNULL(MAX(sc.next_arrive), '9999-12-31')), CURDATE()) END AS next_arrive_days
-			FROM ys_stock ys
-			LEFT JOIN (
-			  SELECT product_c_code, purchase_orders_warehouse_name AS wh,
-			    SUM(qty - IFNULL(total_in_qty, 0)) AS in_transit_qty,
-			    MIN(IFNULL(recieve_date, DATE_ADD(vouchdate, INTERVAL 30 DAY))) AS next_arrive
-			  FROM ys_purchase_orders
-			  WHERE purchase_orders_in_wh_status IN (2,3) AND qty > IFNULL(total_in_qty, 0)
-			    AND (recieve_date IS NULL OR recieve_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))` + excludeAnhuiOrgWHERE + `
-			  GROUP BY product_c_code, purchase_orders_warehouse_name
-			) po ON po.product_c_code = ys.product_code AND po.wh = ys.warehouse_name
-			LEFT JOIN (
-			  SELECT order_product_material_code AS pcode, warehouse_name AS wh,
-			    SUM(order_product_subcontract_quantity_mu - IFNULL(order_product_incoming_quantity, 0)) AS in_transit_qty,
-			    MIN(IFNULL(order_product_delivery_date, DATE_ADD(vouchdate, INTERVAL 30 DAY))) AS next_arrive
-			  FROM ys_subcontract_orders
-			  WHERE status NOT IN (2)
-			    AND order_product_subcontract_quantity_mu > IFNULL(order_product_incoming_quantity, 0)
-			    AND (order_product_delivery_date IS NULL OR order_product_delivery_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))` + excludeAnhuiOrgWHERE + `
-			  GROUP BY order_product_material_code, warehouse_name
-			) sc ON sc.pcode = ys.product_code AND sc.wh = ys.warehouse_name
-			WHERE ys.product_code = ?` + excludeAnhuiOrgYsWHERE + `
-			GROUP BY ys.warehouse_name, ys.org_name
-			HAVING stock > 0 OR in_transit > 0 OR in_transit_subcontract > 0
-			ORDER BY stock DESC`
-		args = []interface{}{ysCode}
-	} else {
-		// 包材 detail: v0.54 加 sc 在途委外
-		sqlStr = `SELECT
-			ys.warehouse_name AS wh,
-			IFNULL(ys.org_name, '') AS org,
-			ROUND(SUM(ys.currentqty), 0) AS stock,
-			IFNULL(ROUND(MAX(mo.daily_avg), 1), 0) AS daily_avg,
-			IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
-			IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
-			GREATEST(0, ROUND(90 * IFNULL(MAX(mo.daily_avg), 0) - SUM(ys.currentqty) - IFNULL(MAX(po.in_transit_qty), 0) - IFNULL(MAX(sc.in_transit_qty), 0), 0)) AS suggested,
-			CASE WHEN LEAST(IFNULL(MAX(po.next_arrive), '9999-12-31'), IFNULL(MAX(sc.next_arrive), '9999-12-31')) = '9999-12-31' THEN ''
-			     ELSE DATE_FORMAT(LEAST(IFNULL(MAX(po.next_arrive), '9999-12-31'), IFNULL(MAX(sc.next_arrive), '9999-12-31')), '%Y-%m-%d') END AS next_arrive,
-			CASE WHEN LEAST(IFNULL(MAX(po.next_arrive), '9999-12-31'), IFNULL(MAX(sc.next_arrive), '9999-12-31')) = '9999-12-31' THEN 999
-			     ELSE DATEDIFF(LEAST(IFNULL(MAX(po.next_arrive), '9999-12-31'), IFNULL(MAX(sc.next_arrive), '9999-12-31')), CURDATE()) END AS next_arrive_days
-			FROM ys_stock ys
-			LEFT JOIN (
-			  SELECT product_c_code, warehouse_name AS wh, SUM(qty)/30 AS daily_avg
-			  FROM ys_material_out
-			  WHERE vouchdate >= DATE_SUB((SELECT MAX(vouchdate) FROM ys_material_out), INTERVAL 30 DAY)` + excludeAnhuiOrgWHERE + `
-			  GROUP BY product_c_code, warehouse_name
-			) mo ON mo.product_c_code = ys.product_code AND mo.wh = ys.warehouse_name
-			LEFT JOIN (
-			  SELECT product_c_code, purchase_orders_warehouse_name AS wh,
-			    SUM(qty - IFNULL(total_in_qty, 0)) AS in_transit_qty,
-			    MIN(IFNULL(recieve_date, DATE_ADD(vouchdate, INTERVAL 30 DAY))) AS next_arrive
-			  FROM ys_purchase_orders
-			  WHERE purchase_orders_in_wh_status IN (2,3) AND qty > IFNULL(total_in_qty, 0)
-			    AND (recieve_date IS NULL OR recieve_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))` + excludeAnhuiOrgWHERE + `
-			  GROUP BY product_c_code, purchase_orders_warehouse_name
-			) po ON po.product_c_code = ys.product_code AND po.wh = ys.warehouse_name
-			LEFT JOIN (
-			  SELECT order_product_material_code AS pcode, warehouse_name AS wh,
-			    SUM(order_product_subcontract_quantity_mu - IFNULL(order_product_incoming_quantity, 0)) AS in_transit_qty,
-			    MIN(IFNULL(order_product_delivery_date, DATE_ADD(vouchdate, INTERVAL 30 DAY))) AS next_arrive
-			  FROM ys_subcontract_orders
-			  WHERE status NOT IN (2)
-			    AND order_product_subcontract_quantity_mu > IFNULL(order_product_incoming_quantity, 0)
-			    AND (order_product_delivery_date IS NULL OR order_product_delivery_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))` + excludeAnhuiOrgWHERE + `
-			  GROUP BY order_product_material_code, warehouse_name
-			) sc ON sc.pcode = ys.product_code AND sc.wh = ys.warehouse_name
-			WHERE ys.product_code = ?` + excludeAnhuiOrgYsWHERE + `
-			GROUP BY ys.warehouse_name, ys.org_name
-			ORDER BY suggested DESC, stock DESC`
-		args = []interface{}{ysCode}
-	}
-
-	dRows, err := h.DB.Query(sqlStr, args...)
-	if err != nil {
-		log.Printf("[plan-detail] query err: %v", err)
-		writeError(w, 500, "查询失败")
-		return
-	}
-	defer dRows.Close()
-	for dRows.Next() {
-		var d detailRow
-		if err := dRows.Scan(&d.Warehouse, &d.Org, &d.Stock, &d.DailyAvg, &d.InTransit,
-			&d.InTransitSubcontract, &d.Suggested, &d.NextArriveDate, &d.NextArriveDays); err != nil {
-			log.Printf("[plan-detail] scan err: %v", err)
-			continue
-		}
-		rows = append(rows, d)
-	}
-
-	writeJSON(w, map[string]interface{}{
-		"rows":     rows,
-		"ysCode":   ysCode,
-		"jkyCode":  jkyCode,
-		"rowType":  rowType,
 	})
 }
 

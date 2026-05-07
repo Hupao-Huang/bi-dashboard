@@ -69,6 +69,7 @@ export const menuDefinitions: MenuDefinition[] = [
         product: 'ecommerce.product_dashboard:view',
       }),
       { key: '/ecommerce/marketing-cost', icon: <DollarOutlined />, label: '营销费用', permission: 'ecommerce.marketing_cost:view' },
+      { key: '/ecommerce/special-channel-allot', icon: <DollarOutlined />, label: '特殊渠道调拨对账', permission: 'ecommerce:view' },
     ],
   },
   {
@@ -174,6 +175,7 @@ export const pageTitleMap: Record<string, string> = {
   '/ecommerce/store-dashboard': '店铺看板',
   '/ecommerce/product-dashboard': '货品看板',
   '/ecommerce/marketing-cost': '营销费用',
+  '/ecommerce/special-channel-allot': '特殊渠道调拨对账',
   '/social': '社媒部门',
   '/social/store-preview': '店铺数据预览',
   '/social/store-dashboard': '店铺看板',
@@ -241,6 +243,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/ecommerce/store-dashboard', permission: 'ecommerce.store_dashboard:view' },
   { path: '/ecommerce/product-dashboard', permission: 'ecommerce.product_dashboard:view' },
   { path: '/ecommerce/marketing-cost', permission: 'ecommerce.marketing_cost:view' },
+  { path: '/ecommerce/special-channel-allot', permission: 'ecommerce:view' },
   { path: '/social', permission: 'social:view' },
   { path: '/social/store-preview', permission: 'social.store_preview:view' },
   { path: '/social/store-dashboard', permission: 'social.store_dashboard:view' },
