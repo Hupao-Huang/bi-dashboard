@@ -200,7 +200,7 @@ const PurchasePlan: React.FC = () => {
     // v0.74 诊断: 记录 fetch 调用来源, 帮排查"为什么浏览器自动发第 2 次请求"
     console.log('🔍 [SYNC] handleSync 被调用, 时间=', new Date().toISOString(), 'stack=', new Error().stack);
     setSyncing(true);
-    setSyncProgress({ running: true, done: false, totalSteps: 4, currentStep: 0, currentName: '准备中...', results: [], elapsedSec: 0, startedAt: '' });
+    setSyncProgress({ running: true, done: false, totalSteps: 5, currentStep: 0, currentName: '准备中...', results: [], elapsedSec: 0, startedAt: '' });
 
     // 启动轮询
     const pollInterval = setInterval(async () => {
@@ -404,22 +404,23 @@ const PurchasePlan: React.FC = () => {
               onChange={(e) => setKeyword(e.target.value)} style={{ width: 200 }} allowClear />
             <Tooltip title={
               <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-                <div><b>立即同步用友 BIP 全部数据</b> (约 3-5 分钟)</div>
-                <div style={{ marginTop: 4 }}>串行拉取 4 类:</div>
-                <div>　• 现存量 (库存)</div>
-                <div>　• 采购订单 — 自动覆盖所有"未关闭"单的开单日范围</div>
-                <div>　• 委外订单 — 自动覆盖所有"未关闭"单的开单日范围</div>
-                <div>　• 材料出库 (日均消耗)</div>
-                <div style={{ marginTop: 4 }}>v0.70: 系统自动判断本地未关闭单的最早开单日, 动态拉对应范围。例如 1 月有未结单, 就拉到 1 月; 全部已关闭就只拉近 30 天</div>
-                <div style={{ marginTop: 4 }}>已关闭的单永远不会再变化, 不在拉取范围内, 节省资源</div>
-                <div style={{ marginTop: 4 }}>自动定时: 每天 09:00-09:30 各跑一次 (定时只拉昨天+今天, 节省资源)</div>
+                <div><b>立即同步全部数据</b> (约 4-6 分钟)</div>
+                <div style={{ marginTop: 4 }}>串行拉取 5 类:</div>
+                <div>　• 吉客云库存 (成品 Tab + 其他 Tab 数据源) ★ v0.76 新增</div>
+                <div>　• 用友 BIP 现存量 (原材料/包材 Tab 数据源)</div>
+                <div>　• 用友 BIP 采购订单 — 自动覆盖所有"未关闭"单的开单日范围</div>
+                <div>　• 用友 BIP 委外订单 — 自动覆盖所有"未关闭"单的开单日范围</div>
+                <div>　• 用友 BIP 材料出库 (日均消耗)</div>
+                <div style={{ marginTop: 4 }}>v0.76 修复: 之前漏了吉客云库存同步, 跑哥点同步看到的成品数字其实是 1 小时前的旧数据。现已加入</div>
+                <div style={{ marginTop: 4 }}>采购/委外订单: 系统自动判断本地未关闭单的最早开单日, 动态拉对应范围。1 月有未结单就拉到 1 月, 全部已关闭就只拉近 30 天</div>
+                <div style={{ marginTop: 4 }}>自动定时: 吉客云每小时跑, 用友每天 09:00-09:30 跑一轮</div>
               </div>
             }>
               <Button type="primary" icon={<SyncOutlined spin={syncing} />}
                 loading={syncing}
                 disabled={syncing || !!syncProgress}
                 onClick={handleSync}>
-                立即同步全部 YS 数据
+                立即同步全部数据
               </Button>
             </Tooltip>
           </div>
