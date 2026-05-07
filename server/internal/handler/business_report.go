@@ -25,28 +25,6 @@ type budgetSnapshot struct {
 	ChannelCount  int    `json:"channelCount"`
 }
 
-func (h *DashboardHandler) GetBusinessReportSnapshots(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query(`
-		SELECT snapshot_year, snapshot_month, year, COUNT(*) AS rc, COUNT(DISTINCT channel) AS cc
-		FROM business_budget_report
-		GROUP BY snapshot_year, snapshot_month, year
-		ORDER BY snapshot_year DESC, snapshot_month DESC`)
-	if writeDatabaseError(w, err) {
-		return
-	}
-	defer rows.Close()
-
-	var out []budgetSnapshot
-	for rows.Next() {
-		var s budgetSnapshot
-		if writeDatabaseError(w, rows.Scan(&s.SnapshotYear, &s.SnapshotMonth, &s.Year, &s.RowCount, &s.ChannelCount)) {
-			return
-		}
-		s.Label = formatSnapshotLabel(s.SnapshotYear, s.SnapshotMonth, s.Year)
-		out = append(out, s)
-	}
-	writeJSON(w, map[string]interface{}{"snapshots": out})
-}
 
 type budgetCell struct {
 	Subject         string   `json:"subject"`

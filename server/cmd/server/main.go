@@ -170,12 +170,6 @@ func main() {
 	mux.HandleFunc("/api/s-products", pageAnyProtected(cache24h(h.GetSProducts),
 		"ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view",
 	))
-	mux.HandleFunc("/api/channels", pageAnyProtected(cache24h(h.GetChannels),
-		"ecommerce.store_preview:view", "ecommerce.store_dashboard:view",
-		"social.store_preview:view", "social.store_dashboard:view",
-		"offline.store_preview:view", "offline.store_dashboard:view",
-		"distribution.store_preview:view", "distribution.store_dashboard:view",
-	))
 	mux.HandleFunc("/api/offline/targets", protected(h.GetOfflineTargets))
 	mux.HandleFunc("/api/offline/targets/save", pageProtected("offline.target:edit", h.SaveOfflineTargets))
 	mux.HandleFunc("/api/offline/targets/month", protected(h.GetOfflineTargetsByMonth))
@@ -193,8 +187,6 @@ func main() {
 	// 快递仓储分析 (v0.56)
 	mux.HandleFunc("/api/warehouse-flow/overview", pageProtected("supply_chain.logistics_analysis:view", cache24h(h.GetWarehouseFlowOverview)))
 	mux.HandleFunc("/api/warehouse-flow/matrix", pageProtected("supply_chain.logistics_analysis:view", cache24h(h.GetWarehouseFlowMatrix)))
-	mux.HandleFunc("/api/warehouse-flow/sku", pageProtected("supply_chain.logistics_analysis:view", cache24h(h.GetWarehouseFlowSKU)))
-	mux.HandleFunc("/api/warehouse-flow/sku-list", pageProtected("supply_chain.logistics_analysis:view", cache24h(h.GetWarehouseFlowSKUList)))
 	mux.HandleFunc("/api/admin/tasks", adminRoles(h.GetTaskStatus))
 	mux.HandleFunc("/api/admin/tasks/run", adminRoles(h.RunManualTask))
 	mux.HandleFunc("/api/admin/tasks/running", adminRoles(h.GetRunningTasks))
@@ -211,7 +203,6 @@ func main() {
 		return corsHandler(h.RequirePermission("feedback.manage", next))
 	}
 	mux.HandleFunc("/api/feedback", protected(h.SubmitFeedback))
-	mux.HandleFunc("/api/feedback/my", protected(h.MyFeedback))
 	mux.HandleFunc("/api/feedback/list", feedbackAdmin(h.ListFeedback))
 	mux.HandleFunc("/api/feedback/", feedbackAdmin(h.FeedbackByPath))
 
@@ -257,14 +248,12 @@ func main() {
 	mux.HandleFunc("/api/finance/report/compare", pageProtected("finance.report:view", h.GetFinanceReportCompare))
 	mux.HandleFunc("/api/finance/report/structure", pageProtected("finance.report:view", h.GetFinanceReportStructure))
 	mux.HandleFunc("/api/finance/report/subjects", pageProtected("finance.report:view", h.GetFinanceSubjects))
-	mux.HandleFunc("/api/finance/report/imports", pageProtected("finance.report:view", h.GetFinanceImportLogs))
 	mux.HandleFunc("/api/finance/report/import/preview", pageProtected("finance.report:import", h.ImportFinancePreview))
 	mux.HandleFunc("/api/finance/report/import/confirm", pageProtected("finance.report:import", h.ImportFinanceConfirm))
 	mux.HandleFunc("/api/finance/report/export", pageAllProtected(h.ExportFinanceReport, "finance.report:view", "data:export"))
 
 	// 业务预决算报表 (v0.58/v0.59)
 	mux.HandleFunc("/api/finance/business-report", pageProtected("finance.report:view", h.GetBusinessReportFinanceLike))
-	mux.HandleFunc("/api/finance/business-report/snapshots", pageProtected("finance.report:view", h.GetBusinessReportSnapshots))
 	mux.HandleFunc("/api/finance/business-report/channels", pageProtected("finance.report:view", h.GetBusinessReportChannelsList))
 
 	// 受保护的上传文件访问（禁止目录浏览）

@@ -1087,10 +1087,6 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// 防止 sync 未引用警告 (sync, time 已在文件其他地方用)
-var _ = sync.Mutex{}
-var _ = time.Now
-
 // GetPurchasePlanDetail 单物料钻取: 按 (warehouse × org) 拆解库存/在途/消耗/建议量
 // GET /api/supply-chain/purchase-plan/detail?ysCode=xxx&jkyCode=yyy&type=成品|包材/原料
 func (h *DashboardHandler) GetPurchasePlanDetail(w http.ResponseWriter, r *http.Request) {

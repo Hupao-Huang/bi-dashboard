@@ -137,7 +137,9 @@ func main() {
 	log.Printf("=== 库存同步完成: 共 %d 条, 耗时 %s ===", totalInserted, elapsed.Round(time.Second))
 
 	// 存历史明细快照
-	saveDetailSnapshot(db)
+	// 已停: stock_snapshot_YYYYMM 没人查, 占空间. BI 看板用的是 stock_quantity_daily (snapshot-stock.exe 每天 23:30 写)
+	// 未来要恢复: 取消下面这行注释 + 重 build sync-stock.exe
+	// saveDetailSnapshot(db)
 
 	// 存当日汇总快照
 	saveSnapshot(db)
