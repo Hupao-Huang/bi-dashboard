@@ -177,10 +177,24 @@ const PurchasePlan: React.FC = () => {
     results: SyncStep[]; elapsedSec: number; startedAt: string;
   };
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+  const lastSyncEndRef = React.useRef<number>(0);
 
   const handleSync = async () => {
+    // 防御 1: 当前在同步
     if (syncing) {
       message.warning('已有同步任务在执行, 请稍候');
+      return;
+    }
+    // 防御 2: Modal 还没关闭 (上一轮显示完成态)
+    if (syncProgress) {
+      message.warning('上一次同步结果还未关闭, 请先关闭进度框');
+      return;
+    }
+    // 防御 3: 30 秒 cooldown — 防止异步竞态/误双击
+    const now = Date.now();
+    if (now - lastSyncEndRef.current < 30000 && lastSyncEndRef.current > 0) {
+      const wait = Math.ceil((30000 - (now - lastSyncEndRef.current)) / 1000);
+      message.warning(`上次同步刚完成, ${wait}s 后再试`);
       return;
     }
     setSyncing(true);
@@ -215,6 +229,7 @@ const PurchasePlan: React.FC = () => {
       setSyncProgress(null);
     } finally {
       setSyncing(false);
+      lastSyncEndRef.current = Date.now(); // v0.71.1 cooldown 起点
     }
   };
 
@@ -393,7 +408,9 @@ const PurchasePlan: React.FC = () => {
               </div>
             }>
               <Button type="primary" icon={<SyncOutlined spin={syncing} />}
-                loading={syncing} onClick={handleSync}>
+                loading={syncing}
+                disabled={syncing || !!syncProgress}
+                onClick={handleSync}>
                 立即同步全部 YS 数据
               </Button>
             </Tooltip>
