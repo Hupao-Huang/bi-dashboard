@@ -43,6 +43,19 @@ func buildPlatformCondForKeys(platforms []string, shopColumn string) (string, []
 	return " AND (" + strings.Join(parts, " OR ") + ")", args
 }
 
+// withAlias 给 buildSalesDataScopeCond 返回的 SQL 片段加表别名前缀.
+// 在 JOIN 多表(写 alias)时调用方必须给列名加 alias., 比如 "s.shop_name".
+// 用法: `WHERE s.stat_date>=? `+withAlias(scopeCond, "s")
+// alias=="" 时不变化(单表无 alias 场景).
+func withAlias(scopeCond, alias string) string {
+	if alias == "" || scopeCond == "" {
+		return scopeCond
+	}
+	s := strings.ReplaceAll(scopeCond, "shop_name", alias+".shop_name")
+	s = strings.ReplaceAll(s, "department", alias+".department")
+	return s
+}
+
 func buildSalesDataScopeCond(r *http.Request, requestedDept, requestedPlatform, requestedShop string) (string, []interface{}, error) {
 	payload, ok := authPayloadFromContext(r)
 	if !ok || payload == nil || payload.IsSuperAdmin {
