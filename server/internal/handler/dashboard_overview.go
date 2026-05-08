@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strings"
 )
 
 // GetOverview 综合看板
@@ -126,7 +125,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		FROM sales_goods_summary s
 		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
 		WHERE s.goods_no IS NOT NULL AND s.goods_no != ''
-		  AND s.stat_date BETWEEN ? AND ?`+strings.ReplaceAll(scopeCond, "shop_name", "s.shop_name")+`
+		  AND s.stat_date BETWEEN ? AND ?`+withAlias(scopeCond, "s")+`
 		GROUP BY s.goods_no, s.goods_name, s.brand_name, s.cate_name, g.goods_field7
 		ORDER BY sales DESC LIMIT 15`, goodsArgs...)
 	if !ok {
@@ -243,7 +242,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 			ROUND(SUM(s.goods_amt), 2) as sales
 		FROM sales_goods_summary s
 		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
-		WHERE s.stat_date BETWEEN ? AND ?`+strings.ReplaceAll(scopeCond, "shop_name", "s.shop_name")+`
+		WHERE s.stat_date BETWEEN ? AND ?`+withAlias(scopeCond, "s")+`
 		GROUP BY g.goods_field7
 		ORDER BY FIELD(g.goods_field7,'S','A','B','C','D'), sales DESC`, gradeArgs...)
 	if !ok {
@@ -277,7 +276,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 			ROUND(SUM(s.gross_profit), 2) as profit
 		FROM sales_goods_summary s
 		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
-		WHERE s.stat_date BETWEEN ? AND ?`+strings.ReplaceAll(scopeCond, "shop_name", "s.shop_name")+`
+		WHERE s.stat_date BETWEEN ? AND ?`+withAlias(scopeCond, "s")+`
 		GROUP BY g.goods_field7, s.department
 		ORDER BY FIELD(g.goods_field7,'S','A','B','C','D'), sales DESC`, gdArgs...)
 	if !ok {
