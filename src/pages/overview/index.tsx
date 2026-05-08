@@ -470,7 +470,7 @@ const OverviewPage: React.FC = () => {
                     </div>
                   </div>
                   {card.depts && card.depts.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 4, justifyContent: 'flex-end' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: '60%' }}>
                       {card.depts.map((d: any) => (
                         <span key={d.label} style={{ fontSize: 11, color: '#64748b', background: `${d.color}10`, border: `1px solid ${d.color}20`, borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>
                           <span style={{ color: d.color, fontWeight: 600 }}>{d.label}</span> {d.value}
