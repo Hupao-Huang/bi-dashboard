@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, DatePicker } from 'antd';
+import { Row, Col, Card, Table, DatePicker, Tooltip } from 'antd';
 import dayjs, { Dayjs } from 'dayjs';
 import {
   DollarOutlined,
@@ -7,6 +7,7 @@ import {
   SyncOutlined,
   WarningOutlined,
   StopOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
@@ -14,6 +15,17 @@ import AnimatedNumber from '../../components/AnimatedNumber';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE, DATA_START_DATE, DATA_END_DATE } from '../../config';
 import { getBaseOption, barItemStyle, formatMoney, CHART_COLORS, GRADE_COLORS } from '../../chartTheme';
+
+// v1.02: 每个 Card 数据来源 Tooltip 业务白话说明 (跑哥要求)
+const cardTipStyle: React.CSSProperties = { color: '#94a3b8', marginLeft: 6, fontSize: 12, cursor: 'help' };
+const TitleTip: React.FC<{ title: string; tip: React.ReactNode }> = ({ title, tip }) => (
+  <span>
+    {title}
+    <Tooltip title={tip} overlayStyle={{ maxWidth: 360 }}>
+      <QuestionCircleOutlined style={cardTipStyle} />
+    </Tooltip>
+  </span>
+);
 
 // 计划看板默认选本月（月初到昨天，月初1号当天兜底到上月）
 const DEFAULT_START = DATA_START_DATE;
@@ -72,13 +84,20 @@ const PlanDashboard: React.FC = () => {
   const fmtPct = (v: number) => `${v.toFixed(1)}%`;
 
   const wanHint = (v: number) => v >= 10000 ? `≈ ${(v / 10000).toFixed(1)}万 · ` : '';
+  // v1.02: KPI 卡数据来源说明 (业务白话, 跑哥要求)
   const kpiCards = [
-    { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#1e40af', icon: <DollarOutlined />, desc: wanHint(kpi.salesGMV || 0) + '销售出库销售额', animated: true },
-    { title: '库存成本', num: kpi.stockCost || 0, fmt: fmtYuan, color: '#06b6d4', icon: <DatabaseOutlined />, desc: wanHint(kpi.stockCost || 0) + '当前库存金额' },
-    { title: '库存周转', num: kpi.turnoverDays || 0, fmt: fmtDay, color: '#f59e0b', icon: <SyncOutlined />, desc: '库存成本÷日均销售成本', animated: true },
-    { title: '高库存占比', num: kpi.highStockRate || 0, fmt: fmtPct, color: '#7c3aed', icon: <WarningOutlined />, desc: '周转>50天的库存占比' },
-    { title: '缺货率', num: kpi.stockoutRate || 0, fmt: fmtPct, color: '#ef4444', icon: <StopOutlined />, desc: `${kpi.stockoutSKU || 0}/${kpi.salesSKU || 0} SKU` },
-    { title: '库龄>90天', num: kpi.agedStockValue || 0, fmt: fmtWan, color: '#ea580c', icon: <WarningOutlined />, desc: '生产日期超90天的库存金额' },
+    { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#1e40af', icon: <DollarOutlined />, desc: wanHint(kpi.salesGMV || 0) + '销售出库销售额', animated: true,
+      tip: '本期 10 个核心调味品类、7 个成品仓的销售出库金额（按选中日期范围汇总）。' },
+    { title: '库存成本', num: kpi.stockCost || 0, fmt: fmtYuan, color: '#06b6d4', icon: <DatabaseOutlined />, desc: wanHint(kpi.stockCost || 0) + '当前库存金额',
+      tip: '当前 10 个核心调味品类、7 个成品仓的库存金额（每个 SKU 当前库存 × 成本价加总）。' },
+    { title: '库存周转', num: kpi.turnoverDays || 0, fmt: fmtDay, color: '#f59e0b', icon: <SyncOutlined />, desc: '库存成本÷日均销售成本', animated: true,
+      tip: '库存周转(天) = 库存成本 ÷ 日均销售成本。表示当前库存够卖多少天。' },
+    { title: '高库存占比', num: kpi.highStockRate || 0, fmt: fmtPct, color: '#7c3aed', icon: <WarningOutlined />, desc: '周转>50天的库存占比',
+      tip: '在售商品中"全仓加起来周转 > 50 天"的商品库存金额占比。按 SKU 全仓视角判断，避免单仓数据片面。' },
+    { title: '缺货率', num: kpi.stockoutRate || 0, fmt: fmtPct, color: '#ef4444', icon: <StopOutlined />, desc: `${kpi.stockoutSKU || 0}/${kpi.salesSKU || 0} SKU`,
+      tip: '"全仓真没货且最近还在卖"的商品数 ÷ "在售商品数"。已剔除非卖品/已下架/下架中/接单产/新品-接单产标签。' },
+    { title: '库龄>90天', num: kpi.agedStockValue || 0, fmt: fmtWan, color: '#ea580c', icon: <WarningOutlined />, desc: '生产日期超90天的库存金额',
+      tip: '生产日期超过 90 天的库存批次金额合计。10 个核心调味品类、7 个成品仓。' },
   ];
 
   // ========== 月度销售趋势 ==========
@@ -179,27 +198,40 @@ const PlanDashboard: React.FC = () => {
 
   // ========== 饼图通用配置 ==========
   const makePieOption = (pieData: { value: number; name: string }[]) => {
+    const total = pieData.reduce((s, d) => s + (d.value || 0), 0);
     return {
       tooltip: { trigger: 'item' as const, formatter: '{b}: ¥{c} ({d}%)' },
       color: CHART_COLORS,
-      legend: { show: false },
+      // v1.02 第 5 版: legend 横排底部 (type=scroll 自动翻页) + 饼图本体大扇区有 label
+      legend: {
+        show: true, type: 'scroll' as const, orient: 'horizontal' as const,
+        bottom: 4, left: 'center' as const,
+        itemWidth: 10, itemHeight: 10,
+        textStyle: { fontSize: 11, color: '#475569' },
+        formatter: (name: string) => {
+          const item = pieData.find((d) => d.name === name);
+          if (!item || total <= 0) return name;
+          const pct = (item.value / total * 100).toFixed(1);
+          const val = item.value >= 10000 ? `¥${(item.value / 10000).toFixed(1)}万` : `¥${item.value.toLocaleString()}`;
+          return `${name} ${val} ${pct}%`;
+        },
+      },
       series: [{
-        type: 'pie', radius: ['35%', '65%'], center: ['50%', '50%'],
+        type: 'pie', radius: ['32%', '54%'], center: ['50%', '40%'],
+        // 跑哥要图上有标记: ≥5% 扇区显示 [品类 ¥金额%], 小扇区靠下方 legend 看
         label: {
           show: true,
           formatter: (p: any) => {
+            if (p.percent < 5) return '';
             const val = p.value >= 10000 ? `¥${(p.value / 10000).toFixed(1)}万` : `¥${p.value.toLocaleString()}`;
-            return `{name|${p.name}}\n{val|${val}  ${p.percent}%}`;
+            return `{name|${p.name}}\n{val|${val} ${p.percent}%}`;
           },
           rich: {
-            name: { fontSize: 12, color: '#1e293b', fontWeight: 500 as any, lineHeight: 18 },
-            val: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+            name: { fontSize: 12, color: '#1e293b', fontWeight: 500 as any, lineHeight: 16 },
+            val: { fontSize: 10, color: '#94a3b8', lineHeight: 14 },
           },
         },
-        labelLine: {
-          show: true, length: 12, length2: 16,
-          lineStyle: { color: '#cbd5e1', width: 1 },
-        },
+        labelLine: { show: true, length: 8, length2: 10, lineStyle: { color: '#cbd5e1', width: 1 } },
         itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 },
         data: pieData,
       }],
@@ -228,6 +260,11 @@ const PlanDashboard: React.FC = () => {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
                     {card.title}
+                    {(card as any).tip && (
+                      <Tooltip title={(card as any).tip} overlayStyle={{ maxWidth: 320 }}>
+                        <QuestionCircleOutlined style={{ color: '#cbd5e1', fontSize: 11, cursor: 'help' }} />
+                      </Tooltip>
+                    )}
                     {(card as any).tag && <span style={{ fontSize: 10, color: '#94a3b8', background: '#f1f5f9', borderRadius: 3, padding: '0 4px', lineHeight: '16px' }}>{(card as any).tag}</span>}
                   </div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
@@ -244,7 +281,7 @@ const PlanDashboard: React.FC = () => {
 
       {/* 第2行：月度销售趋势（全宽扁长，独立月份范围） */}
       <Card
-        title="月度销售趋势"
+        title={<TitleTip title="月度销售趋势" tip="按月统计的销售金额。10 个核心调味品类、7 个成品仓的销售汇总。柱子高度 = 该月销售总金额。" />}
         style={{ marginTop: 16 }}
         extra={
           <DatePicker.RangePicker
@@ -266,10 +303,19 @@ const PlanDashboard: React.FC = () => {
         <ReactECharts option={salesTrendOption} style={{ height: 180 }} />
       </Card>
 
-      {/* 第3行：品类库存健康度 + 渠道销售占比 */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
+      {/* 第3行：品类库存健康度 + 各渠道销售额环比 (v1.02 跑哥要等高 460px + 右表填满) */}
+      <div style={{ display: 'flex', gap: 16, marginTop: 16, alignItems: 'stretch' }}>
         <div style={{ flex: 55, minWidth: 0 }}>
-          <Card title="品类库存健康度" styles={{ body: { padding: 0 } }}>
+          <Card title={<TitleTip title="品类库存健康度" tip={
+            <div style={{ lineHeight: 1.7 }}>
+              <div><b>覆盖范围</b>：10 个核心调味品类（调味料/酱油/调味汁/干制面/素蚝油/酱类/醋/汤底/番茄沙司/糖），7 个成品仓。</div>
+              <div><b>库存金额</b>：每个商品在所有仓的当前库存 × 成本价，加总。</div>
+              <div><b>日均销售成本</b>：近 30 天月销量 × 成本价 ÷ 30。</div>
+              <div><b>库存周转(天)</b>：库存金额 ÷ 日均销售成本。</div>
+              <div><b>高库存占比</b>：该品类下"全仓加起来周转 &gt; 50 天"的商品库存金额占比。</div>
+              <div><b>缺货率</b>：该品类下"全仓真没货且最近还在卖"的商品数量占比，已剔除非卖品/已下架/下架中/接单产/新品-接单产。</div>
+            </div>
+          } />} styles={{ body: { padding: 0 } }} style={{ height: '100%' }}>
             <Table
               style={{ borderRadius: 0 }}
               dataSource={data.categories || []}
@@ -277,7 +323,7 @@ const PlanDashboard: React.FC = () => {
               rowKey="category"
               pagination={false}
               size="small"
-              scroll={{ x: 630 }}
+              scroll={{ x: 630, y: 380 }}
               summary={(pageData) => {
                 const totals = pageData.reduce((acc, row: any) => ({
                   stockValue: acc.stockValue + (row.stockValue || 0),
@@ -301,29 +347,41 @@ const PlanDashboard: React.FC = () => {
           </Card>
         </div>
         <div style={{ flex: 45, minWidth: 0 }}>
-          <Card title="各渠道销售额环比">
-            <Table dataSource={data.channels || []} columns={channelCols} rowKey="channel" pagination={false} size="small" scroll={{ x: 550 }} />
-          </Card>
-          <Card title="渠道销售占比" style={{ marginTop: 16 }}>
-            <ReactECharts option={channelPieOption} style={{ height: 240 }} />
+          <Card title={<TitleTip title={`各渠道销售额环比 · ${(data.channels || []).length}个`} tip={
+            <div style={{ lineHeight: 1.7 }}>
+              <div><b>覆盖范围</b>：10 个核心调味品类，7 个成品仓。</div>
+              <div><b>日均销售额</b>：本期销售总额 ÷ 选中天数。</div>
+              <div><b>累计销售额</b>：本期所有天加总。</div>
+              <div><b>环比</b>：本期 vs 上一个月同期。</div>
+              <div><b>同比</b>：本期 vs 去年同期。</div>
+            </div>
+          } />} style={{ height: '100%' }}>
+            <div style={{ minHeight: 420 }}>
+              <Table dataSource={data.channels || []} columns={channelCols} rowKey="channel" pagination={false} size="small" scroll={{ x: 550, y: 380 }} />
+            </div>
           </Card>
         </div>
       </div>
 
-      {/* 第4行：品类销售占比 + 品类毛利占比 */}
+      {/* 第4行：渠道销售占比 + 品类销售占比 + 品类毛利占比 (v1.02 跑哥要 3 饼图一排) */}
       <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <Card title="品类销售占比" style={{ height: '100%' }}>
-            <ReactECharts option={makePieOption(
-              (data.cateSales || []).slice(0, 10).map((c: any) => ({ value: c.sales, name: c.category }))
-            )} style={{ height: 240 }} />
+          <Card title={<TitleTip title="渠道销售占比" tip="本期各部门销售金额占比，仅含 10 个核心调味品类、7 个成品仓的销售。" />} style={{ height: '100%' }}>
+            <ReactECharts option={channelPieOption} style={{ height: 280 }} />
           </Card>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <Card title="品类毛利占比" style={{ height: '100%' }}>
+          <Card title={<TitleTip title="品类销售占比" tip="本期 10 个核心调味品类的销售金额占比，含 7 个成品仓全部部门销售。" />} style={{ height: '100%' }}>
+            <ReactECharts option={makePieOption(
+              (data.cateSales || []).slice(0, 10).map((c: any) => ({ value: c.sales, name: c.category }))
+            )} style={{ height: 280 }} />
+          </Card>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Card title={<TitleTip title="品类毛利占比" tip="本期 10 个核心调味品类的毛利金额占比（毛利 = 销售金额 − 销售成本）。" />} style={{ height: '100%' }}>
             <ReactECharts option={makePieOption(
               (data.cateSales || []).filter((c: any) => c.profit > 0).slice(0, 10).map((c: any) => ({ value: c.profit, name: c.category }))
-            )} style={{ height: 240 }} />
+            )} style={{ height: 280 }} />
           </Card>
         </div>
       </div>
@@ -331,16 +389,32 @@ const PlanDashboard: React.FC = () => {
       {/* 第5行：高库存明细(55%) + 缺货明细(45%) */}
       <div style={{ display: 'flex', gap: 16, marginTop: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: 55, minWidth: 0 }}>
-          <Card title={`高库存产品明细（周转>50天）· ${(data.highStockItems || []).length}个`}>
+          <Card title={<TitleTip title={`高库存产品明细（周转>50天）· ${(data.highStockItems || []).length}个`} tip={
+            <div style={{ lineHeight: 1.7 }}>
+              <div><b>口径</b>：在售商品中"全仓库存够卖超过 50 天"的清单。</div>
+              <div><b>可用库存</b>：所有仓 SUM(当前库存 − 锁定数)。</div>
+              <div><b>日均销量</b>：所有仓 SUM(月销量) ÷ 30。</div>
+              <div><b>周转天数</b>：可用库存 ÷ 日均销量。</div>
+              <div><b>注意</b>：同一商品跨多仓已合并显示一行；只看 10 个核心调味品类、7 个成品仓。</div>
+            </div>
+          } />}>
             <div style={{ minHeight: 420 }}>
-              <Table dataSource={data.highStockItems || []} columns={highStockCols} rowKey="goodsNo" pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 845, y: 420 }} />
+              <Table dataSource={data.highStockItems || []} columns={highStockCols} rowKey="goodsNo" pagination={false} size="small" scroll={{ x: 845, y: 380 }} />
             </div>
           </Card>
         </div>
         <div style={{ flex: 45, minWidth: 0 }}>
-          <Card title={`缺货产品明细 · ${(data.stockoutItems || []).length}个`}>
+          <Card title={<TitleTip title={`缺货产品明细 · ${(data.stockoutItems || []).length}个`} tip={
+            <div style={{ lineHeight: 1.7 }}>
+              <div><b>口径</b>：在售商品中"全仓真没货且最近 30 天还在卖"的清单。</div>
+              <div><b>已剔除</b>：非卖品 / 已下架 / 下架中 / 接单产 / 新品-接单产 标签的商品。</div>
+              <div><b>日均销量</b>：所有仓 SUM(月销量) ÷ 30。</div>
+              <div><b>日均损失</b>：所有仓 SUM(月销量 × 成本价) ÷ 30，按真实成本估算每天因缺货损失多少钱。</div>
+              <div><b>注意</b>：同一商品跨多仓已合并显示一行；只看 10 个核心调味品类、7 个成品仓。</div>
+            </div>
+          } />}>
             <div style={{ minHeight: 420 }}>
-              <Table dataSource={data.stockoutItems || []} columns={stockoutCols} rowKey="goodsNo" pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 655, y: 420 }} />
+              <Table dataSource={data.stockoutItems || []} columns={stockoutCols} rowKey="goodsNo" pagination={false} size="small" scroll={{ x: 655, y: 380 }} />
             </div>
           </Card>
         </div>
@@ -348,7 +422,14 @@ const PlanDashboard: React.FC = () => {
 
       {/* 第6行：库龄>90天产品明细（全宽，8列需要） */}
       {(data.agedItems || []).length > 0 && (
-        <Card title={`库龄>90天产品明细 · ${(data.agedItems || []).length}个`} style={{ marginTop: 16 }}>
+        <Card title={<TitleTip title={`库龄>90天产品明细 · ${(data.agedItems || []).length}个`} tip={
+          <div style={{ lineHeight: 1.7 }}>
+            <div><b>口径</b>：生产日期超过 90 天的库存批次清单（按批次维度，不按 SKU 汇总）。</div>
+            <div><b>库存金额</b>：该批次当前数量 × 成本价。</div>
+            <div><b>库龄天数</b>：所选时间末日 − 生产日期。</div>
+            <div><b>注意</b>：同一商品多批次会拆开显示；7 个成品仓、10 个核心调味品类。</div>
+          </div>
+        } />} style={{ marginTop: 16 }}>
           <div style={{ minHeight: 420 }}>
             <Table dataSource={data.agedItems || []} columns={[
             { title: '#', key: 'index', width: 45, render: (_: any, __: any, i: number) => i + 1 },
@@ -360,7 +441,7 @@ const PlanDashboard: React.FC = () => {
             { title: '批次', dataIndex: 'batchNo', key: 'batchNo', width: 120 },
             { title: '生产日期', dataIndex: 'productionDate', key: 'productionDate', width: 100, render: (v: string) => v ? v.slice(0, 10) : '-' },
             { title: '库龄(天)', dataIndex: 'ageDays', key: 'ageDays', width: 90, align: 'right' as const, sorter: (a: any, b: any) => a.ageDays - b.ageDays, render: (v: number) => <span style={{ color: v > 180 ? '#ef4444' : '#ea580c', fontWeight: 600 }}>{v}</span> },
-          ]} rowKey={(r: any) => r.goodsNo + r.warehouse + r.batchNo} pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 1045, y: 420 }} />
+          ]} rowKey={(r: any) => r.goodsNo + r.warehouse + r.batchNo} pagination={false} size="small" scroll={{ x: 1045, y: 380 }} />
           </div>
         </Card>
       )}
@@ -368,12 +449,12 @@ const PlanDashboard: React.FC = () => {
       {/* 第7行：销售额TOP20(50%) + 销售数量TOP20(50%) */}
       <div style={{ display: 'flex', gap: 16, marginTop: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <Card title="销售额 TOP20">
+          <Card title={<TitleTip title="销售额 TOP20" tip="本期 10 个核心调味品类下，按销售金额排前 20 的商品。" />}>
             <Table dataSource={data.topProducts || []} columns={topCols} rowKey="goodsNo" pagination={false} size="small" scroll={{ x: 700 }} />
           </Card>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <Card title="销售数量 TOP20">
+          <Card title={<TitleTip title="销售数量 TOP20" tip="本期 10 个核心调味品类下，按销售件数排前 20 的商品。" />}>
             <Table dataSource={data.topQtyProducts || []} columns={[
               { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#1e40af' : '#94a3b8', fontWeight: i < 3 ? 700 : 400 }}>{i + 1}</span> },
               { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },

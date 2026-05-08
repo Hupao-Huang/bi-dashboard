@@ -540,25 +540,40 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		cateArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
 		cateArgs = append(cateArgs, warehouseArgsS...)
+		// v1.02: 品类库存健康度 高库存占比/缺货率 改 SKU 维度跨仓汇总 + 缺货统计排除非活跃标签
+		// 子查询: 按 (品类, goods_no) 先聚合 → 外层按品类汇总
+		// 高库存: SUM(可用)/SUM(月销/30)>50 全仓视角
+		// 缺货统计排除 flag_data IN ('非卖品','已下架','下架中','接单产','新品-接单产')
 		rows, ok := queryRows(`
 			SELECT
-				CASE
-					WHEN g.cate_full_name LIKE '成品/%' THEN SUBSTRING_INDEX(SUBSTRING_INDEX(g.cate_full_name,'/',2),'/',-1)
-					WHEN g.cate_full_name IS NOT NULL AND g.cate_full_name != '' THEN g.cate_full_name
-					ELSE '未分类'
-				END AS category,
-				ROUND(SUM(s.current_qty * s.cost_price),2),
-				ROUND(SUM(s.month_qty * s.cost_price / 30),2),
-				SUM(CASE WHEN s.month_qty>0 AND (s.current_qty-s.locked_qty)/(s.month_qty/30)>50 THEN s.current_qty*s.cost_price ELSE 0 END),
-				SUM(CASE WHEN s.current_qty-s.locked_qty<=0 AND s.month_qty>0 THEN 1 ELSE 0 END),
-				SUM(CASE WHEN s.month_qty>0 THEN 1 ELSE 0 END)
-			FROM stock_quantity_daily s
-			LEFT JOIN (SELECT goods_no, MAX(cate_full_name) AS cate_full_name FROM goods WHERE is_delete=0 GROUP BY goods_no) g ON g.goods_no = s.goods_no
-			WHERE s.snapshot_date=? AND s.goods_attr=1 AND s.warehouse_name!=''`+planWhCondS+warehouseCondS+`
+				category,
+				ROUND(SUM(sku_stock_value),2),
+				ROUND(SUM(sku_daily_cost),2),
+				SUM(CASE WHEN sum_month>0 AND sum_avail/(sum_month/30)>50 THEN sku_stock_value ELSE 0 END),
+				SUM(CASE WHEN sum_avail<=0 AND sum_month>0 AND is_active_sku=1 THEN 1 ELSE 0 END),
+				SUM(CASE WHEN sum_month>0 AND is_active_sku=1 THEN 1 ELSE 0 END)
+			FROM (
+				SELECT
+					s.goods_no,
+					CASE
+						WHEN g.cate_full_name LIKE '成品/%' THEN SUBSTRING_INDEX(SUBSTRING_INDEX(g.cate_full_name,'/',2),'/',-1)
+						WHEN g.cate_full_name IS NOT NULL AND g.cate_full_name != '' THEN g.cate_full_name
+						ELSE '未分类'
+					END AS category,
+					SUM(s.current_qty - s.locked_qty) AS sum_avail,
+					SUM(s.month_qty) AS sum_month,
+					SUM(s.current_qty * s.cost_price) AS sku_stock_value,
+					SUM(s.month_qty * s.cost_price / 30) AS sku_daily_cost,
+					CASE WHEN MAX(g.flag_data) IN ('非卖品','已下架','下架中','接单产','新品-接单产') THEN 0 ELSE 1 END AS is_active_sku
+				FROM stock_quantity_daily s
+				LEFT JOIN (SELECT goods_no, MAX(cate_full_name) AS cate_full_name, MAX(flag_data) AS flag_data FROM goods WHERE is_delete=0 GROUP BY goods_no) g ON g.goods_no = s.goods_no
+				WHERE s.snapshot_date=? AND s.goods_attr=1 AND s.warehouse_name!=''`+planWhCondS+warehouseCondS+`
+				GROUP BY s.goods_no, category
+			) t
 			GROUP BY category
-			HAVING SUM(s.current_qty * s.cost_price) > 0
+			HAVING SUM(sku_stock_value) > 0
 				AND category IN ('调味料','酱油','调味汁','干制面','素蚝油','酱类','醋','汤底','番茄沙司','糖')
-			ORDER BY SUM(s.current_qty * s.cost_price) DESC`, cateArgs...)
+			ORDER BY SUM(sku_stock_value) DESC`, cateArgs...)
 		if !ok {
 			return
 		}
