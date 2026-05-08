@@ -46,6 +46,13 @@ type DingTalkConfig struct {
 	ClientID      string `json:"client_id"`
 	ClientSecret  string `json:"client_secret"`
 	CallbackHost  string `json:"callback_host"` // OAuth 回调域名（如 http://192.168.200.48:3000），必须在钉钉应用后台白名单里
+
+	// 通知机器人凭证（用于反馈回复 push 给用户，走 chatbotToOne API）
+	// 复用 hermes-agent 钉钉应用，需在该应用启用 "企业机器人主动消息" 权限
+	// 留空时通知功能自动禁用，不影响其他功能
+	NotifyAppKey    string `json:"notify_app_key"`
+	NotifyAppSecret string `json:"notify_app_secret"`
+	NotifyRobotCode string `json:"notify_robot_code"` // 机器人 robotCode (一般等于 AppKey)
 }
 
 type HesiConfig struct {
