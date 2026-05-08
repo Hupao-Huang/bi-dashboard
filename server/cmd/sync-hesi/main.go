@@ -589,6 +589,14 @@ func syncAttachments(db *sql.DB, token string, flowIds []string) int {
 }
 
 func main() {
+	// 整体超时保护：30 分钟未结束强制退出
+	// 防止合思 API 卡死/死循环导致 schtasks 显示 Running 数小时
+	// (2026-05-09 实测过 13 小时卡死, vbs 同步等待无法回收)
+	go func() {
+		time.Sleep(30 * time.Minute)
+		log.Fatalf("[sync-hesi] 超过 30 分钟未结束, 强制退出（防卡死）")
+	}()
+
 	unlock := importutil.AcquireLock("sync-hesi")
 	defer unlock()
 
