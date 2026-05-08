@@ -433,7 +433,7 @@ func saveAttachments(db *sql.DB, items []map[string]interface{}) {
 					if !ok {
 						continue
 					}
-					db.Exec(`INSERT INTO hesi_flow_attachment
+					db.Exec(`INSERT IGNORE INTO hesi_flow_attachment
 						(flow_id, attachment_type, file_id, file_name, is_invoice, free_id)
 						VALUES (?,?,?,?,0,?)`,
 						flowId, attType, nullStr(getStr(urlMap, "fileId")), nullStr(getStr(urlMap, "fileName")), nullStr(freeId))
@@ -447,7 +447,7 @@ func saveAttachments(db *sql.DB, items []map[string]interface{}) {
 					if !ok {
 						continue
 					}
-					db.Exec(`INSERT INTO hesi_flow_attachment
+					db.Exec(`INSERT IGNORE INTO hesi_flow_attachment
 						(flow_id, attachment_type, file_id, file_name, is_invoice, invoice_number, invoice_code, free_id)
 						VALUES (?,?,?,?,1,?,?,?)`,
 						flowId, attType, nullStr(getStr(urlMap, "fileId")), nullStr(getStr(urlMap, "fileName")),
@@ -462,7 +462,7 @@ func saveAttachments(db *sql.DB, items []map[string]interface{}) {
 					if !ok {
 						continue
 					}
-					db.Exec(`INSERT INTO hesi_flow_attachment
+					db.Exec(`INSERT IGNORE INTO hesi_flow_attachment
 						(flow_id, attachment_type, file_id, file_name, is_invoice, free_id)
 						VALUES (?,?,?,?,0,?)`,
 						flowId, attType, nullStr(getStr(urlMap, "key")), nullStr(getStr(urlMap, "key")), nullStr(freeId))
