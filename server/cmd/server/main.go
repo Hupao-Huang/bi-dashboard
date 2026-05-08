@@ -257,9 +257,9 @@ func main() {
 	mux.HandleFunc("/api/finance/business-report", pageProtected("finance.report:view", h.GetBusinessReportFinanceLike))
 	mux.HandleFunc("/api/finance/business-report/channels", pageProtected("finance.report:view", h.GetBusinessReportChannelsList))
 
-	// 特殊渠道按调拨算销售额(对账页) v0.62
-	mux.HandleFunc("/api/special-channel-allot/summary", pageProtected("finance.report:view", h.GetSpecialChannelAllotSummary))
-	mux.HandleFunc("/api/special-channel-allot/details", pageProtected("finance.report:view", h.GetSpecialChannelAllotDetails))
+	// 特殊渠道按调拨算销售额(对账页) v0.62, v1.04 修正权限错配
+	mux.HandleFunc("/api/special-channel-allot/summary", pageProtected("ecommerce.special_channel_allot:view", h.GetSpecialChannelAllotSummary))
+	mux.HandleFunc("/api/special-channel-allot/details", pageProtected("ecommerce.special_channel_allot:view", h.GetSpecialChannelAllotDetails))
 
 	// 受保护的上传文件访问（禁止目录浏览）
 	mux.HandleFunc("/api/uploads/", protected(h.ServeUploadFile))

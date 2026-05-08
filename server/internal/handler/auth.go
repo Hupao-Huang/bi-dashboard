@@ -455,6 +455,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "ecommerce.store_dashboard:view", Name: "电商-店铺看板", Type: "page"},
 	{Code: "ecommerce.product_dashboard:view", Name: "电商-货品看板", Type: "page"},
 	{Code: "ecommerce.marketing_cost:view", Name: "电商-营销费用", Type: "page"},
+	{Code: "ecommerce.special_channel_allot:view", Name: "电商-特殊渠道调拨对账", Type: "page"},
 	{Code: "social:view", Name: "社媒部门", Type: "menu"},
 	{Code: "social.store_preview:view", Name: "社媒-店铺数据预览", Type: "page"},
 	{Code: "social.store_dashboard:view", Name: "社媒-店铺看板", Type: "page"},
@@ -518,7 +519,7 @@ var roleDefaultPermissions = map[string][]string{
 	"management": {
 		"overview:view",
 		"brand:view",
-		"ecommerce:view", "ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view", "ecommerce.marketing_cost:view",
+		"ecommerce:view", "ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view", "ecommerce.marketing_cost:view", "ecommerce.special_channel_allot:view",
 		"social:view", "social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view", "social.feigua:view",
 		"offline:view", "offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view", "offline.high_value_customers:view", "offline.turnover_expiry:view", "offline.ka_monthly:view",
 		"distribution:view", "distribution.store_preview:view", "distribution.store_dashboard:view", "distribution.product_dashboard:view",
@@ -531,7 +532,7 @@ var roleDefaultPermissions = map[string][]string{
 	"dept_manager": {
 		"overview:view",
 		"brand:view",
-		"ecommerce:view", "ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view", "ecommerce.marketing_cost:view",
+		"ecommerce:view", "ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view", "ecommerce.marketing_cost:view", "ecommerce.special_channel_allot:view",
 		"social:view", "social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view", "social.feigua:view",
 		"offline:view", "offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view", "offline.high_value_customers:view", "offline.turnover_expiry:view", "offline.ka_monthly:view",
 		"distribution:view", "distribution.store_preview:view", "distribution.store_dashboard:view", "distribution.product_dashboard:view",
@@ -540,7 +541,7 @@ var roleDefaultPermissions = map[string][]string{
 	},
 	"operator": {
 		"brand:view",
-		"ecommerce:view", "ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view", "ecommerce.marketing_cost:view",
+		"ecommerce:view", "ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view", "ecommerce.marketing_cost:view", "ecommerce.special_channel_allot:view",
 		"social:view", "social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view", "social.feigua:view",
 		"offline:view", "offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view", "offline.high_value_customers:view", "offline.turnover_expiry:view", "offline.ka_monthly:view",
 		"distribution:view", "distribution.store_preview:view", "distribution.store_dashboard:view", "distribution.product_dashboard:view",
