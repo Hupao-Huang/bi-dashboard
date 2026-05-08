@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	getTokenURL    = "https://oapi.dingtalk.com/gettoken"
-	sendMessageURL = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
-	httpTimeout    = 10 * time.Second
+	getTokenURL      = "https://oapi.dingtalk.com/gettoken"
+	getByUnionIDURL  = "https://oapi.dingtalk.com/topapi/user/getbyunionid"
+	sendMessageURL   = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
+	httpTimeout      = 10 * time.Second
 )
 
 // Notifier 钉钉机器人通知客户端
@@ -34,9 +35,10 @@ type Notifier struct {
 	appSecret string
 	robotCode string
 
-	mu          sync.Mutex
-	cachedToken string
-	expiresAt   time.Time
+	mu           sync.Mutex
+	cachedToken  string
+	expiresAt    time.Time
+	staffIDCache map[string]string // unionId → staffId
 
 	httpClient *http.Client
 }
@@ -50,11 +52,64 @@ func NewNotifier(appKey, appSecret, robotCode string) *Notifier {
 		robotCode = appKey
 	}
 	return &Notifier{
-		appKey:     appKey,
-		appSecret:  appSecret,
-		robotCode:  robotCode,
-		httpClient: &http.Client{Timeout: httpTimeout},
+		appKey:       appKey,
+		appSecret:    appSecret,
+		robotCode:    robotCode,
+		staffIDCache: make(map[string]string),
+		httpClient:   &http.Client{Timeout: httpTimeout},
 	}
+}
+
+// resolveStaffID 把 UnionId 转为企业内 staffId, 失败回原值由调用方判断
+// 缓存命中常驻进程内（unionId/staffId 一对一不会变）
+func (n *Notifier) resolveStaffID(unionID string) (string, error) {
+	if unionID == "" {
+		return "", errors.New("unionID is empty")
+	}
+	n.mu.Lock()
+	if sid, ok := n.staffIDCache[unionID]; ok {
+		n.mu.Unlock()
+		return sid, nil
+	}
+	n.mu.Unlock()
+
+	token, err := n.getAccessToken()
+	if err != nil {
+		return "", err
+	}
+
+	body, _ := json.Marshal(map[string]string{"unionid": unionID})
+	resp, err := n.httpClient.Post(
+		getByUnionIDURL+"?access_token="+token,
+		"application/json", bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", fmt.Errorf("getbyunionid request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+		Result  struct {
+			UserID string `json:"userid"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("getbyunionid parse: %w (body=%s)", err, string(respBody))
+	}
+	if result.ErrCode != 0 {
+		return "", fmt.Errorf("getbyunionid errcode=%d msg=%s", result.ErrCode, result.ErrMsg)
+	}
+	if result.Result.UserID == "" {
+		return "", fmt.Errorf("getbyunionid empty userid for unionID=%s", unionID)
+	}
+
+	n.mu.Lock()
+	n.staffIDCache[unionID] = result.Result.UserID
+	n.mu.Unlock()
+	return result.Result.UserID, nil
 }
 
 // getAccessToken 获取/刷新 access_token (缓存 7000s, 留 200s 余量)
@@ -98,15 +153,29 @@ func (n *Notifier) getAccessToken() (string, error) {
 	return n.cachedToken, nil
 }
 
-// SendText 给指定 unionId 列表推送纯文本消息
-// userIds: 钉钉 unionId（users.dingtalk_userid 字段）
+// SendText 给指定 UnionId 列表推送纯文本消息
+// unionIDs: 钉钉 UnionId（users.dingtalk_userid 字段, 内部会自动转为 staffId）
 // content: 文本内容
-func (n *Notifier) SendText(userIds []string, content string) error {
-	if len(userIds) == 0 {
-		return errors.New("userIds 为空")
+func (n *Notifier) SendText(unionIDs []string, content string) error {
+	if len(unionIDs) == 0 {
+		return errors.New("unionIDs 为空")
 	}
 	if content == "" {
 		return errors.New("content 为空")
+	}
+
+	// UnionId → staffId 转换
+	staffIDs := make([]string, 0, len(unionIDs))
+	for _, uid := range unionIDs {
+		sid, err := n.resolveStaffID(uid)
+		if err != nil {
+			log.Printf("[dingtalk-notify] resolve unionID=%s failed: %v", uid, err)
+			continue
+		}
+		staffIDs = append(staffIDs, sid)
+	}
+	if len(staffIDs) == 0 {
+		return errors.New("无有效 staffId（UnionId 转换全部失败）")
 	}
 
 	token, err := n.getAccessToken()
@@ -117,7 +186,7 @@ func (n *Notifier) SendText(userIds []string, content string) error {
 	msgParam, _ := json.Marshal(map[string]string{"content": content})
 	payload := map[string]interface{}{
 		"robotCode": n.robotCode,
-		"userIds":   userIds,
+		"userIds":   staffIDs,
 		"msgKey":    "sampleText",
 		"msgParam":  string(msgParam),
 	}
