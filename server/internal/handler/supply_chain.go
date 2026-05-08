@@ -1245,10 +1245,26 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// syncYSStockMu 防止并发触发同步 (一次只允许一个跑)
+// SyncYSStock 同步触发: 7 重防御职责划分 (v1.00 设计文档化, 不删)
+//
+// 前端 PurchasePlan.tsx handleSync 5 重:
+//  1. syncing 状态防御         — 当前 tab 已在同步, 拦截重复点
+//  2. syncProgress Modal 防御  — 上一轮完成态 Modal 没关, 拦截连击
+//  3. lastSyncEndRef 60s       — 同 tab 异步竞态/误双击 (跟后端对齐)
+//  4. polling race fix (v0.78) — 防 1.5s 轮询把 done=true 状态覆盖回 running=true
+//  5. 二次确认弹窗 (v0.80)     — 同步耗时 4-6 分钟, 防误点
+//
+// 后端 2 重 (本文件):
+//  6. syncYSStockMu + Running  — 进程内并发互斥, 同一时刻只能跑一轮
+//  7. syncYSLastEndTime 60s    — 全局 cooldown, 兜底前端 5 重失效场景
+//                                 (双 tab / 浏览器扩展 / 页面刷新清前端 ref / 直接 curl)
+//
+// 真 bug 历史: v0.78 polling race 是最后一个代码层 bug, 已修.
+// 剩余 6 重均为兜底用户行为, 代码层无可"消除根因", 不要再当冗余删.
+// 调查方法: grep "sync-ys-stock|SyncYSStock" 全代码, 仅 PurchasePlan.tsx:248 一处调用且只在按钮 onClick.
 var syncYSStockMu sync.Mutex
 var syncYSStockRunning bool
-var syncYSLastEndTime time.Time // v0.74: 全局后端 cooldown, 防止任何来源(包括前端 bug) 60s 内重复触发
+var syncYSLastEndTime time.Time // 见上方 7 重防御文档
 
 // syncYSProgress v0.71: 同步进度状态 (前端轮询用)
 type syncStepProgress struct {
@@ -1505,9 +1521,13 @@ func (h *DashboardHandler) GetSyncYSProgress(w http.ResponseWriter, r *http.Requ
 // 参数: goodsNo (吉客云 goods_no, 必填)
 // 返回: { purchaseOrders: [...], subcontractOrders: [...] }
 //
-// 桥接策略 (兼容 v0.65 双路径):
-//  1. 优先 goods.sku_code → YS product_c_code 桥接
-//  2. 兜底 sq.goods_no 直接 = ys_*.product_c_code
+// 桥接策略 (双路径, v1.01 文档化真实场景):
+//  1. 主路径: goods.sku_code → YS product_c_code 桥接 (99% 命中)
+//  2. 兜底:   ys_*.product_c_code = goodsNo 直接相等
+//     场景: 用友 ERP 已建档(委外/采购下单)但吉客云物料档案尚未建立
+//     真实案例 2026-05-08: 03030236 减钠松茸薄盐生抽 — 委外 WWDD20260430000003 已下,
+//                          吉客云物料档案次日 sync-goods 才补齐
+//     依赖: BI-SyncGoods schtasks 每天 04:00 全量同步, 兜底窗口 ≤24h
 func (h *DashboardHandler) GetInTransitDetail(w http.ResponseWriter, r *http.Request) {
 	if writeScopeError(w, requireDomainAccess(r, "supply_chain")) {
 		return

@@ -179,17 +179,5 @@ CREATE TABLE IF NOT EXISTS sales_channel (
     INDEX idx_depart_name (channel_depart_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='销售渠道信息（来自吉客云erp.sales.get）';
 
--- =============================================
--- 7. 数据同步记录表
--- =============================================
-CREATE TABLE IF NOT EXISTS sync_log (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    sync_type       VARCHAR(50)    NOT NULL COMMENT '同步类型: trade/sales_summary',
-    start_time      DATETIME       NOT NULL COMMENT '同步数据起始时间',
-    end_time        DATETIME       NOT NULL COMMENT '同步数据截止时间',
-    record_count    INT            DEFAULT 0 COMMENT '同步记录数',
-    status          VARCHAR(20)    NOT NULL DEFAULT 'running' COMMENT '状态: running/success/failed',
-    error_msg       TEXT           DEFAULT NULL COMMENT '错误信息',
-    created_at      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    finished_at     DATETIME       DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据同步日志';
+-- v0.16 起规划的 sync_log 表 (数据同步日志) v1.01 移除:
+-- 一年来代码里零引用、线上未实例化, 死代码清理. 后续如需要落 sync 日志, 直接新建.
