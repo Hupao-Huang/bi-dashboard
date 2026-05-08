@@ -117,7 +117,7 @@ func (h *DashboardHandler) SubmitFeedback(w http.ResponseWriter, r *http.Request
 		title, content, pageURL, attachJSON,
 	)
 	if err != nil {
-		writeError(w, 500, "保存反馈失败: "+err.Error())
+		writeServerError(w, 500, "保存反馈失败", err)
 		return
 	}
 
@@ -160,7 +160,7 @@ func (h *DashboardHandler) ListFeedback(w http.ResponseWriter, r *http.Request) 
 		queryArgs...,
 	)
 	if err != nil {
-		writeError(w, 500, "查询失败: "+err.Error())
+		writeServerError(w, 500, "查询反馈失败", err)
 		return
 	}
 	defer rows.Close()
@@ -260,7 +260,7 @@ func (h *DashboardHandler) FeedbackByPath(w http.ResponseWriter, r *http.Request
 		}
 
 		if err != nil {
-			writeError(w, 500, "更新失败: "+err.Error())
+			writeServerError(w, 500, "更新反馈失败", err)
 			return
 		}
 		writeJSON(w, map[string]string{"message": "更新成功"})

@@ -27,7 +27,7 @@ func (h *DashboardHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		DATE_FORMAT(last_login_at,'%Y-%m-%d %H:%i'), IFNULL(dingtalk_userid,''), IFNULL(password_hash,'') FROM users WHERE id=?`, payload.User.ID).
 		Scan(&realName, &avatar, &phone, &email, &lastLoginAt, &dingtalkUserid, &passwordHash)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeServerError(w, 500, "获取个人信息失败", err)
 		return
 	}
 
@@ -88,7 +88,7 @@ func (h *DashboardHandler) UpdateProfile(w http.ResponseWriter, r *http.Request)
 	args = append(args, payload.User.ID)
 	_, err := h.DB.Exec("UPDATE users SET "+strings.Join(sets, ",")+` WHERE id=?`, args...)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeServerError(w, 500, "更新个人信息失败", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"message": "更新成功"})
@@ -140,7 +140,7 @@ func (h *DashboardHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) 
 	avatarURL := "/api/uploads/avatars/" + filename
 	_, err = h.DB.Exec("UPDATE users SET avatar=? WHERE id=?", avatarURL, payload.User.ID)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeServerError(w, 500, "保存头像失败", err)
 		return
 	}
 
