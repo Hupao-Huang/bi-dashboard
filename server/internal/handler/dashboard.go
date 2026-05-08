@@ -6,6 +6,8 @@ import (
 	"log"
 	"math"
 	"net/http"
+
+	"bi-dashboard/internal/dingtalk"
 )
 
 type DashboardHandler struct {
@@ -18,6 +20,7 @@ type DashboardHandler struct {
 	HesiAppKey       string
 	HesiSecret       string
 	WebhookSecret    string
+	Notifier         *dingtalk.Notifier // 钉钉主动通知（反馈回复推送），凭证未配置时为 nil
 }
 
 // round2 浮点数累加防精度尾巴(0.090000000001 → 0.09)

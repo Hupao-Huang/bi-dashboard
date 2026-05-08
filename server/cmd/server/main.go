@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/dingtalk"
 	"bi-dashboard/internal/handler"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -44,6 +45,13 @@ func main() {
 	}
 	log.Println("Auth schema ready")
 
+	notifier := dingtalk.NewNotifier(cfg.DingTalk.NotifyAppKey, cfg.DingTalk.NotifyAppSecret, cfg.DingTalk.NotifyRobotCode)
+	if notifier != nil {
+		log.Println("DingTalk notifier ready (反馈回复将推送给提交人)")
+	} else {
+		log.Println("DingTalk notifier disabled (未配置 notify_app_key/notify_app_secret)")
+	}
+
 	h := &handler.DashboardHandler{
 		DB:               db,
 		DingToken:        cfg.DingTalk.WebhookToken,
@@ -54,6 +62,7 @@ func main() {
 		HesiAppKey:       cfg.Hesi.AppKey,
 		HesiSecret:       cfg.Hesi.Secret,
 		WebhookSecret:    cfg.Webhook.Secret,
+		Notifier:         notifier,
 	}
 
 	mux := http.NewServeMux()

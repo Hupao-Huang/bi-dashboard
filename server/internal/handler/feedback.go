@@ -2,10 +2,12 @@ package handler
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -263,10 +265,46 @@ func (h *DashboardHandler) FeedbackByPath(w http.ResponseWriter, r *http.Request
 			writeServerError(w, 500, "更新反馈失败", err)
 			return
 		}
+
+		// 反馈回复后通过钉钉推送给提交人（凭证未配置时跳过）
+		if req.Reply != "" && h.Notifier != nil {
+			h.notifyFeedbackReply(id, req.Reply, payload.User.RealName)
+		}
+
 		writeJSON(w, map[string]string{"message": "更新成功"})
 
 	default:
 		writeError(w, 405, "method not allowed")
 	}
+}
+
+// notifyFeedbackReply 异步推送反馈回复给提交人
+func (h *DashboardHandler) notifyFeedbackReply(feedbackID int64, reply, replier string) {
+	var (
+		title          string
+		submitterUnion sql.NullString
+		submitterName  sql.NullString
+	)
+	err := h.DB.QueryRow(`
+		SELECT f.title, u.dingtalk_userid, u.real_name
+		FROM feedback f
+		LEFT JOIN users u ON u.id = f.user_id
+		WHERE f.id = ?
+	`, feedbackID).Scan(&title, &submitterUnion, &submitterName)
+	if err != nil {
+		log.Printf("[feedback-notify] query feedback %d: %v", feedbackID, err)
+		return
+	}
+	if !submitterUnion.Valid || submitterUnion.String == "" {
+		log.Printf("[feedback-notify] feedback %d: submitter has no dingtalk binding, skip", feedbackID)
+		return
+	}
+
+	greeting := submitterName.String
+	if greeting == "" {
+		greeting = "你好"
+	}
+	content := greeting + "，你提交的反馈\"" + title + "\"已有新回复：\n\n" + reply + "\n\n— 来自 " + replier
+	h.Notifier.SendTextAsync([]string{submitterUnion.String}, content)
 }
 
