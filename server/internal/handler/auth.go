@@ -1755,7 +1755,11 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 		mobile := strings.TrimSpace(pending.Mobile)
 		username := mobile
 		if username == "" {
-			username = "dt_" + dtID[:12]
+			if len(dtID) >= 12 {
+				username = "dt_" + dtID[:12]
+			} else {
+				username = "dt_" + dtID
+			}
 		}
 		result, err := h.DB.Exec(
 			`INSERT INTO users (username, password_hash, real_name, phone, dingtalk_userid, status, remark) VALUES (?, '', ?, ?, ?, 'pending', ?)`,

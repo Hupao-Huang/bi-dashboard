@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Table, Tag, Input, Select, DatePicker, Card, Typography, Row, Col, Button } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -27,7 +27,7 @@ const AuditLog: React.FC = () => {
   const [username, setUsername] = useState('');
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -51,10 +51,12 @@ const AuditLog: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize, action, username, dateRange]);
 
   useEffect(() => {
     if (session) fetchData();
+    // 翻页/初始化自动重拉; 改过滤需点查询按钮(避免输入时频繁请求)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, page, pageSize]);
 
   const columns: ColumnsType<any> = [
