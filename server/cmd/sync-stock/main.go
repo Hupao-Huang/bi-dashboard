@@ -12,10 +12,31 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
+
+// qidGreater 比较两个 quantityId 字符串的数值大小 (吉客云 quantityId 是 long 型, 可能 19+ 位)
+// 优先用 ParseUint, 失败兜底用 长度+字典序
+func qidGreater(a, b string) bool {
+	if a == "" {
+		return false
+	}
+	if b == "" {
+		return true
+	}
+	av, errA := strconv.ParseUint(a, 10, 64)
+	bv, errB := strconv.ParseUint(b, 10, 64)
+	if errA == nil && errB == nil {
+		return av > bv
+	}
+	if len(a) != len(b) {
+		return len(a) > len(b)
+	}
+	return a > b
+}
 
 func main() {
 	unlock := importutil.AcquireLock("sync-stock")
@@ -101,9 +122,11 @@ func main() {
 			break
 		}
 
-		// 写入数据库，并记录最后一条的quantityId作为下次游标
+		// 写入数据库，并取整页最大 quantityId 作为下次游标
+		// v0.87 fix: 之前用 "末尾条目的 qid" (变量 lastQid), 但页内顺序不保证单调,
+		// 末尾不一定是最大. 改成页内 MAX, 防止跳过中间更大的 qid 漏拉数据.
 		inserted := 0
-		lastQid := ""
+		maxQidInPage := ""
 		for _, item := range items {
 			err := upsertStock(db, item)
 			if err != nil {
@@ -112,11 +135,13 @@ func main() {
 			}
 			inserted++
 			if qid := gs(item, "quantityId"); qid != "" && qid != "0" {
-				lastQid = qid
+				if qidGreater(qid, maxQidInPage) {
+					maxQidInPage = qid
+				}
 			}
 		}
 		totalInserted += inserted
-		log.Printf("  第 %d 批: %d/%d 条写入成功", round, inserted, len(items))
+		log.Printf("  第 %d 批: %d/%d 条写入成功 (maxQid=%s)", round, inserted, len(items), maxQidInPage)
 
 		// 不足一页说明已到最后
 		if len(items) < pageSize {
@@ -124,10 +149,11 @@ func main() {
 		}
 
 		// 更新游标
-		if lastQid == "" {
+		if maxQidInPage == "" {
+			log.Printf("警告: 第 %d 批整页无有效 quantityId, 停止翻页 (可能丢数据, 请人工核查)", round)
 			break
 		}
-		maxQuantityId = lastQid
+		maxQuantityId = maxQidInPage
 
 		// 限速，避免频率过高
 		time.Sleep(50 * time.Millisecond) // v0.79.1: 限流 30/s 间隔 ≥ 33ms 即可
