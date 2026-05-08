@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"math"
 	"net/http"
 )
@@ -46,4 +47,14 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 		"code": code,
 		"msg":  msg,
 	})
+}
+
+// writeServerError 服务端错误统一处理: 内部 log 全细节, 前端只看 generic msg
+// 用于 SQL/OS/外部 API 错误, 防止表名/SQL/服务器路径泄露给前端
+// 业务校验错误(validatePassword 等)直接给用户看 err.Error() 不要走这个
+func writeServerError(w http.ResponseWriter, code int, msg string, err error) {
+	if err != nil {
+		log.Printf("[server-error] %s: %v", msg, err)
+	}
+	writeError(w, code, msg)
 }

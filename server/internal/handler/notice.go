@@ -31,7 +31,7 @@ func (h *DashboardHandler) GetNotices(w http.ResponseWriter, r *http.Request) {
 		ORDER BY is_pinned DESC, created_at DESC
 		LIMIT 50`)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeServerError(w, 500, "查询公告失败", err)
 		return
 	}
 	defer rows.Close()
@@ -40,7 +40,7 @@ func (h *DashboardHandler) GetNotices(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var n Notice
 		if err := rows.Scan(&n.ID, &n.Title, &n.Content, &n.Type, &n.IsPinned, &n.IsActive, &n.CreatedBy, &n.CreatedAt, &n.UpdatedAt); err != nil {
-			writeError(w, 500, err.Error())
+			writeServerError(w, 500, "解析公告记录失败", err)
 			return
 		}
 		notices = append(notices, n)
@@ -60,7 +60,7 @@ func (h *DashboardHandler) AdminListNotices(w http.ResponseWriter, r *http.Reque
 		FROM notices
 		ORDER BY is_pinned DESC, created_at DESC`)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeServerError(w, 500, "查询公告失败", err)
 		return
 	}
 	defer rows.Close()
@@ -69,7 +69,7 @@ func (h *DashboardHandler) AdminListNotices(w http.ResponseWriter, r *http.Reque
 	for rows.Next() {
 		var n Notice
 		if err := rows.Scan(&n.ID, &n.Title, &n.Content, &n.Type, &n.IsPinned, &n.IsActive, &n.CreatedBy, &n.CreatedAt, &n.UpdatedAt); err != nil {
-			writeError(w, 500, err.Error())
+			writeServerError(w, 500, "解析公告记录失败", err)
 			return
 		}
 		notices = append(notices, n)
@@ -113,7 +113,7 @@ func (h *DashboardHandler) CreateNotice(w http.ResponseWriter, r *http.Request) 
 	result, err := h.DB.Exec(`INSERT INTO notices (title, content, type, is_pinned, created_by) VALUES (?,?,?,?,?)`,
 		req.Title, req.Content, req.Type, req.IsPinned, username)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeServerError(w, 500, "创建公告失败", err)
 		return
 	}
 	id, _ := result.LastInsertId()
@@ -197,7 +197,7 @@ func (h *DashboardHandler) DeleteNotice(w http.ResponseWriter, r *http.Request) 
 	}
 	_, err = h.DB.Exec("DELETE FROM notices WHERE id=?", id)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeServerError(w, 500, "删除公告失败", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"message": "删除成功"})

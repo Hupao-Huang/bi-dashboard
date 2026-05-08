@@ -125,7 +125,7 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 	dataArgs := append(args, pageSize, offset)
 	rows, err := h.DB.Query(dataSQL, dataArgs...)
 	if err != nil {
-		writeError(w, 500, "查询失败: "+err.Error())
+		writeServerError(w, 500, "查询费控数据失败", err)
 		return
 	}
 	defer rows.Close()
@@ -198,7 +198,7 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 			var s detailStat
 			if err := drows.Scan(&fid, &s.count, &s.exist, &s.missing); err != nil {
 				drows.Close()
-				writeError(w, 500, "扫描明细统计失败: "+err.Error())
+				writeServerError(w, 500, "扫描明细统计失败", err)
 				return
 			}
 			detailMap[fid] = s
@@ -217,7 +217,7 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 			var c int
 			if err := arows.Scan(&fid, &c); err != nil {
 				arows.Close()
-				writeError(w, 500, "扫描附件统计失败: "+err.Error())
+				writeServerError(w, 500, "扫描附件统计失败", err)
 				return
 			}
 			attachMap[fid] = c
@@ -412,7 +412,7 @@ func (h *DashboardHandler) GetHesiAttachmentURLs(w http.ResponseWriter, r *http.
 
 	token, err := h.getHesiToken()
 	if err != nil {
-		writeError(w, 500, "获取合思授权失败: "+err.Error())
+		writeServerError(w, 500, "获取合思授权失败", err)
 		return
 	}
 
@@ -430,7 +430,7 @@ func (h *DashboardHandler) GetHesiAttachmentURLs(w http.ResponseWriter, r *http.
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := hesiHTTP.Do(req)
 	if err != nil {
-		writeError(w, 500, "获取附件失败: "+err.Error())
+		writeServerError(w, 500, "获取附件失败", err)
 		return
 	}
 	defer resp.Body.Close()

@@ -653,7 +653,7 @@ func (h *DashboardHandler) RunManualTask(w http.ResponseWriter, r *http.Request)
 
 	logFile, err := os.Create(logPath)
 	if err != nil {
-		writeError(w, 500, "create log file failed: "+err.Error())
+		writeServerError(w, 500, "创建日志文件失败", err)
 		return
 	}
 
@@ -681,7 +681,7 @@ func (h *DashboardHandler) RunManualTask(w http.ResponseWriter, r *http.Request)
 
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
-		writeError(w, 500, "start task failed: "+err.Error())
+		writeServerError(w, 500, "启动任务失败", err)
 		return
 	}
 

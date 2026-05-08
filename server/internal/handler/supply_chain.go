@@ -133,7 +133,7 @@ func (h *DashboardHandler) GetSupplyChainMonthlyTrend(w http.ResponseWriter, r *
 	for rows.Next() {
 		var d MonthData
 		if err := rows.Scan(&d.Month, &d.Value); err != nil {
-			writeError(w, 500, err.Error())
+			writeServerError(w, 500, "扫描月度数据失败", err)
 			return
 		}
 		list = append(list, d)

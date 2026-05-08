@@ -676,19 +676,19 @@ func (h *DashboardHandler) ImportFinancePreview(w http.ResponseWriter, r *http.R
 
 	dict, err := finance.LoadSubjectDict(h.DB)
 	if err != nil {
-		writeError(w, 500, "加载字典失败: "+err.Error())
+		writeServerError(w, 500, "加载字典失败", err)
 		return
 	}
 	result, err := finance.ParseFile(tmpPath, year, dict)
 	if err != nil {
-		writeError(w, 500, "解析失败: "+err.Error())
+		writeServerError(w, 500, "Excel 解析失败", err)
 		return
 	}
 	result.Mode = mode
 
 	diff, err := finance.ComputeDiff(h.DB, result)
 	if err != nil {
-		writeError(w, 500, "计算变更预览失败: "+err.Error())
+		writeServerError(w, 500, "计算变更预览失败", err)
 		return
 	}
 
@@ -705,7 +705,7 @@ func (h *DashboardHandler) ImportFinancePreview(w http.ResponseWriter, r *http.R
 	cachePath := filepath.Join(financePreviewDir(), token+".json")
 	cacheBytes, _ := json.Marshal(payload)
 	if err := os.WriteFile(cachePath, cacheBytes, 0600); err != nil {
-		writeError(w, 500, "缓存预览失败: "+err.Error())
+		writeServerError(w, 500, "缓存预览失败", err)
 		return
 	}
 
@@ -767,7 +767,7 @@ func (h *DashboardHandler) ImportFinanceConfirm(w http.ResponseWriter, r *http.R
 	}
 	var payload previewPayload
 	if err := json.Unmarshal(cacheBytes, &payload); err != nil {
-		writeError(w, 500, "缓存损坏: "+err.Error())
+		writeServerError(w, 500, "缓存损坏", err)
 		return
 	}
 	if time.Since(payload.UploadedAt) > financePreviewTTL {
@@ -784,7 +784,7 @@ func (h *DashboardHandler) ImportFinanceConfirm(w http.ResponseWriter, r *http.R
 
 	if err := finance.WriteResult(h.DB, payload.Result); err != nil {
 		_ = finance.LogImport(h.DB, payload.Filename, payload.Year, payload.Result, payload.UserID, "failed", err.Error())
-		writeError(w, 500, "入库失败: "+err.Error())
+		writeServerError(w, 500, "入库失败", err)
 		return
 	}
 

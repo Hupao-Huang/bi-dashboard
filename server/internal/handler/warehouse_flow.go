@@ -405,7 +405,7 @@ func (h *DashboardHandler) GetWarehouseFlowMatrix(w http.ResponseWriter, r *http
 
 	rs, err := h.DB.Query(rawSQL, args...)
 	if err != nil {
-		writeError(w, 500, "matrix query failed: "+err.Error())
+		writeServerError(w, 500, "查询仓库流向失败", err)
 		return
 	}
 	defer rs.Close()
