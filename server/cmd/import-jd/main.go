@@ -20,42 +20,6 @@ var baseDir = `Z:\信息部\RPA_集团数据看板\京东`
 // parseExcelDate 严格解析 Excel 日期列，格式不合规返回 ""（调用方 fallback 到文件名日期）
 // 支持: YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD / YYYY年MM月DD日 / YYYYMMDD / YYYY-M-D
 // 注意：YY 两位年份格式不受支持（避免误解析导致数据污染）
-func parseExcelDate(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	if idx := strings.Index(s, " "); idx > 0 {
-		s = s[:idx]
-	}
-	s = strings.ReplaceAll(s, "/", "-")
-	s = strings.ReplaceAll(s, ".", "-")
-	s = strings.ReplaceAll(s, "年", "-")
-	s = strings.ReplaceAll(s, "月", "-")
-	s = strings.ReplaceAll(s, "日", "")
-	if len(s) == 8 && !strings.Contains(s, "-") {
-		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
-	}
-	parts := strings.Split(s, "-")
-	if len(parts) != 3 {
-		return ""
-	}
-	y, m, d := parts[0], parts[1], parts[2]
-	if len(y) != 4 {
-		return ""
-	}
-	if len(m) == 1 {
-		m = "0" + m
-	}
-	if len(d) == 1 {
-		d = "0" + d
-	}
-	if len(m) != 2 || len(d) != 2 {
-		return ""
-	}
-	return y + "-" + m + "-" + d
-}
-
 func main() {
 	unlock := importutil.AcquireLock("import-jd")
 	defer unlock()
@@ -196,21 +160,21 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	}
 	header := rows[0]
 	d := rows[1]
-	idx := headerIdx(header)
+	idx := importutil.HeaderIdx(header)
 
 	// 核心字段缺失校验：浏览量/访客数/成交金额 任一缺失说明 Excel 彻底换了，报错跳过
-	colViews := findCol(idx, "店铺浏览量", "浏览量")
-	colVisitors := findCol(idx, "店铺访客数", "访客数")
-	colPayAmount := findCol(idx, "成交金额")
+	colViews := importutil.FindCol(idx, "店铺浏览量", "浏览量")
+	colVisitors := importutil.FindCol(idx, "店铺访客数", "访客数")
+	colPayAmount := importutil.FindCol(idx, "成交金额")
 	if colViews < 0 || colVisitors < 0 || colPayAmount < 0 {
 		return 0, fmt.Errorf("表头格式未识别（浏览量/访客数/成交金额 有缺失）: %v", header)
 	}
 
 	// stat_date 取 Excel 第一列业务日期（时间/日期），文件名日期只是 RPA 采集日
-	colDate := findCol(idx, "时间", "日期")
+	colDate := importutil.FindCol(idx, "时间", "日期")
 	statDate := ""
 	if colDate >= 0 && colDate < len(d) {
-		statDate = parseExcelDate(d[colDate])
+		statDate = importutil.ParseExcelDate(d[colDate])
 	}
 	if statDate == "" {
 		statDate = date
@@ -235,24 +199,24 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		 refund_amount=VALUES(refund_amount), cart_customers=VALUES(cart_customers)`,
 		statDate, shop,
 		getInt(d, colVisitors),
-		getStr(d, findCol(idx, "访客数环比")),
+		getStr(d, importutil.FindCol(idx, "访客数环比")),
 		getInt(d, colViews),
-		getStr(d, findCol(idx, "浏览量环比")),
-		getFloat(d, findCol(idx, "店铺人均浏览量", "人均浏览量")),
-		getFloat(d, findCol(idx, "店铺平均停留时长", "平均停留时长", "平均停留时间")),
-		getFloat(d, findCol(idx, "跳失率")),
-		getInt(d, findCol(idx, "成交客户数")),
-		getStr(d, findCol(idx, "成交客户数环比")),
-		getInt(d, findCol(idx, "成交商品件数")),
-		getStr(d, findCol(idx, "成交商品件数环比")),
+		getStr(d, importutil.FindCol(idx, "浏览量环比")),
+		getFloat(d, importutil.FindCol(idx, "店铺人均浏览量", "人均浏览量")),
+		getFloat(d, importutil.FindCol(idx, "店铺平均停留时长", "平均停留时长", "平均停留时间")),
+		getFloat(d, importutil.FindCol(idx, "跳失率")),
+		getInt(d, importutil.FindCol(idx, "成交客户数")),
+		getStr(d, importutil.FindCol(idx, "成交客户数环比")),
+		getInt(d, importutil.FindCol(idx, "成交商品件数")),
+		getStr(d, importutil.FindCol(idx, "成交商品件数环比")),
 		getFloat(d, colPayAmount),
-		getStr(d, findCol(idx, "成交金额环比")),
-		getInt(d, findCol(idx, "成交单量")),
-		getFloat(d, findCol(idx, "客单价")),
-		getFloat(d, findCol(idx, "店铺成交转化率", "成交转化率")),
-		getFloat(d, findCol(idx, "UV价值")), // 新格式无此列，fallback 0
-		getFloat(d, findCol(idx, "退款金额", "取消及售后退款金额")),
-		getInt(d, findCol(idx, "加购客户数")), // 新格式无此列，fallback 0
+		getStr(d, importutil.FindCol(idx, "成交金额环比")),
+		getInt(d, importutil.FindCol(idx, "成交单量")),
+		getFloat(d, importutil.FindCol(idx, "客单价")),
+		getFloat(d, importutil.FindCol(idx, "店铺成交转化率", "成交转化率")),
+		getFloat(d, importutil.FindCol(idx, "UV价值")), // 新格式无此列，fallback 0
+		getFloat(d, importutil.FindCol(idx, "退款金额", "取消及售后退款金额")),
+		getInt(d, importutil.FindCol(idx, "加购客户数")), // 新格式无此列，fallback 0
 		0)                                 // collect_customers 无对应列
 	if err != nil {
 		return 0, err
@@ -278,17 +242,17 @@ func importCustomerDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	}
 	header := rows[0]
 	d := rows[1]
-	idx := headerIdx(header)
+	idx := importutil.HeaderIdx(header)
 
-	colBrowse := findCol(idx, "进店客户数")
+	colBrowse := importutil.FindCol(idx, "进店客户数")
 	if colBrowse < 0 {
 		return 0, fmt.Errorf("表头格式未识别（找不到'进店客户数'）: %v", header)
 	}
 
-	colDate := findCol(idx, "日期", "时间", "统计日期")
+	colDate := importutil.FindCol(idx, "日期", "时间", "统计日期")
 	statDate := ""
 	if colDate >= 0 && colDate < len(d) {
-		statDate = parseExcelDate(d[colDate])
+		statDate = importutil.ParseExcelDate(d[colDate])
 	}
 	if statDate == "" {
 		statDate = date
@@ -304,11 +268,11 @@ func importCustomerDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		 repurchase_customers=VALUES(repurchase_customers), lost_customers=VALUES(lost_customers)`,
 		statDate, shop,
 		getInt(d, colBrowse),
-		getInt(d, findCol(idx, "加购客户数")),
-		getInt(d, findCol(idx, "下单客户数")),
-		getInt(d, findCol(idx, "成交客户数")),
-		getInt(d, findCol(idx, "复购客户数")),            // 原版错位：存了出库客户数
-		getInt(d, findCol(idx, "流失客户数")),            // Excel 无此列 fallback 0
+		getInt(d, importutil.FindCol(idx, "加购客户数")),
+		getInt(d, importutil.FindCol(idx, "下单客户数")),
+		getInt(d, importutil.FindCol(idx, "成交客户数")),
+		getInt(d, importutil.FindCol(idx, "复购客户数")),            // 原版错位：存了出库客户数
+		getInt(d, importutil.FindCol(idx, "流失客户数")),            // Excel 无此列 fallback 0
 	)
 	if err != nil {
 		return 0, err
@@ -400,7 +364,7 @@ func importPromoDaily(db *sql.DB, fpath, date, shop, promoType string) (int, err
 	}
 
 	// stat_date 取 Excel 第 0 列"日期"（业务日），文件名日期只是 RPA 采集日
-	statDate := parseExcelDate(d[0])
+	statDate := importutil.ParseExcelDate(d[0])
 	if statDate == "" {
 		statDate = date
 	}
@@ -496,30 +460,7 @@ func toFloat2(d []string, i int) float64 {
 }
 
 // headerIdx 构建 Excel 表头 → 列索引映射。重复表头取第一次出现位置。
-func headerIdx(header []string) map[string]int {
-	m := make(map[string]int, len(header))
-	for i, h := range header {
-		h = strings.TrimSpace(h)
-		if h == "" {
-			continue
-		}
-		if _, ok := m[h]; !ok {
-			m[h] = i
-		}
-	}
-	return m
-}
-
 // findCol 按同义词列表查列索引，任一匹配即返回；都找不到返回 -1。
-func findCol(idx map[string]int, aliases ...string) int {
-	for _, a := range aliases {
-		if i, ok := idx[a]; ok {
-			return i
-		}
-	}
-	return -1
-}
-
 // getInt / getFloat / getStr 按列索引取值，索引 <0 或越界返回零值。
 func getInt(d []string, i int) int {
 	if i < 0 || i >= len(d) {

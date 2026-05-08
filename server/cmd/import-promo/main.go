@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"bi-dashboard/internal/config"
@@ -193,35 +192,6 @@ func processShopDir(platform, dir, dateStr, shopName string) {
 
 // ==================== 工具函数 ====================
 
-func parseFloat(s string) float64 {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, ",", "")
-	s = strings.ReplaceAll(s, "%", "")
-	if s == "" || s == "-" || s == "—" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
-}
-
-func parseInt(s string) int {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, ",", "")
-	if s == "" || s == "-" || s == "—" {
-		return 0
-	}
-	v, _ := strconv.Atoi(s)
-	return v
-}
-
-func formatDate(d string) string {
-	d = strings.TrimSpace(d)
-	if len(d) == 8 {
-		return d[:4] + "-" + d[4:6] + "-" + d[6:8]
-	}
-	return d
-}
-
 // ==================== 京东联盟(CPS) ====================
 
 func importJDAffiliate(path, dateStr, shopName string) error {
@@ -261,13 +231,13 @@ func importJDAffiliate(path, dateStr, shopName string) error {
 			est_commission, complete_buyers, complete_amount, actual_commission
 		) VALUES (?,?,?,?,?,?,?,?,?)`,
 			statDate, shopName,
-			parseInt(get("点击量")),
-			parseInt(get("下单订单量")),
-			parseFloat(get("下单订单金额")),
-			parseFloat(get("预估佣金金额")),
-			parseInt(get("完成订单量")),
-			parseFloat(get("完成订单金额")),
-			parseFloat(get("付款佣金金额")),
+			importutil.ParseInt(get("点击量")),
+			importutil.ParseInt(get("下单订单量")),
+			importutil.ParseFloat(get("下单订单金额")),
+			importutil.ParseFloat(get("预估佣金金额")),
+			importutil.ParseInt(get("完成订单量")),
+			importutil.ParseFloat(get("完成订单金额")),
+			importutil.ParseFloat(get("付款佣金金额")),
 		)
 		if err != nil {
 			log.Printf("  JD联盟插入失败[%s]: %v", statDate, err)
@@ -328,20 +298,20 @@ func importJDCampaign(path, dateStr, shopName, promoType string) error {
 		if dateVal == "" || dateVal == "汇总" || dateVal == "合计" {
 			continue
 		}
-		statDate := formatDate(dateVal)
+		statDate := importutil.FormatDate(dateVal)
 
 		_, err := db.Exec(`REPLACE INTO op_jd_campaign_daily (
 			stat_date, shop_name, promo_type, cost, pay_amount, roi,
 			orders, order_cost, impressions, clicks
 		) VALUES (?,?,?,?,?,?,?,?,?,?)`,
 			statDate, shopName, promoType,
-			parseFloat(get("花费")),
-			parseFloat(get("全站交易额")),
-			parseFloat(get("全站投产比")),
-			parseInt(get("全站订单行")),
-			parseFloat(get("全站订单成本")),
-			parseInt(get("核心位置展现量")),
-			parseInt(get("核心位置点击量")),
+			importutil.ParseFloat(get("花费")),
+			importutil.ParseFloat(get("全站交易额")),
+			importutil.ParseFloat(get("全站投产比")),
+			importutil.ParseInt(get("全站订单行")),
+			importutil.ParseFloat(get("全站订单成本")),
+			importutil.ParseInt(get("核心位置展现量")),
+			importutil.ParseInt(get("核心位置点击量")),
 		)
 		if err != nil {
 			log.Printf("  JD京准通插入失败[%s]: %v", statDate, err)
@@ -414,18 +384,18 @@ func importJDCampaignNonFull(path, dateStr, shopName string) error {
 		if len(timeVal) >= 8 {
 			dateKey = timeVal[:8]
 		}
-		statDate := formatDate(dateKey)
+		statDate := importutil.FormatDate(dateKey)
 
 		if dayMap[statDate] == nil {
 			dayMap[statDate] = &DayAgg{}
 		}
 		d := dayMap[statDate]
-		d.cost += parseFloat(get("花费"))
-		d.payAmt += parseFloat(get("总订单金额"))
-		d.orders += parseInt(get("总订单行"))
-		d.impr += parseInt(get("展现数"))
-		d.clicks += parseInt(get("点击数"))
-		d.totalCart += parseInt(get("总加购数"))
+		d.cost += importutil.ParseFloat(get("花费"))
+		d.payAmt += importutil.ParseFloat(get("总订单金额"))
+		d.orders += importutil.ParseInt(get("总订单行"))
+		d.impr += importutil.ParseInt(get("展现数"))
+		d.clicks += importutil.ParseInt(get("点击数"))
+		d.totalCart += importutil.ParseInt(get("总加购数"))
 	}
 
 	count := 0
@@ -494,27 +464,27 @@ func importPDDCampaign(path, dateStr, shopName, promoType string) error {
 		}
 
 		// 拼多多商品推广用"总花费(元)"和"交易额(元)"
-		cost := parseFloat(get("总花费(元)"))
+		cost := importutil.ParseFloat(get("总花费(元)"))
 		if cost == 0 {
-			cost = parseFloat(get("花费(元)"))
+			cost = importutil.ParseFloat(get("花费(元)"))
 		}
-		payAmt := parseFloat(get("交易额(元)"))
-		roi := parseFloat(get("实际投产比"))
+		payAmt := importutil.ParseFloat(get("交易额(元)"))
+		roi := importutil.ParseFloat(get("实际投产比"))
 		if roi == 0 {
-			roi = parseFloat(get("投入产出比"))
+			roi = importutil.ParseFloat(get("投入产出比"))
 		}
-		realPayAmt := parseFloat(get("净交易额(元)"))
+		realPayAmt := importutil.ParseFloat(get("净交易额(元)"))
 		if realPayAmt == 0 {
 			realPayAmt = payAmt
 		}
-		realRoi := parseFloat(get("净实际投产比"))
+		realRoi := importutil.ParseFloat(get("净实际投产比"))
 
-		orders := parseInt(get("成交笔数"))
+		orders := importutil.ParseInt(get("成交笔数"))
 		if orders == 0 {
-			orders = parseInt(get("净成交笔数"))
+			orders = importutil.ParseInt(get("净成交笔数"))
 		}
-		impr := parseInt(get("曝光量"))
-		clicks := parseInt(get("点击量"))
+		impr := importutil.ParseInt(get("曝光量"))
+		clicks := importutil.ParseInt(get("点击量"))
 
 		_, err := db.Exec(`REPLACE INTO op_pdd_campaign_daily (
 			stat_date, shop_name, promo_type, cost, pay_amount, roi,
@@ -581,14 +551,14 @@ func importTmallCSCampaignCSV(path, dateStr, shopName string) error {
 
 		statDate := get("日期")
 		if statDate == "" {
-			statDate = formatDate(dateStr)
+			statDate = importutil.FormatDate(dateStr)
 		}
 
-		cost := parseFloat(get("花费"))
-		payAmt := parseFloat(get("总成交金额"))
-		roi := parseFloat(get("投入产出比"))
-		clicks := parseInt(get("点击量"))
-		impr := parseInt(get("展现量"))
+		cost := importutil.ParseFloat(get("花费"))
+		payAmt := importutil.ParseFloat(get("总成交金额"))
+		roi := importutil.ParseFloat(get("投入产出比"))
+		clicks := importutil.ParseInt(get("点击量"))
+		impr := importutil.ParseInt(get("展现量"))
 
 		if cost == 0 && payAmt == 0 && clicks == 0 {
 			continue
@@ -645,11 +615,11 @@ func importTmallCSCampaignXlsx(path, dateStr, shopName string) error {
 			continue
 		}
 
-		cost := parseFloat(get("消耗(元)"))
-		payAmt := parseFloat(get("总成交金额"))
-		roi := parseFloat(get("ROI"))
-		clicks := parseInt(get("点击量"))
-		impr := parseInt(get("曝光量"))
+		cost := importutil.ParseFloat(get("消耗(元)"))
+		payAmt := importutil.ParseFloat(get("总成交金额"))
+		roi := importutil.ParseFloat(get("ROI"))
+		clicks := importutil.ParseInt(get("点击量"))
+		impr := importutil.ParseInt(get("曝光量"))
 
 		if cost == 0 && payAmt == 0 {
 			continue
@@ -701,7 +671,7 @@ func importVipShopDaily(path, dateStr, shopName string) error {
 			return strings.TrimSpace(row[idx])
 		}
 
-		statDate := formatDate(get("时间"))
+		statDate := importutil.FormatDate(get("时间"))
 		if statDate == "" {
 			continue
 		}
@@ -712,12 +682,12 @@ func importVipShopDaily(path, dateStr, shopName string) error {
 			pay_amount, pay_count, pay_orders, pay_conv_rate, pay_cart_conv_rate, arpu, visitors
 		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			statDate, shopName,
-			parseInt(get("曝光流量")), parseInt(get("浏览流量")),
-			parseInt(get("商详UV")), parseFloat(get("商详UV价值")),
-			parseInt(get("加购人数")), parseInt(get("收藏人数")), get("访问-加购转化率"),
-			parseFloat(get("销售额")), parseInt(get("销售量")),
-			parseInt(get("子订单数")), get("购买转化率"), get("加购-支付转化率"),
-			parseFloat(get("ARPU")), parseInt(get("客户数")),
+			importutil.ParseInt(get("曝光流量")), importutil.ParseInt(get("浏览流量")),
+			importutil.ParseInt(get("商详UV")), importutil.ParseFloat(get("商详UV价值")),
+			importutil.ParseInt(get("加购人数")), importutil.ParseInt(get("收藏人数")), get("访问-加购转化率"),
+			importutil.ParseFloat(get("销售额")), importutil.ParseInt(get("销售量")),
+			importutil.ParseInt(get("子订单数")), get("购买转化率"), get("加购-支付转化率"),
+			importutil.ParseFloat(get("ARPU")), importutil.ParseInt(get("客户数")),
 		)
 		if err != nil {
 			log.Printf("  唯品会经营插入失败[%s]: %v", statDate, err)
@@ -755,7 +725,7 @@ func importVipCancelDaily(path, shopName string) error {
 
 	count := 0
 	for _, item := range result.Data {
-		statDate := formatDate(item.Dt)
+		statDate := importutil.FormatDate(item.Dt)
 		if statDate == "" || item.CancelGoodsAmt == 0 && item.GoodsActureAmt == 0 {
 			continue
 		}

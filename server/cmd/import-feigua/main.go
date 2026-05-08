@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"bi-dashboard/internal/config"
@@ -122,34 +121,6 @@ func processDir(dir, dateStr string) {
 	}
 }
 
-func parseFloat(s string) float64 {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, ",", "")
-	if s == "" || s == "-" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
-}
-
-func parseInt(s string) int {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, ",", "")
-	if s == "" || s == "-" {
-		return 0
-	}
-	v, _ := strconv.Atoi(s)
-	return v
-}
-
-func formatDate(d string) string {
-	d = strings.TrimSpace(d)
-	if len(d) == 8 {
-		return d[:4] + "-" + d[4:6] + "-" + d[6:8]
-	}
-	return d
-}
-
 func ne(s string) interface{} {
 	s = strings.TrimSpace(s)
 	if s == "" || s == "-" || s == "NaN" {
@@ -178,7 +149,7 @@ func importCreatorDaily(path, dateStr, platform string) error {
 		colMap[strings.TrimSpace(h)] = i
 	}
 
-	statDate := formatDate(dateStr)
+	statDate := importutil.FormatDate(dateStr)
 	count := 0
 
 	for _, row := range rows[1:] {
@@ -224,10 +195,10 @@ func importCreatorDaily(path, dateStr, platform string) error {
 			commission_base, commission, actual_amount, refund_orders, follower
 		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			statDate, platform, creatorName, ne(creatorId), ne(get("UID")),
-			parseInt(get("出单商品数")), parseInt(get("成交订单数")),
-			parseFloat(get("成交金额")), parseInt(get("实际订单数")),
-			parseFloat(get("计佣金额")), parseFloat(get("支出佣金")),
-			parseFloat(get("实际支付金额")), parseInt(get("退货订单数")),
+			importutil.ParseInt(get("出单商品数")), importutil.ParseInt(get("成交订单数")),
+			importutil.ParseFloat(get("成交金额")), importutil.ParseInt(get("实际订单数")),
+			importutil.ParseFloat(get("计佣金额")), importutil.ParseFloat(get("支出佣金")),
+			importutil.ParseFloat(get("实际支付金额")), importutil.ParseInt(get("退货订单数")),
 			ne(follower),
 		)
 		if err != nil {
@@ -260,7 +231,7 @@ func importCreatorRoster(path, dateStr, platform string) error {
 		colMap[strings.TrimSpace(h)] = i
 	}
 
-	statDate := formatDate(dateStr)
+	statDate := importutil.FormatDate(dateStr)
 	count := 0
 
 	for _, row := range rows[1:] {
@@ -319,9 +290,9 @@ func importCreatorRoster(path, dateStr, platform string) error {
 			statDate, platform, creatorName, ne(creatorId), ne(get("UID")),
 			ne(get("粉丝数")), ne(get("资源类型")), ne(tags),
 			ne(get("建联状态")), ne(get("联系人")),
-			parseInt(get("累计寄样数")),
-			parseFloat(get("累计GMV")), parseInt(get("累计成交商品")),
-			ne(get("跟进人")), parseFloat(get("跟进人累计GMV")),
+			importutil.ParseInt(get("累计寄样数")),
+			importutil.ParseFloat(get("累计GMV")), importutil.ParseInt(get("累计成交商品")),
+			ne(get("跟进人")), importutil.ParseFloat(get("跟进人累计GMV")),
 			ne(get("认领时间")), ne(get("建联时间")), ne(get("创建时间")),
 		)
 		if err != nil {

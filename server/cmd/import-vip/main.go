@@ -18,42 +18,6 @@ import (
 
 var baseDir = `Z:\信息部\RPA_集团数据看板\唯品会`
 
-// parseExcelDate 严格解析 Excel 日期列，格式不合规返回 ""（调用方 fallback 到文件名日期）
-func parseExcelDate(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	if idx := strings.Index(s, " "); idx > 0 {
-		s = s[:idx]
-	}
-	s = strings.ReplaceAll(s, "/", "-")
-	s = strings.ReplaceAll(s, ".", "-")
-	s = strings.ReplaceAll(s, "年", "-")
-	s = strings.ReplaceAll(s, "月", "-")
-	s = strings.ReplaceAll(s, "日", "")
-	if len(s) == 8 && !strings.Contains(s, "-") {
-		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
-	}
-	parts := strings.Split(s, "-")
-	if len(parts) != 3 {
-		return ""
-	}
-	y, m, d := parts[0], parts[1], parts[2]
-	if len(y) != 4 {
-		return ""
-	}
-	if len(m) == 1 {
-		m = "0" + m
-	}
-	if len(d) == 1 {
-		d = "0" + d
-	}
-	if len(m) != 2 || len(d) != 2 {
-		return ""
-	}
-	return y + "-" + m + "-" + d
-}
 
 func main() {
 	unlock := importutil.AcquireLock("import-vip")
@@ -161,19 +125,19 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	}
 	header := rows[0]
 	d := rows[1]
-	idx := headerIdx(header)
+	idx := importutil.HeaderIdx(header)
 
 	// 核心字段缺失直接报错跳过（Excel 格式彻底换了时保护数据）
-	colSales := findCol(idx, "销售额")
+	colSales := importutil.FindCol(idx, "销售额")
 	if colSales < 0 {
 		return 0, fmt.Errorf("表头格式未识别（找不到'销售额'列）: %v", header)
 	}
 
 	// stat_date 取 Excel 第一列业务日期（文件名日期只是 RPA 采集日）
-	colDate := findCol(idx, "时间", "日期", "统计日期")
+	colDate := importutil.FindCol(idx, "时间", "日期", "统计日期")
 	statDate := ""
 	if colDate >= 0 && colDate < len(d) {
-		statDate = parseExcelDate(d[colDate])
+		statDate = importutil.ParseExcelDate(d[colDate])
 	}
 	if statDate == "" {
 		statDate = date
@@ -193,20 +157,20 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		 pay_conv_rate=VALUES(pay_conv_rate), pay_cart_conv_rate=VALUES(pay_cart_conv_rate),
 		 arpu=VALUES(arpu), visitors=VALUES(visitors)`,
 		statDate, shop,
-		getInt(d, findCol(idx, "曝光流量")),
-		getInt(d, findCol(idx, "浏览流量")),
-		getInt(d, findCol(idx, "商详UV")),
-		getFloat(d, findCol(idx, "商详UV价值")),
-		getInt(d, findCol(idx, "加购人数")),
-		getInt(d, findCol(idx, "收藏人数")),
-		getStr(d, findCol(idx, "访问-加购转化率")),
+		getInt(d, importutil.FindCol(idx, "曝光流量")),
+		getInt(d, importutil.FindCol(idx, "浏览流量")),
+		getInt(d, importutil.FindCol(idx, "商详UV")),
+		getFloat(d, importutil.FindCol(idx, "商详UV价值")),
+		getInt(d, importutil.FindCol(idx, "加购人数")),
+		getInt(d, importutil.FindCol(idx, "收藏人数")),
+		getStr(d, importutil.FindCol(idx, "访问-加购转化率")),
 		getFloat(d, colSales),
-		getInt(d, findCol(idx, "销售量")),
-		getInt(d, findCol(idx, "子订单数")),
-		getStr(d, findCol(idx, "购买转化率")),
-		getStr(d, findCol(idx, "加购-支付转化率")),
-		getFloat(d, findCol(idx, "ARPU")),
-		getInt(d, findCol(idx, "客户数")),
+		getInt(d, importutil.FindCol(idx, "销售量")),
+		getInt(d, importutil.FindCol(idx, "子订单数")),
+		getStr(d, importutil.FindCol(idx, "购买转化率")),
+		getStr(d, importutil.FindCol(idx, "加购-支付转化率")),
+		getFloat(d, importutil.FindCol(idx, "ARPU")),
+		getInt(d, importutil.FindCol(idx, "客户数")),
 	)
 	if err != nil {
 		return 0, err
@@ -215,28 +179,7 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 }
 
 // headerIdx 构建 Excel 表头 → 列索引映射。重复表头取第一次出现位置。
-func headerIdx(header []string) map[string]int {
-	m := make(map[string]int, len(header))
-	for i, h := range header {
-		h = strings.TrimSpace(h)
-		if h == "" {
-			continue
-		}
-		if _, ok := m[h]; !ok {
-			m[h] = i
-		}
-	}
-	return m
-}
 
-func findCol(idx map[string]int, aliases ...string) int {
-	for _, a := range aliases {
-		if i, ok := idx[a]; ok {
-			return i
-		}
-	}
-	return -1
-}
 
 func getInt(d []string, i int) int {
 	if i < 0 || i >= len(d) {
@@ -381,23 +324,14 @@ func importWeixiangke(db *sql.DB, fpath, shop string) {
 			 sales_amount_merchant, serve_amount)
 			VALUES (?,?,?,?,?,?, ?,?,?,?,?,?, ?,?)`,
 			item.DataTime, shop,
-			parseIntStr(d.AddUserCount), parseIntStr(d.BrandNewUserCount), parseIntStr(d.BrandRepurchaseCount), parseIntStr(d.BringUserCount),
-			parseFloatStr(d.ConversionRate), parseIntStr(d.OrderCount), parseIntStr(d.OrderUserCount),
-			parseFloatStr(d.PromotionAmount), parseFloatStr(d.Roi), parseFloatStr(d.SalesAmount),
-			parseFloatStr(d.SalesAmountMerchant), parseFloatStr(d.ServeAmount),
+			importutil.ParseInt(d.AddUserCount), importutil.ParseInt(d.BrandNewUserCount), importutil.ParseInt(d.BrandRepurchaseCount), importutil.ParseInt(d.BringUserCount),
+			importutil.ParseFloat(d.ConversionRate), importutil.ParseInt(d.OrderCount), importutil.ParseInt(d.OrderUserCount),
+			importutil.ParseFloat(d.PromotionAmount), importutil.ParseFloat(d.Roi), importutil.ParseFloat(d.SalesAmount),
+			importutil.ParseFloat(d.SalesAmountMerchant), importutil.ParseFloat(d.ServeAmount),
 		)
 	}
 }
 
-func parseFloatStr(s string) float64 {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
-}
-func parseIntStr(s string) int { return int(parseFloatStr(s)) }
 
 func toF(d []string, i int) float64 {
 	if i >= len(d) || d[i] == "" {
