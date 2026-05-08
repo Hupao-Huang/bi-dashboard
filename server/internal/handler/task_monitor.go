@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -42,55 +43,28 @@ type TaskStatus struct {
 	NextRun     string `json:"nextRun"`    // 下次运行时间
 }
 
-var taskConfigs = []TaskConfig{
-	{
-		Name:        "每日汇总帐同步",
-		Description: "销售货品汇总帐(最近7天覆盖)",
-		Schedule:    "每天 08:00",
-		TaskName:    "BI-SyncDailySummary",
-		LogFile:     "sync-daily-summary.log",
-		Category:    "sync",
-	},
-	{
-		Name:        "库存同步",
-		Description: "库存分页查询 + 历史明细快照(每天3次)",
-		Schedule:    "每天 09:00/15:00/21:00",
-		TaskName:    "BI-SyncStock-09",
-		LogFile:     "sync-stock.log",
-		Category:    "stock",
-	},
-	{
-		Name:        "批次库存同步",
-		Description: "按仓库同步批次库存",
-		Schedule:    "每天 09:05",
-		TaskName:    "BI-SyncBatchStock",
-		LogFile:     "sync-batch-stock.log",
-		Category:    "stock",
-	},
-	{
-		Name:        "合思费控同步",
-		Description: "合思费用单据 + 报销单 + 流程明细",
-		Schedule:    "每天 10:30",
-		TaskName:    "BI-SyncHesi",
-		LogFile:     "sync-hesi.log",
-		Category:    "sync",
-	},
-	{
-		Name:        "运营数据导入",
-		Description: "天猫/京东/拼多多/唯品会/天猫超市/推广/飞瓜/客服专项",
-		Schedule:    "RPA webhook触发",
-		TaskName:    "",
-		LogFile:     "",
-		Category:    "ops",
-	},
-	{
-		Name:        "API服务",
-		Description: "后端HTTP API服务(8080端口)",
-		Schedule:    "开机自启",
-		TaskName:    "BI-APIServer",
-		LogFile:     "server-stderr.log",
-		Category:    "service",
-	},
+// taskMetaByName 任务名 → 中文展示元信息映射 (任务列表本身实时从 schtasks 拿)
+// 未在此 map 里的 BI-* 任务会用 TaskName 作为 Name 兜底
+var taskMetaByName = map[string]TaskConfig{
+	"BI-SyncDailySummary":           {Name: "每日汇总帐同步", Description: "销售货品汇总帐(最近7天覆盖)", Schedule: "每天 08:00", LogFile: "sync-daily-summary.log", Category: "sync"},
+	"BI-SyncMonthlySummary":         {Name: "月汇总帐同步", Description: "本月销售货品月度聚合", Schedule: "每天 08:30", LogFile: "sync-monthly-summary.log", Category: "sync"},
+	"BI-RefreshLastMonth":           {Name: "刷新上月汇总", Description: "每月7号刷上月汇总数据(收尾确认)", Schedule: "每月7号 02:00", LogFile: "sync-monthly-summary.log", Category: "sync"},
+	"BI-SyncStock":                  {Name: "库存同步", Description: "吉客云库存分页查询", Schedule: "每天 23:05", LogFile: "sync-stock.log", Category: "stock"},
+	"BI-SyncBatchStock":             {Name: "批次库存同步", Description: "按仓库同步批次库存", Schedule: "每天 23:20", LogFile: "sync-batch-stock.log", Category: "stock"},
+	"BI-SnapshotStock":              {Name: "库存每日快照", Description: "stock_quantity_daily / stock_batch_daily", Schedule: "每天 23:30", LogFile: "snapshot-stock.log", Category: "stock"},
+	"BI-SyncAllocate":               {Name: "调拨单同步", Description: "吉客云调拨单(含特殊渠道, 7 天滚动)", Schedule: "每天 02:00", LogFile: "sync-allocate.log", Category: "sync"},
+	"BI-SyncGoods":                  {Name: "商品资料同步", Description: "吉客云商品基础档案", Schedule: "每天 04:00", LogFile: "sync-goods.log", Category: "sync"},
+	"BI-SyncHesi":                   {Name: "合思费控同步", Description: "合思费用单据 + 报销单 + 流程明细", Schedule: "每天 10:30", LogFile: "sync-hesi.log", Category: "sync"},
+	"BI-SyncYSStock":                {Name: "用友现存量同步", Description: "YS YonBIP 现存量接口", Schedule: "每天 23:15", LogFile: "sync-ys-stock.log", Category: "sync"},
+	"BI-SyncYSPurchase":             {Name: "用友采购单同步", Description: "YS 采购订单接口", Schedule: "每天 23:25", LogFile: "sync-ys-purchase.log", Category: "sync"},
+	"BI-SyncYSMaterialOut":          {Name: "用友材料出库同步", Description: "YS 材料出库接口", Schedule: "每天 09:20", LogFile: "sync-ys-materialout.log", Category: "sync"},
+	"BI-SyncYSSubcontract":          {Name: "用友委外单同步", Description: "YS 委外订单接口", Schedule: "每天 23:35", LogFile: "sync-ys-subcontract.log", Category: "sync"},
+	"BI-SyncOpsFallback":            {Name: "运营数据导入", Description: "天猫/京东/拼多多/唯品会/抖音等 10 平台", Schedule: "每天 13:00 (兜底)", LogFile: "sync-ops-daily.log", Category: "ops"},
+	"BI-Build-WarehouseFlowSummary": {Name: "物化表构建", Description: "warehouse_flow_summary 预聚合 (7s→5ms)", Schedule: "每天 03:30", LogFile: "build-warehouse-flow-summary.log", Category: "stock"},
+	"BI-BackupMySQL":                {Name: "MySQL 备份", Description: "全库 mysqldump", Schedule: "每天 02:00", LogFile: "backup-mysql.log", Category: "ops"},
+	"BI-RotateLogs":                 {Name: "日志轮转", Description: "清理 30 天前日志", Schedule: "每周日 03:00", LogFile: "rotate-logs.log", Category: "ops"},
+	"BI-APIServer":                  {Name: "API 服务", Description: "后端 HTTP API 服务 (8080 端口)", Schedule: "开机自启", LogFile: "bi-server.err", Category: "service"},
+	"BI-Frontend":                   {Name: "前端服务", Description: "serve -s build (3000 端口)", Schedule: "开机自启", LogFile: "", Category: "service"},
 }
 
 const (
@@ -100,36 +74,153 @@ const (
 
 // GetTaskStatus 返回所有定时任务和同步工具的运行状态
 // GET /api/admin/tasks
+// 数据源: 实时调用 PowerShell Get-ScheduledTask 拉取 BI-* 任务全量
+// + 端口检查 (API 服务) + log 文件 tail (失败排查)
 func (h *DashboardHandler) GetTaskStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		writeError(w, 405, "method not allowed")
 		return
 	}
 
-	var tasks []TaskStatus
-	for _, cfg := range taskConfigs {
-		ts := TaskStatus{
-			Name:        cfg.Name,
-			Description: cfg.Description,
-			Schedule:    cfg.Schedule,
-			Category:    cfg.Category,
-			Status:      "waiting",
-		}
-
-		switch cfg.Category {
-		case "ops":
-			h.fillOpsTaskStatus(&ts)
-		case "service":
-			fillServiceTaskStatus(&ts, cfg)
-		default:
-			fillLogBasedTaskStatus(&ts, cfg)
-		}
-
-		fillNextRun(&ts, cfg)
-		tasks = append(tasks, ts)
+	tasks, err := loadSchtasksStatus()
+	if err != nil {
+		writeServerError(w, 500, "读取定时任务失败 (PowerShell)", err)
+		return
 	}
 
 	writeJSON(w, tasks)
+}
+
+// schtasksRaw PowerShell Get-ScheduledTask | ConvertTo-Json 输出格式
+type schtasksRaw struct {
+	TaskName       string `json:"TaskName"`
+	State          string `json:"State"`
+	LastRunTime    string `json:"LastRunTime"`
+	LastTaskResult string `json:"LastTaskResult"` // 用 string 因为有 4294967295 (uint32 max)
+	NextRunTime    string `json:"NextRunTime"`
+}
+
+const psSchtasksScript = `
+$result = Get-ScheduledTask -TaskName 'BI-*' | ForEach-Object {
+  $info = $_ | Get-ScheduledTaskInfo
+  [PSCustomObject]@{
+    TaskName       = $_.TaskName
+    State          = $_.State.ToString()
+    LastRunTime    = if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('yyyy-MM-dd HH:mm:ss') } else { '' }
+    LastTaskResult = [string]$info.LastTaskResult
+    NextRunTime    = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('yyyy-MM-dd HH:mm:ss') } else { '' }
+  }
+}
+$result | ConvertTo-Json -Compress
+`
+
+// loadSchtasksStatus 实时调 PowerShell 拉所有 BI-* 任务状态
+func loadSchtasksStatus() ([]TaskStatus, error) {
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psSchtasksScript)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("powershell exec: %w", err)
+	}
+
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return []TaskStatus{}, nil
+	}
+	// PowerShell ConvertTo-Json 单条不输出 array, 包装一下
+	if !strings.HasPrefix(trimmed, "[") {
+		trimmed = "[" + trimmed + "]"
+	}
+
+	var rawList []schtasksRaw
+	if err := json.Unmarshal([]byte(trimmed), &rawList); err != nil {
+		return nil, fmt.Errorf("parse schtasks json: %w (raw=%s)", err, trimmed)
+	}
+
+	// 按 TaskName 排序提供稳定输出
+	sort.Slice(rawList, func(i, j int) bool { return rawList[i].TaskName < rawList[j].TaskName })
+
+	result := make([]TaskStatus, 0, len(rawList))
+	for _, raw := range rawList {
+		ts := buildTaskStatus(raw)
+		result = append(result, ts)
+	}
+
+	// 追加 API 服务端口检查项 (虽然 BI-APIServer 也存在, 但端口实测更可靠)
+	apiPing := TaskStatus{
+		Name:        "API 服务（端口实测）",
+		Description: "TCP 探测 8080 端口是否监听",
+		Schedule:    "实时",
+		Category:    "service",
+	}
+	if conn, err := net.DialTimeout("tcp", "127.0.0.1:8080", 2*time.Second); err == nil {
+		conn.Close()
+		apiPing.Status = "running"
+		apiPing.LastRun = "服务运行中"
+	} else {
+		apiPing.Status = "failed"
+		apiPing.LastOutput = "8080 端口未监听: " + err.Error()
+	}
+	result = append(result, apiPing)
+
+	return result, nil
+}
+
+// buildTaskStatus 把 PowerShell 原始输出 + meta 元信息 → TaskStatus
+func buildTaskStatus(raw schtasksRaw) TaskStatus {
+	meta, hasMeta := taskMetaByName[raw.TaskName]
+	ts := TaskStatus{
+		Name:        raw.TaskName,
+		Description: "（未配置中文描述）",
+		Schedule:    "（直接看 NextRun）",
+		Category:    "other",
+		LastRun:     raw.LastRunTime,
+		LastFinish:  raw.LastRunTime,
+		NextRun:     raw.NextRunTime,
+	}
+	if hasMeta {
+		ts.Name = meta.Name
+		ts.Description = meta.Description
+		ts.Schedule = meta.Schedule
+		ts.Category = meta.Category
+	}
+
+	// 状态判断 (优先级: 卡死 > 运行中 > 成功 > 失败 > 等待)
+	switch {
+	case raw.State == "Running":
+		ts.Status = "running"
+		// 卡死检测: Running 但 LastRunTime > 1h 前
+		if raw.LastRunTime != "" {
+			t, err := time.ParseInLocation("2006-01-02 15:04:05", raw.LastRunTime, time.Local)
+			if err == nil && time.Since(t) > 1*time.Hour {
+				ts.Status = "stuck"
+				ts.LastOutput = fmt.Sprintf("卡死: 已运行 %s, 建议 kill 后重跑", time.Since(t).Truncate(time.Minute))
+			}
+		}
+	case raw.LastTaskResult == "0":
+		ts.Status = "success"
+	case raw.LastTaskResult == "267011" || raw.LastTaskResult == "267014":
+		// 267011 = 任务从未运行 / 267014 = 触发器尚未触发
+		ts.Status = "waiting"
+	default:
+		ts.Status = "failed"
+		ts.LastOutput = fmt.Sprintf("schtasks 退出码 = %s", raw.LastTaskResult)
+	}
+
+	// 追加 log tail (前提是 meta 配置了 LogFile)
+	if hasMeta && meta.LogFile != "" {
+		logPath := logBaseDir + `\` + meta.LogFile
+		lines := readLastNLines(logPath, 8)
+		if len(lines) > 0 {
+			tail := strings.Join(lines, "\n")
+			if ts.LastOutput != "" {
+				ts.LastOutput = ts.LastOutput + "\n---\n" + tail
+			} else {
+				ts.LastOutput = tail
+			}
+		}
+	}
+
+	return ts
 }
 
 // fillLogBasedTaskStatus 通过日志文件判断任务状态
