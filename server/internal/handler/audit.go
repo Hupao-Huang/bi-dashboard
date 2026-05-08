@@ -155,6 +155,7 @@ func (h *DashboardHandler) AdminAuditLogs(w http.ResponseWriter, r *http.Request
 	for rows.Next() {
 		var e auditLogEntry
 		if err := rows.Scan(&e.ID, &e.UserID, &e.Username, &e.RealName, &e.Action, &e.Resource, &e.Detail, &e.IP, &e.UserAgent, &e.CreatedAt); err != nil {
+			log.Printf("[审计日志] scan 出错: %v", err)
 			continue
 		}
 		logs = append(logs, e)

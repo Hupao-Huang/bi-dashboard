@@ -621,7 +621,10 @@ func (h *DashboardHandler) RunManualTask(w http.ResponseWriter, r *http.Request)
 			}
 
 			body := fmt.Sprintf(`{"date":"%s"}`, dateParam)
-			resp, err := http.Post("http://localhost:8080/api/webhook/sync-ops", "application/json", bytes.NewBufferString(body))
+			req, _ := http.NewRequest("POST", "http://localhost:8080/api/webhook/sync-ops", bytes.NewBufferString(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Webhook-Secret", h.WebhookSecret)
+			resp, err := http.DefaultClient.Do(req)
 
 			endTime := time.Now()
 			runningMu.Lock()

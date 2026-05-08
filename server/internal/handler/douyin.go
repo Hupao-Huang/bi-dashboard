@@ -31,7 +31,7 @@ func (h *DashboardHandler) GetDouyinOps(w http.ResponseWriter, r *http.Request) 
 	var liveTrend []LiveTrend
 	rows, ok := queryRowsOrWriteError(w, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
-			COUNT(*), SUM(watch_uv), ROUND(SUM(pay_amount),2),
+			COUNT(DISTINCT anchor_id, start_time), SUM(watch_uv), ROUND(SUM(pay_amount),2),
 			ROUND(AVG(avg_online),0),
 			CASE WHEN SUM(order_count)>0 THEN ROUND(SUM(refund_count)/SUM(order_count)*100,2) ELSE 0 END
 		FROM op_douyin_live_daily
@@ -87,7 +87,7 @@ func (h *DashboardHandler) GetDouyinOps(w http.ResponseWriter, r *http.Request) 
 	}
 	var anchors []AnchorRank
 	aRows, ok := queryRowsOrWriteError(w, h.DB, `
-		SELECT anchor_name, COUNT(*), ROUND(SUM(duration_min),0),
+		SELECT anchor_name, COUNT(DISTINCT stat_date, start_time), ROUND(SUM(duration_min),0),
 			ROUND(SUM(pay_amount),2), SUM(watch_uv), MAX(max_online)
 		FROM op_douyin_live_daily
 		WHERE stat_date BETWEEN ? AND ?
