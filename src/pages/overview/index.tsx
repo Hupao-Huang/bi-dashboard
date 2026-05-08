@@ -29,6 +29,7 @@ const deptConfig: Record<string, { label: string; color: string; icon: React.Rea
   social: { label: '社媒部门', color: DEPT_COLORS.social, icon: <GlobalOutlined /> },
   offline: { label: '线下部门', color: DEPT_COLORS.offline, icon: <ShopOutlined /> },
   distribution: { label: '分销部门', color: DEPT_COLORS.distribution, icon: <ShareAltOutlined /> },
+  instant_retail: { label: '即时零售部', color: DEPT_COLORS.instant_retail, icon: <ShoppingCartOutlined /> },
 };
 
 const OverviewPage: React.FC = () => {
@@ -484,12 +485,12 @@ const OverviewPage: React.FC = () => {
         })}
       </Row>
 
-      <Row gutter={[12, 12]} style={{ marginTop: 16 }}>
+      <Row gutter={[12, 12]} style={{ marginTop: 16 }} wrap>
         {visibleDepts.map((dept: any) => {
           const cfg = deptConfig[dept.department] || { label: dept.department, color: '#999', icon: null };
           const isActive = activeDept === dept.department;
           return (
-            <Col xs={24} sm={12} lg={6} key={dept.department}>
+            <Col flex="1 1 220px" style={{ minWidth: 200 }} key={dept.department}>
               <Card
                 hoverable
                 className={`bi-dept-card${isActive ? ' active' : ''}`}

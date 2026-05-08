@@ -56,8 +56,9 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	if writeDatabaseError(w, deptRows.Err()) {
 		return
 	}
-	// 确保4个部门都返回（没数据的补0）
-	allDepts := []string{"ecommerce", "social", "offline", "distribution"}
+	// 确保 5 个部门都返回（没数据的补0）
+	// v1.02: 加 instant_retail 即时零售部 (5 个 js- 渠道)
+	allDepts := []string{"ecommerce", "social", "offline", "distribution", "instant_retail"}
 	var deptList []DeptSummary
 	for _, dept := range allDepts {
 		if d, ok := deptMap[dept]; ok {

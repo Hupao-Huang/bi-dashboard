@@ -41,6 +41,57 @@ var planExcludeGoods = []string{
 	"yflj", // 运费说明及差价补拍链接 邮费
 }
 
+// planCategories 计划看板品类白名单 (10 个核心调味品类)
+// v1.02: 跟"品类库存健康度"表口径统一, 6 KPI 也按这 10 品类过滤
+// 排除: 包装材料/广宣礼盒/广宣品/清心湖自营/组套产品/成品礼盒/快递包材/私域代发/半保产品 等
+var planCategories = []string{"调味料", "酱油", "调味汁", "干制面", "素蚝油", "酱类", "醋", "汤底", "番茄沙司", "糖"}
+
+// planStockoutExcludeFlags 缺货统计排除的产品标签 (goods.flag_data 字段)
+// v1.02: 跑哥指示, 缺货产品明细 + 缺货占比 KPI 不计入这 5 类标签的 SKU
+var planStockoutExcludeFlags = []string{"非卖品", "已下架", "下架中", "接单产", "新品-接单产"}
+
+// planStockoutExcludeFlagsCond 返回 "AND <alias>.goods_no NOT IN (排除标签 SKU 子查询)" 子句和参数
+func planStockoutExcludeFlagsCond(alias string) (string, []interface{}) {
+	args := make([]interface{}, len(planStockoutExcludeFlags))
+	placeholders := make([]string, len(planStockoutExcludeFlags))
+	for i, f := range planStockoutExcludeFlags {
+		args[i] = f
+		placeholders[i] = "?"
+	}
+	col := "goods_no"
+	if alias != "" {
+		col = alias + ".goods_no"
+	}
+	cond := " AND " + col + ` NOT IN (
+		SELECT goods_no FROM goods WHERE is_delete=0 AND flag_data IN (` + strings.Join(placeholders, ",") + `))`
+	return cond, args
+}
+
+// planCategoryGoodsCond 返回 "AND <alias>.goods_no IN (品类白名单对应 goods_no 子查询)" 子句和参数
+// alias 不带点, "" 表示直接用字段名 (无表别名场景)
+// 三个表共用: stock_quantity_daily / stock_batch_daily / sales_goods_summary 都有 goods_no 字段
+func planCategoryGoodsCond(alias string) (string, []interface{}) {
+	args := make([]interface{}, len(planCategories))
+	placeholders := make([]string, len(planCategories))
+	for i, c := range planCategories {
+		args[i] = c
+		placeholders[i] = "?"
+	}
+	col := "goods_no"
+	if alias != "" {
+		col = alias + ".goods_no"
+	}
+	cond := " AND " + col + ` IN (
+		SELECT goods_no FROM goods WHERE is_delete=0 AND (
+			CASE
+				WHEN cate_full_name LIKE '成品/%' THEN SUBSTRING_INDEX(SUBSTRING_INDEX(cate_full_name,'/',2),'/',-1)
+				WHEN cate_full_name IS NOT NULL AND cate_full_name != '' THEN cate_full_name
+				ELSE '未分类'
+			END
+		) IN (` + strings.Join(placeholders, ",") + `))`
+	return cond, args
+}
+
 // buildExcludeGoodsFilter 返回 " AND <column> NOT IN (?,?,...)" 子句和参数
 func buildExcludeGoodsFilter(column string) (string, []interface{}) {
 	if len(planExcludeGoods) == 0 {
@@ -221,12 +272,16 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	var highStockValue, totalStockValue, highStockRate, stockoutRate float64
 	var stockoutSKU, salesSKU int
 
+	// v1.02: 6 KPI 全部加 10 品类白名单过滤, 跟"品类库存健康度"口径统一
+	cateCond, cateArgs := planCategoryGoodsCond("")
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		salesGMVArgs := append([]interface{}{start, end}, planWhArgs...)
 		salesGMVArgs = append(salesGMVArgs, salesScopeArgs...)
-		if err := h.DB.QueryRow(`SELECT IFNULL(SUM(local_goods_amt),0) FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond, salesGMVArgs...).Scan(&salesGMV); err != nil {
+		salesGMVArgs = append(salesGMVArgs, cateArgs...)
+		if err := h.DB.QueryRow(`SELECT IFNULL(SUM(local_goods_amt),0) FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond, salesGMVArgs...).Scan(&salesGMV); err != nil {
 			setQueryErr(err)
 		}
 	}()
@@ -236,9 +291,10 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		stockCostArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
 		stockCostArgs = append(stockCostArgs, warehouseArgs...)
+		stockCostArgs = append(stockCostArgs, cateArgs...)
 		if err := h.DB.QueryRow(
 			`SELECT IFNULL(SUM(current_qty * cost_price),0), IFNULL(SUM(month_qty * cost_price / 30),0)
-			 FROM stock_quantity_daily WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond,
+			 FROM stock_quantity_daily WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond,
 			stockCostArgs...).Scan(&stockCost, &dailyCost); err != nil {
 			setQueryErr(err)
 		}
@@ -247,12 +303,24 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// v1.02: 缺货率改 SKU 维度跨仓汇总 (跟"缺货产品明细"口径一致)
+		// + 排除非卖品/已下架/下架中/接单产/新品-接单产 标签的 SKU
+		flagExcludeCond, flagExcludeArgs := planStockoutExcludeFlagsCond("")
 		stockoutArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
 		stockoutArgs = append(stockoutArgs, warehouseArgs...)
+		stockoutArgs = append(stockoutArgs, cateArgs...)
+		stockoutArgs = append(stockoutArgs, flagExcludeArgs...)
 		if err := h.DB.QueryRow(`SELECT
-			IFNULL(SUM(CASE WHEN current_qty-locked_qty<=0 AND month_qty>0 THEN 1 ELSE 0 END),0),
-			IFNULL(SUM(CASE WHEN month_qty>0 THEN 1 ELSE 0 END),0)
-			FROM stock_quantity_daily WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond, stockoutArgs...).Scan(&stockoutSKU, &salesSKU); err != nil {
+			IFNULL(SUM(CASE WHEN sum_avail<=0 AND sum_month>0 THEN 1 ELSE 0 END),0),
+			IFNULL(SUM(CASE WHEN sum_month>0 THEN 1 ELSE 0 END),0)
+			FROM (
+				SELECT goods_no,
+					SUM(current_qty - locked_qty) AS sum_avail,
+					SUM(month_qty) AS sum_month
+				FROM stock_quantity_daily
+				WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond+flagExcludeCond+`
+				GROUP BY goods_no
+			) t`, stockoutArgs...).Scan(&stockoutSKU, &salesSKU); err != nil {
 			setQueryErr(err)
 		}
 	}()
@@ -260,12 +328,23 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// v1.02: 高库存占比改 SKU 维度跨仓汇总 (跟"高库存产品明细"口径一致)
+		// 子查询先按 SKU 汇总 → 外层判断"全仓周转>50天"才算高库存
 		highStockArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
 		highStockArgs = append(highStockArgs, warehouseArgs...)
+		highStockArgs = append(highStockArgs, cateArgs...)
 		if err := h.DB.QueryRow(`SELECT
-			IFNULL(SUM(CASE WHEN month_qty>0 AND (current_qty-locked_qty)/(month_qty/30)>50 THEN current_qty*cost_price ELSE 0 END),0),
-			IFNULL(SUM(current_qty*cost_price),0)
-			FROM stock_quantity_daily WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond, highStockArgs...).Scan(&highStockValue, &totalStockValue); err != nil {
+			IFNULL(SUM(CASE WHEN sum_month>0 AND sum_avail/(sum_month/30) > 50 THEN sku_stock_value ELSE 0 END),0),
+			IFNULL(SUM(sku_stock_value),0)
+			FROM (
+				SELECT goods_no,
+					SUM(current_qty - locked_qty) AS sum_avail,
+					SUM(month_qty) AS sum_month,
+					SUM(current_qty * cost_price) AS sku_stock_value
+				FROM stock_quantity_daily
+				WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond+`
+				GROUP BY goods_no
+			) t`, highStockArgs...).Scan(&highStockValue, &totalStockValue); err != nil {
 			setQueryErr(err)
 		}
 	}()
@@ -275,11 +354,14 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		agedArgs := append([]interface{}{stockSnapDate, end}, planWhArgs...)
 		agedArgs = append(agedArgs, warehouseArgsB...)
+		// v1.02: 库龄>90天 KPI 加 10 品类过滤 (b.goods_no 走品类白名单子查询)
+		cateCondB, cateArgsB := planCategoryGoodsCond("b")
+		agedArgs = append(agedArgs, cateArgsB...)
 		if err := h.DB.QueryRow(`SELECT IFNULL(SUM(b.current_qty * IFNULL(s.cost_price,0)),0)
 			FROM stock_batch_daily b
 			LEFT JOIN stock_quantity_daily s ON s.snapshot_date = b.snapshot_date AND b.sku_id = s.sku_id AND b.warehouse_id = s.warehouse_id
 			WHERE b.snapshot_date=? AND b.production_date IS NOT NULL AND b.current_qty > 0
-			AND b.production_date < DATE_SUB(?, INTERVAL 90 DAY)`+planWhCondB+warehouseCondB, agedArgs...).Scan(&agedStockValue); err != nil {
+			AND b.production_date < DATE_SUB(?, INTERVAL 90 DAY)`+planWhCondB+warehouseCondB+cateCondB, agedArgs...).Scan(&agedStockValue); err != nil {
 			setQueryErr(err)
 		}
 	}()
@@ -296,10 +378,11 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		monthlyArgs := append([]interface{}{}, planWhArgs...)
 		monthlyArgs = append(monthlyArgs, salesScopeArgs...)
+		monthlyArgs = append(monthlyArgs, cateArgs...)
 		rows, ok := queryRows(`
 			SELECT DATE_FORMAT(stat_date,'%Y-%m') AS m, ROUND(SUM(local_goods_amt),2)
 			FROM sales_goods_summary
-			WHERE 1=1`+planWhCond+salesScopeCond+`
+			WHERE 1=1`+planWhCond+salesScopeCond+cateCond+`
 			GROUP BY m ORDER BY m`, monthlyArgs...)
 		if !ok {
 			return
@@ -340,11 +423,12 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		channelArgs := append([]interface{}{end, start, start, end}, planWhArgs...)
 		channelArgs = append(channelArgs, salesScopeArgs...)
+		channelArgs = append(channelArgs, cateArgs...)
 		rows, ok := queryRows(`
 			SELECT CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END,
 				ROUND(SUM(local_goods_amt)/GREATEST(DATEDIFF(?,?)+1,1),2),
 				ROUND(SUM(local_goods_amt),2)
-			FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+`
+			FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+`
 			GROUP BY CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END
 			ORDER BY SUM(local_goods_amt) DESC`, channelArgs...)
 		if !ok {
@@ -381,10 +465,11 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		lmArgs := append([]interface{}{start, end}, planWhArgs...)
 		lmArgs = append(lmArgs, salesScopeArgs...)
+		lmArgs = append(lmArgs, cateArgs...)
 		rows, ok := queryRows(`
 			SELECT CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END, ROUND(SUM(local_goods_amt),2)
 			FROM sales_goods_summary
-			WHERE stat_date BETWEEN DATE_SUB(?, INTERVAL 1 MONTH) AND DATE_SUB(?, INTERVAL 1 MONTH)`+planWhCond+salesScopeCond+`
+			WHERE stat_date BETWEEN DATE_SUB(?, INTERVAL 1 MONTH) AND DATE_SUB(?, INTERVAL 1 MONTH)`+planWhCond+salesScopeCond+cateCond+`
 			GROUP BY CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END`, lmArgs...)
 		if !ok {
 			return
@@ -412,10 +497,11 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		lyArgs := append([]interface{}{start, end}, planWhArgs...)
 		lyArgs = append(lyArgs, salesScopeArgs...)
+		lyArgs = append(lyArgs, cateArgs...)
 		rows, ok := queryRows(`
 			SELECT CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END, ROUND(SUM(local_goods_amt),2)
 			FROM sales_goods_summary
-			WHERE stat_date BETWEEN DATE_SUB(?, INTERVAL 1 YEAR) AND DATE_SUB(?, INTERVAL 1 YEAR)`+planWhCond+salesScopeCond+`
+			WHERE stat_date BETWEEN DATE_SUB(?, INTERVAL 1 YEAR) AND DATE_SUB(?, INTERVAL 1 YEAR)`+planWhCond+salesScopeCond+cateCond+`
 			GROUP BY CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END`, lyArgs...)
 		if !ok {
 			return
@@ -503,11 +589,10 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		}
 	}()
 
-	// ========== 5. 高库存 + 6. 缺货 ==========
+	// ========== 5. 高库存 + 6. 缺货 (v1.02 SKU 维度跨仓汇总) ==========
 	type StockDetail struct {
 		GoodsNo    string  `json:"goodsNo"`
 		GoodsName  string  `json:"goodsName"`
-		Warehouse  string  `json:"warehouse"`
 		UsableQty  float64 `json:"usableQty"`
 		DailySales float64 `json:"dailySales"`
 		Turnover   float64 `json:"turnover"`
@@ -519,22 +604,27 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		highItemArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
 		highItemArgs = append(highItemArgs, warehouseArgs...)
+		highItemArgs = append(highItemArgs, cateArgs...)
+		// v1.02: 按 SKU 跨仓汇总, 一个 SKU 一行 (周转 = SUM 可用 / SUM 月销量/30, 全仓视角)
 		rows, ok := queryRows(`
-			SELECT goods_no, goods_name, warehouse_name,
-				ROUND(current_qty - locked_qty,0), ROUND(month_qty/30,1),
-				ROUND((current_qty-locked_qty)/(month_qty/30),1),
-				ROUND(current_qty * cost_price,2)
+			SELECT goods_no, MAX(goods_name),
+				ROUND(SUM(current_qty - locked_qty),0),
+				ROUND(SUM(month_qty)/30,1),
+				ROUND(SUM(current_qty - locked_qty) / NULLIF(SUM(month_qty)/30,0),1),
+				ROUND(SUM(current_qty * cost_price),2)
 			FROM stock_quantity_daily
-			WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+` AND month_qty>0
-				AND (current_qty-locked_qty)/(month_qty/30) > 50
-			ORDER BY current_qty * cost_price DESC LIMIT 100`, highItemArgs...)
+			WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond+`
+			GROUP BY goods_no
+			HAVING SUM(month_qty) > 0
+				AND SUM(current_qty - locked_qty) / (SUM(month_qty)/30) > 50
+			ORDER BY SUM(current_qty * cost_price) DESC LIMIT 100`, highItemArgs...)
 		if !ok {
 			return
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var d StockDetail
-			if err := rows.Scan(&d.GoodsNo, &d.GoodsName, &d.Warehouse, &d.UsableQty, &d.DailySales, &d.Turnover, &d.StockValue); err != nil {
+			if err := rows.Scan(&d.GoodsNo, &d.GoodsName, &d.UsableQty, &d.DailySales, &d.Turnover, &d.StockValue); err != nil {
 				setQueryErr(err)
 				return
 			}
@@ -548,7 +638,6 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	type StockoutDetail struct {
 		GoodsNo    string  `json:"goodsNo"`
 		GoodsName  string  `json:"goodsName"`
-		Warehouse  string  `json:"warehouse"`
 		DailySales float64 `json:"dailySales"`
 		DailyValue float64 `json:"dailyValue"`
 	}
@@ -556,21 +645,30 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// v1.02: 排除非卖品/已下架/下架中/接单产/新品-接单产 标签的 SKU
+		flagExcludeCondItem, flagExcludeArgsItem := planStockoutExcludeFlagsCond("")
 		stockoutItemArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
 		stockoutItemArgs = append(stockoutItemArgs, warehouseArgs...)
+		stockoutItemArgs = append(stockoutItemArgs, cateArgs...)
+		stockoutItemArgs = append(stockoutItemArgs, flagExcludeArgsItem...)
+		// 按 SKU 跨仓汇总缺货, 全仓没货且有销量才算缺货
+		// 日均损失用 SUM(month_qty * cost_price)/30 加权计算, 不依赖 cost_price 跨仓一致
 		rows, ok := queryRows(`
-			SELECT goods_no, goods_name, warehouse_name,
-				ROUND(month_qty/30,1), ROUND(month_qty/30 * cost_price,2)
+			SELECT goods_no, MAX(goods_name),
+				ROUND(SUM(month_qty)/30,1),
+				ROUND(SUM(month_qty * cost_price)/30,2)
 			FROM stock_quantity_daily
-			WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+` AND current_qty - locked_qty <= 0 AND month_qty > 0
-			ORDER BY month_qty DESC LIMIT 100`, stockoutItemArgs...)
+			WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond+flagExcludeCondItem+`
+			GROUP BY goods_no
+			HAVING SUM(current_qty - locked_qty) <= 0 AND SUM(month_qty) > 0
+			ORDER BY SUM(month_qty) DESC LIMIT 100`, stockoutItemArgs...)
 		if !ok {
 			return
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var d StockoutDetail
-			if err := rows.Scan(&d.GoodsNo, &d.GoodsName, &d.Warehouse, &d.DailySales, &d.DailyValue); err != nil {
+			if err := rows.Scan(&d.GoodsNo, &d.GoodsName, &d.DailySales, &d.DailyValue); err != nil {
 				setQueryErr(err)
 				return
 			}
@@ -597,11 +695,12 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		topSalesArgs := append([]interface{}{start, end}, planWhArgs...)
 		topSalesArgs = append(topSalesArgs, salesScopeArgs...)
+		topSalesArgs = append(topSalesArgs, cateArgs...)
 		rows, ok := queryRows(`
 			SELECT t.goods_no, t.goods_name, IFNULL(g.cate_full_name,''), IFNULL(g.goods_field7,''), t.sales, t.qty
 			FROM (SELECT goods_no, MAX(goods_name) AS goods_name,
 				ROUND(SUM(local_goods_amt),2) AS sales, ROUND(SUM(goods_qty),0) AS qty
-				FROM sales_goods_summary FORCE INDEX (idx_date_goods_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+`
+				FROM sales_goods_summary FORCE INDEX (idx_date_goods_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+`
 				GROUP BY goods_no ORDER BY sales DESC LIMIT 20) t
 			LEFT JOIN (SELECT goods_no, MAX(cate_full_name) AS cate_full_name, MAX(goods_field7) AS goods_field7
 				FROM goods WHERE is_delete=0 GROUP BY goods_no) g ON t.goods_no = g.goods_no`, topSalesArgs...)
@@ -626,11 +725,12 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		topQtyArgs := append([]interface{}{start, end}, planWhArgs...)
 		topQtyArgs = append(topQtyArgs, salesScopeArgs...)
+		topQtyArgs = append(topQtyArgs, cateArgs...)
 		rows, ok := queryRows(`
 			SELECT t.goods_no, t.goods_name, IFNULL(g.cate_full_name,''), IFNULL(g.goods_field7,''), t.qty, t.sales
 			FROM (SELECT goods_no, MAX(goods_name) AS goods_name,
 				ROUND(SUM(goods_qty),0) AS qty, ROUND(SUM(local_goods_amt),2) AS sales
-				FROM sales_goods_summary FORCE INDEX (idx_date_goods_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+`
+				FROM sales_goods_summary FORCE INDEX (idx_date_goods_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+`
 				GROUP BY goods_no ORDER BY qty DESC LIMIT 20) t
 			LEFT JOIN (SELECT goods_no, MAX(cate_full_name) AS cate_full_name, MAX(goods_field7) AS goods_field7
 				FROM goods WHERE is_delete=0 GROUP BY goods_no) g ON t.goods_no = g.goods_no`, topQtyArgs...)
@@ -663,12 +763,13 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		cateSalesArgs := append([]interface{}{start, end}, planWhArgs...)
 		cateSalesArgs = append(cateSalesArgs, salesScopeArgs...)
+		cateSalesArgs = append(cateSalesArgs, cateArgs...)
 		rows, ok := queryRows(`
 			SELECT
 				CASE WHEN cate_name LIKE '成品/%' THEN SUBSTRING_INDEX(SUBSTRING_INDEX(cate_name,'/',2),'/',-1)
 					WHEN cate_name IS NOT NULL AND cate_name != '' THEN cate_name ELSE '未分类' END AS category,
 				ROUND(SUM(local_goods_amt),2), ROUND(SUM(gross_profit),2)
-			FROM sales_goods_summary FORCE INDEX (idx_date_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+`
+			FROM sales_goods_summary FORCE INDEX (idx_date_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+`
 			GROUP BY category HAVING SUM(local_goods_amt) > 0
 			ORDER BY SUM(local_goods_amt) DESC`, cateSalesArgs...)
 		if !ok {
@@ -705,6 +806,9 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		agedItemArgs := append([]interface{}{end, stockSnapDate, end}, planWhArgs...)
 		agedItemArgs = append(agedItemArgs, warehouseArgsB...)
+		// v1.02: 库龄明细加 10 品类过滤 (b.goods_no)
+		cateCondAgedB, cateArgsAgedB := planCategoryGoodsCond("b")
+		agedItemArgs = append(agedItemArgs, cateArgsAgedB...)
 		rows, ok := queryRows(`
 			SELECT b.goods_no, b.goods_name, b.warehouse_name,
 				ROUND(b.current_qty,0), ROUND(b.current_qty * IFNULL(s.cost_price,0),2),
@@ -712,7 +816,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 			FROM stock_batch_daily b
 			LEFT JOIN stock_quantity_daily s ON s.snapshot_date = b.snapshot_date AND b.sku_id = s.sku_id AND b.warehouse_id = s.warehouse_id
 			WHERE b.snapshot_date=? AND b.production_date IS NOT NULL AND b.current_qty > 0
-				AND b.production_date < DATE_SUB(?, INTERVAL 90 DAY)`+planWhCondB+warehouseCondB+`
+				AND b.production_date < DATE_SUB(?, INTERVAL 90 DAY)`+planWhCondB+warehouseCondB+cateCondAgedB+`
 			ORDER BY b.current_qty * IFNULL(s.cost_price,0) DESC LIMIT 100`, agedItemArgs...)
 		if !ok {
 			return
@@ -738,7 +842,8 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		whListArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
 		whListArgs = append(whListArgs, warehouseArgs...)
-		rows, ok := queryRows(`SELECT DISTINCT warehouse_name FROM stock_quantity_daily WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+` AND (current_qty>0 OR month_qty>0) ORDER BY warehouse_name`, whListArgs...)
+		whListArgs = append(whListArgs, cateArgs...)
+		rows, ok := queryRows(`SELECT DISTINCT warehouse_name FROM stock_quantity_daily WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond+` AND (current_qty>0 OR month_qty>0) ORDER BY warehouse_name`, whListArgs...)
 		if !ok {
 			return
 		}

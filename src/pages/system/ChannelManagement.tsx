@@ -9,6 +9,7 @@ const DEPT_OPTIONS = [
   { value: 'social', label: '社媒' },
   { value: 'offline', label: '线下' },
   { value: 'distribution', label: '分销' },
+  { value: 'instant_retail', label: '即时零售' },
 ];
 
 const DEPT_MAP: Record<string, { label: string; color: string }> = {
@@ -16,6 +17,7 @@ const DEPT_MAP: Record<string, { label: string; color: string }> = {
   social: { label: '社媒', color: 'green' },
   offline: { label: '线下', color: 'orange' },
   distribution: { label: '分销', color: 'purple' },
+  instant_retail: { label: '即时零售', color: 'cyan' },
 };
 
 const ChannelManagement: React.FC = () => {
@@ -156,6 +158,7 @@ const ChannelManagement: React.FC = () => {
         { text: '社媒', value: 'social' },
         { text: '线下', value: 'offline' },
         { text: '分销', value: 'distribution' },
+        { text: '即时零售', value: 'instant_retail' },
         { text: '未分配', value: '' },
       ],
       onFilter: (value: any, record: any) => (record.department || '') === value,
@@ -219,6 +222,7 @@ const ChannelManagement: React.FC = () => {
               { value: 'social', label: '社媒' },
               { value: 'offline', label: '线下' },
               { value: 'distribution', label: '分销' },
+              { value: 'instant_retail', label: '即时零售' },
             ]}
           />
           <Select

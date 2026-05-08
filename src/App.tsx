@@ -35,6 +35,10 @@ const DistributionPage = lazy(() => import('./pages/distribution'));
 const DistributionStorePreview = lazy(() => import('./pages/distribution/StorePreview'));
 const DistributionStoreDashboard = lazy(() => import('./pages/distribution/StoreDashboard'));
 const DistributionProductDashboard = lazy(() => import('./pages/distribution/ProductDashboard'));
+const InstantRetailPage = lazy(() => import('./pages/instant-retail'));
+const InstantRetailStorePreview = lazy(() => import('./pages/instant-retail/StorePreview'));
+const InstantRetailStoreDashboard = lazy(() => import('./pages/instant-retail/StoreDashboard'));
+const InstantRetailProductDashboard = lazy(() => import('./pages/instant-retail/ProductDashboard'));
 const FinanceOverview = lazy(() => import('./pages/finance/Overview'));
 const FinanceDepartmentProfit = lazy(() => import('./pages/finance/DepartmentProfit'));
 const FinanceMonthlyProfit = lazy(() => import('./pages/finance/MonthlyProfit'));
@@ -144,6 +148,11 @@ const App: React.FC = () => (
               <Route path="/distribution/store-preview" element={guard('distribution.store_preview:view', <DistributionStorePreview />)} />
               <Route path="/distribution/store-dashboard" element={guard('distribution.store_dashboard:view', <DistributionStoreDashboard />)} />
               <Route path="/distribution/product-dashboard" element={guard('distribution.product_dashboard:view', <DistributionProductDashboard />)} />
+
+              <Route path="/instant-retail" element={guard('instant_retail:view', <InstantRetailPage />)} />
+              <Route path="/instant-retail/store-preview" element={guard('instant_retail.store_preview:view', <InstantRetailStorePreview />)} />
+              <Route path="/instant-retail/store-dashboard" element={guard('instant_retail.store_dashboard:view', <InstantRetailStoreDashboard />)} />
+              <Route path="/instant-retail/product-dashboard" element={guard('instant_retail.product_dashboard:view', <InstantRetailProductDashboard />)} />
 
               <Route path="/finance/overview" element={guard('finance.overview:view', <FinanceOverview />)} />
               <Route path="/finance/department-profit" element={guard('finance.department_profit:view', <FinanceDepartmentProfit />)} />

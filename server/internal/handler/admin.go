@@ -91,13 +91,14 @@ type adminUpdateRoleRequest struct {
 }
 
 var adminDeptLabelMap = map[string]string{
-	"ecommerce":    "电商部门",
-	"social":       "社媒部门",
-	"offline":      "线下部门",
-	"distribution": "分销部门",
-	"finance":      "财务部门",
-	"supply_chain": "供应链管理",
-	"supply-chain": "供应链管理",
+	"ecommerce":      "电商部门",
+	"social":         "社媒部门",
+	"offline":        "线下部门",
+	"distribution":   "分销部门",
+	"instant_retail": "即时零售部",
+	"finance":        "财务部门",
+	"supply_chain":   "供应链管理",
+	"supply-chain":   "供应链管理",
 }
 
 var builtInRoleCodes = func() map[string]struct{} {

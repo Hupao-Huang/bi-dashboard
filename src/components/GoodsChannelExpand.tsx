@@ -20,6 +20,8 @@ function getPlatform(shopName: string): string {
 }
 
 function getDepartment(shopName: string): string {
+  // v1.02: js- 前缀拆出即时零售部 (跟数据库 department='instant_retail' 对齐)
+  if (shopName.startsWith('js-即时零售')) return '即时零售部';
   if (shopName.startsWith('ds-') || shopName.startsWith('js-')) return '电商部门';
   if (shopName.startsWith('社媒-') || shopName.includes('抖音') || shopName.includes('快手') || shopName.includes('小红书') || shopName.includes('视频号') || shopName.includes('有赞') || shopName.includes('微店') || shopName.includes('飞瓜')) return '社媒部门';
   if (shopName.includes('分销')) return '分销部门';

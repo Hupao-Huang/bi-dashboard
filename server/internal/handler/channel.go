@@ -144,8 +144,8 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 验证部门值
-	validDepts := map[string]bool{"ecommerce": true, "social": true, "offline": true, "distribution": true, "": true}
+	// 验证部门值 (v1.02 加 instant_retail 即时零售部)
+	validDepts := map[string]bool{"ecommerce": true, "social": true, "offline": true, "distribution": true, "instant_retail": true, "": true}
 	if !validDepts[req.Department] {
 		writeError(w, 400, "无效的部门值")
 		return

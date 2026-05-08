@@ -330,7 +330,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		Sales    float64 `json:"sales"`
 	}
 	var gradePlatSales []GradePlatItem
-	if dept == "ecommerce" || dept == "social" {
+	if dept == "ecommerce" || dept == "social" || dept == "instant_retail" {
 		gpRows, ok := queryRowsOrWriteError(w, h.DB, `
 			SELECT IFNULL(g.goods_field7,'未设置') as grade,
 			CASE
