@@ -12,6 +12,7 @@ import {
   Row,
   Select,
   Space,
+  Statistic,
   Steps,
   Switch,
   Table,
@@ -21,8 +22,24 @@ import {
   message,
 } from 'antd';
 import type { UploadFile } from 'antd';
-import { DeleteOutlined, UploadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, UploadOutlined, SearchOutlined, TeamOutlined, CheckCircleOutlined, StopOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
+
+const ROLE_COLOR_MAP: Record<string, string> = {
+  super_admin: 'red',
+  management: 'gold',
+  dept_manager: 'cyan',
+  operator: 'blue',
+  finance: 'purple',
+  customer_service: 'green',
+  ecommerce_manager: 'geekblue',
+  social_manager: 'magenta',
+  offline_manager: 'orange',
+  distribution_manager: 'lime',
+  procurement: 'volcano',
+};
+
+const roleColor = (code: string): string => ROLE_COLOR_MAP[code] || 'blue';
 
 type MetaOption = {
   label: string;
@@ -91,6 +108,8 @@ const UserAccessPage: React.FC = () => {
   const [accessForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
 
+  const [searchText, setSearchText] = useState('');
+
   // 批量导入
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchStep, setBatchStep] = useState(0); // 0=上传配置 1=预览 2=结果
@@ -148,6 +167,23 @@ const UserAccessPage: React.FC = () => {
     const entries = (meta?.roles || []).map(role => [role.code, role.name]);
     return Object.fromEntries(entries) as Record<string, string>;
   }, [meta]);
+
+  const stats = useMemo(() => ({
+    total: users.length,
+    active: users.filter(u => u.status === 'active').length,
+    disabled: users.filter(u => u.status === 'disabled').length,
+    pending: users.filter(u => u.status === 'pending').length,
+  }), [users]);
+
+  const filteredUsers = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(u =>
+      u.realName.toLowerCase().includes(q) ||
+      u.username.toLowerCase().includes(q) ||
+      (u.phone || '').toLowerCase().includes(q)
+    );
+  }, [users, searchText]);
 
   const handleSelectUser = async (user: UserItem) => {
     setSelectedUserId(user.id);
@@ -208,6 +244,7 @@ const UserAccessPage: React.FC = () => {
               warehouses: values.warehouses || [],
             },
             password: values.password,
+            phone: values.phone || '',
             realName: values.realName,
             roleCodes: values.roleCodes || [],
             status: values.status ? 'active' : 'disabled',
@@ -366,7 +403,8 @@ const UserAccessPage: React.FC = () => {
       title: '手机号',
       dataIndex: 'phone',
       key: 'phone',
-      width: 120,
+      width: 110,
+      responsive: ['lg' as const],
       render: (phone: string) => phone || '-',
     },
     {
@@ -376,7 +414,7 @@ const UserAccessPage: React.FC = () => {
       render: (roles: string[]) => (
         <Space size={[4, 4]} wrap>
           {roles.length > 0 ? roles.map(role => (
-            <Tag key={role} color="blue" style={{ marginInlineEnd: 0 }}>
+            <Tag key={role} color={roleColor(role)} style={{ marginInlineEnd: 0 }}>
               {roleNameMap[role] || role}
             </Tag>
           )) : <Tag style={{ marginInlineEnd: 0 }}>未分配</Tag>}
@@ -387,51 +425,21 @@ const UserAccessPage: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 90,
+      width: 78,
+      responsive: ['xxl' as const],
       render: (status: string) => (
         <Tag color={status === 'active' ? 'green' : status === 'pending' ? 'orange' : 'default'} style={{ marginInlineEnd: 0 }}>
           {status === 'active' ? '启用' : status === 'pending' ? '待审批' : '停用'}
         </Tag>
       ),
     },
-    ...(users.some(u => u.status === 'pending') ? [{
-      title: '申请备注',
-      dataIndex: 'remark',
-      key: 'remark',
-      ellipsis: true,
-      render: (remark: string, record: UserItem) => record.status === 'pending' && remark
-        ? <Typography.Text style={{ fontSize: 12, color: '#d46b08' }}>{remark}</Typography.Text>
-        : null,
-    }] : []),
     {
       title: '上次登录',
       dataIndex: 'lastLoginAt',
       key: 'lastLoginAt',
-      width: 170,
+      width: 160,
+      responsive: ['xxl' as const],
       render: (value: string) => value || '-',
-    },
-    {
-      title: '',
-      key: 'action',
-      width: 48,
-      render: (_: unknown, record: UserItem) => (
-        <Popconfirm
-          title="确定删除该用户？"
-          description={`@${record.username} 将被永久删除`}
-          onConfirm={(e) => { e?.stopPropagation(); void handleDeleteUser(record.id); }}
-          onCancel={(e) => e?.stopPropagation()}
-          okText="删除"
-          cancelText="取消"
-        >
-          <Button
-            type="text"
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </Popconfirm>
-      ),
     },
   ];
 
@@ -440,19 +448,55 @@ const UserAccessPage: React.FC = () => {
   return (
     <div>
       {contextHolder}
+
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#1e40af' }} bodyStyle={{ padding: 16 }}>
+            <Statistic title={<><TeamOutlined style={{ marginRight: 6 }} />总用户</>} value={stats.total} valueStyle={{ color: '#1e40af', fontSize: 22 }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#16a34a' }} bodyStyle={{ padding: 16 }}>
+            <Statistic title={<><CheckCircleOutlined style={{ marginRight: 6, color: '#16a34a' }} />已启用</>} value={stats.active} valueStyle={{ color: '#16a34a', fontSize: 22 }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#94a3b8' }} bodyStyle={{ padding: 16 }}>
+            <Statistic title={<><StopOutlined style={{ marginRight: 6, color: '#94a3b8' }} />已停用</>} value={stats.disabled} valueStyle={{ color: '#64748b', fontSize: 22 }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#f59e0b' }} bodyStyle={{ padding: 16 }}>
+            <Statistic
+              title={<><ClockCircleOutlined style={{ marginRight: 6, color: '#f59e0b' }} />待审批</>}
+              value={stats.pending}
+              valueStyle={{ color: stats.pending > 0 ? '#f59e0b' : '#94a3b8', fontSize: 22, fontWeight: stats.pending > 0 ? 700 : 400 }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
       <Row gutter={[16, 16]}>
-        <Col xs={24} xl={10}>
+        <Col xs={24} xl={12} xxl={10}>
           <Card
             className="bi-card"
             title="用户列表"
             extra={<Space><Button onClick={() => setBatchOpen(true)} icon={<UploadOutlined />}>批量导入</Button><Button type="primary" onClick={() => setCreateOpen(true)}>新增用户</Button></Space>}
           >
+            <Input
+              placeholder="搜索 姓名 / 账号 / 手机号"
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              allowClear
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              style={{ marginBottom: 12 }}
+            />
             <Table
               rowKey="id"
               loading={loading}
-              dataSource={users}
+              dataSource={filteredUsers}
               columns={userColumns}
-              pagination={false}
+              pagination={{ pageSize: 20, hideOnSinglePage: true, size: 'small' }}
               size="small"
               rowClassName={record => (record.id === selectedUserId ? 'ant-table-row-selected' : '')}
               onRow={record => ({
@@ -462,7 +506,7 @@ const UserAccessPage: React.FC = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} xl={14}>
+        <Col xs={24} xl={12} xxl={14}>
           <Card className="bi-card" title="用户配置">
             {access && meta && currentUser ? (
               <>
@@ -476,22 +520,20 @@ const UserAccessPage: React.FC = () => {
                   />
                 )}
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8, marginBottom: 20 }}>
-                  <div style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #4f6bff 0%, #7aa2ff 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, flexShrink: 0 }}>
-                    {(access.realName || '?').slice(0, 1)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <Typography.Title level={5} style={{ marginBottom: 0 }}>{access.realName}</Typography.Title>
-                    <Typography.Text type="secondary">@{access.username}{currentUser.phone ? ` · ${currentUser.phone}` : ''}</Typography.Text>
-                  </div>
-                  <Form form={accessForm} onFinish={handleSaveAccess} style={{ marginBottom: 0 }}>
+                <Form form={accessForm} layout="vertical" onFinish={handleSaveAccess}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8, marginBottom: 20 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #4f6bff 0%, #7aa2ff 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, flexShrink: 0 }}>
+                      {(access.realName || '?').slice(0, 1)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Typography.Title level={5} style={{ marginBottom: 0 }}>{access.realName}</Typography.Title>
+                      <Typography.Text type="secondary">@{access.username}{currentUser.phone ? ` · ${currentUser.phone}` : ''}</Typography.Text>
+                    </div>
                     <Form.Item name="status" valuePropName="checked" style={{ marginBottom: 0 }}>
                       <Switch checkedChildren="启用" unCheckedChildren="停用" />
                     </Form.Item>
-                  </Form>
-                </div>
+                  </div>
 
-                <Form form={accessForm} layout="vertical" onFinish={handleSaveAccess}>
                   <Form.Item label="分配角色" name="roleCodes">
                     <Select
                       mode="multiple"
@@ -499,16 +541,45 @@ const UserAccessPage: React.FC = () => {
                       placeholder="请选择角色（可多选）"
                     />
                   </Form.Item>
+                  <Row gutter={12}>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="可见部门" name="depts">
+                        <Select mode="multiple" allowClear options={meta.depts} placeholder="不选=按角色默认" maxTagCount="responsive" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="可见仓库" name="warehouses">
+                        <Select mode="multiple" allowClear options={meta.warehouses} placeholder="不选=不限制" maxTagCount="responsive" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="可见平台" name="platforms">
+                        <Select mode="multiple" allowClear options={meta.platforms} placeholder="不选=不限制" maxTagCount="responsive" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="可见店铺" name="shops">
+                        <Select mode="multiple" allowClear options={meta.shops} placeholder="不选=不限制" maxTagCount="responsive" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24}>
+                      <Form.Item label="可见业务域" name="domains">
+                        <Select mode="multiple" allowClear options={meta.domains} placeholder="不选=不限制" maxTagCount="responsive" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
                   <Form.Item style={{ marginBottom: 0 }}>
-                    <Button type="primary" htmlType="submit" loading={saving}>
-                      保存
-                    </Button>
+                    <Button type="primary" htmlType="submit" loading={saving}>保存</Button>
                   </Form.Item>
                 </Form>
 
                 <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
                   <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>重置密码</Typography.Text>
-                  <Form form={passwordForm} layout="inline" onFinish={handleResetPassword}>
+                  <Form
+                    form={passwordForm}
+                    layout="inline"
+                    onFinish={handleResetPassword}
+                  >
                     <Form.Item
                       name="password"
                       rules={[
@@ -518,8 +589,33 @@ const UserAccessPage: React.FC = () => {
                     >
                       <Input.Password placeholder="输入新密码" style={{ width: 240 }} />
                     </Form.Item>
-                    <Button htmlType="submit" loading={passwordSaving}>重置密码</Button>
+                    <Popconfirm
+                      title="确认重置密码？"
+                      description={`将把 ${access.realName} (@${access.username}) 的密码改成你输入的新密码`}
+                      onConfirm={() => passwordForm.submit()}
+                      okText="确认重置"
+                      cancelText="取消"
+                    >
+                      <Button loading={passwordSaving} danger>重置密码</Button>
+                    </Popconfirm>
                   </Form>
+                </div>
+
+                <div style={{ marginTop: 16, padding: '12px 16px', background: '#fff1f0', border: '1px solid #ffccc7', borderRadius: 8 }}>
+                  <Space size={12} align="center">
+                    <Typography.Text strong style={{ color: '#cf1322' }}>危险操作</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>删除后该账号无法恢复</Typography.Text>
+                    <Popconfirm
+                      title="确定删除该用户？"
+                      description={`@${access.username} (${access.realName}) 将被永久删除`}
+                      onConfirm={() => handleDeleteUser(access.userId)}
+                      okText="确认删除"
+                      okButtonProps={{ danger: true }}
+                      cancelText="取消"
+                    >
+                      <Button danger size="small" icon={<DeleteOutlined />}>删除该用户</Button>
+                    </Popconfirm>
+                  </Space>
                 </div>
               </>
             ) : (
@@ -543,27 +639,63 @@ const UserAccessPage: React.FC = () => {
           initialValues={{ status: true }}
           onFinish={handleCreateUser}
         >
-          <Form.Item name="username" label="账号" rules={[{ required: true, message: '请输入账号' }]}>
-            <Input placeholder="例如 zhangsan" />
-          </Form.Item>
-          <Form.Item name="realName" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
-            <Input placeholder="例如 张三" />
-          </Form.Item>
-          <Form.Item name="password" label="初始密码" rules={[{ required: true, message: '请输入初始密码' }, { min: 6, message: '至少 6 位' }]}>
-            <Input.Password placeholder="请输入初始密码" />
-          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="username" label="账号" rules={[{ required: true, message: '请输入账号' }]}>
+                <Input placeholder="例如 zhangsan" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="realName" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
+                <Input placeholder="例如 张三" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="phone" label="手机号">
+                <Input placeholder="11 位手机号（选填）" maxLength={11} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="password" label="初始密码" rules={[{ required: true, message: '请输入初始密码' }, { min: 6, message: '至少 6 位' }]}>
+                <Input.Password placeholder="请输入初始密码" />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item name="roleCodes" label="角色">
-            <Select mode="multiple" options={(meta?.roles || []).map(role => ({ label: role.name, value: role.code }))} />
+            <Select mode="multiple" options={(meta?.roles || []).map(role => ({ label: role.name, value: role.code }))} placeholder="可多选" />
           </Form.Item>
-          <Form.Item name="depts" label="可见部门">
-            <Select mode="multiple" options={meta?.depts || []} maxTagCount="responsive" />
-          </Form.Item>
-          <Form.Item name="warehouses" label="可见仓库">
-            <Select mode="multiple" options={meta?.warehouses || []} maxTagCount="responsive" />
-          </Form.Item>
-          <Form.Item name="status" label="立即启用" valuePropName="checked">
-            <Switch checkedChildren="启用" unCheckedChildren="停用" />
-          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="depts" label="可见部门">
+                <Select mode="multiple" allowClear options={meta?.depts || []} maxTagCount="responsive" placeholder="不选=按角色默认" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="warehouses" label="可见仓库">
+                <Select mode="multiple" allowClear options={meta?.warehouses || []} maxTagCount="responsive" placeholder="不选=不限制" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="platforms" label="可见平台">
+                <Select mode="multiple" allowClear options={meta?.platforms || []} maxTagCount="responsive" placeholder="不选=不限制" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="shops" label="可见店铺">
+                <Select mode="multiple" allowClear options={meta?.shops || []} maxTagCount="responsive" placeholder="不选=不限制" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="domains" label="可见业务域">
+                <Select mode="multiple" allowClear options={meta?.domains || []} maxTagCount="responsive" placeholder="不选=不限制" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="status" label="立即启用" valuePropName="checked">
+                <Switch checkedChildren="启用" unCheckedChildren="停用" />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
 
