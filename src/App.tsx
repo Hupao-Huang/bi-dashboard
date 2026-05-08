@@ -126,7 +126,7 @@ const App: React.FC = () => (
               <Route path="/ecommerce/store-dashboard" element={guard('ecommerce.store_dashboard:view', <EcommerceStoreDashboard />)} />
               <Route path="/ecommerce/product-dashboard" element={guard('ecommerce.product_dashboard:view', <EcommerceProductDashboard />)} />
               <Route path="/ecommerce/marketing-cost" element={guard('ecommerce.marketing_cost:view', <EcommerceMarketingCost />)} />
-              <Route path="/ecommerce/special-channel-allot" element={guard('ecommerce:view', <EcommerceSpecialChannelAllot />)} />
+              <Route path="/ecommerce/special-channel-allot" element={guard('ecommerce.special_channel_allot:view', <EcommerceSpecialChannelAllot />)} />
 
               <Route path="/social" element={guard('social:view', <SocialPage />)} />
               <Route path="/social/store-preview" element={guard('social.store_preview:view', <SocialStorePreview />)} />

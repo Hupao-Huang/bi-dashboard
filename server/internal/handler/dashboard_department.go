@@ -7,6 +7,24 @@ import (
 	"time"
 )
 
+// excludeAllotShopsCond v1.04 跑哥要求: 电商店铺看板剔除走特殊渠道调拨对账的渠道
+// (这两个渠道按调拨单算销售额 /api/special-channel-allot, 销售单不在电商部门重复计)
+// 仅对 dept='ecommerce' 生效, 其他部门和综合看板 (overview) 不动
+// 综合看板继续显示总数 + 前端文案标"电商部门含特殊渠道调拨金额"提示用户口径
+const ecommerceExcludeAllotCond = ` AND shop_name NOT IN ('ds-京东-清心湖自营','ds-天猫超市-寄售')`
+const ecommerceExcludeAllotCondAlias = ` AND s.shop_name NOT IN ('ds-京东-清心湖自营','ds-天猫超市-寄售')`
+
+// extraDeptCond 返回特定部门的额外过滤 SQL (alias=true 用 s.shop_name 别名)
+func extraDeptCond(dept string, alias bool) string {
+	if dept == "ecommerce" {
+		if alias {
+			return ecommerceExcludeAllotCondAlias
+		}
+		return ecommerceExcludeAllotCond
+	}
+	return ""
+}
+
 func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Request) {
 	dept := r.URL.Query().Get("dept")
 	if dept == "" {
@@ -61,6 +79,11 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 	extraArgs = append(extraArgs, scopeArgs...)
+
+	// v1.04: 电商部门剔除走特殊渠道调拨对账的渠道 (跑哥要求)
+	// 拼到 scopeCond 上, 所有 17 处 sales_goods_summary SQL 自动生效
+	// 用 strings.ReplaceAll(_, "shop_name", "s.shop_name") 的 SQL 也同步替换别名
+	scopeCond += extraDeptCond(dept, false)
 
 	// 1. 每日趋势（短范围自动扩展）
 	trendStart, trendEnd := getTrendDateRange(start, end)
