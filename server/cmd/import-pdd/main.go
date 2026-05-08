@@ -23,63 +23,6 @@ var baseDir = `Z:\信息部\RPA_集团数据看板\拼多多`
 // 拼多多"统计时间"列格式是 MM-DD-YY（美式短年份）：例如 "12-29-25" = 2025-12-29
 // 也兼容 YYYY-MM-DD / YYYYMMDD / YYYY年MM月DD日 等标准格式
 // 格式不合规返回 ""（调用方 fallback 到文件名日期）
-func parseExcelDate(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	if idx := strings.Index(s, " "); idx > 0 {
-		s = s[:idx]
-	}
-	s = strings.ReplaceAll(s, "/", "-")
-	s = strings.ReplaceAll(s, ".", "-")
-	s = strings.ReplaceAll(s, "年", "-")
-	s = strings.ReplaceAll(s, "月", "-")
-	s = strings.ReplaceAll(s, "日", "")
-	// YYYYMMDD（无分隔符）
-	if len(s) == 8 && !strings.Contains(s, "-") {
-		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
-	}
-	parts := strings.Split(s, "-")
-	if len(parts) != 3 {
-		return ""
-	}
-	// 情况 A: YYYY-MM-DD（4 位年份，标准 ISO）
-	if len(parts[0]) == 4 {
-		y, m, d := parts[0], parts[1], parts[2]
-		if len(m) == 1 {
-			m = "0" + m
-		}
-		if len(d) == 1 {
-			d = "0" + d
-		}
-		if len(m) != 2 || len(d) != 2 {
-			return ""
-		}
-		return y + "-" + m + "-" + d
-	}
-	// 情况 B: MM-DD-YY（拼多多美式短年份）
-	// 识别条件: 三段都是 1-2 位，parts[0] ≤ 12（月份合法），parts[2] 是 YY
-	if len(parts[0]) <= 2 && len(parts[1]) <= 2 && len(parts[2]) == 2 {
-		mNum, e1 := strconv.Atoi(parts[0])
-		dNum, e2 := strconv.Atoi(parts[1])
-		yyNum, e3 := strconv.Atoi(parts[2])
-		if e1 != nil || e2 != nil || e3 != nil {
-			return ""
-		}
-		if mNum < 1 || mNum > 12 || dNum < 1 || dNum > 31 {
-			return ""
-		}
-		// YY 补全：00-69 → 20xx, 70-99 → 19xx
-		year := 2000 + yyNum
-		if yyNum >= 70 {
-			year = 1900 + yyNum
-		}
-		return fmt.Sprintf("%04d-%02d-%02d", year, mNum, dNum)
-	}
-	return ""
-}
-
 func main() {
 	unlock := importutil.AcquireLock("import-pdd")
 	defer unlock()
@@ -470,7 +413,7 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		return 0, nil
 	}
 	// stat_date 取 Excel 第 0 列"统计时间"（业务日），文件名日期只是 RPA 采集日
-	statDate := parseExcelDate(d[0])
+	statDate := importutil.ParseExcelDate(d[0])
 	if statDate == "" {
 		statDate = date
 	}
@@ -511,7 +454,7 @@ func importGoodsDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		return 0, nil
 	}
 	// stat_date 取 Excel 第 0 列"统计时间"（业务日），文件名日期只是 RPA 采集日
-	statDate := parseExcelDate(d[0])
+	statDate := importutil.ParseExcelDate(d[0])
 	if statDate == "" {
 		statDate = date
 	}
@@ -551,7 +494,7 @@ func importServiceOverview(db *sql.DB, fpath, date, shop string) (int, error) {
 		return 0, nil
 	}
 	// stat_date 取 Excel 第 0 列"统计时间"（业务日），文件名日期只是 RPA 采集日
-	statDate := parseExcelDate(d[0])
+	statDate := importutil.ParseExcelDate(d[0])
 	if statDate == "" {
 		statDate = date
 	}
@@ -647,33 +590,33 @@ func importCampaign(db *sql.DB, fpath, date, shop, promoType string) (int, error
 	}
 	header := rows[0]
 	d := rows[1]
-	idx := headerIdx(header)
+	idx := importutil.HeaderIdx(header)
 
 	// 核心字段缺失保护
-	colTrade := findCol(idx, "交易额(元)", "交易额")
+	colTrade := importutil.FindCol(idx, "交易额(元)", "交易额")
 	if colTrade < 0 {
 		return 0, fmt.Errorf("[%s] 表头格式未识别（找不到'交易额'列）: %v", promoType, header)
 	}
 
 	// stat_date 取 Excel 第一列业务日期
-	colDate := findCol(idx, "日期", "时间", "统计日期")
+	colDate := importutil.FindCol(idx, "日期", "时间", "统计日期")
 	statDate := ""
 	if colDate >= 0 && colDate < len(d) {
-		statDate = parseExcelDate(d[colDate])
+		statDate = importutil.ParseExcelDate(d[colDate])
 	}
 	if statDate == "" {
 		statDate = date
 	}
 
-	cost := getFloat(d, findCol(idx, "总花费(元)", "花费(元)", "总花费", "花费"))
+	cost := getFloat(d, importutil.FindCol(idx, "总花费(元)", "花费(元)", "总花费", "花费"))
 	payAmount := getFloat(d, colTrade)
-	roi := getFloat(d, findCol(idx, "实际投产比", "投入产出比"))
+	roi := getFloat(d, importutil.FindCol(idx, "实际投产比", "投入产出比"))
 	// 净*字段只有商品推广有；其他类型 fallback 为 cost/roi（语义近似）
-	realPayAmount := getFloat(d, findCol(idx, "净交易额(元)", "净交易额"))
+	realPayAmount := getFloat(d, importutil.FindCol(idx, "净交易额(元)", "净交易额"))
 	if realPayAmount == 0 {
 		realPayAmount = payAmount
 	}
-	realROI := getFloat(d, findCol(idx, "净实际投产比"))
+	realROI := getFloat(d, importutil.FindCol(idx, "净实际投产比"))
 	if realROI == 0 {
 		realROI = roi
 	}
@@ -685,9 +628,9 @@ func importCampaign(db *sql.DB, fpath, date, shop, promoType string) (int, error
 		 real_pay_amount=VALUES(real_pay_amount), real_roi=VALUES(real_roi),
 		 pay_orders=VALUES(pay_orders), impressions=VALUES(impressions), clicks=VALUES(clicks)`,
 		statDate, shop, promoType, cost, payAmount, roi, realPayAmount, realROI,
-		getInt(d, findCol(idx, "成交笔数")),
-		getInt(d, findCol(idx, "曝光量")),
-		getInt(d, findCol(idx, "点击量")),
+		getInt(d, importutil.FindCol(idx, "成交笔数")),
+		getInt(d, importutil.FindCol(idx, "曝光量")),
+		getInt(d, importutil.FindCol(idx, "点击量")),
 	)
 	if err != nil {
 		return 0, err
@@ -722,10 +665,10 @@ func importCampaignGoods(db *sql.DB, fpath, date, shop string) (int, error) {
 		return 0, nil
 	}
 	header := rows[0]
-	idx := headerIdx(header)
+	idx := importutil.HeaderIdx(header)
 
-	colDate := findCol(idx, "日期", "时间", "统计日期")
-	colGoodsID := findCol(idx, "商品ID")
+	colDate := importutil.FindCol(idx, "日期", "时间", "统计日期")
+	colGoodsID := importutil.FindCol(idx, "商品ID")
 	if colGoodsID < 0 {
 		return 0, fmt.Errorf("商品 sheet 表头缺少'商品ID'列: %v", header)
 	}
@@ -744,7 +687,7 @@ func importCampaignGoods(db *sql.DB, fpath, date, shop string) (int, error) {
 		// 业务日期优先 Excel，fallback 文件名
 		statDate := date
 		if colDate >= 0 && colDate < len(d) {
-			if pd := parseExcelDate(d[colDate]); pd != "" {
+			if pd := importutil.ParseExcelDate(d[colDate]); pd != "" {
 				statDate = pd
 			}
 		}
@@ -782,50 +725,50 @@ func importCampaignGoods(db *sql.DB, fpath, date, shop string) (int, error) {
 			 collect_cost=VALUES(collect_cost), collect_count=VALUES(collect_count), collect_avg_cost=VALUES(collect_avg_cost),
 			 follow_cost=VALUES(follow_cost), follow_count=VALUES(follow_count), follow_avg_cost=VALUES(follow_avg_cost)`,
 			statDate, shop, goodsID,
-			toSS(d, findCol(idx, "商品名称")),
-			toSS(d, findCol(idx, "推广场景")),
-			toSS(d, findCol(idx, "推广名称")),
-			toSS(d, findCol(idx, "出价方式")),
-			toSS(d, findCol(idx, "分组")),
-			toSS(d, findCol(idx, "是否已删除")),
-			getFloat(d, findCol(idx, "成交花费(元)", "成交花费")),
-			getFloat(d, findCol(idx, "交易额(元)")),
-			getFloat(d, findCol(idx, "实际投产比")),
-			getFloat(d, findCol(idx, "总花费(元)", "总花费")),
-			getFloat(d, findCol(idx, "净交易额(元)")),
-			getFloat(d, findCol(idx, "净实际投产比")),
-			getInt(d, findCol(idx, "净成交笔数")),
-			getFloat(d, findCol(idx, "每笔净成交花费(元)")),
-			getPctFloat(d, findCol(idx, "净交易额占比")),
-			getPctFloat(d, findCol(idx, "净成交笔数占比")),
-			getFloat(d, findCol(idx, "每笔净成交金额(元)")),
-			getFloat(d, findCol(idx, "结算交易额(元)")),
-			getFloat(d, findCol(idx, "结算投产比")),
-			getInt(d, findCol(idx, "结算成交笔数")),
-			getPctFloat(d, findCol(idx, "退款豁免率")),
-			getPctFloat(d, findCol(idx, "退单豁免率")),
-			getFloat(d, findCol(idx, "每笔结算成交花费(元)")),
-			getPctFloat(d, findCol(idx, "交易额结算率")),
-			getPctFloat(d, findCol(idx, "订单结算率")),
-			getFloat(d, findCol(idx, "每笔结算成交金额(元)")),
-			getInt(d, findCol(idx, "成交笔数")),
-			getFloat(d, findCol(idx, "每笔成交花费(元)")),
-			getFloat(d, findCol(idx, "每笔成交金额(元)")),
-			getFloat(d, findCol(idx, "直接交易额(元)")),
-			getFloat(d, findCol(idx, "间接交易额(元)")),
-			getInt(d, findCol(idx, "直接成交笔数")),
-			getInt(d, findCol(idx, "间接成交笔数")),
-			getInt(d, findCol(idx, "曝光量")),
-			getInt(d, findCol(idx, "点击量")),
-			getFloat(d, findCol(idx, "询单花费(元)")),
-			getInt(d, findCol(idx, "询单量")),
-			getFloat(d, findCol(idx, "平均询单成本(元)")),
-			getFloat(d, findCol(idx, "收藏花费(元)")),
-			getInt(d, findCol(idx, "收藏量")),
-			getFloat(d, findCol(idx, "平均收藏成本(元)")),
-			getFloat(d, findCol(idx, "关注花费(元)")),
-			getInt(d, findCol(idx, "关注量")),
-			getFloat(d, findCol(idx, "平均关注成本(元)")),
+			toSS(d, importutil.FindCol(idx, "商品名称")),
+			toSS(d, importutil.FindCol(idx, "推广场景")),
+			toSS(d, importutil.FindCol(idx, "推广名称")),
+			toSS(d, importutil.FindCol(idx, "出价方式")),
+			toSS(d, importutil.FindCol(idx, "分组")),
+			toSS(d, importutil.FindCol(idx, "是否已删除")),
+			getFloat(d, importutil.FindCol(idx, "成交花费(元)", "成交花费")),
+			getFloat(d, importutil.FindCol(idx, "交易额(元)")),
+			getFloat(d, importutil.FindCol(idx, "实际投产比")),
+			getFloat(d, importutil.FindCol(idx, "总花费(元)", "总花费")),
+			getFloat(d, importutil.FindCol(idx, "净交易额(元)")),
+			getFloat(d, importutil.FindCol(idx, "净实际投产比")),
+			getInt(d, importutil.FindCol(idx, "净成交笔数")),
+			getFloat(d, importutil.FindCol(idx, "每笔净成交花费(元)")),
+			getPctFloat(d, importutil.FindCol(idx, "净交易额占比")),
+			getPctFloat(d, importutil.FindCol(idx, "净成交笔数占比")),
+			getFloat(d, importutil.FindCol(idx, "每笔净成交金额(元)")),
+			getFloat(d, importutil.FindCol(idx, "结算交易额(元)")),
+			getFloat(d, importutil.FindCol(idx, "结算投产比")),
+			getInt(d, importutil.FindCol(idx, "结算成交笔数")),
+			getPctFloat(d, importutil.FindCol(idx, "退款豁免率")),
+			getPctFloat(d, importutil.FindCol(idx, "退单豁免率")),
+			getFloat(d, importutil.FindCol(idx, "每笔结算成交花费(元)")),
+			getPctFloat(d, importutil.FindCol(idx, "交易额结算率")),
+			getPctFloat(d, importutil.FindCol(idx, "订单结算率")),
+			getFloat(d, importutil.FindCol(idx, "每笔结算成交金额(元)")),
+			getInt(d, importutil.FindCol(idx, "成交笔数")),
+			getFloat(d, importutil.FindCol(idx, "每笔成交花费(元)")),
+			getFloat(d, importutil.FindCol(idx, "每笔成交金额(元)")),
+			getFloat(d, importutil.FindCol(idx, "直接交易额(元)")),
+			getFloat(d, importutil.FindCol(idx, "间接交易额(元)")),
+			getInt(d, importutil.FindCol(idx, "直接成交笔数")),
+			getInt(d, importutil.FindCol(idx, "间接成交笔数")),
+			getInt(d, importutil.FindCol(idx, "曝光量")),
+			getInt(d, importutil.FindCol(idx, "点击量")),
+			getFloat(d, importutil.FindCol(idx, "询单花费(元)")),
+			getInt(d, importutil.FindCol(idx, "询单量")),
+			getFloat(d, importutil.FindCol(idx, "平均询单成本(元)")),
+			getFloat(d, importutil.FindCol(idx, "收藏花费(元)")),
+			getInt(d, importutil.FindCol(idx, "收藏量")),
+			getFloat(d, importutil.FindCol(idx, "平均收藏成本(元)")),
+			getFloat(d, importutil.FindCol(idx, "关注花费(元)")),
+			getInt(d, importutil.FindCol(idx, "关注量")),
+			getFloat(d, importutil.FindCol(idx, "平均关注成本(元)")),
 		)
 		if err != nil {
 			log.Printf("写入商品级失败 [%s/%s]: %v", goodsID, shop, err)
@@ -859,29 +802,6 @@ func getPctFloat(d []string, i int) interface{} {
 }
 
 // headerIdx/findCol/getInt/getFloat/getStr - 通用按表头名映射 helper
-func headerIdx(header []string) map[string]int {
-	m := make(map[string]int, len(header))
-	for i, h := range header {
-		h = strings.TrimSpace(h)
-		if h == "" {
-			continue
-		}
-		if _, ok := m[h]; !ok {
-			m[h] = i
-		}
-	}
-	return m
-}
-
-func findCol(idx map[string]int, aliases ...string) int {
-	for _, a := range aliases {
-		if i, ok := idx[a]; ok {
-			return i
-		}
-	}
-	return -1
-}
-
 func getInt(d []string, i int) int {
 	if i < 0 || i >= len(d) {
 		return 0

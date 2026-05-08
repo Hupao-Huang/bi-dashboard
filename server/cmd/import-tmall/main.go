@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -203,83 +202,9 @@ func processShopDir(dir, dateStr, shopName string, isLatest bool) {
 
 // ==================== 工具函数 ====================
 
-func parseFloat(s string) float64 {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, ",", "")
-	s = strings.ReplaceAll(s, "%", "")
-	s = strings.TrimSpace(s)
-	if s == "" || s == "-" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
-}
-
-func parseInt(s string) int {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, ",", "")
-	s = strings.TrimSpace(s)
-	if s == "" || s == "-" {
-		return 0
-	}
-	v, _ := strconv.Atoi(s)
-	return v
-}
-
-func cellStr(row []string, idx int) string {
-	if idx >= len(row) {
-		return ""
-	}
-	return strings.TrimSpace(row[idx])
-}
-
-func formatDate(dateStr string) string {
-	// YYYYMMDD -> YYYY-MM-DD
-	if len(dateStr) == 8 {
-		return dateStr[:4] + "-" + dateStr[4:6] + "-" + dateStr[6:8]
-	}
-	return dateStr
-}
-
 // parseExcelDate 严格解析 Excel 日期列，格式不合规返回 ""（调用方 fallback 到文件名日期）
 // 支持: YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD / YYYY年MM月DD日 / YYYYMMDD / YYYY-M-D
 // 注意：YY 两位年份格式不受支持（避免误解析导致数据污染）
-func parseExcelDate(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	if idx := strings.Index(s, " "); idx > 0 {
-		s = s[:idx]
-	}
-	s = strings.ReplaceAll(s, "/", "-")
-	s = strings.ReplaceAll(s, ".", "-")
-	s = strings.ReplaceAll(s, "年", "-")
-	s = strings.ReplaceAll(s, "月", "-")
-	s = strings.ReplaceAll(s, "日", "")
-	if len(s) == 8 && !strings.Contains(s, "-") {
-		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
-	}
-	parts := strings.Split(s, "-")
-	if len(parts) != 3 {
-		return ""
-	}
-	y, m, d := parts[0], parts[1], parts[2]
-	if len(y) != 4 {
-		return ""
-	}
-	if len(m) == 1 {
-		m = "0" + m
-	}
-	if len(d) == 1 {
-		d = "0" + d
-	}
-	if len(m) != 2 || len(d) != 2 {
-		return ""
-	}
-	return y + "-" + m + "-" + d
-}
-
 // ==================== 生意参谋-店铺销售 ====================
 
 func importShopDaily(path, dateStr, shopName string) error {
@@ -314,12 +239,12 @@ func importShopDaily(path, dateStr, shopName string) error {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 { return parseFloat(get(name)) }
-		getI := func(name string) int { return parseInt(get(name)) }
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		statDate := get("统计日期")
 		if statDate == "" {
-			statDate = formatDate(dateStr)
+			statDate = importutil.FormatDate(dateStr)
 		}
 
 		_, err := db.Exec(`REPLACE INTO op_tmall_shop_daily (
@@ -401,8 +326,8 @@ func importGoodsDaily(path, dateStr, shopName string) error {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 { return parseFloat(get(name)) }
-		getI := func(name string) int { return parseInt(get(name)) }
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		productID := get("商品ID")
 		if productID == "" {
@@ -411,7 +336,7 @@ func importGoodsDaily(path, dateStr, shopName string) error {
 
 		statDate := get("统计日期")
 		if statDate == "" {
-			statDate = formatDate(dateStr)
+			statDate = importutil.FormatDate(dateStr)
 		}
 
 		_, err := db.Exec(`REPLACE INTO op_tmall_goods_daily (
@@ -482,12 +407,12 @@ func importCampaignDaily(path, dateStr, shopName string) error {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 { return parseFloat(get(name)) }
-		getI := func(name string) int { return parseInt(get(name)) }
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		statDate := get("日期")
 		if statDate == "" {
-			statDate = formatDate(dateStr)
+			statDate = importutil.FormatDate(dateStr)
 		}
 
 		sceneID := get("场景ID")
@@ -560,8 +485,8 @@ func importCampaignDetailDaily(path, dateStr, shopName string) error {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 { return parseFloat(get(name)) }
-		getI := func(name string) int { return parseInt(get(name)) }
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		productID := get("主体ID")
 		if productID == "" {
@@ -569,7 +494,7 @@ func importCampaignDetailDaily(path, dateStr, shopName string) error {
 		}
 		statDate := get("日期")
 		if statDate == "" {
-			statDate = formatDate(dateStr)
+			statDate = importutil.FormatDate(dateStr)
 		}
 
 		_, err := db.Exec(`REPLACE INTO op_tmall_campaign_detail_daily (
@@ -671,12 +596,12 @@ func importCPSDaily(path, dateStr, shopName string) error {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 { return parseFloat(get(name)) }
-		getI := func(name string) int { return parseInt(get(name)) }
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		statDate := get("日期")
 		if statDate == "" {
-			statDate = formatDate(dateStr)
+			statDate = importutil.FormatDate(dateStr)
 		}
 		// 日期可能有trailing tab
 		statDate = strings.TrimSpace(statDate)
@@ -818,7 +743,7 @@ func importBrandDaily(path, shopName string) error {
 	dateMap := make(map[string]map[string]float64)
 	for metric, series := range b.Data.Compare {
 		for i, dateStr := range series.Date {
-			d := formatDate(dateStr)
+			d := importutil.FormatDate(dateStr)
 			if dateMap[d] == nil {
 				dateMap[d] = make(map[string]float64)
 			}
@@ -945,7 +870,7 @@ func importRepurchaseMonthly(path, shopName string) error {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 { return parseFloat(get(name)) }
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
 
 		statMonth := get("时间")
 		if statMonth == "" {
@@ -972,7 +897,7 @@ func importRepurchaseMonthly(path, shopName string) error {
 			getF("老客复购率(30天)"), getF("老客复购率(60天)"), getF("老客复购率(90天)"),
 			getF("老客复购率(180天)"), getF("老客复购率(360天)"),
 			getF("店铺复购率(30天)"), getF("店铺复购率(180天)"), getF("店铺复购率(360天)"),
-			getF("流失客户回购率"), parseInt(get("最后一次回购间隔(天)")), getF("客单价(元)"),
+			getF("流失客户回购率"), importutil.ParseInt(get("最后一次回购间隔(天)")), getF("客单价(元)"),
 		)
 		if err != nil {
 			log.Printf("插入repurchase_monthly失败: %v", err)
@@ -1018,7 +943,7 @@ func importIndustryMonthly(path, shopName string) error {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 { return parseFloat(get(name)) }
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
 
 		statMonth := get("时间")
 		valueType := get("取值方式")
@@ -1046,7 +971,7 @@ func importIndustryMonthly(path, shopName string) error {
 			getF("老客复购率(30天)"), getF("老客复购率(60天)"), getF("老客复购率(90天)"),
 			getF("老客复购率(180天)"), getF("老客复购率(360天)"),
 			getF("店铺复购率(30天)"), getF("店铺复购率(180天)"), getF("店铺复购率(360天)"),
-			getF("流失客户回购率"), parseInt(get("最后一次回购间隔(天)")), getF("客单价(元)"),
+			getF("流失客户回购率"), importutil.ParseInt(get("最后一次回购间隔(天)")), getF("客单价(元)"),
 		)
 		if err != nil {
 			log.Printf("插入industry_monthly失败: %v", err)
@@ -1073,9 +998,9 @@ func importServiceInquiry(path, dateStr, shopName string) error {
 		return nil
 	}
 	d := rows[1]
-	statDate := parseExcelDate(cellStr(d, 0))
+	statDate := importutil.ParseExcelDate(importutil.CellStr(d, 0))
 	if statDate == "" {
-		statDate = formatDate(dateStr)
+		statDate = importutil.FormatDate(dateStr)
 	}
 	// 行1: [日期 询单人数 当日询单人数 当日付款人数 当日付款金额 最终付款人数 最终付款金额 询单当日付款转化率 询单最终付款转化率]
 	_, err = db.Exec(`REPLACE INTO op_tmall_service_inquiry
@@ -1083,8 +1008,8 @@ func importServiceInquiry(path, dateStr, shopName string) error {
 		 final_pay_users, final_pay_amount, daily_conv_rate, final_conv_rate)
 		VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		statDate, shopName,
-		parseInt(cellStr(d, 1)), parseInt(cellStr(d, 2)), parseInt(cellStr(d, 3)), parseFloat(cellStr(d, 4)),
-		parseInt(cellStr(d, 5)), parseFloat(cellStr(d, 6)), parseFloat(cellStr(d, 7)), parseFloat(cellStr(d, 8)),
+		importutil.ParseInt(importutil.CellStr(d, 1)), importutil.ParseInt(importutil.CellStr(d, 2)), importutil.ParseInt(importutil.CellStr(d, 3)), importutil.ParseFloat(importutil.CellStr(d, 4)),
+		importutil.ParseInt(importutil.CellStr(d, 5)), importutil.ParseFloat(importutil.CellStr(d, 6)), importutil.ParseFloat(importutil.CellStr(d, 7)), importutil.ParseFloat(importutil.CellStr(d, 8)),
 	)
 	return err
 }
@@ -1102,9 +1027,9 @@ func importServiceConsult(path, dateStr, shopName string) error {
 		return nil
 	}
 	d := rows[1]
-	statDate := parseExcelDate(cellStr(d, 0))
+	statDate := importutil.ParseExcelDate(importutil.CellStr(d, 0))
 	if statDate == "" {
-		statDate = formatDate(dateStr)
+		statDate = importutil.FormatDate(dateStr)
 	}
 	// 行1: [日期 咨询人数 接待人数 未回复人数 有效接待人数 平均响应时长 3分钟人工响应率 咨询客服人次 客服回复人次 客服未回复人次 旺旺回复率 首次响应时长 慢响应人数 长接待人数 买家发起人数 客服主动跟进人数 总消息数 买家消息条数 客服消息条数 答问比 客服字数 平均接待时长]
 	_, err = db.Exec(`REPLACE INTO op_tmall_service_consult
@@ -1114,12 +1039,12 @@ func importServiceConsult(path, dateStr, shopName string) error {
 		 total_msgs, buyer_msgs, cs_msgs, qa_ratio, cs_words, avg_receive_time)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		statDate, shopName,
-		parseInt(cellStr(d, 1)), parseInt(cellStr(d, 2)), parseInt(cellStr(d, 3)), parseInt(cellStr(d, 4)),
-		parseFloat(cellStr(d, 5)), parseFloat(cellStr(d, 6)), parseInt(cellStr(d, 7)), parseInt(cellStr(d, 8)),
-		parseInt(cellStr(d, 9)), parseFloat(cellStr(d, 10)), parseFloat(cellStr(d, 11)),
-		parseInt(cellStr(d, 12)), parseInt(cellStr(d, 13)), parseInt(cellStr(d, 14)), parseInt(cellStr(d, 15)),
-		parseInt(cellStr(d, 16)), parseInt(cellStr(d, 17)), parseInt(cellStr(d, 18)),
-		parseFloat(cellStr(d, 19)), parseInt(cellStr(d, 20)), cellStr(d, 21),
+		importutil.ParseInt(importutil.CellStr(d, 1)), importutil.ParseInt(importutil.CellStr(d, 2)), importutil.ParseInt(importutil.CellStr(d, 3)), importutil.ParseInt(importutil.CellStr(d, 4)),
+		importutil.ParseFloat(importutil.CellStr(d, 5)), importutil.ParseFloat(importutil.CellStr(d, 6)), importutil.ParseInt(importutil.CellStr(d, 7)), importutil.ParseInt(importutil.CellStr(d, 8)),
+		importutil.ParseInt(importutil.CellStr(d, 9)), importutil.ParseFloat(importutil.CellStr(d, 10)), importutil.ParseFloat(importutil.CellStr(d, 11)),
+		importutil.ParseInt(importutil.CellStr(d, 12)), importutil.ParseInt(importutil.CellStr(d, 13)), importutil.ParseInt(importutil.CellStr(d, 14)), importutil.ParseInt(importutil.CellStr(d, 15)),
+		importutil.ParseInt(importutil.CellStr(d, 16)), importutil.ParseInt(importutil.CellStr(d, 17)), importutil.ParseInt(importutil.CellStr(d, 18)),
+		importutil.ParseFloat(importutil.CellStr(d, 19)), importutil.ParseInt(importutil.CellStr(d, 20)), importutil.CellStr(d, 21),
 	)
 	return err
 }
@@ -1137,17 +1062,17 @@ func importServiceAvgPrice(path, dateStr, shopName string) error {
 		return nil
 	}
 	d := rows[1]
-	statDate := parseExcelDate(cellStr(d, 0))
+	statDate := importutil.ParseExcelDate(importutil.CellStr(d, 0))
 	if statDate == "" {
-		statDate = formatDate(dateStr)
+		statDate = importutil.FormatDate(dateStr)
 	}
 	// 行1: [日期 销售额 销售量 销售人数 客单价 客件数 件均价]
 	_, err = db.Exec(`REPLACE INTO op_tmall_service_avgprice
 		(stat_date, shop_name, sales_amount, sales_qty, sales_users, avg_price, avg_qty, unit_price)
 		VALUES (?,?,?,?,?,?,?,?)`,
 		statDate, shopName,
-		parseFloat(cellStr(d, 1)), parseInt(cellStr(d, 2)), parseInt(cellStr(d, 3)),
-		parseFloat(cellStr(d, 4)), parseFloat(cellStr(d, 5)), parseFloat(cellStr(d, 6)),
+		importutil.ParseFloat(importutil.CellStr(d, 1)), importutil.ParseInt(importutil.CellStr(d, 2)), importutil.ParseInt(importutil.CellStr(d, 3)),
+		importutil.ParseFloat(importutil.CellStr(d, 4)), importutil.ParseFloat(importutil.CellStr(d, 5)), importutil.ParseFloat(importutil.CellStr(d, 6)),
 	)
 	return err
 }
@@ -1166,9 +1091,9 @@ func importServiceEvaluation(path, dateStr, shopName string) error {
 		return nil
 	}
 	d := rows[2]
-	statDate := parseExcelDate(cellStr(d, 0))
+	statDate := importutil.ParseExcelDate(importutil.CellStr(d, 0))
 	if statDate == "" {
-		statDate = formatDate(dateStr)
+		statDate = importutil.FormatDate(dateStr)
 	}
 	// 行2字段顺序: [日期 接待人数 总-发出 总-收到 总-很满意 总-满意 总-一般 总-不满 总-很不满 总-发送率 总-返回率 总-满意率 总-服务度 邀请-发出 邀请-收到 邀请-很满意 邀请-满意 邀请-一般 邀请-不满 邀请-很不满 邀请-发送率 邀请-返回率 邀请-满意率 邀请-服务度 自主-发出 自主-收到 自主-很满意 自主-满意 自主-一般 自主-不满 自主-很不满 自主-发送率 自主-返回率 自主-满意率 自主-服务度]
 	_, err = db.Exec(`REPLACE INTO op_tmall_service_evaluation
@@ -1180,16 +1105,16 @@ func importServiceEvaluation(path, dateStr, shopName string) error {
 		 selfdone_send_eval, selfdone_recv_eval, selfdone_very_satisfied, selfdone_satisfied, selfdone_normal, selfdone_unsatisfied, selfdone_very_unsatisfied,
 		 selfdone_send_rate, selfdone_return_rate, selfdone_satisfaction_rate, selfdone_service_score)
 		VALUES (?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?)`,
-		statDate, shopName, parseInt(cellStr(d, 1)),
-		parseInt(cellStr(d, 2)), parseInt(cellStr(d, 3)), parseInt(cellStr(d, 4)), parseInt(cellStr(d, 5)),
-		parseInt(cellStr(d, 6)), parseInt(cellStr(d, 7)), parseInt(cellStr(d, 8)),
-		parseFloat(cellStr(d, 9)), parseFloat(cellStr(d, 10)), parseFloat(cellStr(d, 11)), parseFloat(cellStr(d, 12)),
-		parseInt(cellStr(d, 13)), parseInt(cellStr(d, 14)), parseInt(cellStr(d, 15)), parseInt(cellStr(d, 16)),
-		parseInt(cellStr(d, 17)), parseInt(cellStr(d, 18)), parseInt(cellStr(d, 19)),
-		parseFloat(cellStr(d, 20)), parseFloat(cellStr(d, 21)), parseFloat(cellStr(d, 22)), parseFloat(cellStr(d, 23)),
-		parseInt(cellStr(d, 24)), parseInt(cellStr(d, 25)), parseInt(cellStr(d, 26)), parseInt(cellStr(d, 27)),
-		parseInt(cellStr(d, 28)), parseInt(cellStr(d, 29)), parseInt(cellStr(d, 30)),
-		parseFloat(cellStr(d, 31)), parseFloat(cellStr(d, 32)), parseFloat(cellStr(d, 33)), parseFloat(cellStr(d, 34)),
+		statDate, shopName, importutil.ParseInt(importutil.CellStr(d, 1)),
+		importutil.ParseInt(importutil.CellStr(d, 2)), importutil.ParseInt(importutil.CellStr(d, 3)), importutil.ParseInt(importutil.CellStr(d, 4)), importutil.ParseInt(importutil.CellStr(d, 5)),
+		importutil.ParseInt(importutil.CellStr(d, 6)), importutil.ParseInt(importutil.CellStr(d, 7)), importutil.ParseInt(importutil.CellStr(d, 8)),
+		importutil.ParseFloat(importutil.CellStr(d, 9)), importutil.ParseFloat(importutil.CellStr(d, 10)), importutil.ParseFloat(importutil.CellStr(d, 11)), importutil.ParseFloat(importutil.CellStr(d, 12)),
+		importutil.ParseInt(importutil.CellStr(d, 13)), importutil.ParseInt(importutil.CellStr(d, 14)), importutil.ParseInt(importutil.CellStr(d, 15)), importutil.ParseInt(importutil.CellStr(d, 16)),
+		importutil.ParseInt(importutil.CellStr(d, 17)), importutil.ParseInt(importutil.CellStr(d, 18)), importutil.ParseInt(importutil.CellStr(d, 19)),
+		importutil.ParseFloat(importutil.CellStr(d, 20)), importutil.ParseFloat(importutil.CellStr(d, 21)), importutil.ParseFloat(importutil.CellStr(d, 22)), importutil.ParseFloat(importutil.CellStr(d, 23)),
+		importutil.ParseInt(importutil.CellStr(d, 24)), importutil.ParseInt(importutil.CellStr(d, 25)), importutil.ParseInt(importutil.CellStr(d, 26)), importutil.ParseInt(importutil.CellStr(d, 27)),
+		importutil.ParseInt(importutil.CellStr(d, 28)), importutil.ParseInt(importutil.CellStr(d, 29)), importutil.ParseInt(importutil.CellStr(d, 30)),
+		importutil.ParseFloat(importutil.CellStr(d, 31)), importutil.ParseFloat(importutil.CellStr(d, 32)), importutil.ParseFloat(importutil.CellStr(d, 33)), importutil.ParseFloat(importutil.CellStr(d, 34)),
 	)
 	return err
 }
