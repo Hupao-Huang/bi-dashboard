@@ -27,22 +27,14 @@ type customerMetricAgg struct {
 	InquiryUsers      float64
 	PayUsers          float64
 	SalesAmount       float64
-	// 时长/比率字段保留累加(回退用)+ 加权累加(主用)
-	// 加权权重: 时长按咨询人次(ConsultUsers), 满意度按询单数(InquiryUsers)
-	FirstRespSeconds   float64
-	FirstRespCount     int
-	FirstRespWeighted  float64 // SUM(rec.FirstRespSeconds * rec.ConsultUsers)
-	FirstRespWeight    float64 // SUM(rec.ConsultUsers when valid)
-	ResponseSeconds    float64
-	ResponseCount      int
-	ResponseWeighted   float64 // SUM(rec.ResponseSeconds * rec.ConsultUsers)
-	ResponseWeight     float64
-	SatisfactionRate   float64
-	SatisfactionCount  int
-	SatisfactionWeighted float64 // SUM(rate * inquiry)
-	SatisfactionWeight   float64
-	ConvRate           float64
-	ConvCount          int
+	FirstRespSeconds  float64
+	FirstRespCount    int
+	ResponseSeconds   float64
+	ResponseCount     int
+	SatisfactionRate  float64
+	SatisfactionCount int
+	ConvRate          float64
+	ConvCount         int
 }
 
 type customerPlatformStat struct {
@@ -119,27 +111,14 @@ func (a *customerMetricAgg) add(rec customerMetricRecord) {
 	if rec.FirstRespSeconds > 0 {
 		a.FirstRespSeconds += rec.FirstRespSeconds
 		a.FirstRespCount++
-		if rec.ConsultUsers > 0 {
-			a.FirstRespWeighted += rec.FirstRespSeconds * rec.ConsultUsers
-			a.FirstRespWeight += rec.ConsultUsers
-		}
 	}
 	if rec.ResponseSeconds > 0 {
 		a.ResponseSeconds += rec.ResponseSeconds
 		a.ResponseCount++
-		if rec.ConsultUsers > 0 {
-			a.ResponseWeighted += rec.ResponseSeconds * rec.ConsultUsers
-			a.ResponseWeight += rec.ConsultUsers
-		}
 	}
 	if rec.SatisfactionRate > 0 {
-		nr := normalizeRate(rec.SatisfactionRate)
-		a.SatisfactionRate += nr
+		a.SatisfactionRate += normalizeRate(rec.SatisfactionRate)
 		a.SatisfactionCount++
-		if rec.InquiryUsers > 0 {
-			a.SatisfactionWeighted += nr * rec.InquiryUsers
-			a.SatisfactionWeight += rec.InquiryUsers
-		}
 	}
 	if rec.ConvRate > 0 {
 		a.ConvRate += normalizeRate(rec.ConvRate)
@@ -147,11 +126,7 @@ func (a *customerMetricAgg) add(rec customerMetricRecord) {
 	}
 }
 
-// 时长按"咨询人次"加权; 无权重时回退算数平均(避免 0 数据时直接 0)
 func (a *customerMetricAgg) avgFirstRespSeconds() float64 {
-	if a.FirstRespWeight > 0 {
-		return a.FirstRespWeighted / a.FirstRespWeight
-	}
 	if a.FirstRespCount == 0 {
 		return 0
 	}
@@ -159,32 +134,20 @@ func (a *customerMetricAgg) avgFirstRespSeconds() float64 {
 }
 
 func (a *customerMetricAgg) avgResponseSeconds() float64 {
-	if a.ResponseWeight > 0 {
-		return a.ResponseWeighted / a.ResponseWeight
-	}
 	if a.ResponseCount == 0 {
 		return 0
 	}
 	return a.ResponseSeconds / float64(a.ResponseCount)
 }
 
-// 满意度按"询单数"加权
 func (a *customerMetricAgg) avgSatisfactionRate() float64 {
-	if a.SatisfactionWeight > 0 {
-		return a.SatisfactionWeighted / a.SatisfactionWeight
-	}
 	if a.SatisfactionCount == 0 {
 		return 0
 	}
 	return a.SatisfactionRate / float64(a.SatisfactionCount)
 }
 
-// 转化率直接用 SUM(支付人数)/SUM(咨询人数), 是真加权(各店权重=咨询数)
-// 没咨询数时回退算数平均
 func (a *customerMetricAgg) avgConvRate() float64 {
-	if a.ConsultUsers > 0 {
-		return a.PayUsers / a.ConsultUsers * 100
-	}
 	if a.ConvCount == 0 {
 		return 0
 	}
