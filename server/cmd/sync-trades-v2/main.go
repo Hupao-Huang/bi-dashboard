@@ -2,6 +2,7 @@ package main
 
 import (
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 	"bytes"
 	"database/sql"
@@ -22,6 +23,8 @@ type syncWindow struct {
 }
 
 func main() {
+	unlock := importutil.AcquireLock("sync-trades-v2")
+	defer unlock()
 
 	cfg, err := config.Load("C:\\Users\\Administrator\\bi-dashboard\\server\\config.json")
 	if err != nil {
@@ -392,7 +395,7 @@ func main() {
 			} else if result.ScrollId != "" {
 				scrollId = result.ScrollId
 			} else {
-				log.Printf("警告: 无scrollId返回，停止翻页")
+				log.Printf("[警告] 无 scrollId 返回, 停止翻页 (日期 %s, 累计 %d 条; 可能漏数据, 请用 sync-half-day 按小时段补拉)", dayStart.Format("2006-01-02"), dayTrades)
 				break
 			}
 		}

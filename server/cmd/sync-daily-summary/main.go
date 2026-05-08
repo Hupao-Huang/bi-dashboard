@@ -2,6 +2,7 @@ package main
 
 import (
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 	"database/sql"
 	"log"
@@ -13,6 +14,9 @@ import (
 )
 
 func main() {
+	unlock := importutil.AcquireLock("sync-daily-summary")
+	defer unlock()
+
 	logFile, err := os.OpenFile(`C:\Users\Administrator\bi-dashboard\server\sync-daily-summary.log`, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
 		log.SetOutput(logFile)

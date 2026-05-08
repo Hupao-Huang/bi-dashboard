@@ -11,11 +11,15 @@ import (
 
 	"bi-dashboard/internal/config"
 	"bi-dashboard/internal/finance"
+	"bi-dashboard/internal/importutil"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
+	unlock := importutil.AcquireLock("import-finance")
+	defer unlock()
+
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "用法: import-finance.exe <xlsx_path> [year]")
 		os.Exit(2)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 	"database/sql"
 	"encoding/json"
@@ -43,6 +44,9 @@ type GoodsDetail struct {
 const batchSize = 30 // 每批查30个订单
 
 func main() {
+	unlock := importutil.AcquireLock("sync-detail")
+	defer unlock()
+
 	cfg, err := config.Load("config.json")
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)

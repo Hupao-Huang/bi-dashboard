@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,9 @@ import (
 )
 
 func main() {
+	unlock := importutil.AcquireLock("fetch-channels")
+	defer unlock()
+
 	client := jackyun.NewClient(
 		"56462534",
 		"53aa471225b64ea28d0b8809c2555b38",

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 	"database/sql"
 	"encoding/json"
@@ -14,6 +15,9 @@ import (
 )
 
 func main() {
+	unlock := importutil.AcquireLock("sync-goods")
+	defer unlock()
+
 	cfg, err := config.Load("config.json")
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)

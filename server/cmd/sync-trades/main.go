@@ -2,6 +2,7 @@ package main
 
 import (
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 	"database/sql"
 	"encoding/json"
@@ -53,6 +54,9 @@ type TradeRow struct {
 }
 
 func main() {
+	unlock := importutil.AcquireLock("sync-trades")
+	defer unlock()
+
 	cfg, err := config.Load("config.json")
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)

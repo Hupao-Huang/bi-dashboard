@@ -4,6 +4,7 @@ package main
 
 import (
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 	"bytes"
 	"database/sql"
@@ -18,6 +19,9 @@ import (
 )
 
 func main() {
+	unlock := importutil.AcquireLock("sync-half-day")
+	defer unlock()
+
 	if len(os.Args) < 2 {
 		log.Fatal("用法: sync-half-day YYYY-MM-DD")
 	}
@@ -159,7 +163,7 @@ func main() {
 			} else if result.ScrollId != "" {
 				scrollId = result.ScrollId
 			} else {
-				log.Printf("警告: 无scrollId返回，停止翻页 (page=%d)", page)
+				log.Printf("[警告] 无 scrollId 返回, 停止翻页 (窗口 %s ~ %s, page=%d, 累计 %d 条; 可能漏数据, 请按更小时段补拉)", w[0], w[1], page, windowTotal)
 				break
 			}
 			page++
