@@ -47,7 +47,7 @@ func main() {
 
 	notifier := dingtalk.NewNotifier(cfg.DingTalk.NotifyAppKey, cfg.DingTalk.NotifyAppSecret, cfg.DingTalk.NotifyRobotCode)
 	if notifier != nil {
-		log.Println("DingTalk notifier ready (反馈回复将推送给提交人)")
+		log.Println("DingTalk notifier ready (反馈回复 + 定时任务失败将推送 admin)")
 	} else {
 		log.Println("DingTalk notifier disabled (未配置 notify_app_key/notify_app_secret)")
 	}
@@ -64,6 +64,9 @@ func main() {
 		WebhookSecret:    cfg.Webhook.Secret,
 		Notifier:         notifier,
 	}
+
+	// 启动定时任务健康巡检 (失败/卡死自动钉钉告警 admin)
+	go h.StartTaskHealthMonitor()
 
 	mux := http.NewServeMux()
 
