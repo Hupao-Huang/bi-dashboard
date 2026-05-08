@@ -95,7 +95,7 @@ const PlanDashboard: React.FC = () => {
   };
 
   // ========== 各渠道销售额 ==========
-  const deptNames: Record<string, string> = { ecommerce: '电商', social: '社媒', offline: '线下', distribution: '分销', other: '其他' };
+  const deptNames: Record<string, string> = { ecommerce: '电商', social: '社媒', offline: '线下', distribution: '分销', instant_retail: '即时零售', other: '其他' };
   const rateRender = (v: number) => {
     if (!v) return '-';
     const color = v > 0 ? '#10b981' : '#ef4444';
@@ -139,12 +139,11 @@ const PlanDashboard: React.FC = () => {
     },
   ];
 
-  // ========== 高库存产品明细 ==========
+  // ========== 高库存产品明细 (v1.02 SKU 维度跨仓汇总) ==========
   const highStockCols = [
     { title: '#', key: 'index', width: 45, render: (_: any, __: any, i: number) => i + 1 },
     { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
-    { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 200, ellipsis: true },
-    { title: '仓库', dataIndex: 'warehouse', key: 'warehouse', width: 160, ellipsis: true },
+    { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 280, ellipsis: true },
     { title: '可用库存', dataIndex: 'usableQty', key: 'usableQty', width: 90, align: 'right' as const, render: (v: number) => v?.toLocaleString() },
     { title: '日均销量', dataIndex: 'dailySales', key: 'dailySales', width: 80, align: 'right' as const },
     {
@@ -155,12 +154,11 @@ const PlanDashboard: React.FC = () => {
     { title: '库存金额', dataIndex: 'stockValue', key: 'stockValue', width: 110, align: 'right' as const, render: (v: number) => `¥${v?.toLocaleString()}` },
   ];
 
-  // ========== 缺货产品明细 ==========
+  // ========== 缺货产品明细 (v1.02 SKU 维度跨仓汇总) ==========
   const stockoutCols = [
     { title: '#', key: 'index', width: 45, render: (_: any, __: any, i: number) => i + 1 },
     { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
-    { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 200, ellipsis: true },
-    { title: '仓库', dataIndex: 'warehouse', key: 'warehouse', width: 160, ellipsis: true },
+    { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 280, ellipsis: true },
     { title: '日均销量', dataIndex: 'dailySales', key: 'dailySales', width: 80, align: 'right' as const },
     { title: '日均损失', dataIndex: 'dailyValue', key: 'dailyValue', width: 100, align: 'right' as const, render: (v: number) => <span style={{ color: '#ef4444' }}>¥{v?.toLocaleString()}</span> },
   ];
@@ -335,14 +333,14 @@ const PlanDashboard: React.FC = () => {
         <div style={{ flex: 55, minWidth: 0 }}>
           <Card title={`高库存产品明细（周转>50天）· ${(data.highStockItems || []).length}个`}>
             <div style={{ minHeight: 420 }}>
-              <Table dataSource={data.highStockItems || []} columns={highStockCols} rowKey={(r: any) => r.goodsNo + r.warehouse} pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 885, y: 420 }} />
+              <Table dataSource={data.highStockItems || []} columns={highStockCols} rowKey="goodsNo" pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 845, y: 420 }} />
             </div>
           </Card>
         </div>
         <div style={{ flex: 45, minWidth: 0 }}>
           <Card title={`缺货产品明细 · ${(data.stockoutItems || []).length}个`}>
             <div style={{ minHeight: 420 }}>
-              <Table dataSource={data.stockoutItems || []} columns={stockoutCols} rowKey={(r: any) => r.goodsNo + r.warehouse} pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 695, y: 420 }} />
+              <Table dataSource={data.stockoutItems || []} columns={stockoutCols} rowKey="goodsNo" pagination={{ pageSize: 100, hideOnSinglePage: true, size: 'small' }} size="small" scroll={{ x: 655, y: 420 }} />
             </div>
           </Card>
         </div>

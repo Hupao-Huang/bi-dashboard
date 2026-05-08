@@ -11,6 +11,7 @@ const deptConfig: Record<string, { label: string; color: string }> = {
   social: { label: '社媒部门', color: DEPT_COLORS.social },
   offline: { label: '线下部门', color: DEPT_COLORS.offline },
   distribution: { label: '分销部门', color: DEPT_COLORS.distribution },
+  instant_retail: { label: '即时零售部', color: DEPT_COLORS.instant_retail },
 };
 
 const profitRateColor = (rate: number) => {
@@ -52,7 +53,7 @@ const OverviewTabContent: React.FC = () => {
   // 产品定位 × 部门 矩阵 (从 /api/overview 的 gradeDeptSales)
   const gradeOrder = ['S', 'A', 'B', 'C', 'D', '未设置'];
   const deptLabel: Record<string, string> = {
-    ecommerce: '电商', social: '社媒', offline: '线下', distribution: '分销', '其他': '其他',
+    ecommerce: '电商', social: '社媒', offline: '线下', distribution: '分销', instant_retail: '即时零售', '其他': '其他',
   };
   const fmtAmount = (v: number) => v >= 100000000
     ? (v / 100000000).toFixed(2) + '亿'
@@ -68,7 +69,7 @@ const OverviewTabContent: React.FC = () => {
     gdMatrix[g][d].sales += (it.sales || 0);
     gdMatrix[g][d].profit += (it.profit || 0);
   });
-  const matrixDeptOrder: string[] = ['电商', '社媒', '线下', '分销', '其他']
+  const matrixDeptOrder: string[] = ['电商', '社媒', '线下', '分销', '即时零售', '其他']
     .filter(d => gradeOrder.some(g => (gdMatrix[g]?.[d]?.sales || 0) !== 0 || (gdMatrix[g]?.[d]?.profit || 0) !== 0));
   const matrixColTotals: Record<string, Cell> = { __total__: { sales: 0, profit: 0 } };
   matrixDeptOrder.forEach(d => { matrixColTotals[d] = { sales: 0, profit: 0 }; });

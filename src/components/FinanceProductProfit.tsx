@@ -12,6 +12,7 @@ const deptOptions = [
   { value: 'social', label: '社媒部门' },
   { value: 'offline', label: '线下部门' },
   { value: 'distribution', label: '分销部门' },
+  { value: 'instant_retail', label: '即时零售部' },
 ];
 
 
@@ -82,7 +83,7 @@ const FinanceProductProfit: React.FC = () => {
     ? (v / 100000000).toFixed(2) + '亿'
     : v >= 10000 ? (v / 10000).toFixed(1) + '万' : (v || 0).toFixed(0);
   const deptLabel: Record<string, string> = {
-    ecommerce: '电商', social: '社媒', offline: '线下', distribution: '分销', '其他': '其他', '': '其他',
+    ecommerce: '电商', social: '社媒', offline: '线下', distribution: '分销', instant_retail: '即时零售', '其他': '其他', '': '其他',
   };
 
   // ★ 单环饼图：产品定位 / 部门 / 渠道 占比 (Radio 维度+度量切换)
@@ -117,12 +118,13 @@ const FinanceProductProfit: React.FC = () => {
     '社媒': DEPT_COLORS.social || '#7c3aed',
     '线下': DEPT_COLORS.offline || '#d97706',
     '分销': DEPT_COLORS.distribution || '#059669',
+    '即时零售': DEPT_COLORS.instant_retail || '#0891b2',
     '其他': '#94a3b8',
   };
 
   let pieData: any[] = [];
   if (pieDim === 'grade' || pieDim === 'dept') {
-    const order = pieDim === 'grade' ? gradeOrder : ['电商', '社媒', '线下', '分销', '其他'];
+    const order = pieDim === 'grade' ? gradeOrder : ['电商', '社媒', '线下', '分销', '即时零售', '其他'];
     const colorMap = pieDim === 'grade' ? gradeColorMap : deptColorMap;
     pieData = order
       .filter(k => pieAggMap[k] && Math.max(0, pieAggMap[k][pieMetricKey] || 0) > 0)

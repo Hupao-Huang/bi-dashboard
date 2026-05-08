@@ -224,7 +224,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
       itemStyle: { color: GRADE_COLORS[g] },
     }));
 
-  const gradeDonutOption = (dept === 'ecommerce' || dept === 'social' || dept === 'offline' || dept === 'distribution') && totalSales > 0 && gradePieData.length > 0 ? {
+  const gradeDonutOption = (dept === 'ecommerce' || dept === 'social' || dept === 'offline' || dept === 'distribution' || dept === 'instant_retail') && totalSales > 0 && gradePieData.length > 0 ? {
     ...pieStyle,
     tooltip: {
       ...pieStyle.tooltip,

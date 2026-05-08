@@ -17,6 +17,7 @@ const deptOptions = [
   { value: 'social', label: '社媒部门' },
   { value: 'offline', label: '线下部门' },
   { value: 'distribution', label: '分销部门' },
+  { value: 'instant_retail', label: '即时零售部' },
 ];
 
 

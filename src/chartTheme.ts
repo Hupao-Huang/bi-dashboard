@@ -18,10 +18,11 @@ export const CHART_COLORS = [
 
 export const DEPT_COLORS: Record<string, string> = {
   all: '#1e293b',
-  ecommerce: '#1e40af',    // 电商 → 深青蓝（主）
-  social: '#f59e0b',       // 社媒 → 金黄
-  offline: '#059669',      // 线下 → 翡翠绿
-  distribution: '#7c3aed', // 分销 → 紫
+  ecommerce: '#1e40af',      // 电商 → 深青蓝（主）
+  social: '#f59e0b',         // 社媒 → 金黄
+  offline: '#059669',        // 线下 → 翡翠绿
+  distribution: '#7c3aed',   // 分销 → 紫
+  instant_retail: '#0891b2', // 即时零售 → 青蓝（v1.02 新增）
 };
 
 // 产品定位等级色（S→D BI 经典热力渐变：最红→最灰）

@@ -97,11 +97,12 @@ const moduleGroupConfig: Record<string, { label: string; order: number }> = {
   social: { label: '社媒', order: 4 },
   offline: { label: '线下', order: 5 },
   distribution: { label: '分销', order: 6 },
-  finance: { label: '财务', order: 7 },
-  customer: { label: '客服', order: 8 },
-  supply_chain: { label: '供应链', order: 9 },
-  action: { label: '系统动作', order: 10 },
-  unclassified: { label: '未分类权限', order: 11 },
+  instant_retail: { label: '即时零售', order: 7 },
+  finance: { label: '财务', order: 8 },
+  customer: { label: '客服', order: 9 },
+  supply_chain: { label: '供应链', order: 10 },
+  action: { label: '系统动作', order: 11 },
+  unclassified: { label: '未分类权限', order: 12 },
 };
 
 const getPermissionGroupKey = (permission: PermissionOption): string => {
