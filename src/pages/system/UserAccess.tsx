@@ -39,7 +39,22 @@ const ROLE_COLOR_MAP: Record<string, string> = {
   procurement: 'volcano',
 };
 
+const ROLE_HEX_MAP: Record<string, string> = {
+  super_admin: '#cf1322',
+  management: '#d48806',
+  dept_manager: '#08979c',
+  operator: '#1677ff',
+  finance: '#722ed1',
+  customer_service: '#389e0d',
+  ecommerce_manager: '#0958d9',
+  social_manager: '#c41d7f',
+  offline_manager: '#d4380d',
+  distribution_manager: '#7cb305',
+  procurement: '#d4380d',
+};
+
 const roleColor = (code: string): string => ROLE_COLOR_MAP[code] || 'blue';
+const roleHex = (code: string): string => ROLE_HEX_MAP[code] || '#64748b';
 
 type MetaOption = {
   label: string;
@@ -388,16 +403,31 @@ const UserAccessPage: React.FC = () => {
       title: '账号',
       dataIndex: 'username',
       key: 'username',
-      render: (_: string, record: UserItem) => (
-        <div>
-          <Typography.Text strong style={{ color: selectedUserId === record.id ? '#4338ca' : '#0f172a' }}>
-            {record.realName}
-          </Typography.Text>
-          <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-            @{record.username}
-          </Typography.Text>
-        </div>
-      ),
+      render: (_: string, record: UserItem) => {
+        const role = record.roles[0];
+        const accent = role ? roleHex(role) : '#cbd5e1';
+        const isSelected = selectedUserId === record.id;
+        return (
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, minHeight: 38 }}>
+            <div style={{
+              width: isSelected ? 4 : 3,
+              background: accent,
+              borderRadius: 2,
+              flexShrink: 0,
+              alignSelf: 'stretch',
+              transition: 'width 120ms ease',
+            }} />
+            <div>
+              <Typography.Text strong style={{ color: isSelected ? accent : '#0f172a' }}>
+                {record.realName}
+              </Typography.Text>
+              <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                @{record.username}
+              </Typography.Text>
+            </div>
+          </div>
+        );
+      },
     },
     {
       title: '手机号',
@@ -498,11 +528,19 @@ const UserAccessPage: React.FC = () => {
               columns={userColumns}
               pagination={{ pageSize: 20, hideOnSinglePage: true, size: 'small' }}
               size="small"
-              rowClassName={record => (record.id === selectedUserId ? 'ant-table-row-selected' : '')}
-              onRow={record => ({
-                onClick: () => { void handleSelectUser(record); },
-                style: { cursor: 'pointer' },
-              })}
+              onRow={record => {
+                const role = record.roles[0];
+                const accent = role ? roleHex(role) : '#cbd5e1';
+                const isSelected = selectedUserId === record.id;
+                return {
+                  onClick: () => { void handleSelectUser(record); },
+                  style: {
+                    cursor: 'pointer',
+                    background: isSelected ? `${accent}0d` : undefined,
+                    transition: 'background 120ms ease',
+                  },
+                };
+              }}
             />
           </Card>
         </Col>
@@ -521,18 +559,58 @@ const UserAccessPage: React.FC = () => {
                 )}
 
                 <Form form={accessForm} layout="vertical" onFinish={handleSaveAccess}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8, marginBottom: 20 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #4f6bff 0%, #7aa2ff 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, flexShrink: 0 }}>
-                      {(access.realName || '?').slice(0, 1)}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <Typography.Title level={5} style={{ marginBottom: 0 }}>{access.realName}</Typography.Title>
-                      <Typography.Text type="secondary">@{access.username}{currentUser.phone ? ` · ${currentUser.phone}` : ''}</Typography.Text>
-                    </div>
-                    <Form.Item name="status" valuePropName="checked" style={{ marginBottom: 0 }}>
-                      <Switch checkedChildren="启用" unCheckedChildren="停用" />
-                    </Form.Item>
-                  </div>
+                  {(() => {
+                    const primaryRole = access.roleCodes[0];
+                    const accent = primaryRole ? roleHex(primaryRole) : '#64748b';
+                    const primaryName = primaryRole ? roleNameMap[primaryRole] || primaryRole : '未分配角色';
+                    return (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 16,
+                        padding: '14px 18px',
+                        background: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderLeft: `4px solid ${accent}`,
+                        borderRadius: 6,
+                        marginBottom: 20,
+                      }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 18, fontWeight: 600, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                              {access.realName}
+                            </span>
+                            <span style={{ fontSize: 12, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+                              @{access.username}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '1px 8px',
+                              background: `${accent}12`,
+                              color: accent,
+                              border: `1px solid ${accent}30`,
+                              borderRadius: 3,
+                              fontWeight: 500,
+                              fontSize: 11,
+                              letterSpacing: '0.02em',
+                            }}>
+                              {primaryName}
+                            </span>
+                            {currentUser.phone && (
+                              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                {currentUser.phone}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <Form.Item name="status" valuePropName="checked" style={{ marginBottom: 0 }}>
+                          <Switch checkedChildren="启用" unCheckedChildren="停用" />
+                        </Form.Item>
+                      </div>
+                    );
+                  })()}
 
                   <Form.Item label="分配角色" name="roleCodes">
                     <Select
