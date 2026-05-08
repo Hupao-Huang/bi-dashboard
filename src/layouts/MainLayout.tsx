@@ -212,7 +212,7 @@ const MainLayout: React.FC = () => {
         />
       </div>
 
-      {/* 侧边栏底部功能套区 (v1.11 调整: 仅保留 反馈 + 用户菜单) */}
+      {/* 侧边栏底部功能套区 (v1.15: 仅保留 用户菜单) */}
       <div style={{
         borderTop: '1px solid #f0f0f0',
         padding: '6px 0',
@@ -222,29 +222,6 @@ const MainLayout: React.FC = () => {
         flexShrink: 0,
         background: '#fafbfc',
       }}>
-        {/* 问题反馈 */}
-        <Tooltip title={collapsed && !isMobile ? '问题反馈' : null} placement="right">
-          <div
-            onClick={() => setFeedbackOpen(true)}
-            style={{
-              padding: collapsed && !isMobile ? '10px 0' : '10px 18px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
-              gap: 12,
-              cursor: 'pointer',
-              color: '#475569',
-              fontSize: 13,
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-          >
-            <CommentOutlined style={{ fontSize: 16, color: '#64748b' }} />
-            {(!collapsed || isMobile) && <span>问题反馈</span>}
-          </div>
-        </Tooltip>
-
         {/* 用户菜单 */}
         <Dropdown
           menu={{
@@ -400,6 +377,14 @@ const MainLayout: React.FC = () => {
               {!isMobile && 'AI工具箱'}
             </Button>
             <NoticeBell />
+            <Tooltip title="问题反馈">
+              <Button
+                type="text"
+                icon={<CommentOutlined />}
+                onClick={() => setFeedbackOpen(true)}
+                style={{ color: '#64748b', fontSize: 16 }}
+              />
+            </Tooltip>
           </div>
         </Header>
 
