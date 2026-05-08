@@ -40,8 +40,14 @@ func toSQLDate(s string) string {
 }
 
 func main() {
-	cfg, _ := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
-	db, _ := sql.Open("mysql", cfg.Database.DSN())
+	cfg, err := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
+	if err != nil {
+		log.Fatalf("加载配置失败: %v", err)
+	}
+	db, err := sql.Open("mysql", cfg.Database.DSN())
+	if err != nil {
+		log.Fatalf("连接数据库失败: %v", err)
+	}
 	defer db.Close()
 
 	startDate, endDate := "", ""

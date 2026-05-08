@@ -34,10 +34,13 @@ func extractDate(s string) string {
 var baseDir = `Z:\信息部\RPA_集团数据看板\抖音`
 
 func main() {
-	cfg, _ := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
+	cfg, err := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
+	if err != nil {
+		log.Fatalf("加载配置失败: %v", err)
+	}
 	db, err := sql.Open("mysql", cfg.Database.DSN())
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("连接数据库失败: %v", err)
 	}
 	defer db.Close()
 

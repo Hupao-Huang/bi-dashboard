@@ -13,8 +13,12 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// 按日期范围同步出入库流水(幂等：先DELETE再INSERT)
+// 按日期范围同步出入库流水
 // 用法：SYNC_START_DATE=2026-04-01 SYNC_END_DATE=2026-04-20 sync-stock-io.exe
+//
+// v0.87 改造:
+//   1) 收集到内存 → 事务 (DELETE + INSERT) → Commit. API 失败时跳过当天, 不再先 DELETE 后空窗
+//   2) INSERT 改 ON DUPLICATE KEY UPDATE 配套 UK (stock_in_log uk_doc_sku_batch / stock_out_log uk_rec_id), 防止 API 同次返回重复行造成 Duplicate entry 报错
 func main() {
 	unlock := importutil.AcquireLock("sync-stock-io")
 	defer unlock()
@@ -50,108 +54,149 @@ func main() {
 
 	fmt.Printf("同步出入库流水: %s ~ %s\n", startStr, endStr)
 
-	// 按天循环：先删后拉
-	totalIn, totalOut := 0, 0
+	totalIn, totalOut, skipDays := 0, 0, 0
 	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
 		dayStr := d.Format("2006-01-02")
 		dayStart := dayStr + " 00:00:00"
 		dayEnd := dayStr + " 23:59:59"
 
-		// 先删除当天旧数据
-		if _, err := db.Exec(`DELETE FROM stock_in_log WHERE in_out_date = ?`, dayStr); err != nil {
-			log.Fatalf("删除入库 %s 失败: %v", dayStr, err)
-		}
-		if _, err := db.Exec(`DELETE FROM stock_out_log WHERE in_out_date = ?`, dayStr); err != nil {
-			log.Fatalf("删除出库 %s 失败: %v", dayStr, err)
-		}
-
-		// 拉入库
+		// --- 步骤 1: 先 collect 到内存, API 失败跳过当天 (不动数据库) ---
 		fmt.Printf("[%s] 拉入库...\n", dayStr)
+		var inItems []jackyun.StockIOItem
 		inQuery := jackyun.StockIOQuery{
 			InOutDateStart: dayStart,
 			InOutDateEnd:   dayEnd,
 			PageIndex:      0,
 			PageSize:       50,
 		}
-		inCount := 0
 		err := client.FetchStockIO("erp-busiorder.goodsdocin.search", inQuery, func(items []jackyun.StockIOItem) error {
-			for _, it := range items {
-				if _, err := db.Exec(`
-					INSERT INTO stock_in_log
-					(in_out_date, goodsdoc_no, inouttype_name, warehouse_code, warehouse_name,
-					 bill_no, vend_code, vend_name, goods_no, goods_name, sku_name, sku_barcode, unit_name,
-					 batch_no, quantity, cost_price, cost_amount, no_tax_price, with_tax_price,
-					 is_certified, create_user_name, remark, detail_remark)
-					VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-					dayStr, it.GoodsdocNo.String(), it.InouttypeName.String(),
-					it.WarehouseCode.String(), it.WarehouseName.String(),
-					it.BillNo.String(), it.VendCode.String(), it.VendCustomerName.String(),
-					it.GoodsNo.String(), it.GoodsName.String(), it.SkuName.String(), it.SkuBarcode.String(),
-					it.UnitName.String(), it.BatchNo.String(),
-					it.Quantity.Float64(), it.BaceCurrencyCostPrice.Float64(), it.BaceCurrencyCostAmount.Float64(),
-					it.BaceCurrencyNoTaxPrice.Float64(), it.BaceCurrencyWithTaxPrice.Float64(),
-					int(it.IsCertified), it.CreateUserName.String(),
-					it.GoodsdocRemark.String(), it.GoodsDetailRemark.String(),
-				); err != nil {
-					return fmt.Errorf("入库写入失败 %s/%s: %w", it.GoodsdocNo.String(), it.GoodsNo.String(), err)
-				}
-				inCount++
-			}
+			inItems = append(inItems, items...)
 			return nil
 		})
 		if err != nil {
-			fmt.Printf("  入库失败: %v\n", err)
+			fmt.Printf("  入库 API 失败, 跳过 %s 当天 (旧数据保留): %v\n", dayStr, err)
+			skipDays++
+			continue
 		}
-		fmt.Printf("  入库完成 (%d 条)\n", inCount)
-		totalIn += inCount
 
-		// 拉出库
 		fmt.Printf("[%s] 拉出库...\n", dayStr)
+		var outItems []jackyun.StockIOItem
 		outQuery := jackyun.StockIOQuery{
 			InOutDateStart: dayStart,
 			InOutDateEnd:   dayEnd,
 			PageIndex:      0,
 			PageSize:       50,
 		}
-		outCount := 0
 		err = client.FetchStockIO("erp-busiorder.goodsdocout.search", outQuery, func(items []jackyun.StockIOItem) error {
-			for _, it := range items {
-				var recId int64 = 0
-				if it.RecId.String() != "" {
-					fmt.Sscanf(it.RecId.String(), "%d", &recId)
-				}
-				if _, err := db.Exec(`
-					INSERT INTO stock_out_log
-					(in_out_date, rec_id, goodsdoc_no, inouttype_name, warehouse_code, warehouse_name,
-					 bill_no, vend_code, vend_name, channel_code, goods_no, goods_name, sku_name, sku_barcode, unit_name,
-					 batch_no, quantity, cost_price, cost_amount, no_tax_price, with_tax_price,
-					 is_certified, create_user_name, remark, detail_remark)
-					VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-					dayStr, recId, it.GoodsdocNo.String(), it.InouttypeName.String(),
-					it.WarehouseCode.String(), it.WarehouseName.String(),
-					it.BillNo.String(), it.VendCode.String(), it.VendCustomerName.String(),
-					it.ChannelCode.String(),
-					it.GoodsNo.String(), it.GoodsName.String(), it.SkuName.String(), it.SkuBarcode.String(),
-					it.UnitName.String(), it.BatchNo.String(),
-					it.Quantity.Float64(), it.BaceCurrencyCostPrice.Float64(), it.BaceCurrencyCostAmount.Float64(),
-					it.BaceCurrencyNoTaxPrice.Float64(), it.BaceCurrencyWithTaxPrice.Float64(),
-					int(it.IsCertified), it.CreateUserName.String(),
-					it.GoodsdocRemark.String(), it.GoodsDetailRemark.String(),
-				); err != nil {
-					return fmt.Errorf("出库写入失败 %s/%s: %w", it.GoodsdocNo.String(), it.GoodsNo.String(), err)
-				}
-				outCount++
-			}
+			outItems = append(outItems, items...)
 			return nil
 		})
 		if err != nil {
-			fmt.Printf("  出库失败: %v\n", err)
+			fmt.Printf("  出库 API 失败, 跳过 %s 当天 (旧数据保留): %v\n", dayStr, err)
+			skipDays++
+			continue
 		}
-		fmt.Printf("  出库完成 (%d 条)\n", outCount)
-		totalOut += outCount
+
+		// --- 步骤 2: 事务化写入 (DELETE 当天旧数据 + 批量 INSERT ON DUPLICATE KEY UPDATE) ---
+		tx, err := db.Begin()
+		if err != nil {
+			log.Fatalf("开启事务失败 %s: %v", dayStr, err)
+		}
+
+		if _, err := tx.Exec(`DELETE FROM stock_in_log WHERE in_out_date = ?`, dayStr); err != nil {
+			tx.Rollback()
+			log.Fatalf("删除入库 %s 失败: %v", dayStr, err)
+		}
+		if _, err := tx.Exec(`DELETE FROM stock_out_log WHERE in_out_date = ?`, dayStr); err != nil {
+			tx.Rollback()
+			log.Fatalf("删除出库 %s 失败: %v", dayStr, err)
+		}
+
+		for _, it := range inItems {
+			_, err := tx.Exec(`
+				INSERT INTO stock_in_log
+				(in_out_date, goodsdoc_no, inouttype_name, warehouse_code, warehouse_name,
+				 bill_no, vend_code, vend_name, goods_no, goods_name, sku_name, sku_barcode, unit_name,
+				 batch_no, quantity, cost_price, cost_amount, no_tax_price, with_tax_price,
+				 is_certified, create_user_name, remark, detail_remark)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+				ON DUPLICATE KEY UPDATE
+				  in_out_date=VALUES(in_out_date),
+				  inouttype_name=VALUES(inouttype_name),
+				  warehouse_code=VALUES(warehouse_code), warehouse_name=VALUES(warehouse_name),
+				  bill_no=VALUES(bill_no), vend_code=VALUES(vend_code), vend_name=VALUES(vend_name),
+				  goods_name=VALUES(goods_name), sku_name=VALUES(sku_name), unit_name=VALUES(unit_name),
+				  quantity=VALUES(quantity), cost_price=VALUES(cost_price), cost_amount=VALUES(cost_amount),
+				  no_tax_price=VALUES(no_tax_price), with_tax_price=VALUES(with_tax_price),
+				  is_certified=VALUES(is_certified), create_user_name=VALUES(create_user_name),
+				  remark=VALUES(remark), detail_remark=VALUES(detail_remark)`,
+				dayStr, it.GoodsdocNo.String(), it.InouttypeName.String(),
+				it.WarehouseCode.String(), it.WarehouseName.String(),
+				it.BillNo.String(), it.VendCode.String(), it.VendCustomerName.String(),
+				it.GoodsNo.String(), it.GoodsName.String(), it.SkuName.String(), it.SkuBarcode.String(),
+				it.UnitName.String(), it.BatchNo.String(),
+				it.Quantity.Float64(), it.BaceCurrencyCostPrice.Float64(), it.BaceCurrencyCostAmount.Float64(),
+				it.BaceCurrencyNoTaxPrice.Float64(), it.BaceCurrencyWithTaxPrice.Float64(),
+				int(it.IsCertified), it.CreateUserName.String(),
+				it.GoodsdocRemark.String(), it.GoodsDetailRemark.String(),
+			)
+			if err != nil {
+				tx.Rollback()
+				log.Fatalf("入库写入失败 %s/%s: %v", it.GoodsdocNo.String(), it.GoodsNo.String(), err)
+			}
+		}
+
+		for _, it := range outItems {
+			var recId int64 = 0
+			if it.RecId.String() != "" {
+				fmt.Sscanf(it.RecId.String(), "%d", &recId)
+			}
+			_, err := tx.Exec(`
+				INSERT INTO stock_out_log
+				(in_out_date, rec_id, goodsdoc_no, inouttype_name, warehouse_code, warehouse_name,
+				 bill_no, vend_code, vend_name, channel_code, goods_no, goods_name, sku_name, sku_barcode, unit_name,
+				 batch_no, quantity, cost_price, cost_amount, no_tax_price, with_tax_price,
+				 is_certified, create_user_name, remark, detail_remark)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+				ON DUPLICATE KEY UPDATE
+				  in_out_date=VALUES(in_out_date),
+				  goodsdoc_no=VALUES(goodsdoc_no), inouttype_name=VALUES(inouttype_name),
+				  warehouse_code=VALUES(warehouse_code), warehouse_name=VALUES(warehouse_name),
+				  bill_no=VALUES(bill_no), vend_code=VALUES(vend_code), vend_name=VALUES(vend_name),
+				  channel_code=VALUES(channel_code),
+				  goods_no=VALUES(goods_no), goods_name=VALUES(goods_name), sku_name=VALUES(sku_name),
+				  sku_barcode=VALUES(sku_barcode), unit_name=VALUES(unit_name), batch_no=VALUES(batch_no),
+				  quantity=VALUES(quantity), cost_price=VALUES(cost_price), cost_amount=VALUES(cost_amount),
+				  no_tax_price=VALUES(no_tax_price), with_tax_price=VALUES(with_tax_price),
+				  is_certified=VALUES(is_certified), create_user_name=VALUES(create_user_name),
+				  remark=VALUES(remark), detail_remark=VALUES(detail_remark)`,
+				dayStr, recId, it.GoodsdocNo.String(), it.InouttypeName.String(),
+				it.WarehouseCode.String(), it.WarehouseName.String(),
+				it.BillNo.String(), it.VendCode.String(), it.VendCustomerName.String(),
+				it.ChannelCode.String(),
+				it.GoodsNo.String(), it.GoodsName.String(), it.SkuName.String(), it.SkuBarcode.String(),
+				it.UnitName.String(), it.BatchNo.String(),
+				it.Quantity.Float64(), it.BaceCurrencyCostPrice.Float64(), it.BaceCurrencyCostAmount.Float64(),
+				it.BaceCurrencyNoTaxPrice.Float64(), it.BaceCurrencyWithTaxPrice.Float64(),
+				int(it.IsCertified), it.CreateUserName.String(),
+				it.GoodsdocRemark.String(), it.GoodsDetailRemark.String(),
+			)
+			if err != nil {
+				tx.Rollback()
+				log.Fatalf("出库写入失败 %s/%s: %v", it.GoodsdocNo.String(), it.GoodsNo.String(), err)
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			log.Fatalf("提交事务失败 %s: %v", dayStr, err)
+		}
+
+		fmt.Printf("[%s] 入库 %d 条, 出库 %d 条 (已 commit)\n", dayStr, len(inItems), len(outItems))
+		totalIn += len(inItems)
+		totalOut += len(outItems)
 
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	fmt.Printf("\n同步完成！入库 %d 条，出库 %d 条\n", totalIn, totalOut)
+	fmt.Printf("\n同步完成! 入库 %d 条, 出库 %d 条, 跳过 %d 天 (API 失败保留旧数据)\n", totalIn, totalOut, skipDays)
 }
