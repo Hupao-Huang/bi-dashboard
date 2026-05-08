@@ -142,3 +142,31 @@ mysql -h127.0.0.1 -uroot -p<pwd> bi_dashboard
 2. 检查 `bi-server` PID（端口 8080）+ frontend PID（端口 3000）是否还在
 3. 读 `project_todo_next.md` 看上次结束基线 + 待办
 4. 列清单给跑哥确认方向，禁止直接动手 commit/build
+
+## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. The
+skill has multi-step workflows, checklists, and quality gates that produce better
+results than an ad-hoc answer. When in doubt, invoke the skill. A false positive is
+cheaper than a false negative.
+
+Key routing rules:
+- 修 bug / 错误 / "为什么坏了" / "wtf" / "这不对" → invoke /investigate
+- 测试网站 / 浏览器跑一下 / "还能用吗" / 找 bug → invoke /qa (或 /qa-only 只生成报告)
+- 改了代码后 / "看下我的改动" / 代码审查 → invoke /review
+- 视觉细节 / "看着不对" / 设计稿审查 → invoke /design-review
+- 部署 / "上线" / 创建 PR / "推上去" → invoke /ship
+- 第二意见 / "另一个 AI 看看" / 高风险改动复核 → invoke /codex
+- 安全模式 / "小心点" / "锁起来" → invoke /careful 或 /guard
+- 限制改动范围到某目录 → invoke /freeze 或 /unfreeze
+- 浏览网页 / 看 GitHub 仓库 / 看文档 → invoke /browse (禁用 mcp__claude-in-chrome__*)
+- 周回顾 / "今天/这周做了啥" → invoke /retro
+- 写发版文档 / 发布说明 → invoke /document-release
+- 升级 gstack 工具 → invoke /gstack-upgrade
+
+BI 看板特定规则 (按 v0.94 客服越界教训定制):
+- **改任何业务规则/算法/口径前必须先 invoke /codex 二审**
+  涵盖: 客服 KPI 算法 / 财务科目映射 / 销售部门口径 / 库存计费规则 / 业务预决算公式
+  决策点: "这是技术 bug 修复? 还是业务规则改造?" 后者必须 /codex
+- 改完代码自检完后 invoke /qa 浏览器实测一遍 (smoke 401 不算实测)
+- 多 commit 攒够 4 个以上不要直接 commit, 先 invoke /review 复盘是否分批合理
