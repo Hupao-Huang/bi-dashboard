@@ -1,23 +1,31 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Badge,
   Button,
   Card,
+  Col,
   Image,
   Input,
   Modal,
+  Row,
   Select,
-  Space,
+  Statistic,
   Table,
-  Tag,
   Tooltip,
   Typography,
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ClockCircleOutlined, SyncOutlined, CheckCircleOutlined, MinusCircleOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 import { pageTitleMap } from '../../navigation';
+
+const STATUS_HEX_MAP: Record<string, string> = {
+  pending: '#f59e0b',
+  processing: '#1677ff',
+  resolved: '#16a34a',
+  closed: '#94a3b8',
+};
+const statusHex = (s: string): string => STATUS_HEX_MAP[s] || '#94a3b8';
 
 // 把 pageUrl 转成可读菜单名："/ecommerce/marketing-cost" → "营销费用"
 const formatPageName = (url?: string): string => {
@@ -49,11 +57,31 @@ interface FeedbackItem {
   updatedAt: string;
 }
 
-const statusConfig: Record<string, { color: string; label: string }> = {
-  pending: { color: 'warning', label: '待处理' },
-  processing: { color: 'processing', label: '处理中' },
-  resolved: { color: 'success', label: '已解决' },
-  closed: { color: 'default', label: '已关闭' },
+const statusConfig: Record<string, { label: string }> = {
+  pending: { label: '待处理' },
+  processing: { label: '处理中' },
+  resolved: { label: '已解决' },
+  closed: { label: '已关闭' },
+};
+
+const StatusChip: React.FC<{ status: string }> = ({ status }) => {
+  const cfg = statusConfig[status] || statusConfig.pending;
+  const hex = statusHex(status);
+  return (
+    <span style={{
+      display: 'inline-block',
+      padding: '1px 8px',
+      background: `${hex}12`,
+      color: hex,
+      border: `1px solid ${hex}30`,
+      borderRadius: 3,
+      fontWeight: 500,
+      fontSize: 12,
+      lineHeight: '20px',
+    }}>
+      {cfg.label}
+    </span>
+  );
 };
 
 const Feedback: React.FC = () => {
@@ -63,7 +91,10 @@ const Feedback: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [statusFilter, setStatusFilter] = useState('');
+  const [searchText, setSearchText] = useState('');
   const [detailItem, setDetailItem] = useState<FeedbackItem | null>(null);
+  const [originalReply, setOriginalReply] = useState('');
+  const [originalStatus, setOriginalStatus] = useState('');
   const [replyText, setReplyText] = useState('');
   const [replyStatus, setReplyStatus] = useState('');
   const [updating, setUpdating] = useState(false);
@@ -99,15 +130,17 @@ const Feedback: React.FC = () => {
 
   const handleReply = async () => {
     if (!detailItem) return;
-    if (!replyText && !replyStatus) {
-      message.warning('请填写回复或选择状态');
+    const replyChanged = replyText !== originalReply;
+    const statusChanged = replyStatus !== originalStatus;
+    if (!replyChanged && !statusChanged) {
+      message.info('没有改动，无需保存');
       return;
     }
     setUpdating(true);
     try {
       const body: Record<string, string> = {};
-      if (replyText) body.reply = replyText;
-      if (replyStatus) body.status = replyStatus;
+      if (replyChanged) body.reply = replyText;
+      if (statusChanged) body.status = replyStatus;
 
       const res = await fetch(`${API_BASE}/api/feedback/${detailItem.id}`, {
         method: 'PUT',
@@ -123,6 +156,8 @@ const Feedback: React.FC = () => {
       setDetailItem(null);
       setReplyText('');
       setReplyStatus('');
+      setOriginalReply('');
+      setOriginalStatus('');
       fetchList();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -136,28 +171,75 @@ const Feedback: React.FC = () => {
     setDetailItem(item);
     setReplyText(item.reply || '');
     setReplyStatus(item.status);
+    setOriginalReply(item.reply || '');
+    setOriginalStatus(item.status);
   };
+
+  const stats = useMemo(() => ({
+    pending: list.filter(i => i.status === 'pending').length,
+    processing: list.filter(i => i.status === 'processing').length,
+    resolved: list.filter(i => i.status === 'resolved').length,
+    closed: list.filter(i => i.status === 'closed').length,
+  }), [list]);
+
+  const filteredList = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(item =>
+      item.title.toLowerCase().includes(q) ||
+      item.content.toLowerCase().includes(q) ||
+      (item.realName || '').toLowerCase().includes(q) ||
+      (item.username || '').toLowerCase().includes(q)
+    );
+  }, [list, searchText]);
 
   const columns: ColumnsType<FeedbackItem> = [
     {
-      title: '状态',
-      dataIndex: 'status',
-      width: 90,
-      render: (status: string) => {
-        const cfg = statusConfig[status] || statusConfig.pending;
-        return <Tag color={cfg.color}>{cfg.label}</Tag>;
+      title: '标题',
+      dataIndex: 'title',
+      width: 280,
+      ellipsis: true,
+      render: (title: string, record) => {
+        const accent = statusHex(record.status);
+        return (
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, minHeight: 38 }}>
+            <div style={{
+              width: 3,
+              background: accent,
+              borderRadius: 2,
+              flexShrink: 0,
+              alignSelf: 'stretch',
+            }} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <Button
+                type="link"
+                onClick={() => openDetail(record)}
+                style={{ padding: 0, height: 'auto', textAlign: 'left', color: '#0f172a', fontWeight: 500 }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 220 }}>
+                  {title}
+                </span>
+              </Button>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                {record.realName || record.username}
+              </div>
+            </div>
+          </div>
+        );
       },
     },
     {
-      title: '标题',
-      dataIndex: 'title',
-      width: 220,
-      ellipsis: true,
-      render: (title: string, record) => (
-        <Button type="link" onClick={() => openDetail(record)} style={{ padding: 0, height: 'auto', textAlign: 'left' }}>
-          {title}
-        </Button>
-      ),
+      title: '状态',
+      dataIndex: 'status',
+      width: 88,
+      filters: [
+        { text: '待处理', value: 'pending' },
+        { text: '处理中', value: 'processing' },
+        { text: '已解决', value: 'resolved' },
+        { text: '已关闭', value: 'closed' },
+      ],
+      onFilter: (value, record) => record.status === value,
+      render: (status: string) => <StatusChip status={status} />,
     },
     {
       title: '内容',
@@ -170,17 +252,11 @@ const Feedback: React.FC = () => {
       ),
     },
     {
-      title: '提交人',
-      width: 120,
-      render: (_: unknown, record) => (
-        <span>{record.realName || record.username}</span>
-      ),
-    },
-    {
       title: '提交页面',
       dataIndex: 'pageUrl',
-      width: 160,
+      width: 150,
       ellipsis: true,
+      responsive: ['lg' as const],
       render: (url: string) => {
         const name = formatPageName(url);
         return (
@@ -193,72 +269,139 @@ const Feedback: React.FC = () => {
     {
       title: '附件',
       dataIndex: 'attachments',
-      width: 60,
-      align: 'center',
-      render: (attachments: string[]) => (
-        attachments?.length > 0 ? <Badge count={attachments.length} size="small" /> : '-'
-      ),
+      width: 90,
+      responsive: ['xl' as const],
+      render: (attachments: string[]) => {
+        if (!attachments?.length) return <span style={{ color: '#cbd5e1' }}>—</span>;
+        return (
+          <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
+            <Image.PreviewGroup>
+              {attachments.slice(0, 2).map((url, i) => (
+                <Image
+                  key={i}
+                  src={`${API_BASE}${url}`}
+                  width={28}
+                  height={28}
+                  style={{ objectFit: 'cover', borderRadius: 3, border: '1px solid #e2e8f0' }}
+                />
+              ))}
+              {attachments.length > 2 && (
+                <span style={{ fontSize: 11, color: '#64748b', alignSelf: 'center', marginLeft: 2 }}>
+                  +{attachments.length - 2}
+                </span>
+              )}
+            </Image.PreviewGroup>
+          </div>
+        );
+      },
     },
     {
       title: '提交时间',
       dataIndex: 'createdAt',
-      width: 160,
-    },
-    {
-      title: '操作',
-      width: 80,
-      render: (_: unknown, record) => (
-        <Button type="link" size="small" onClick={() => openDetail(record)}>
-          查看
-        </Button>
-      ),
+      width: 150,
+      responsive: ['xl' as const],
+      sorter: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      defaultSortOrder: 'descend' as const,
+      render: (v: string) => <span style={{ fontSize: 12, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{v}</span>,
     },
   ];
 
   return (
     <div>
-      <Card
-        style={{ marginBottom: 16, borderRadius: 'var(--card-radius)', boxShadow: 'var(--card-shadow)' }}
-        styles={{ body: { padding: '12px 16px' } }}
-      >
-        <Space>
-          <Select
-            placeholder="筛选状态"
-            allowClear
-            value={statusFilter || undefined}
-            onChange={v => { setStatusFilter(v || ''); setPage(1); }}
-            style={{ width: 140 }}
-            options={[
-              { label: '待处理', value: 'pending' },
-              { label: '处理中', value: 'processing' },
-              { label: '已解决', value: 'resolved' },
-              { label: '已关闭', value: 'closed' },
-            ]}
-          />
-          <Button icon={<ReloadOutlined />} onClick={fetchList}>刷新</Button>
-        </Space>
-      </Card>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: STATUS_HEX_MAP.pending }} bodyStyle={{ padding: 16 }}>
+            <Statistic
+              title={<><ClockCircleOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.pending }} />待处理</>}
+              value={stats.pending}
+              valueStyle={{ color: stats.pending > 0 ? STATUS_HEX_MAP.pending : '#94a3b8', fontSize: 22, fontWeight: stats.pending > 0 ? 700 : 400 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: STATUS_HEX_MAP.processing }} bodyStyle={{ padding: 16 }}>
+            <Statistic
+              title={<><SyncOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.processing }} />处理中</>}
+              value={stats.processing}
+              valueStyle={{ color: STATUS_HEX_MAP.processing, fontSize: 22 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: STATUS_HEX_MAP.resolved }} bodyStyle={{ padding: 16 }}>
+            <Statistic
+              title={<><CheckCircleOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.resolved }} />已解决</>}
+              value={stats.resolved}
+              valueStyle={{ color: STATUS_HEX_MAP.resolved, fontSize: 22 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: STATUS_HEX_MAP.closed }} bodyStyle={{ padding: 16 }}>
+            <Statistic
+              title={<><MinusCircleOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.closed }} />已关闭</>}
+              value={stats.closed}
+              valueStyle={{ color: STATUS_HEX_MAP.closed, fontSize: 22 }}
+            />
+          </Card>
+        </Col>
+      </Row>
 
-      <Table<FeedbackItem>
-        columns={columns}
-        dataSource={list}
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          onChange: (p, ps) => { setPage(p); setPageSize(ps); },
-          showTotal: t => `共 ${t} 条`,
-          showSizeChanger: true,
-        }}
-        style={{
-          background: 'var(--card-bg)',
-          borderRadius: 'var(--card-radius)',
-          boxShadow: 'var(--card-shadow)',
-          overflow: 'hidden',
-        }}
-      />
+      <Card
+        className="bi-card"
+        title="反馈列表"
+        extra={
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Input
+              placeholder="搜索 标题/内容/提交人"
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              allowClear
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              style={{ width: 220 }}
+            />
+            <Select
+              placeholder="筛选状态"
+              allowClear
+              value={statusFilter || undefined}
+              onChange={v => { setStatusFilter(v || ''); setPage(1); }}
+              style={{ width: 130 }}
+              options={[
+                { label: '待处理', value: 'pending' },
+                { label: '处理中', value: 'processing' },
+                { label: '已解决', value: 'resolved' },
+                { label: '已关闭', value: 'closed' },
+              ]}
+            />
+          </div>
+        }
+      >
+        <Table<FeedbackItem>
+          columns={columns}
+          dataSource={filteredList}
+          rowKey="id"
+          loading={loading}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+            showTotal: t => `共 ${t} 条`,
+            showSizeChanger: true,
+          }}
+          onRow={(record) => {
+            const accent = statusHex(record.status);
+            return {
+              onClick: () => openDetail(record),
+              style: {
+                cursor: 'pointer',
+                background: detailItem?.id === record.id ? `${accent}0d` : undefined,
+                transition: 'background 120ms ease',
+              },
+            };
+          }}
+        />
+      </Card>
 
       <Modal
         title="反馈详情"
@@ -272,75 +415,105 @@ const Feedback: React.FC = () => {
           </Button>,
         ]}
       >
-        {detailItem && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>标题</Typography.Text>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{detailItem.title}</div>
-            </div>
-            <div>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>提交人</Typography.Text>
-              <div>{detailItem.realName || detailItem.username} · {detailItem.createdAt}</div>
-            </div>
-            <div>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>问题描述</Typography.Text>
-              <div style={{ whiteSpace: 'pre-wrap', background: '#f8fafc', padding: 12, borderRadius: 8, marginTop: 4 }}>
-                {detailItem.content}
-              </div>
-            </div>
-            {detailItem.pageUrl && (
-              <div>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>所在页面</Typography.Text>
-                <div style={{ fontSize: 13 }}>
-                  <span style={{ color: '#1e40af', fontWeight: 600, marginRight: 8 }}>{formatPageName(detailItem.pageUrl)}</span>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>{detailItem.pageUrl}</Typography.Text>
+        {detailItem && (() => {
+          const accent = statusHex(detailItem.status);
+          const pagePath = (() => {
+            try {
+              if (/^https?:/i.test(detailItem.pageUrl)) return new URL(detailItem.pageUrl).pathname;
+              return detailItem.pageUrl;
+            } catch { return detailItem.pageUrl; }
+          })();
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{
+                padding: '14px 18px',
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderLeft: `4px solid ${accent}`,
+                borderRadius: 6,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                    {detailItem.title}
+                  </span>
+                  <StatusChip status={detailItem.status} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
+                  <span>{detailItem.realName || detailItem.username}</span>
+                  <span style={{ color: '#cbd5e1' }}>·</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>{detailItem.createdAt}</span>
+                  {detailItem.pageUrl && (
+                    <>
+                      <span style={{ color: '#cbd5e1' }}>·</span>
+                      <a
+                        href={pagePath}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        style={{ color: accent, fontWeight: 500 }}
+                      >
+                        <LinkOutlined style={{ marginRight: 3 }} />{formatPageName(detailItem.pageUrl)}
+                      </a>
+                    </>
+                  )}
                 </div>
               </div>
-            )}
-            {detailItem.attachments?.length > 0 && (
+
               <div>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>截图</Typography.Text>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                  <Image.PreviewGroup>
-                    {detailItem.attachments.map((url, i) => (
-                      <Image
-                        key={i}
-                        src={`${API_BASE}${url}`}
-                        width={100}
-                        height={100}
-                        style={{ objectFit: 'cover', borderRadius: 6 }}
-                      />
-                    ))}
-                  </Image.PreviewGroup>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>问题描述</Typography.Text>
+                <div style={{ whiteSpace: 'pre-wrap', background: '#f8fafc', padding: 12, borderRadius: 6, marginTop: 4, fontSize: 13, color: '#334155' }}>
+                  {detailItem.content}
                 </div>
               </div>
-            )}
-            <div>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>状态</Typography.Text>
-              <Select
-                value={replyStatus}
-                onChange={setReplyStatus}
-                style={{ width: '100%', marginTop: 4 }}
-                options={[
-                  { label: '待处理', value: 'pending' },
-                  { label: '处理中', value: 'processing' },
-                  { label: '已解决', value: 'resolved' },
-                  { label: '已关闭', value: 'closed' },
-                ]}
-              />
+
+              {detailItem.attachments?.length > 0 && (
+                <div>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>截图 ({detailItem.attachments.length})</Typography.Text>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                    <Image.PreviewGroup>
+                      {detailItem.attachments.map((url, i) => (
+                        <Image
+                          key={i}
+                          src={`${API_BASE}${url}`}
+                          width={88}
+                          height={88}
+                          style={{ objectFit: 'cover', borderRadius: 6, border: '1px solid #e2e8f0' }}
+                        />
+                      ))}
+                    </Image.PreviewGroup>
+                  </div>
+                </div>
+              )}
+
+              <Row gutter={12}>
+                <Col span={24}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>状态</Typography.Text>
+                  <Select
+                    value={replyStatus}
+                    onChange={setReplyStatus}
+                    style={{ width: '100%', marginTop: 4 }}
+                    options={[
+                      { label: '待处理', value: 'pending' },
+                      { label: '处理中', value: 'processing' },
+                      { label: '已解决', value: 'resolved' },
+                      { label: '已关闭', value: 'closed' },
+                    ]}
+                  />
+                </Col>
+              </Row>
+
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>回复</Typography.Text>
+                <Input.TextArea
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  rows={3}
+                  placeholder="输入回复内容（提交人后续将能看到）"
+                  style={{ marginTop: 4 }}
+                />
+              </div>
             </div>
-            <div>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>回复</Typography.Text>
-              <Input.TextArea
-                value={replyText}
-                onChange={e => setReplyText(e.target.value)}
-                rows={3}
-                placeholder="输入回复内容"
-                style={{ marginTop: 4 }}
-              />
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </Modal>
     </div>
   );
