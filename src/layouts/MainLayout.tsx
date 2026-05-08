@@ -212,7 +212,7 @@ const MainLayout: React.FC = () => {
         />
       </div>
 
-      {/* 侧边栏底部功能套区 (v1.11) */}
+      {/* 侧边栏底部功能套区 (v1.11 调整: 仅保留 反馈 + 用户菜单) */}
       <div style={{
         borderTop: '1px solid #f0f0f0',
         padding: '6px 0',
@@ -222,41 +222,6 @@ const MainLayout: React.FC = () => {
         flexShrink: 0,
         background: '#fafbfc',
       }}>
-        {/* AI 工具箱 */}
-        <Tooltip title={collapsed && !isMobile ? 'AI 工具箱' : null} placement="right">
-          <div
-            onClick={() => setAiDrawerOpen(true)}
-            style={{
-              padding: collapsed && !isMobile ? '10px 0' : '10px 18px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
-              gap: 12,
-              cursor: 'pointer',
-              color: '#475569',
-              fontSize: 13,
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-          >
-            <RocketOutlined style={{ fontSize: 16, color: '#1e40af' }} />
-            {(!collapsed || isMobile) && <span>AI 工具箱</span>}
-          </div>
-        </Tooltip>
-
-        {/* 公告铃铛 */}
-        <div style={{
-          padding: collapsed && !isMobile ? '6px 0' : '6px 12px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
-          gap: 6,
-        }}>
-          <NoticeBell />
-          {(!collapsed || isMobile) && <span style={{ color: '#475569', fontSize: 13 }}>公告</span>}
-        </div>
-
         {/* 问题反馈 */}
         <Tooltip title={collapsed && !isMobile ? '问题反馈' : null} placement="right">
           <div
@@ -424,7 +389,18 @@ const MainLayout: React.FC = () => {
           ) : (
             <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#0f172a', letterSpacing: 0.2 }}>{pageTitle}</h2>
           )}
-          <div />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 12 }}>
+            <Button
+              type="text"
+              icon={<RocketOutlined />}
+              onClick={() => setAiDrawerOpen(true)}
+              style={{ color: '#64748b', fontSize: 14 }}
+            >
+              {!isMobile && 'AI工具箱'}
+            </Button>
+            <NoticeBell />
+          </div>
         </Header>
 
         <div id="bi-toolbar-slot" className="bi-toolbar-slot" />
