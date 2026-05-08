@@ -11,13 +11,30 @@ import {
   Row,
   Select,
   Space,
+  Statistic,
   Table,
   Tag,
   Typography,
   message,
 } from 'antd';
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, TeamOutlined, BookOutlined, ToolOutlined, UserOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
+
+const ROLE_HEX_MAP: Record<string, string> = {
+  super_admin: '#cf1322',
+  management: '#d48806',
+  dept_manager: '#08979c',
+  operator: '#1677ff',
+  finance: '#722ed1',
+  customer_service: '#389e0d',
+  ecommerce_manager: '#0958d9',
+  social_manager: '#c41d7f',
+  offline_manager: '#d4380d',
+  distribution_manager: '#7cb305',
+  procurement: '#d4380d',
+};
+
+const roleHex = (code: string): string => ROLE_HEX_MAP[code] || '#64748b';
 
 type MetaOption = {
   label: string;
@@ -126,6 +143,22 @@ const togglePermission = (current: string[], code: string, checked: boolean) => 
   return current.filter(item => item !== code);
 };
 
+const GROUP_HEX_MAP: Record<string, string> = {
+  overview: '#1e40af',
+  brand: '#0891b2',
+  ecommerce: '#0958d9',
+  social: '#c41d7f',
+  offline: '#16a34a',
+  distribution: '#7cb305',
+  instant_retail: '#0891b2',
+  finance: '#722ed1',
+  customer: '#389e0d',
+  supply_chain: '#d48806',
+  action: '#64748b',
+  field: '#cf1322',
+  unclassified: '#94a3b8',
+};
+
 const PermissionMatrix: React.FC<{
   groups: PermissionGroup[];
   onChange?: (value: string[]) => void;
@@ -135,24 +168,53 @@ const PermissionMatrix: React.FC<{
   const selected = useMemo(() => new Set(value), [value]);
 
   return (
-    <Space orientation="vertical" size={12} style={{ width: '100%' }}>
-      {groups.map(group => (
-        <Card key={group.key} size="small" title={group.label} styles={{ body: { padding: '12px 16px' } }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-            {group.options.map(option => (
-              <Checkbox
-                key={option.code}
-                checked={selected.has(option.code)}
-                disabled={readOnly}
-                onChange={event => onChange?.(togglePermission(value, option.code, event.target.checked))}
-              >
-                {option.name}
-              </Checkbox>
-            ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {groups.map(group => {
+        const accent = GROUP_HEX_MAP[group.key] || '#64748b';
+        const checkedInGroup = group.options.filter(o => selected.has(o.code)).length;
+        return (
+          <div key={group.key} style={{
+            paddingLeft: 12,
+            borderLeft: `3px solid ${accent}`,
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 8,
+              marginBottom: 8,
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                {group.label}
+              </span>
+              <span style={{
+                fontSize: 11,
+                color: accent,
+                background: `${accent}10`,
+                border: `1px solid ${accent}30`,
+                padding: '0 6px',
+                borderRadius: 3,
+                fontVariantNumeric: 'tabular-nums',
+                fontWeight: 500,
+              }}>
+                {checkedInGroup}/{group.options.length}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 6 }}>
+              {group.options.map(option => (
+                <Checkbox
+                  key={option.code}
+                  checked={selected.has(option.code)}
+                  disabled={readOnly}
+                  onChange={event => onChange?.(togglePermission(value, option.code, event.target.checked))}
+                >
+                  {option.name}
+                </Checkbox>
+              ))}
+            </div>
           </div>
-        </Card>
-      ))}
-    </Space>
+        );
+      })}
+    </div>
   );
 };
 
@@ -361,22 +423,37 @@ const RoleAccessPage: React.FC = () => {
       title: '角色',
       dataIndex: 'name',
       key: 'name',
-      render: (_: string, record: RoleItem) => (
-        <div>
-          <Typography.Text strong style={{ color: selectedRoleId === record.id ? '#4338ca' : '#0f172a' }}>
-            {record.name}
-          </Typography.Text>
-          <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-            {record.code}
-          </Typography.Text>
-        </div>
-      ),
+      render: (_: string, record: RoleItem) => {
+        const accent = roleHex(record.code);
+        const isSelected = selectedRoleId === record.id;
+        return (
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, minHeight: 38 }}>
+            <div style={{
+              width: isSelected ? 4 : 3,
+              background: accent,
+              borderRadius: 2,
+              flexShrink: 0,
+              alignSelf: 'stretch',
+              transition: 'width 120ms ease',
+            }} />
+            <div>
+              <Typography.Text strong style={{ color: isSelected ? accent : '#0f172a' }}>
+                {record.name}
+              </Typography.Text>
+              <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                {record.code}
+              </Typography.Text>
+            </div>
+          </div>
+        );
+      },
     },
     {
       title: '类型',
       dataIndex: 'builtin',
       key: 'builtin',
-      width: 92,
+      width: 84,
+      responsive: ['xl' as const],
       render: (builtin: boolean) => (
         <Tag color={builtin ? 'blue' : 'default'} style={{ marginInlineEnd: 0 }}>
           {builtin ? '内置' : '自定义'}
@@ -386,10 +463,11 @@ const RoleAccessPage: React.FC = () => {
     {
       title: '授权',
       key: 'stats',
-      width: 120,
+      width: 130,
+      responsive: ['xxl' as const],
       render: (_: unknown, record: RoleItem) => (
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {record.permissionCount} 权限 / {record.userCount} 用户
+        <Typography.Text type="secondary" style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+          {record.permissionCount} 权限 · {record.userCount} 用户
         </Typography.Text>
       ),
     },
@@ -419,12 +497,43 @@ const RoleAccessPage: React.FC = () => {
     },
   ];
 
+  const stats = useMemo(() => ({
+    total: roles.length,
+    builtin: roles.filter(r => r.builtin).length,
+    custom: roles.filter(r => !r.builtin).length,
+    inUse: roles.filter(r => r.userCount > 0).length,
+  }), [roles]);
+
   return (
     <div>
       {contextHolder}
+
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#1e40af' }} bodyStyle={{ padding: 16 }}>
+            <Statistic title={<><TeamOutlined style={{ marginRight: 6 }} />总角色</>} value={stats.total} valueStyle={{ color: '#1e40af', fontSize: 22 }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#1677ff' }} bodyStyle={{ padding: 16 }}>
+            <Statistic title={<><BookOutlined style={{ marginRight: 6, color: '#1677ff' }} />内置角色</>} value={stats.builtin} valueStyle={{ color: '#1677ff', fontSize: 22 }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#16a34a' }} bodyStyle={{ padding: 16 }}>
+            <Statistic title={<><ToolOutlined style={{ marginRight: 6, color: '#16a34a' }} />自定义角色</>} value={stats.custom} valueStyle={{ color: '#16a34a', fontSize: 22 }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#722ed1' }} bodyStyle={{ padding: 16 }}>
+            <Statistic title={<><UserOutlined style={{ marginRight: 6, color: '#722ed1' }} />使用中</>} value={stats.inUse} valueStyle={{ color: '#722ed1', fontSize: 22 }} />
+          </Card>
+        </Col>
+      </Row>
+
       <Row gutter={[16, 16]}>
-        <Col xs={24} xl={9}>
-          <Card className="bi-card" title="角色列表" styles={{ body: { maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' } }} extra={
+        <Col xs={24} xl={10} xxl={9}>
+          <Card className="bi-card" title="角色列表" styles={{ body: { maxHeight: 'calc(100vh - 280px)', overflowY: 'auto' } }} extra={
             <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
               新增
             </Button>
@@ -436,46 +545,97 @@ const RoleAccessPage: React.FC = () => {
               columns={roleColumns}
               pagination={false}
               size="small"
-              rowClassName={record => (record.id === selectedRoleId ? 'ant-table-row-selected' : '')}
-              onRow={record => ({
-                onClick: () => { void handleSelectRole(record); },
-                style: { cursor: 'pointer' },
-              })}
+              onRow={record => {
+                const accent = roleHex(record.code);
+                const isSelected = selectedRoleId === record.id;
+                return {
+                  onClick: () => { void handleSelectRole(record); },
+                  style: {
+                    cursor: 'pointer',
+                    background: isSelected ? `${accent}0d` : undefined,
+                    transition: 'background 120ms ease',
+                  },
+                };
+              }}
             />
           </Card>
         </Col>
-        <Col xs={24} xl={15}>
-          <Card className="bi-card" title="角色配置" styles={{ body: { maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' } }}>
+        <Col xs={24} xl={14} xxl={15}>
+          <Card className="bi-card" title="角色配置" styles={{ body: { maxHeight: 'calc(100vh - 280px)', overflowY: 'auto' } }}>
             {meta && roleDetail && currentRole ? (
               <>
-                <div style={{ marginBottom: 20 }}>
-                  <Space size={8} wrap>
-                    <Typography.Title level={5} style={{ marginBottom: 0 }}>
-                      {roleDetail.name}
-                    </Typography.Title>
-                    <Tag color={roleDetail.builtin ? 'blue' : 'default'} style={{ marginInlineEnd: 0 }}>
-                      {roleDetail.builtin ? '内置角色' : '自定义角色'}
-                    </Tag>
-                    {isReadOnly && (
-                      <Tag color="gold" style={{ marginInlineEnd: 0 }}>
-                        只读
-                      </Tag>
-                    )}
-                  </Space>
-                  <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
-                    角色编码：{roleDetail.code}
-                  </Typography.Text>
-                  {roleDetail.description && (
-                    <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
-                      {roleDetail.description}
-                    </Typography.Text>
-                  )}
-                </div>
+                {(() => {
+                  const accent = roleHex(roleDetail.code);
+                  return (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 16,
+                      padding: '14px 18px',
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderLeft: `4px solid ${accent}`,
+                      borderRadius: 6,
+                      marginBottom: 20,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 18, fontWeight: 600, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                            {roleDetail.name}
+                          </span>
+                          <span style={{ fontSize: 12, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+                            {roleDetail.code}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '1px 8px',
+                            background: `${accent}12`,
+                            color: accent,
+                            border: `1px solid ${accent}30`,
+                            borderRadius: 3,
+                            fontWeight: 500,
+                            fontSize: 11,
+                          }}>
+                            {roleDetail.builtin ? '内置角色' : '自定义角色'}
+                          </span>
+                          {isReadOnly && (
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '1px 8px',
+                              background: '#fff7e6',
+                              color: '#d48806',
+                              border: '1px solid #ffd591',
+                              borderRadius: 3,
+                              fontWeight: 500,
+                              fontSize: 11,
+                            }}>
+                              只读
+                            </span>
+                          )}
+                          <span style={{ fontVariantNumeric: 'tabular-nums', color: '#64748b' }}>
+                            {currentRole.permissionCount} 项权限 · {currentRole.userCount} 个用户在用
+                          </span>
+                        </div>
+                        {roleDetail.description && (
+                          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                            {roleDetail.description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <Form<RoleFormValues> form={form} layout="vertical" onFinish={handleSave}>
                   <Row gutter={16}>
                     <Col xs={24} md={12}>
-                      <Form.Item name="name" label="角色名称" rules={[{ required: true, message: '请输入角色名称' }]}>
+                      <Form.Item
+                        name="name"
+                        label="角色名称"
+                        rules={isReadOnly ? [] : [{ required: true, message: '请输入角色名称' }]}
+                      >
                         <Input disabled={isReadOnly} placeholder="请输入角色名称" />
                       </Form.Item>
                     </Col>
@@ -486,68 +646,75 @@ const RoleAccessPage: React.FC = () => {
                     </Col>
                   </Row>
 
-                  <Typography.Title level={5} style={{ marginBottom: 12 }}>1. 功能模块权限</Typography.Title>
-                  <Form.Item name="permissions" label="模块与动作">
+                  <div style={{ marginTop: 8, marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                    <Typography.Text strong style={{ fontSize: 14, color: '#0f172a' }}>功能模块权限</Typography.Text>
+                  </div>
+                  <Form.Item name="permissions" style={{ marginBottom: 16 }}>
                     <PermissionMatrix groups={permissionLayers.moduleGroups} readOnly={isReadOnly} />
                   </Form.Item>
 
-                  <Typography.Title level={5} style={{ marginBottom: 12, marginTop: 8 }}>2. 数据范围权限</Typography.Title>
-                  <Form.Item name="depts" label="默认可见部门">
-                    <Select mode="multiple" options={meta.depts} placeholder="不选表示不限制部门" maxTagCount="responsive" disabled={isReadOnly} />
-                  </Form.Item>
+                  <div style={{ marginTop: 16, marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                    <Typography.Text strong style={{ fontSize: 14, color: '#0f172a' }}>数据范围权限</Typography.Text>
+                  </div>
+                  <Row gutter={12}>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="depts" label="默认可见部门">
+                        <Select mode="multiple" allowClear options={meta.depts} placeholder="不选=不限制" maxTagCount="responsive" disabled={isReadOnly} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="warehouses" label="默认可见仓库">
+                        <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={meta.warehouses} placeholder="不选=不限制" maxTagCount="responsive" disabled={isReadOnly} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="platforms" label="默认可见平台">
+                        <Select mode="multiple" allowClear options={meta.platforms} placeholder="不选=不限制" maxTagCount="responsive" disabled={isReadOnly} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="shops" label="默认可见店铺">
+                        <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={meta.shops} placeholder="不选=不限制" maxTagCount="responsive" disabled={isReadOnly} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24}>
+                      <Form.Item name="domains" label="默认数据域">
+                        <Select mode="multiple" allowClear options={meta.domains} placeholder="不选=不限制" maxTagCount="responsive" disabled={isReadOnly} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
 
-                  <Form.Item name="platforms" label="默认可见平台">
-                    <Select mode="multiple" options={meta.platforms} placeholder="不选表示不限制平台" maxTagCount="responsive" disabled={isReadOnly} />
-                  </Form.Item>
-
-                  <Form.Item name="shops" label="默认可见店铺">
-                    <Select
-                      mode="multiple"
-                      showSearch
-                      optionFilterProp="label"
-                      options={meta.shops}
-                      placeholder="不选表示不限制店铺"
-                      maxTagCount="responsive"
-                      disabled={isReadOnly}
-                    />
-                  </Form.Item>
-
-                  <Form.Item name="warehouses" label="默认可见仓库">
-                    <Select
-                      mode="multiple"
-                      showSearch
-                      optionFilterProp="label"
-                      options={meta.warehouses}
-                      placeholder="不选表示不限制仓库"
-                      maxTagCount="responsive"
-                      disabled={isReadOnly}
-                    />
-                  </Form.Item>
-
-                  <Form.Item name="domains" label="默认数据域">
-                    <Select mode="multiple" options={meta.domains} placeholder="不选表示不限制数据域" maxTagCount="responsive" disabled={isReadOnly} />
-                  </Form.Item>
-
-                  <Typography.Title level={5} style={{ marginBottom: 12, marginTop: 8 }}>3. 字段权限</Typography.Title>
-                  {permissionLayers.fieldGroups.length > 0 ? (
-                    <Form.Item label="敏感字段可见性">
-                      <PermissionMatrix
-                        groups={permissionLayers.fieldGroups}
-                        readOnly={isReadOnly}
-                        value={watchedPermissions}
-                        onChange={handlePermissionsChange}
-                      />
-                    </Form.Item>
-                  ) : (
-                    <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                      当前没有可配置的字段权限。
-                    </Typography.Text>
+                  {permissionLayers.fieldGroups.length > 0 && (
+                    <>
+                      <div style={{ marginTop: 16, marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                        <Typography.Text strong style={{ fontSize: 14, color: '#0f172a' }}>字段权限</Typography.Text>
+                        <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                          敏感字段可见性
+                        </Typography.Text>
+                      </div>
+                      <Form.Item style={{ marginBottom: 16 }}>
+                        <PermissionMatrix
+                          groups={permissionLayers.fieldGroups}
+                          readOnly={isReadOnly}
+                          value={watchedPermissions}
+                          onChange={handlePermissionsChange}
+                        />
+                      </Form.Item>
+                    </>
                   )}
 
                   {isReadOnly && (
-                    <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                      超级管理员角色固定拥有全部权限，默认范围也不会生效，因此这里保持只读。
-                    </Typography.Text>
+                    <div style={{
+                      padding: '10px 14px',
+                      background: '#fff7e6',
+                      border: '1px solid #ffd591',
+                      borderRadius: 6,
+                      marginBottom: 16,
+                      fontSize: 12,
+                      color: '#d48806',
+                    }}>
+                      💡 超级管理员角色固定拥有全部权限，默认范围也不会生效，因此这里保持只读。
+                    </div>
                   )}
 
                   <Button type="primary" htmlType="submit" loading={saving} disabled={isReadOnly}>
