@@ -24,6 +24,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"bi-dashboard/internal/business"
+	"bi-dashboard/internal/importutil"
 )
 
 type config struct {
@@ -52,6 +53,9 @@ func loadConfig(path string) (*config, error) {
 }
 
 func main() {
+	unlock := importutil.AcquireLock("import-business-report")
+	defer unlock()
+
 	snapshot := flag.String("snapshot", "", "快照日期 YYYY-MM (财务出此报表的时间点)，如 2026-04")
 	year := flag.Int("year", 0, "报表覆盖的业务年份；不填则用 snapshot 年份")
 	xlsxPath := flag.String("xlsx", "", "xlsx 文件路径")

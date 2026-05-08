@@ -16,6 +16,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 )
 
@@ -95,6 +96,9 @@ type PriceLookup struct {
 }
 
 func main() {
+	unlock := importutil.AcquireLock("sync-allocate")
+	defer unlock()
+
 	configPath := flag.String("config", `C:\Users\Administrator\bi-dashboard\server\config.json`, "配置")
 	startStr := flag.String("start", "", "开始日期 yyyy-MM-dd (默认 7 天前)")
 	endStr := flag.String("end", "", "结束日期 yyyy-MM-dd (默认今天)")

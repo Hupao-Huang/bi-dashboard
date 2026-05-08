@@ -15,6 +15,8 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/xuri/excelize/v2"
+
+	"bi-dashboard/internal/importutil"
 )
 
 type Config struct {
@@ -28,6 +30,9 @@ type Config struct {
 }
 
 func main() {
+	unlock := importutil.AcquireLock("import-channel-price")
+	defer unlock()
+
 	xlsxPath := flag.String("xlsx", `C:\Users\Administrator\Desktop\价格体系.xlsx`, "价格体系文件路径")
 	configPath := flag.String("config", `C:\Users\Administrator\bi-dashboard\server\config.json`, "配置")
 	flag.Parse()

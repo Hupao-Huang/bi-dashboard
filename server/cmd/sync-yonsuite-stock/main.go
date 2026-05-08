@@ -7,6 +7,7 @@ package main
 
 import (
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/yonsuite"
 	"database/sql"
 	"encoding/json"
@@ -25,6 +26,9 @@ const (
 )
 
 func main() {
+	unlock := importutil.AcquireLock("sync-yonsuite-stock")
+	defer unlock()
+
 	cfg, err := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)

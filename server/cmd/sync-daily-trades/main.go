@@ -2,6 +2,7 @@ package main
 
 import (
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 	"bytes"
 	"database/sql"
@@ -54,6 +55,9 @@ const tradeFields = "tradeNo,tradeStatus,tradeStatusExplain,tradeType,shopName,s
 	"packageDetail.buyerMemo,packageDetail.sellerMemo"
 
 func main() {
+	unlock := importutil.AcquireLock("sync-daily-trades")
+	defer unlock()
+
 	logFile, err := os.OpenFile(`C:\Users\Administrator\bi-dashboard\server\sync-daily-trades.log`, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
 		log.SetOutput(logFile)
@@ -354,6 +358,9 @@ func main() {
 
 				if wrapper.ScrollId != "" {
 					scrollId = wrapper.ScrollId
+				} else {
+					log.Printf("[警告] [%s %02d时] 无 scrollId 返回, 停止翻页 (累计 %d 条; 如怀疑漏数据, 请手动跑 sync-half-day %s 补拉)", dayStr, hour, dayTrades, dayStr)
+					break
 				}
 			}
 		}

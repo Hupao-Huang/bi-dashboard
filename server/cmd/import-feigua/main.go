@@ -22,6 +22,9 @@ var db *sql.DB
 var filePattern = regexp.MustCompile(`飞瓜_(\d{8})_飞瓜_(抖音|快手|小红书)_(达人数据|达人归属)\.xlsx$`)
 
 func main() {
+	unlock := importutil.AcquireLock("import-feigua")
+	defer unlock()
+
 	startDate, endDate := "", ""
 	if len(os.Args) >= 3 {
 		startDate = os.Args[1]

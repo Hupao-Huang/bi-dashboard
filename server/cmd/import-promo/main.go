@@ -30,6 +30,9 @@ var (
 )
 
 func main() {
+	unlock := importutil.AcquireLock("import-promo")
+	defer unlock()
+
 	startDate, endDate := "", ""
 	if len(os.Args) >= 3 {
 		startDate = os.Args[1]

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
 	"database/sql"
 	"fmt"
@@ -33,6 +34,9 @@ func mapDepartment(cateName string) string {
 }
 
 func main() {
+	unlock := importutil.AcquireLock("sync-channels")
+	defer unlock()
+
 	cfg, err := config.Load("config.json")
 	if err != nil {
 		log.Fatalf("load config: %v", err)

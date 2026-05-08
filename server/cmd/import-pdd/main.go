@@ -81,6 +81,9 @@ func parseExcelDate(s string) string {
 }
 
 func main() {
+	unlock := importutil.AcquireLock("import-pdd")
+	defer unlock()
+
 	cfg, err := config.Load(`C:\Users\Administrator\bi-dashboard\server\config.json`)
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)

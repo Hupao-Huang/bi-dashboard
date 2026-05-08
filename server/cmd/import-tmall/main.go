@@ -25,6 +25,9 @@ var db *sql.DB
 var filePattern = regexp.MustCompile(`天猫_(\d{8})_(.+?)_(生意参谋|万象台|淘宝联盟|数据银行|达摩盘|集客)_(.+?)\.(xlsx|xls|csv|json)$`)
 
 func main() {
+	unlock := importutil.AcquireLock("import-tmall")
+	defer unlock()
+
 	// 参数: import-tmall [起始日期YYYYMMDD] [结束日期YYYYMMDD]
 	// 不传则导入所有
 	// 参数: import-tmall [起始日期] [结束日期] [数据根目录]

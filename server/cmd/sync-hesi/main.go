@@ -18,6 +18,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"bi-dashboard/internal/config"
+	"bi-dashboard/internal/importutil"
 )
 
 const (
@@ -588,6 +589,9 @@ func syncAttachments(db *sql.DB, token string, flowIds []string) int {
 }
 
 func main() {
+	unlock := importutil.AcquireLock("sync-hesi")
+	defer unlock()
+
 	cfg, err := config.Load("config.json")
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
