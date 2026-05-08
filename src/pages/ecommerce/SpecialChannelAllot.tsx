@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Row, Col, Table, Statistic, Tag, DatePicker, Button, Modal, Alert, Space, Tabs, Empty } from 'antd';
-import { ReloadOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import dayjs, { Dayjs } from 'dayjs';
+import { Card, Row, Col, Table, Statistic, Tag, Modal, Alert, Tabs, Empty } from 'antd';
+import { ExclamationCircleOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import PageLoading from '../../components/PageLoading';
+import DateFilter from '../../components/DateFilter';
 import { API_BASE } from '../../config';
-
-const { RangePicker } = DatePicker;
 
 interface ChannelSummary {
   channelKey: string;
@@ -70,7 +69,8 @@ const fmtMoney = (n: number) => n.toLocaleString('zh-CN', { minimumFractionDigit
 const fmtWan = (n: number) => `≈${(n / 10000).toFixed(1)}万`;
 
 const SpecialChannelAllot: React.FC = () => {
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(60, 'day'), dayjs()]);
+  const [startDate, setStartDate] = useState<string>(dayjs().subtract(60, 'day').format('YYYY-MM-DD'));
+  const [endDate, setEndDate] = useState<string>(dayjs().subtract(1, 'day').format('YYYY-MM-DD'));
   const [summary, setSummary] = useState<ChannelSummary[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [missing, setMissing] = useState<MissingRow[]>([]);
@@ -83,9 +83,7 @@ const SpecialChannelAllot: React.FC = () => {
 
   const fetchAll = useCallback(() => {
     setLoading(true);
-    const start = range[0].format('YYYY-MM-DD');
-    const end = range[1].format('YYYY-MM-DD');
-    fetch(`${API_BASE}/api/special-channel-allot/summary?start=${start}&end=${end}`, { credentials: 'include' })
+    fetch(`${API_BASE}/api/special-channel-allot/summary?start=${startDate}&end=${endDate}`, { credentials: 'include' })
       .then(r => r.json())
       .then(j => {
         if (j.code === 200) {
@@ -95,9 +93,14 @@ const SpecialChannelAllot: React.FC = () => {
         }
       })
       .finally(() => setLoading(false));
-  }, [range]);
+  }, [startDate, endDate]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const handleDateChange = (s: string, e: string) => {
+    setStartDate(s);
+    setEndDate(e);
+  };
 
   const openDetail = (allocateNo: string) => {
     setDetailNo(allocateNo);
@@ -164,24 +167,10 @@ const SpecialChannelAllot: React.FC = () => {
 
   return (
     <div style={{ padding: 16 }}>
-      <Card className="bi-filter-card" style={{ marginBottom: 16 }} bodyStyle={{ padding: '12px 16px' }}>
-        <Row align="middle" gutter={16}>
-          <Col>
-            <Space>
-              <span>时间范围:</span>
-              <RangePicker
-                value={range}
-                onChange={(v) => v && setRange([v[0]!, v[1]!])}
-                allowClear={false}
-              />
-              <Button icon={<ReloadOutlined />} onClick={fetchAll} loading={loading}>刷新</Button>
-            </Space>
-          </Col>
-          <Col flex="auto" style={{ textAlign: 'right', color: '#888' }}>
-            🔍 特殊渠道按"调拨入库完成"算销售额(在途数据展示但不计入"已完成销售额")
-          </Col>
-        </Row>
-      </Card>
+      <DateFilter start={startDate} end={endDate} onChange={handleDateChange} />
+      <div style={{ color: '#888', fontSize: 13, marginBottom: 12 }}>
+        🔍 特殊渠道按"调拨入库完成"算销售额(在途数据展示但不计入"已完成销售额")
+      </div>
 
       {/* 顶部 3 个渠道 KPI */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
