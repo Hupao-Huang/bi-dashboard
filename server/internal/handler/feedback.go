@@ -124,7 +124,50 @@ func (h *DashboardHandler) SubmitFeedback(w http.ResponseWriter, r *http.Request
 	}
 
 	id, _ := result.LastInsertId()
+
+	// 通知管理员有新反馈（凭证未配置时跳过）
+	if h.Notifier != nil {
+		h.notifyAdminsNewFeedback(id, title, content, payload.User.RealName, pageURL)
+	}
+
 	writeJSON(w, map[string]interface{}{"id": id, "message": "反馈提交成功"})
+}
+
+// notifyAdminsNewFeedback 异步推送新反馈给主管理员（admin 账号）
+// 跑哥决策：只推 admin 一人，不广播给所有 super_admin（v1.14）
+func (h *DashboardHandler) notifyAdminsNewFeedback(feedbackID int64, title, content, submitter, pageURL string) {
+	var adminUnionID sql.NullString
+	err := h.DB.QueryRow(`
+		SELECT dingtalk_userid FROM users
+		WHERE username = 'admin' AND status = 'active'
+		LIMIT 1
+	`).Scan(&adminUnionID)
+	if err != nil {
+		log.Printf("[feedback-notify] query admin: %v", err)
+		return
+	}
+	if !adminUnionID.Valid || adminUnionID.String == "" {
+		log.Printf("[feedback-notify] admin has no dingtalk binding, skip")
+		return
+	}
+	unionIDs := []string{adminUnionID.String}
+
+	// 内容截断防超长
+	preview := content
+	if len([]rune(preview)) > 80 {
+		preview = string([]rune(preview)[:80]) + "..."
+	}
+	pageHint := ""
+	if pageURL != "" {
+		pageHint = "\n来源页面：" + pageURL
+	}
+	msg := "【BI 看板·新反馈】\n" +
+		submitter + " 提了一条反馈：\n\n" +
+		"《" + title + "》\n" +
+		preview + pageHint + "\n\n" +
+		"前往反馈管理处理 → /system/feedback"
+
+	h.Notifier.SendTextAsync(unionIDs, msg)
 }
 
 // ListFeedback 反馈列表（管理员）
