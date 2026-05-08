@@ -211,6 +211,122 @@ const MainLayout: React.FC = () => {
           }}
         />
       </div>
+
+      {/* 侧边栏底部功能套区 (v1.11) */}
+      <div style={{
+        borderTop: '1px solid #f0f0f0',
+        padding: '6px 0',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0,
+        flexShrink: 0,
+        background: '#fafbfc',
+      }}>
+        {/* AI 工具箱 */}
+        <Tooltip title={collapsed && !isMobile ? 'AI 工具箱' : null} placement="right">
+          <div
+            onClick={() => setAiDrawerOpen(true)}
+            style={{
+              padding: collapsed && !isMobile ? '10px 0' : '10px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
+              gap: 12,
+              cursor: 'pointer',
+              color: '#475569',
+              fontSize: 13,
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          >
+            <RocketOutlined style={{ fontSize: 16, color: '#1e40af' }} />
+            {(!collapsed || isMobile) && <span>AI 工具箱</span>}
+          </div>
+        </Tooltip>
+
+        {/* 公告铃铛 */}
+        <div style={{
+          padding: collapsed && !isMobile ? '6px 0' : '6px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
+          gap: 6,
+        }}>
+          <NoticeBell />
+          {(!collapsed || isMobile) && <span style={{ color: '#475569', fontSize: 13 }}>公告</span>}
+        </div>
+
+        {/* 问题反馈 */}
+        <Tooltip title={collapsed && !isMobile ? '问题反馈' : null} placement="right">
+          <div
+            onClick={() => setFeedbackOpen(true)}
+            style={{
+              padding: collapsed && !isMobile ? '10px 0' : '10px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
+              gap: 12,
+              cursor: 'pointer',
+              color: '#475569',
+              fontSize: 13,
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          >
+            <CommentOutlined style={{ fontSize: 16, color: '#64748b' }} />
+            {(!collapsed || isMobile) && <span>问题反馈</span>}
+          </div>
+        </Tooltip>
+
+        {/* 用户菜单 */}
+        <Dropdown
+          menu={{
+            items: userMenuItems,
+            onClick: async ({ key }) => {
+              if (key === 'profile') { navigate('/profile'); return; }
+              if (key === 'change-password') { setPasswordOpen(true); return; }
+              if (key !== 'logout') return;
+              await logout();
+              navigate('/login', { replace: true });
+            },
+          }}
+          trigger={['click']}
+          placement="topRight"
+        >
+          <div style={{
+            padding: collapsed && !isMobile ? '10px 0' : '10px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
+            gap: 10,
+            cursor: 'pointer',
+            borderTop: '1px solid #e2e8f0',
+            transition: 'background 0.15s',
+          }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          >
+            <Avatar size={28} style={{ background: '#e2e8f0', color: '#334155', fontWeight: 700, flexShrink: 0 }}>
+              {avatarText}
+            </Avatar>
+            {(!collapsed || isMobile) && (
+              <>
+                <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2 }}>
+                  <div style={{ color: '#0f172a', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {displayName}
+                  </div>
+                  <div style={{ color: '#94a3b8', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {roleLabel} · @{username}
+                  </div>
+                </div>
+                <DownOutlined style={{ fontSize: 10, color: '#cbd5e1', flexShrink: 0 }} />
+              </>
+            )}
+          </div>
+        </Dropdown>
+      </div>
     </>
   );
 
@@ -308,82 +424,7 @@ const MainLayout: React.FC = () => {
           ) : (
             <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#0f172a', letterSpacing: 0.2 }}>{pageTitle}</h2>
           )}
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 12 }}>
-          <Button
-            type="text"
-            icon={<RocketOutlined />}
-            onClick={() => setAiDrawerOpen(true)}
-            style={{ color: '#64748b', fontSize: 14 }}
-          >
-            {!isMobile && 'AI工具箱'}
-          </Button>
-          <NoticeBell />
-          <Tooltip title="问题反馈">
-            <Button
-              type="text"
-              icon={<CommentOutlined />}
-              onClick={() => setFeedbackOpen(true)}
-              style={{ color: '#64748b', fontSize: 16 }}
-            />
-          </Tooltip>
-          <Dropdown
-            menu={{
-              items: userMenuItems,
-              onClick: async ({ key }) => {
-                if (key === 'profile') {
-                  navigate('/profile');
-                  return;
-                }
-                if (key === 'change-password') {
-                  setPasswordOpen(true);
-                  return;
-                }
-                if (key !== 'logout') return;
-                await logout();
-                navigate('/login', { replace: true });
-              },
-            }}
-            trigger={['click']}
-            placement="bottomRight"
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: isMobile ? 0 : 10,
-                padding: '4px 8px',
-                borderRadius: 10,
-                cursor: 'pointer',
-                transition: 'background 0.2s ease',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            >
-              <Avatar
-                size={isMobile ? 28 : 32}
-                style={{
-                  background: '#e2e8f0',
-                  color: '#334155',
-                  fontWeight: 700,
-                }}
-              >
-                {avatarText}
-              </Avatar>
-              {!isMobile && (
-                <div style={{ lineHeight: 1.15 }}>
-                  <Typography.Text strong style={{ display: 'block', color: '#0f172a', fontSize: 13 }}>
-                    {displayName}
-                  </Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {roleLabel} · @{username}
-                  </Typography.Text>
-                </div>
-              )}
-              {!isMobile && <DownOutlined style={{ fontSize: 11, color: '#94a3b8' }} />}
-            </div>
-          </Dropdown>
-          </div>
+          <div />
         </Header>
 
         <div id="bi-toolbar-slot" className="bi-toolbar-slot" />
