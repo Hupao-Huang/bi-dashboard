@@ -123,11 +123,14 @@ export const menuDefinitions: MenuDefinition[] = [
     icon: <ShoppingCartOutlined />,
     label: '即时零售部',
     permission: 'instant_retail:view',
-    children: deptMenuChildren('/instant-retail', {
-      preview: 'instant_retail.store_preview:view',
-      store: 'instant_retail.store_dashboard:view',
-      product: 'instant_retail.product_dashboard:view',
-    }),
+    children: [
+      ...deptMenuChildren('/instant-retail', {
+        preview: 'instant_retail.store_preview:view',
+        store: 'instant_retail.store_dashboard:view',
+        product: 'instant_retail.product_dashboard:view',
+      }),
+      { key: '/instant-retail/special-channel-allot', icon: <DollarOutlined />, label: '特殊渠道调拨对账', permission: 'instant_retail.special_channel_allot:view' },
+    ],
   },
   {
     key: '/finance',
@@ -213,6 +216,7 @@ export const pageTitleMap: Record<string, string> = {
   '/instant-retail/store-preview': '店铺数据预览',
   '/instant-retail/store-dashboard': '店铺看板',
   '/instant-retail/product-dashboard': '货品看板',
+  '/instant-retail/special-channel-allot': '特殊渠道调拨对账',
   '/finance': '财务部门',
   '/finance/overview': '利润总览',
   '/finance/department-profit': '部门利润分析',
@@ -287,6 +291,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/instant-retail/store-preview', permission: 'instant_retail.store_preview:view' },
   { path: '/instant-retail/store-dashboard', permission: 'instant_retail.store_dashboard:view' },
   { path: '/instant-retail/product-dashboard', permission: 'instant_retail.product_dashboard:view' },
+  { path: '/instant-retail/special-channel-allot', permission: 'instant_retail.special_channel_allot:view' },
   { path: '/finance/overview', permission: 'finance.overview:view' },
   { path: '/finance/department-profit', permission: 'finance.department_profit:view' },
   { path: '/finance/monthly-profit', permission: 'finance.monthly_profit:view' },

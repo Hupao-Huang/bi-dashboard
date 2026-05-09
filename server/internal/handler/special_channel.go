@@ -16,6 +16,7 @@ import (
 func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, r *http.Request) {
 	start := r.URL.Query().Get("start")
 	end := r.URL.Query().Get("end")
+	dept := r.URL.Query().Get("dept") // ecommerce / instant_retail / 空=全部(向后兼容)
 	if start == "" {
 		// 默认拉最近 60 天
 		start = time.Now().AddDate(0, 0, -60).Format("2006-01-02")
@@ -35,10 +36,34 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 		TotalOrders      int     `json:"totalOrders"`
 		TotalSales       float64 `json:"totalSales"`
 	}
-	channelMap := map[string]string{
-		"京东": "ds-京东-清心湖自营",
-		"猫超": "ds-天猫超市-寄售",
-		"朴朴": "js-即时零售事业一部（世创）-朴朴",
+	// 按部门拆分: 朴朴归即时零售, 京东+猫超归电商
+	channelMapByDept := map[string]map[string]string{
+		"ecommerce": {
+			"京东": "ds-京东-清心湖自营",
+			"猫超": "ds-天猫超市-寄售",
+		},
+		"instant_retail": {
+			"朴朴": "js-即时零售事业一部（世创）-朴朴",
+		},
+	}
+	// 按 dept 过滤 channelMap, 空 dept 返回全部(向后兼容老调用)
+	channelMap := map[string]string{}
+	channelOrder := []string{} // 保证返回顺序稳定
+	if dept == "" || dept == "ecommerce" {
+		for _, k := range []string{"京东", "猫超"} {
+			channelMap[k] = channelMapByDept["ecommerce"][k]
+			channelOrder = append(channelOrder, k)
+		}
+	}
+	if dept == "" || dept == "instant_retail" {
+		for _, k := range []string{"朴朴"} {
+			channelMap[k] = channelMapByDept["instant_retail"][k]
+			channelOrder = append(channelOrder, k)
+		}
+	}
+	if len(channelMap) == 0 {
+		writeError(w, 400, "dept 参数无效, 仅支持 ecommerce / instant_retail / 空")
+		return
 	}
 
 	rows, err := h.DB.Query(`
@@ -81,7 +106,10 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 	if writeDatabaseError(w, rows.Err()) {
 		return
 	}
-	summary := []*ChannelSummary{summaryByCh["京东"], summaryByCh["猫超"], summaryByCh["朴朴"]}
+	summary := make([]*ChannelSummary, 0, len(channelOrder))
+	for _, k := range channelOrder {
+		summary = append(summary, summaryByCh[k])
+	}
 
 	// 2) 全部调拨单(列表)
 	type OrderRow struct {
@@ -120,6 +148,10 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 			&gc, &gm, &o.StatDate, &o.SkuCount, &o.ExcelSales, &o.ApiSales)) {
 			return
 		}
+		// 按 dept 过滤: 不在当前 channelMap 的渠道跳过
+		if _, ok := channelMap[o.ChannelKey]; !ok {
+			continue
+		}
 		o.GmtCreate = gc.String
 		o.GmtModified = gm.String
 		orders = append(orders, o)
@@ -156,6 +188,10 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 		var m MissingRow
 		if writeDatabaseError(w, mRows.Scan(&m.ChannelKey, &m.GoodsNo, &m.Barcode, &m.GoodsName, &m.AllocateCnt, &m.QtyTotal)) {
 			return
+		}
+		// 按 dept 过滤
+		if _, ok := channelMap[m.ChannelKey]; !ok {
+			continue
 		}
 		missing = append(missing, m)
 	}
