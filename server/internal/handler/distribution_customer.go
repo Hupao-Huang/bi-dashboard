@@ -502,3 +502,104 @@ func previousPeriod(startDate, endDate string) (string, string) {
 	prevStart := prevEnd.AddDate(0, 0, -(days - 1))
 	return prevStart.Format("2006-01-02"), prevEnd.Format("2006-01-02")
 }
+
+// DistributionCustomerSkus GET /api/distribution/customer-analysis/skus
+// 单客户跨月 SKU 销售明细 (商品维度聚合, 销售额降序)
+// 参数: customerCode, startMonth(yyyy-MM), endMonth
+func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	code := strings.TrimSpace(q.Get("customerCode"))
+	if code == "" {
+		writeError(w, 400, "customerCode 必填")
+		return
+	}
+	startMonth := q.Get("startMonth")
+	endMonth := q.Get("endMonth")
+	if startMonth == "" {
+		startMonth = "2025-01"
+	}
+	if endMonth == "" {
+		endMonth = time.Now().Format("2006-01")
+	}
+
+	months := []string{}
+	cur, _ := time.Parse("2006-01", startMonth)
+	endT, _ := time.Parse("2006-01", endMonth)
+	for !cur.After(endT) {
+		months = append(months, cur.Format("200601"))
+		cur = cur.AddDate(0, 1, 0)
+	}
+
+	type skuAgg struct {
+		goodsNo    string
+		goodsName  string
+		qty        float64
+		amount     float64
+		orderCount int
+	}
+	agg := map[string]*skuAgg{}
+
+	for _, ym := range months {
+		// 跨月 trade_goods JOIN trade 按 customer_code 聚合 SKU
+		rows, err := h.DB.Query(fmt.Sprintf(`
+			SELECT IFNULL(tg.goods_no,''), IFNULL(tg.goods_name,''),
+			       IFNULL(SUM(tg.sell_count),0), IFNULL(SUM(tg.sell_total),0),
+			       COUNT(DISTINCT tg.trade_id)
+			FROM trade_goods_%s tg
+			INNER JOIN trade_%s t ON t.trade_id=tg.trade_id
+			WHERE t.customer_code = ?
+			GROUP BY tg.goods_no, tg.goods_name
+		`, ym, ym), code)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var no, name string
+			var qty, amt float64
+			var oc int
+			rows.Scan(&no, &name, &qty, &amt, &oc)
+			key := no + "|" + name
+			if v, ok := agg[key]; ok {
+				v.qty += qty
+				v.amount += amt
+				v.orderCount += oc
+			} else {
+				agg[key] = &skuAgg{goodsNo: no, goodsName: name, qty: qty, amount: amt, orderCount: oc}
+			}
+		}
+		rows.Close()
+	}
+
+	type skuRow struct {
+		GoodsNo    string  `json:"goodsNo"`
+		GoodsName  string  `json:"goodsName"`
+		Qty        float64 `json:"qty"`
+		Amount     float64 `json:"amount"`
+		OrderCount int     `json:"orderCount"`
+	}
+	list := make([]skuRow, 0, len(agg))
+	for _, v := range agg {
+		list = append(list, skuRow{
+			GoodsNo:    v.goodsNo,
+			GoodsName:  v.goodsName,
+			Qty:        v.qty,
+			Amount:     v.amount,
+			OrderCount: v.orderCount,
+		})
+	}
+	// 销售额降序
+	for i := 0; i < len(list); i++ {
+		for j := i + 1; j < len(list); j++ {
+			if list[j].Amount > list[i].Amount {
+				list[i], list[j] = list[j], list[i]
+			}
+		}
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"customerCode": code,
+		"startMonth":   startMonth,
+		"endMonth":     endMonth,
+		"list":         list,
+	})
+}
