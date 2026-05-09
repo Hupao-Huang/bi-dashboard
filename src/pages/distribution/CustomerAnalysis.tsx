@@ -290,11 +290,13 @@ const CustomerAnalysis: React.FC = () => {
                     { title: '子件编码', dataIndex: 'childGoodsNo', width: 130 },
                     { title: '子件名称', dataIndex: 'childGoodsName', ellipsis: true },
                     { title: '规格', dataIndex: 'childSpecName', width: 120 },
-                    { title: '数量', dataIndex: 'goodsAmount', width: 80, align: 'right',
+                    { title: '数量', dataIndex: 'goodsAmount', width: 70, align: 'right',
                       render: (v: number) => (v || 0).toLocaleString('zh-CN') },
-                    { title: '单位', dataIndex: 'unitName', width: 70 },
-                    { title: '分摊金额', dataIndex: 'shareAmount', width: 100, align: 'right',
-                      render: (v: number) => `¥${(v || 0).toFixed(2)}` },
+                    { title: '单位', dataIndex: 'unitName', width: 60 },
+                    { title: '分摊比例', dataIndex: 'shareRatio', width: 90, align: 'right',
+                      render: (v: number) => `${((v || 0) * 100).toFixed(2)}%` },
+                    { title: '分摊销售额', dataIndex: 'apportionedAmount', width: 130, align: 'right',
+                      render: (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` },
                   ]}
                 />
               ),
