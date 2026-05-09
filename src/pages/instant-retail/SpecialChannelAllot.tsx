@@ -135,7 +135,7 @@ const SpecialChannelAllot: React.FC = () => {
     { title: '销售额(Excel价)', dataIndex: 'excelSales', key: 'excelSales', width: 150, align: 'right' as const,
       render: (v: number) => <strong style={{ color: '#1677ff' }}>{fmtMoney(v)}</strong>, sorter: (a: OrderRow, b: OrderRow) => a.excelSales - b.excelSales },
     { title: '吉客云接口金额', dataIndex: 'apiSales', key: 'apiSales', width: 140, align: 'right' as const,
-      render: (v: number) => <span style={{ color: '#999' }}>{fmtMoney(v)}</span> },
+      render: (v: number) => <span style={{ color: '#64748b' }}>{fmtMoney(v)}</span> },
   ];
 
   const detailColumns = [
@@ -151,9 +151,9 @@ const SpecialChannelAllot: React.FC = () => {
     { title: 'Excel 销售额', dataIndex: 'excelAmount', key: 'excelAmount', width: 120, align: 'right' as const,
       render: (v: number) => <strong style={{ color: '#1677ff' }}>{fmtMoney(v)}</strong> },
     { title: '接口单价', dataIndex: 'skuPrice', key: 'skuPrice', width: 90, align: 'right' as const,
-      render: (v: number) => <span style={{ color: '#999' }}>{v.toFixed(2)}</span> },
+      render: (v: number) => <span style={{ color: '#64748b' }}>{v.toFixed(2)}</span> },
     { title: '接口金额', dataIndex: 'apiAmount', key: 'apiAmount', width: 110, align: 'right' as const,
-      render: (v: number) => <span style={{ color: '#999' }}>{fmtMoney(v)}</span> },
+      render: (v: number) => <span style={{ color: '#64748b' }}>{fmtMoney(v)}</span> },
   ];
 
   const missingColumns = [
@@ -178,7 +178,7 @@ const SpecialChannelAllot: React.FC = () => {
           <Col span={8} key={s.channelKey}>
             <Card className="bi-stat-card" style={{ height: '100%' }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
-                {s.channelKey} <span style={{ color: '#999', fontWeight: 400, fontSize: 12 }}>· {s.channelName}</span>
+                {s.channelKey} <span style={{ color: '#64748b', fontWeight: 400, fontSize: 12 }}>· {s.channelName}</span>
               </div>
               <Row gutter={16}>
                 <Col span={12}>
@@ -188,7 +188,7 @@ const SpecialChannelAllot: React.FC = () => {
                     precision={2}
                     valueStyle={{ color: '#3f8600', fontSize: 22 }}
                   />
-                  <div style={{ color: '#999', fontSize: 12 }}>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>
                     {s.completedOrders} 单 · {fmtWan(s.completedSales)}
                   </div>
                 </Col>
@@ -199,7 +199,7 @@ const SpecialChannelAllot: React.FC = () => {
                     precision={2}
                     valueStyle={{ color: '#faad14', fontSize: 22 }}
                   />
-                  <div style={{ color: '#999', fontSize: 12 }}>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>
                     {s.pendingOrders} 单 · {fmtWan(s.pendingSales)}
                   </div>
                 </Col>
@@ -293,7 +293,7 @@ const SpecialChannelAllot: React.FC = () => {
                   <Table.Summary.Cell index={4} />
                   <Table.Summary.Cell index={5} align="right"><strong style={{ color: '#1677ff' }}>{fmtMoney(totalExcel)}</strong></Table.Summary.Cell>
                   <Table.Summary.Cell index={6} />
-                  <Table.Summary.Cell index={7} align="right"><span style={{ color: '#999' }}>{fmtMoney(totalApi)}</span></Table.Summary.Cell>
+                  <Table.Summary.Cell index={7} align="right"><span style={{ color: '#64748b' }}>{fmtMoney(totalApi)}</span></Table.Summary.Cell>
                 </Table.Summary.Row>
               );
             }}

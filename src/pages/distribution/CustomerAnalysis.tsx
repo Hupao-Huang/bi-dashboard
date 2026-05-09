@@ -1,13 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Tag, Modal, Statistic, Row, Col, Typography, message, Spin, Space } from 'antd';
+import { Card, Table, Tag, Modal, Statistic, Row, Col, message, Spin, Space } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { CrownOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import DateFilter from '../../components/DateFilter';
 import Chart from '../../components/Chart';
 import { API_BASE } from '../../config';
-
-const { Title } = Typography;
 
 type HVRow = {
   customerCode: string;
@@ -177,31 +175,25 @@ const CustomerAnalysis: React.FC = () => {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 16 }}>
-        <CrownOutlined /> 分销·客户分析
-      </Title>
-
-      <Card className="bi-filter-card" style={{ marginBottom: 16 }}>
-        <DateFilter start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e); setPage(1); }} />
-      </Card>
+      <DateFilter start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e); setPage(1); }} />
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
           <Card className="bi-stat-card">
             <Statistic title="高价值客户数" value={kpi?.hvCustomers || 0} suffix="个" />
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>S+A 级 全量</div>
+            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>S+A 级 全量</div>
           </Card>
         </Col>
         <Col span={6}>
           <Card className="bi-stat-card">
             <Statistic title="高价值贡献销售额" value={kpi?.hvAmount || 0} precision={2} prefix="¥" />
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>≈ {formatWan(kpi?.hvAmount || 0)}</div>
+            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>≈ {formatWan(kpi?.hvAmount || 0)}</div>
           </Card>
         </Col>
         <Col span={6}>
           <Card className="bi-stat-card">
             <Statistic title="占分销总销售额" value={kpi?.hvShare || 0} precision={2} suffix="%" />
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>分销总额 {formatWan(kpi?.totalAmount || 0)}</div>
+            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>分销总额 {formatWan(kpi?.totalAmount || 0)}</div>
           </Card>
         </Col>
         <Col span={6}>
@@ -214,7 +206,7 @@ const CustomerAnalysis: React.FC = () => {
               prefix={(kpi?.momChange || 0) >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: (kpi?.momChange || 0) >= 0 ? '#3f8600' : '#cf1322' }}
             />
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>对比上一同等长度时段</div>
+            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>对比上一同等长度时段</div>
           </Card>
         </Col>
       </Row>

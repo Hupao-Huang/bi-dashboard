@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Tag, Input, Select, Button, Modal, Form, Radio, message, Space, Typography, Row, Col } from 'antd';
+import { Card, Table, Tag, Input, Select, Button, Modal, Form, Radio, message, Space, Row, Col } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { TeamOutlined, ImportOutlined, EditOutlined } from '@ant-design/icons';
+import { ImportOutlined, EditOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
-
-const { Title } = Typography;
 
 type CustomerRow = {
   id: number;
@@ -141,10 +139,6 @@ const CustomerListManage: React.FC = () => {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 16 }}>
-        <TeamOutlined /> 分销·客户名单管理
-      </Title>
-
       <Card className="bi-filter-card" style={{ marginBottom: 16 }}>
         <Row gutter={[16, 12]} align="middle">
           <Col>
