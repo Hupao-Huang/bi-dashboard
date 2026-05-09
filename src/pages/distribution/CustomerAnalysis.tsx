@@ -130,22 +130,22 @@ const CustomerAnalysis: React.FC = () => {
 
   const columns: ColumnsType<HVRow> = [
     {
-      title: '排名', width: 70, align: 'center',
-      render: (_: any, __: any, idx: number) => <span style={{ fontWeight: 600 }}>{(page - 1) * pageSize + idx + 1}</span>,
+      title: '排名', width: 60, align: 'center',
+      render: (_: any, __: any, idx: number) => (page - 1) * pageSize + idx + 1,
     },
     {
-      title: '等级', dataIndex: 'grade', width: 80, align: 'center',
-      render: (v: string) => <Tag color={gradeColor(v)} style={{ fontWeight: 600 }}>{v}</Tag>,
+      title: '等级', dataIndex: 'grade', width: 60, align: 'center',
+      render: (v: string) => <Tag color={gradeColor(v)}>{v}</Tag>,
     },
     { title: '客户名称', dataIndex: 'customerName', ellipsis: true },
-    { title: '客户编码', dataIndex: 'customerCode', width: 160 },
+    { title: '客户编码', dataIndex: 'customerCode', width: 130 },
     {
-      title: '期间销售额', dataIndex: 'amount', width: 140, align: 'right',
-      render: (v: number) => <span style={{ fontWeight: 600 }}>¥{(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>,
+      title: '期间销售额', dataIndex: 'amount', width: 120, align: 'right',
+      render: (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
     },
-    { title: '订单数', dataIndex: 'orders', width: 100, align: 'right' },
+    { title: '订单数', dataIndex: 'orders', width: 80, align: 'right' },
     {
-      title: '操作', width: 100, fixed: 'right' as const,
+      title: '操作', width: 80,
       render: (_: any, r: HVRow) => <a onClick={() => openDrill(r)}>查看趋势</a>,
     },
   ];
@@ -201,7 +201,7 @@ const CustomerAnalysis: React.FC = () => {
           dataSource={list}
           loading={loading}
           size="small"
-          scroll={{ x: 900 }}
+          scroll={{ x: 'max-content' }}
           pagination={{
             current: page,
             pageSize,
