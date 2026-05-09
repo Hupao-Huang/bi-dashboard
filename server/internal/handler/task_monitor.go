@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -694,7 +693,10 @@ func (h *DashboardHandler) RunManualTask(w http.ResponseWriter, r *http.Request)
 		Params:    req.Params,
 	}
 
-	// import-ops 通过 webhook 触发
+	// import-ops: 直接同步调用 runSync(不走 webhook 自调用), 这样 task 状态
+	// 真实反映 10 个 import 工具的执行进度. 之前走 webhook 拿 200 立即标
+	// completed 是误判 — webhook 200 = "started" 不是 "completed", 实际
+	// runSync 还在异步跑.
 	if config.Key == "import-ops" {
 		task.LogFile = ""
 		runningMu.Lock()
@@ -711,26 +713,29 @@ func (h *DashboardHandler) RunManualTask(w http.ResponseWriter, r *http.Request)
 				dateParam = strings.ReplaceAll(dateParam, "-", "")
 			}
 
-			body := fmt.Sprintf(`{"date":"%s"}`, dateParam)
-			req, _ := http.NewRequest("POST", "http://localhost:8080/api/webhook/sync-ops", bytes.NewBufferString(body))
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-Webhook-Secret", h.WebhookSecret)
-			resp, err := http.DefaultClient.Do(req)
+			// syncMu 防并发(跟 SyncOps webhook 共用同一把锁)
+			syncMu.Lock()
+			if syncRunning {
+				syncMu.Unlock()
+				endTime := time.Now()
+				runningMu.Lock()
+				task.EndedAt = &endTime
+				task.Status = "failed"
+				runningMu.Unlock()
+				return
+			}
+			syncRunning = true
+			syncMu.Unlock()
+
+			// 同步阻塞调用, 等 10 个 import 工具全部跑完(runSync defer 内会
+			// 把 syncRunning 重置为 false, 同时通过 sendDingTalk 推送结果).
+			h.runSync(dateParam)
 
 			endTime := time.Now()
 			runningMu.Lock()
 			defer runningMu.Unlock()
 			task.EndedAt = &endTime
-			if err != nil {
-				task.Status = "failed"
-			} else {
-				resp.Body.Close()
-				if resp.StatusCode == 200 {
-					task.Status = "completed"
-				} else {
-					task.Status = "failed"
-				}
-			}
+			task.Status = "completed"
 		}()
 
 		writeJSON(w, map[string]string{"taskId": taskID})
