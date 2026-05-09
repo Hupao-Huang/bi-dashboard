@@ -108,11 +108,15 @@ export const menuDefinitions: MenuDefinition[] = [
     icon: <ShareAltOutlined />,
     label: '分销部门',
     permission: 'distribution:view',
-    children: deptMenuChildren('/distribution', {
-      preview: 'distribution.store_preview:view',
-      store: 'distribution.store_dashboard:view',
-      product: 'distribution.product_dashboard:view',
-    }),
+    children: [
+      ...deptMenuChildren('/distribution', {
+        preview: 'distribution.store_preview:view',
+        store: 'distribution.store_dashboard:view',
+        product: 'distribution.product_dashboard:view',
+      }),
+      { key: '/distribution/customer-analysis', icon: <CrownOutlined />, label: '客户分析', permission: 'distribution.customer_analysis:view' },
+      { key: '/distribution/customer-list-manage', icon: <TeamOutlined />, label: '客户名单管理', permission: 'distribution.customer_list:edit' },
+    ],
   },
   {
     key: '/instant-retail',
@@ -203,6 +207,8 @@ export const pageTitleMap: Record<string, string> = {
   '/distribution/store-preview': '店铺数据预览',
   '/distribution/store-dashboard': '店铺看板',
   '/distribution/product-dashboard': '货品看板',
+  '/distribution/customer-analysis': '客户分析',
+  '/distribution/customer-list-manage': '客户名单管理',
   '/instant-retail': '即时零售部',
   '/instant-retail/store-preview': '店铺数据预览',
   '/instant-retail/store-dashboard': '店铺看板',
@@ -275,6 +281,8 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/distribution/store-preview', permission: 'distribution.store_preview:view' },
   { path: '/distribution/store-dashboard', permission: 'distribution.store_dashboard:view' },
   { path: '/distribution/product-dashboard', permission: 'distribution.product_dashboard:view' },
+  { path: '/distribution/customer-analysis', permission: 'distribution.customer_analysis:view' },
+  { path: '/distribution/customer-list-manage', permission: 'distribution.customer_list:edit' },
   { path: '/instant-retail', permission: 'instant_retail:view' },
   { path: '/instant-retail/store-preview', permission: 'instant_retail.store_preview:view' },
   { path: '/instant-retail/store-dashboard', permission: 'instant_retail.store_dashboard:view' },
