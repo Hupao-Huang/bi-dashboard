@@ -130,8 +130,8 @@ func (h *DashboardHandler) SetDistributionCustomerGrade(w http.ResponseWriter, r
 		writeError(w, 400, "客户编码必填")
 		return
 	}
-	if req.Grade != "" && req.Grade != "S" && req.Grade != "A" {
-		writeError(w, 400, "等级只能是 S 或 A (留空表示清除)")
+	if req.Grade != "" && req.Grade != "S" && req.Grade != "A" && req.Grade != "SA" {
+		writeError(w, 400, "等级只能是 S/A/SA (留空表示清除)")
 		return
 	}
 
@@ -192,7 +192,7 @@ func (h *DashboardHandler) BatchSetDistributionCustomerGrade(w http.ResponseWrit
 		if item.CustomerCode == "" {
 			continue
 		}
-		if item.Grade != "" && item.Grade != "S" && item.Grade != "A" {
+		if item.Grade != "" && item.Grade != "S" && item.Grade != "A" && item.Grade != "SA" {
 			continue
 		}
 		var grade interface{}
@@ -246,7 +246,7 @@ func (h *DashboardHandler) DistributionCustomerAnalysisKPI(w http.ResponseWriter
 
 	// 名单中高价值客户数(全量, 不依赖时间)
 	var hvCustomerCount int
-	h.DB.QueryRow("SELECT COUNT(*) FROM distribution_high_value_customers WHERE grade IN ('S','A')").Scan(&hvCustomerCount)
+	h.DB.QueryRow("SELECT COUNT(*) FROM distribution_high_value_customers WHERE grade IN ('S','A','SA')").Scan(&hvCustomerCount)
 
 	hvShare := 0.0
 	if curTotal > 0 {
@@ -275,7 +275,7 @@ func (h *DashboardHandler) queryDistributionPeriodAmount(startDate, endDate stri
 		var t, v float64
 		err = h.DB.QueryRow(fmt.Sprintf(`
 			SELECT IFNULL(SUM(t.payment),0),
-			       IFNULL(SUM(CASE WHEN d.grade IN ('S','A') THEN t.payment ELSE 0 END),0)
+			       IFNULL(SUM(CASE WHEN d.grade IN ('S','A','SA') THEN t.payment ELSE 0 END),0)
 			FROM trade_%s t
 			INNER JOIN sales_channel sc ON sc.channel_name=t.shop_name
 			LEFT JOIN distribution_high_value_customers d ON d.customer_code=t.customer_code
@@ -321,7 +321,7 @@ func (h *DashboardHandler) DistributionHVCustomerList(w http.ResponseWriter, r *
 	}{}
 
 	// 先加载所有 grade S/A 的客户基础信息
-	rows, err := h.DB.Query("SELECT customer_code, customer_name, grade FROM distribution_high_value_customers WHERE grade IN ('S','A')")
+	rows, err := h.DB.Query("SELECT customer_code, customer_name, grade FROM distribution_high_value_customers WHERE grade IN ('S','A','SA')")
 	if writeDatabaseError(w, err) {
 		return
 	}
@@ -354,7 +354,7 @@ func (h *DashboardHandler) DistributionHVCustomerList(w http.ResponseWriter, r *
 			FROM trade_%s t
 			INNER JOIN sales_channel sc ON sc.channel_name=t.shop_name
 			INNER JOIN distribution_high_value_customers d ON d.customer_code=t.customer_code
-			WHERE sc.department='distribution' AND d.grade IN ('S','A')
+			WHERE sc.department='distribution' AND d.grade IN ('S','A','SA')
 			  AND t.consign_time >= ? AND t.consign_time < DATE_ADD(?, INTERVAL 1 DAY)
 			GROUP BY t.customer_code
 		`, ym), startDate, endDate)

@@ -28,7 +28,7 @@ type KPIData = {
 type MonthlyRow = { month: string; amount: number; orders: number };
 
 const formatWan = (v: number) => `¥${(v / 10000).toFixed(2)}万`;
-const gradeColor = (g: string) => (g === 'S' ? 'red' : g === 'A' ? 'orange' : 'default');
+const gradeColor = (g: string) => (g === 'SA' || g === 'S' ? 'red' : g === 'A' ? 'orange' : 'default');
 
 const CustomerAnalysis: React.FC = () => {
   const today = dayjs();
