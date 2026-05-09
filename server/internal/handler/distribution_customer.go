@@ -570,24 +570,53 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 		rows.Close()
 	}
 
+	type childRow struct {
+		ChildGoodsNo   string  `json:"childGoodsNo"`
+		ChildGoodsName string  `json:"childGoodsName"`
+		ChildSpecName  string  `json:"childSpecName"`
+		GoodsAmount    float64 `json:"goodsAmount"`
+		UnitName       string  `json:"unitName"`
+		ShareAmount    float64 `json:"shareAmount"`
+	}
 	type skuRow struct {
-		GoodsNo    string  `json:"goodsNo"`
-		GoodsName  string  `json:"goodsName"`
-		Qty        float64 `json:"qty"`
-		Amount     float64 `json:"amount"`
-		OrderCount int     `json:"orderCount"`
-		IsPackage  int     `json:"isPackage"` // 1=组合装, 0=单品
+		GoodsNo    string     `json:"goodsNo"`
+		GoodsName  string     `json:"goodsName"`
+		Qty        float64    `json:"qty"`
+		Amount     float64    `json:"amount"`
+		OrderCount int        `json:"orderCount"`
+		IsPackage  int        `json:"isPackage"` // 1=组合装, 0=单品
+		Children   []childRow `json:"children"`  // 组合装子件 (来自 goods_blend_detail)
 	}
 	list := make([]skuRow, 0, len(agg))
 	for _, v := range agg {
-		list = append(list, skuRow{
+		row := skuRow{
 			GoodsNo:    v.goodsNo,
 			GoodsName:  v.goodsName,
 			Qty:        v.qty,
 			Amount:     v.amount,
 			OrderCount: v.orderCount,
 			IsPackage:  v.isPackage,
-		})
+			Children:   []childRow{},
+		}
+		// 组合装查 BOM 子件
+		if v.isPackage == 1 {
+			cRows, cErr := h.DB.Query(`
+				SELECT IFNULL(child_goods_no,''), IFNULL(child_goods_name,''),
+				       IFNULL(child_spec_name,''), IFNULL(goods_amount,0),
+				       IFNULL(unit_name,''), IFNULL(share_amount,0)
+				FROM goods_blend_detail WHERE parent_goods_no=?`, v.goodsNo)
+			if cErr == nil {
+				for cRows.Next() {
+					var ch childRow
+					if scanErr := cRows.Scan(&ch.ChildGoodsNo, &ch.ChildGoodsName, &ch.ChildSpecName,
+						&ch.GoodsAmount, &ch.UnitName, &ch.ShareAmount); scanErr == nil {
+						row.Children = append(row.Children, ch)
+					}
+				}
+				cRows.Close()
+			}
+		}
+		list = append(list, row)
 	}
 	// 销售额降序
 	for i := 0; i < len(list); i++ {
