@@ -136,7 +136,7 @@ const CustomerAnalysis: React.FC = () => {
       render: (v: string) => <Tag color={gradeColor(v)} style={{ fontWeight: 600 }}>{v}</Tag>,
     },
     { title: '客户名称', dataIndex: 'customerName', ellipsis: true },
-    { title: '客户编码', dataIndex: 'customerCode', width: 160, render: v => <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#94a3b8' }}>{v}</span> },
+    { title: '客户编码', dataIndex: 'customerCode', width: 160 },
     {
       title: '期间销售额', dataIndex: 'amount', width: 140, align: 'right',
       render: (v: number) => <span style={{ fontWeight: 600 }}>¥{(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>,
@@ -221,7 +221,7 @@ const CustomerAnalysis: React.FC = () => {
         {drillTarget && (
           <div style={{ marginBottom: 12, color: '#64748b', fontSize: 13 }}>
             等级 <Tag color={gradeColor(drillTarget.grade)}>{drillTarget.grade}</Tag>
-            客户编码 <span style={{ fontFamily: 'monospace' }}>{drillTarget.customerCode}</span>
+            客户编码 {drillTarget.customerCode}
           </div>
         )}
         <Spin spinning={drillLoading}>

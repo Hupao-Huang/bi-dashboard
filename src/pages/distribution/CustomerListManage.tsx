@@ -119,7 +119,7 @@ const CustomerListManage: React.FC = () => {
   };
 
   const columns: ColumnsType<CustomerRow> = [
-    { title: '客户编码', dataIndex: 'customerCode', width: 160, ellipsis: true, render: v => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
+    { title: '客户编码', dataIndex: 'customerCode', width: 160, ellipsis: true },
     { title: '客户名称', dataIndex: 'customerName', ellipsis: true },
     {
       title: '等级', dataIndex: 'grade', width: 80, align: 'center',
@@ -207,7 +207,7 @@ const CustomerListManage: React.FC = () => {
       >
         {editTarget && (
           <div style={{ marginBottom: 12, color: '#64748b', fontSize: 13 }}>
-            客户编码: <span style={{ fontFamily: 'monospace' }}>{editTarget.customerCode}</span><br />
+            客户编码: {editTarget.customerCode}<br />
             累计销售额 ¥{editTarget.totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })} · 订单数 {editTarget.totalOrders} 单
           </div>
         )}
