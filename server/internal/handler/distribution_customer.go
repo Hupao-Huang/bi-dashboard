@@ -585,7 +585,7 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 		Amount     float64    `json:"amount"`
 		OrderCount int        `json:"orderCount"`
 		IsPackage  int        `json:"isPackage"` // 1=组合装, 0=单品
-		Children   []childRow `json:"children"`  // 组合装子件 (来自 goods_blend_detail)
+		PackageChildren []childRow `json:"packageChildren"` // 组合装子件 (字段名避开 antd Table 自动 TreeData 识别)
 	}
 	list := make([]skuRow, 0, len(agg))
 	for _, v := range agg {
@@ -596,7 +596,7 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 			Amount:     v.amount,
 			OrderCount: v.orderCount,
 			IsPackage:  v.isPackage,
-			Children:   []childRow{},
+			PackageChildren: []childRow{},
 		}
 		// 组合装查 BOM 子件
 		if v.isPackage == 1 {
@@ -610,7 +610,7 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 					var ch childRow
 					if scanErr := cRows.Scan(&ch.ChildGoodsNo, &ch.ChildGoodsName, &ch.ChildSpecName,
 						&ch.GoodsAmount, &ch.UnitName, &ch.ShareAmount); scanErr == nil {
-						row.Children = append(row.Children, ch)
+						row.PackageChildren = append(row.PackageChildren, ch)
 					}
 				}
 				cRows.Close()

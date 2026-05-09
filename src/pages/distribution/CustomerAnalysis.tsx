@@ -279,11 +279,11 @@ const CustomerAnalysis: React.FC = () => {
             size="small"
             pagination={{ pageSize: 20, showTotal: t => `共 ${t} 个 SKU` }}
             expandable={{
-              rowExpandable: (r: any) => r.isPackage === 1 && (r.children?.length || 0) > 0,
+              rowExpandable: (r: any) => r.isPackage === 1 && (r.packageChildren?.length || 0) > 0,
               expandedRowRender: (r: any) => (
                 <Table
                   rowKey={(c: any) => c.childGoodsNo + '|' + c.childSpecName}
-                  dataSource={r.children}
+                  dataSource={r.packageChildren}
                   size="small"
                   pagination={false}
                   columns={[
