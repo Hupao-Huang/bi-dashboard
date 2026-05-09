@@ -20,7 +20,7 @@ type CustomerRow = {
   updatedAt: string;
 };
 
-const gradeColor = (g: string) => (g === 'S' ? 'red' : g === 'A' ? 'orange' : 'default');
+const gradeColor = (g: string) => (g === 'SA' || g === 'S' ? 'red' : g === 'A' ? 'orange' : 'default');
 
 const CustomerListManage: React.FC = () => {
   const [data, setData] = useState<CustomerRow[]>([]);
@@ -166,8 +166,7 @@ const CustomerListManage: React.FC = () => {
               placeholder="全部"
               style={{ width: 120 }}
               options={[
-                { value: 'S', label: 'S 级' },
-                { value: 'A', label: 'A 级' },
+                { value: 'SA', label: 'S+A 级' },
                 { value: 'none', label: '未标级' },
               ]}
             />
@@ -215,8 +214,7 @@ const CustomerListManage: React.FC = () => {
         <Form form={editForm} layout="vertical">
           <Form.Item label="等级" name="grade">
             <Radio.Group>
-              <Radio.Button value="S">S 级</Radio.Button>
-              <Radio.Button value="A">A 级</Radio.Button>
+              <Radio.Button value="SA">S+A 级</Radio.Button>
               <Radio.Button value="">不标(清除)</Radio.Button>
             </Radio.Group>
           </Form.Item>
@@ -233,11 +231,10 @@ const CustomerListManage: React.FC = () => {
         onCancel={() => { setBatchOpen(false); batchForm.resetFields(); }}
         width={620}
       >
-        <Form form={batchForm} layout="vertical" initialValues={{ grade: 'S' }}>
+        <Form form={batchForm} layout="vertical" initialValues={{ grade: 'SA' }}>
           <Form.Item label="等级" name="grade" rules={[{ required: true }]}>
             <Radio.Group>
-              <Radio.Button value="S">S 级</Radio.Button>
-              <Radio.Button value="A">A 级</Radio.Button>
+              <Radio.Button value="SA">S+A 级</Radio.Button>
               <Radio.Button value="">清除</Radio.Button>
             </Radio.Group>
           </Form.Item>
