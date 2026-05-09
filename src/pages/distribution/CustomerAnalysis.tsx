@@ -278,6 +278,27 @@ const CustomerAnalysis: React.FC = () => {
             dataSource={skusData}
             size="small"
             pagination={{ pageSize: 20, showTotal: t => `共 ${t} 个 SKU` }}
+            expandable={{
+              rowExpandable: (r: any) => r.isPackage === 1 && (r.children?.length || 0) > 0,
+              expandedRowRender: (r: any) => (
+                <Table
+                  rowKey={(c: any) => c.childGoodsNo + '|' + c.childSpecName}
+                  dataSource={r.children}
+                  size="small"
+                  pagination={false}
+                  columns={[
+                    { title: '子件编码', dataIndex: 'childGoodsNo', width: 130 },
+                    { title: '子件名称', dataIndex: 'childGoodsName', ellipsis: true },
+                    { title: '规格', dataIndex: 'childSpecName', width: 120 },
+                    { title: '数量', dataIndex: 'goodsAmount', width: 80, align: 'right',
+                      render: (v: number) => (v || 0).toLocaleString('zh-CN') },
+                    { title: '单位', dataIndex: 'unitName', width: 70 },
+                    { title: '分摊金额', dataIndex: 'shareAmount', width: 100, align: 'right',
+                      render: (v: number) => `¥${(v || 0).toFixed(2)}` },
+                  ]}
+                />
+              ),
+            }}
             columns={[
               { title: '排名', width: 60, align: 'center', render: (_: any, __: any, idx: number) => idx + 1 },
               {
