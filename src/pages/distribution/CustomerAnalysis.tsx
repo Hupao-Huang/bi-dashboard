@@ -161,19 +161,19 @@ const CustomerAnalysis: React.FC = () => {
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
           <Card className="bi-stat-card">
-            <Statistic title="高价值客户数" value={kpi?.hvCustomers || 0} suffix="个" valueStyle={{ color: '#1e40af' }} />
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>S 级 + A 级 全量</div>
+            <Statistic title="高价值客户数" value={kpi?.hvCustomers || 0} suffix="个" />
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>S+A 级 全量</div>
           </Card>
         </Col>
         <Col span={6}>
           <Card className="bi-stat-card">
-            <Statistic title="高价值贡献销售额" value={kpi?.hvAmount || 0} precision={2} prefix="¥" valueStyle={{ color: '#0ea5a4' }} />
+            <Statistic title="高价值贡献销售额" value={kpi?.hvAmount || 0} precision={2} prefix="¥" />
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>≈ {formatWan(kpi?.hvAmount || 0)}</div>
           </Card>
         </Col>
         <Col span={6}>
           <Card className="bi-stat-card">
-            <Statistic title="占分销总销售额" value={kpi?.hvShare || 0} precision={2} suffix="%" valueStyle={{ color: '#f59e0b' }} />
+            <Statistic title="占分销总销售额" value={kpi?.hvShare || 0} precision={2} suffix="%" />
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>分销总额 {formatWan(kpi?.totalAmount || 0)}</div>
           </Card>
         </Col>
@@ -185,7 +185,7 @@ const CustomerAnalysis: React.FC = () => {
               precision={2}
               suffix="%"
               prefix={(kpi?.momChange || 0) >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: (kpi?.momChange || 0) >= 0 ? '#10b981' : '#ef4444' }}
+              valueStyle={{ color: (kpi?.momChange || 0) >= 0 ? '#3f8600' : '#cf1322' }}
             />
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>对比上一同等长度时段</div>
           </Card>
