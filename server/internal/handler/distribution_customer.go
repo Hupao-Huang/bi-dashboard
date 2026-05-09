@@ -571,12 +571,13 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 	}
 
 	type childRow struct {
-		ChildGoodsNo   string  `json:"childGoodsNo"`
-		ChildGoodsName string  `json:"childGoodsName"`
-		ChildSpecName  string  `json:"childSpecName"`
-		GoodsAmount    float64 `json:"goodsAmount"`
-		UnitName       string  `json:"unitName"`
-		ShareAmount    float64 `json:"shareAmount"`
+		ChildGoodsNo      string  `json:"childGoodsNo"`
+		ChildGoodsName    string  `json:"childGoodsName"`
+		ChildSpecName     string  `json:"childSpecName"`
+		GoodsAmount       float64 `json:"goodsAmount"`
+		UnitName          string  `json:"unitName"`
+		ShareRatio        float64 `json:"shareRatio"`        // 0~1
+		ApportionedAmount float64 `json:"apportionedAmount"` // = parent.amount × shareRatio
 	}
 	type skuRow struct {
 		GoodsNo    string     `json:"goodsNo"`
@@ -598,18 +599,19 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 			IsPackage:  v.isPackage,
 			PackageChildren: []childRow{},
 		}
-		// 组合装查 BOM 子件
+		// 组合装查 BOM 子件 (apportionedAmount = parent.amount × share_ratio)
 		if v.isPackage == 1 {
 			cRows, cErr := h.DB.Query(`
 				SELECT IFNULL(child_goods_no,''), IFNULL(child_goods_name,''),
 				       IFNULL(child_spec_name,''), IFNULL(goods_amount,0),
-				       IFNULL(unit_name,''), IFNULL(share_amount,0)
+				       IFNULL(unit_name,''), IFNULL(CAST(share_ratio AS DECIMAL(10,6)),0)
 				FROM goods_blend_detail WHERE parent_goods_no=?`, v.goodsNo)
 			if cErr == nil {
 				for cRows.Next() {
 					var ch childRow
 					if scanErr := cRows.Scan(&ch.ChildGoodsNo, &ch.ChildGoodsName, &ch.ChildSpecName,
-						&ch.GoodsAmount, &ch.UnitName, &ch.ShareAmount); scanErr == nil {
+						&ch.GoodsAmount, &ch.UnitName, &ch.ShareRatio); scanErr == nil {
+						ch.ApportionedAmount = v.amount * ch.ShareRatio
 						row.PackageChildren = append(row.PackageChildren, ch)
 					}
 				}
