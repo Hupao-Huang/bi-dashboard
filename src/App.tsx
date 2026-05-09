@@ -37,6 +37,7 @@ const DistributionStoreDashboard = lazy(() => import('./pages/distribution/Store
 const DistributionProductDashboard = lazy(() => import('./pages/distribution/ProductDashboard'));
 const DistributionCustomerAnalysis = lazy(() => import('./pages/distribution/CustomerAnalysis'));
 const DistributionCustomerListManage = lazy(() => import('./pages/distribution/CustomerListManage'));
+const InstantRetailSpecialChannelAllot = lazy(() => import('./pages/instant-retail/SpecialChannelAllot'));
 const InstantRetailPage = lazy(() => import('./pages/instant-retail'));
 const InstantRetailStorePreview = lazy(() => import('./pages/instant-retail/StorePreview'));
 const InstantRetailStoreDashboard = lazy(() => import('./pages/instant-retail/StoreDashboard'));
@@ -156,6 +157,7 @@ const App: React.FC = () => (
               <Route path="/instant-retail/store-preview" element={guard('instant_retail.store_preview:view', <InstantRetailStorePreview />)} />
               <Route path="/instant-retail/store-dashboard" element={guard('instant_retail.store_dashboard:view', <InstantRetailStoreDashboard />)} />
               <Route path="/instant-retail/product-dashboard" element={guard('instant_retail.product_dashboard:view', <InstantRetailProductDashboard />)} />
+              <Route path="/instant-retail/special-channel-allot" element={guard('instant_retail.special_channel_allot:view', <InstantRetailSpecialChannelAllot />)} />
 
               <Route path="/finance/overview" element={guard('finance.overview:view', <FinanceOverview />)} />
               <Route path="/finance/department-profit" element={guard('finance.department_profit:view', <FinanceDepartmentProfit />)} />

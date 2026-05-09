@@ -75,7 +75,7 @@ const SpecialChannelAllot: React.FC = () => {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [missing, setMissing] = useState<MissingRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeChannel, setActiveChannel] = useState<string>('京东');
+  const [activeChannel, setActiveChannel] = useState<string>('朴朴');
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailNo, setDetailNo] = useState('');
   const [details, setDetails] = useState<DetailRow[]>([]);
@@ -83,7 +83,7 @@ const SpecialChannelAllot: React.FC = () => {
 
   const fetchAll = useCallback(() => {
     setLoading(true);
-    fetch(`${API_BASE}/api/special-channel-allot/summary?start=${startDate}&end=${endDate}&dept=ecommerce`, { credentials: 'include' })
+    fetch(`${API_BASE}/api/special-channel-allot/summary?start=${startDate}&end=${endDate}&dept=instant_retail`, { credentials: 'include' })
       .then(r => r.json())
       .then(j => {
         if (j.code === 200) {
