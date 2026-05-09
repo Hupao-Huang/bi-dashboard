@@ -85,3 +85,12 @@ skills-lock.json
 
 # claude
 .claude/
+
+# audit 临时证据 (截图/body 快照/.bak 备份, 不进 git)
+/audit-*/
+
+# root 构建日志 (server/*.log 只盖 server/, 这里盖 repo root)
+/*.log
+
+# .err dump (区别于已盖的 *.err.log)
+*.err
