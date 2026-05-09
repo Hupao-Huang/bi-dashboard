@@ -13,7 +13,10 @@ function getPlatform(shopName: string): string {
   if (shopName.includes('抖音')) return '抖音';
   if (shopName.includes('快手')) return '快手';
   if (shopName.includes('小红书')) return '小红书';
+  if (shopName.includes('视频小店') || shopName.includes('视频号')) return '视频号';
   if (shopName.includes('有赞')) return '有赞';
+  if (shopName.includes('微店')) return '微店';
+  if (shopName.includes('微信销售')) return '微信销售';
   if (shopName.includes('分销')) return '分销';
   if (shopName.includes('线下')) return '线下';
   return '其他';
