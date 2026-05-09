@@ -96,7 +96,8 @@ const CustomerAnalysis: React.FC = () => {
         return `${m}<br/>销售额: ¥${a.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}<br/>订单数: ${o}`;
       },
     },
-    legend: { data: ['销售额', '订单数'] },
+    legend: { data: ['销售额', '订单数'], top: 0 },
+    grid: { top: 50, bottom: 30, left: 60, right: 60 },
     xAxis: { type: 'category', data: rows.map(r => r.month) },
     yAxis: [
       { type: 'value', name: '销售额(元)' },
@@ -119,7 +120,8 @@ const CustomerAnalysis: React.FC = () => {
     const years = Object.keys(byYear).sort();
     return {
       tooltip: { trigger: 'axis', valueFormatter: (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` },
-      legend: { data: years },
+      legend: { data: years, top: 0 },
+      grid: { top: 50, bottom: 30, left: 60, right: 30 },
       xAxis: { type: 'category', data: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'] },
       yAxis: { type: 'value', name: '销售额(元)' },
       series: years.map(y => ({ name: y, type: 'line', data: byYear[y], smooth: true })),
