@@ -204,6 +204,7 @@ func main() {
 	mux.HandleFunc("/api/distribution/customer-analysis/kpi", pageProtected("distribution.customer_analysis:view", cache24h(h.DistributionCustomerAnalysisKPI)))
 	mux.HandleFunc("/api/distribution/customer-analysis/list", pageProtected("distribution.customer_analysis:view", cache24h(h.DistributionHVCustomerList)))
 	mux.HandleFunc("/api/distribution/customer-analysis/monthly", pageProtected("distribution.customer_analysis:view", cache24h(h.DistributionCustomerMonthly)))
+	mux.HandleFunc("/api/distribution/customer-analysis/skus", pageProtected("distribution.customer_analysis:view", cache24h(h.DistributionCustomerSkus)))
 
 	// 快递仓储分析 (v0.56)
 	mux.HandleFunc("/api/warehouse-flow/overview", pageProtected("supply_chain.logistics_analysis:view", cache24h(h.GetWarehouseFlowOverview)))
