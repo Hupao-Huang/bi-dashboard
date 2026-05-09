@@ -32,8 +32,10 @@ const gradeColor = (g: string) => (g === 'SA' || g === 'S' ? 'red' : g === 'A' ?
 
 const CustomerAnalysis: React.FC = () => {
   const today = dayjs();
+  const yesterday = today.subtract(1, 'day');
+  // 默认"本月": 本月 1 号 ~ 昨天 (今天不能选, 跟 DateFilter cap 规则一致, 让"本月"按钮高亮)
   const [start, setStart] = useState(today.startOf('month').format('YYYY-MM-DD'));
-  const [end, setEnd] = useState(today.format('YYYY-MM-DD'));
+  const [end, setEnd] = useState(yesterday.format('YYYY-MM-DD'));
   const [kpi, setKpi] = useState<KPIData | null>(null);
   const [list, setList] = useState<HVRow[]>([]);
   const [loading, setLoading] = useState(false);
