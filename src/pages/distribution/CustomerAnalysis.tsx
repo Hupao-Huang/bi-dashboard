@@ -292,7 +292,7 @@ const CustomerAnalysis: React.FC = () => {
                     { title: '子件编码', dataIndex: 'childGoodsNo', width: 130 },
                     { title: '子件名称', dataIndex: 'childGoodsName', ellipsis: true },
                     { title: '规格', dataIndex: 'childSpecName', width: 120 },
-                    { title: '数量', dataIndex: 'goodsAmount', width: 70, align: 'right',
+                    { title: '实际件数', dataIndex: 'apportionedQty', width: 90, align: 'right',
                       render: (v: number) => (v || 0).toLocaleString('zh-CN') },
                     { title: '单位', dataIndex: 'unitName', width: 60 },
                     { title: '分摊比例', dataIndex: 'shareRatio', width: 90, align: 'right',

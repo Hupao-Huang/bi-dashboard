@@ -574,10 +574,11 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 		ChildGoodsNo      string  `json:"childGoodsNo"`
 		ChildGoodsName    string  `json:"childGoodsName"`
 		ChildSpecName     string  `json:"childSpecName"`
-		GoodsAmount       float64 `json:"goodsAmount"`
+		GoodsAmount       float64 `json:"goodsAmount"`       // BOM 配比 (一个组合装含几件子件)
 		UnitName          string  `json:"unitName"`
 		ShareRatio        float64 `json:"shareRatio"`        // 0~1
 		ApportionedAmount float64 `json:"apportionedAmount"` // = parent.amount × shareRatio
+		ApportionedQty    float64 `json:"apportionedQty"`    // = parent.qty × goodsAmount (实际卖出件数)
 	}
 	type skuRow struct {
 		GoodsNo    string     `json:"goodsNo"`
@@ -612,6 +613,7 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 					if scanErr := cRows.Scan(&ch.ChildGoodsNo, &ch.ChildGoodsName, &ch.ChildSpecName,
 						&ch.GoodsAmount, &ch.UnitName, &ch.ShareRatio); scanErr == nil {
 						ch.ApportionedAmount = v.amount * ch.ShareRatio
+						ch.ApportionedQty = v.qty * ch.GoodsAmount
 						row.PackageChildren = append(row.PackageChildren, ch)
 					}
 				}
