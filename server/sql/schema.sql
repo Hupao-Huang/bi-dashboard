@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS trade_goods_template (
     cost            DECIMAL(14,4)  DEFAULT 0 COMMENT '商品成本',
     discount_fee    DECIMAL(14,2)  DEFAULT 0 COMMENT '优惠金额',
     tax_fee         DECIMAL(14,2)  DEFAULT 0 COMMENT '税费',
+    customize_goods_column_3  DECIMAL(14,2) DEFAULT NULL COMMENT '吉客云货品自定义字段3 (核销费用, v1.30)',
+    customize_goods_column_4  DECIMAL(14,2) DEFAULT NULL COMMENT '吉客云货品自定义字段4 (建议价, v1.30)',
     category_name   VARCHAR(100)   DEFAULT NULL COMMENT '商品分类',
     brand_name      VARCHAR(100)   DEFAULT NULL COMMENT '品牌',
     unit            VARCHAR(20)    DEFAULT NULL COMMENT '单位',

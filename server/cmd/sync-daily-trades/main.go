@@ -52,7 +52,10 @@ const tradeFields = "tradeNo,tradeStatus,tradeStatusExplain,tradeType,shopName,s
 	"packageDetail.logisticNo,packageDetail.logisticName,packageDetail.logisticCode," +
 	"packageDetail.warehouseName,packageDetail.sellCount,packageDetail.isGift,packageDetail.isPlatGift," +
 	"packageDetail.barcode,packageDetail.tradeNo,packageDetail.sourceTradeNo," +
-	"packageDetail.buyerMemo,packageDetail.sellerMemo"
+	"packageDetail.buyerMemo,packageDetail.sellerMemo," +
+	// 货品自定义字段 (吉客云返回在 tradeOrderGoodsColumnExts[] 数组里, 按 SubTradeId 关联商品行)
+	// Column3 = 核销费用, Column4 = 建议价 (跑哥业务定义)
+	"customizeGoodsColumn3,customizeGoodsColumn4"
 
 func main() {
 	unlock := importutil.AcquireLock("sync-daily-trades")
@@ -83,8 +86,33 @@ func main() {
 	tradeTotal := 0
 	goodsTotal := 0
 
-	for dayOffset := 1; dayOffset >= 1; dayOffset-- {
-		d := time.Now().AddDate(0, 0, -dayOffset)
+	// 默认跑昨天 1 天; 支持 args: ./sync-daily-trades 20260501 [20260507]
+	// 单参数 = 只跑指定那 1 天; 双参数 = 跑日期范围
+	startDate := time.Now().AddDate(0, 0, -1)
+	endDate := startDate
+	if len(os.Args) >= 2 {
+		if d, err := time.Parse("20060102", os.Args[1]); err == nil {
+			startDate = d
+			endDate = d
+		} else {
+			log.Fatalf("日期格式错误 (要 yyyymmdd): %v", err)
+		}
+	}
+	if len(os.Args) >= 3 {
+		if d, err := time.Parse("20060102", os.Args[2]); err == nil {
+			endDate = d
+		} else {
+			log.Fatalf("结束日期格式错误 (要 yyyymmdd): %v", err)
+		}
+	}
+	totalDays := int(endDate.Sub(startDate).Hours()/24) + 1
+	if totalDays < 1 {
+		log.Fatalf("结束日期不能早于开始日期")
+	}
+	log.Printf("同步范围: %s → %s (%d 天)", startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), totalDays)
+
+	for dayOffset := 0; dayOffset < totalDays; dayOffset++ {
+		d := startDate.AddDate(0, 0, dayOffset)
 		dayStr := d.Format("2006-01-02")
 		tableMonth := d.Format("200601")
 
@@ -95,10 +123,12 @@ func main() {
 		dayTrades := 0
 		dayGoods := 0
 
-		// 按小时拆分拉取，避免整天查询超时
-		for hour := 0; hour < 24; hour++ {
-			hourStart := fmt.Sprintf("%s %02d:00:00", dayStr, hour)
-			hourEnd := fmt.Sprintf("%s %02d:59:59", dayStr, hour)
+		// 按整天单窗口拉取 (跑哥要求验证): 不拆分时段, 整天 00:00:00 - 23:59:59 一次性查
+		// scrollId 翻页. 已知风险: 吉客云 scrollId 在 200 条后可能提前失效, 整天窗口被 break
+		// 概率高, 仅用于对照实验.
+		for slot := 0; slot < 1; slot++ {
+			hourStart := fmt.Sprintf("%s 00:00:00", dayStr)
+			hourEnd := fmt.Sprintf("%s 23:59:59", dayStr)
 			scrollId := ""
 			parseRetry := 0
 
@@ -289,6 +319,30 @@ func main() {
 					}
 					dayTrades++
 
+					// 解析货品自定义字段 (吉客云返回在 TradeOrderGoodsColumnExts 数组, 按 SubTradeId 关联商品行)
+					// Column3 = 核销费用, Column4 = 建议价
+					extMap := map[string][2]interface{}{}
+					if exts, ok := t["TradeOrderGoodsColumnExts"]; ok {
+						if extsList, ok := exts.([]interface{}); ok {
+							for _, e := range extsList {
+								if em, ok := e.(map[string]interface{}); ok {
+									sti := gs(em, "SubTradeId")
+									if sti == "" {
+										continue
+									}
+									var col3, col4 interface{}
+									if v := gs(em, "CustomizeGoodsColumn3"); v != "" {
+										col3 = v
+									}
+									if v := gs(em, "CustomizeGoodsColumn4"); v != "" {
+										col4 = v
+									}
+									extMap[sti] = [2]interface{}{col3, col4}
+								}
+							}
+						}
+					}
+
 					// 写入商品明细
 					if gd, ok := t["GoodsDetail"]; ok && gd != nil {
 						if gdList, ok := gd.([]interface{}); ok {
@@ -296,6 +350,12 @@ func main() {
 								g, ok := item.(map[string]interface{})
 								if !ok {
 									continue
+								}
+								// 按 SubTradeId 取自定义字段
+								var custCol3, custCol4 interface{}
+								if ext, ok := extMap[gs(g, "SubTradeId")]; ok {
+									custCol3 = ext[0]
+									custCol4 = ext[1]
 								}
 								_, err := db.Exec(fmt.Sprintf(`INSERT INTO trade_goods_%s
 									(trade_id, trade_no, sub_trade_id, goods_id, goods_no, goods_name,
@@ -305,8 +365,9 @@ func main() {
 									 goods_memo, outer_id, plat_goods_id, plat_sku_id, sku_img_url,
 									 divide_sell_total, goods_seller,
 									 shop_id, bill_date, trade_type,
-									 goods_plat_discount_fee, is_presell, share_order_discount_fee, share_order_plat_discount_fee)
-									VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+									 goods_plat_discount_fee, is_presell, share_order_discount_fee, share_order_plat_discount_fee,
+									 customize_goods_column_3, customize_goods_column_4)
+									VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 								ON DUPLICATE KEY UPDATE goods_id=VALUES(goods_id), shop_id=VALUES(shop_id),
 									sell_count=VALUES(sell_count), sell_price=VALUES(sell_price),
 									sell_total=VALUES(sell_total), cost=VALUES(cost), discount_fee=VALUES(discount_fee),
@@ -314,7 +375,9 @@ func main() {
 									goods_seller=VALUES(goods_seller),
 									goods_plat_discount_fee=VALUES(goods_plat_discount_fee), is_presell=VALUES(is_presell),
 									share_order_discount_fee=VALUES(share_order_discount_fee),
-									share_order_plat_discount_fee=VALUES(share_order_plat_discount_fee)`, tableMonth),
+									share_order_plat_discount_fee=VALUES(share_order_plat_discount_fee),
+									customize_goods_column_3=VALUES(customize_goods_column_3),
+									customize_goods_column_4=VALUES(customize_goods_column_4)`, tableMonth),
 									tradeId, tradeNo, gs(g, "SubTradeId"), gs(g, "GoodsId"), gn(g, "GoodsNo"), gn(g, "GoodsName"),
 									gs(g, "SpecId"), gn(g, "SpecName"), gn(g, "Barcode"),
 									gn(g, "SellCount"), gn(g, "SellPrice"), gn(g, "SellTotal"), gn(g, "Cost"), gn(g, "DiscountFee"), gn(g, "TaxFee"),
@@ -322,7 +385,8 @@ func main() {
 									gn(g, "GoodsMemo"), gn(g, "OuterId"), gn(g, "PlatGoodsId"), gn(g, "PlatSkuId"), gn(g, "SkuImgUrl"),
 									gn(g, "DivideSellTotal"), gn(g, "GoodsSeller"),
 									gs(t, "ShopId"), gn(t, "BillDate"), gn(t, "TradeType"),
-									gn(g, "GoodsPlatDiscountFee"), gn(g, "IsPresell"), gn(g, "ShareOrderDiscountFee"), gn(g, "ShareOrderPlatDiscountFee"))
+									gn(g, "GoodsPlatDiscountFee"), gn(g, "IsPresell"), gn(g, "ShareOrderDiscountFee"), gn(g, "ShareOrderPlatDiscountFee"),
+									custCol3, custCol4)
 								if err != nil {
 									log.Printf("明细写入失败 %s: %v", tradeNo, err)
 								}
