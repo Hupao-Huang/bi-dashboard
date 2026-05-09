@@ -174,7 +174,13 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 		return
 	}
 	if channelID != "" {
+		// 日表 department 同步
 		if _, err := tx.Exec("UPDATE sales_goods_summary SET department = ? WHERE shop_id = ?", req.Department, channelID); writeDatabaseError(w, err) {
+			return
+		}
+		// 月表 department 同步 - v1.02 拆即时零售时漏了月表, 导致渠道改部门后即时零售
+		// 看板仍能看到旧数据(月表查询走 sgsm.department, 不实时 JOIN sales_channel)
+		if _, err := tx.Exec("UPDATE sales_goods_summary_monthly SET department = ? WHERE shop_id = ?", req.Department, channelID); writeDatabaseError(w, err) {
 			return
 		}
 	}
