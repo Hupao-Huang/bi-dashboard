@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Tag, Modal, Statistic, Row, Col, Typography, message, Spin, Tabs } from 'antd';
+import { Card, Table, Tag, Modal, Statistic, Row, Col, Typography, message, Spin, Space } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { CrownOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -43,6 +43,7 @@ const CustomerAnalysis: React.FC = () => {
   const [drillTarget, setDrillTarget] = useState<HVRow | null>(null);
   const [drillData, setDrillData] = useState<MonthlyRow[]>([]);
   const [drillLoading, setDrillLoading] = useState(false);
+  const [skusTarget, setSkusTarget] = useState<HVRow | null>(null);
   const [skusData, setSkusData] = useState<any[]>([]);
   const [skusLoading, setSkusLoading] = useState(false);
 
@@ -67,24 +68,34 @@ const CustomerAnalysis: React.FC = () => {
 
   useEffect(() => { fetchAll(); /* eslint-disable-next-line */ }, [start, end, page, pageSize]);
 
-  const openDrill = async (row: HVRow) => {
+  const openDrill = (row: HVRow) => {
+    // 销售趋势 Modal: 用 2025-01 ~ 今天 全期看趋势(月度+历年同月对比)
     setDrillTarget(row);
     setDrillLoading(true);
-    setSkusLoading(true);
     setDrillData([]);
-    setSkusData([]);
     const params = new URLSearchParams({
       customerCode: row.customerCode,
       startMonth: '2025-01',
       endMonth: today.format('YYYY-MM'),
     });
-    // 并行拉趋势 + 明细
     fetch(`${API_BASE}/api/distribution/customer-analysis/monthly?${params}`, { credentials: 'include' })
       .then(r => r.json()).then(j => {
         const p = j.data || j;
         setDrillData(p.months || []);
       }).catch(() => message.error('加载月度数据失败'))
       .finally(() => setDrillLoading(false));
+  };
+
+  const openSkus = (row: HVRow) => {
+    // 销售明细 Modal: 用主页面 DateFilter 的 startDate/endDate, 跟 KPI 一致
+    setSkusTarget(row);
+    setSkusLoading(true);
+    setSkusData([]);
+    const params = new URLSearchParams({
+      customerCode: row.customerCode,
+      startDate: start,
+      endDate: end,
+    });
     fetch(`${API_BASE}/api/distribution/customer-analysis/skus?${params}`, { credentials: 'include' })
       .then(r => r.json()).then(j => {
         const p = j.data || j;
@@ -152,8 +163,13 @@ const CustomerAnalysis: React.FC = () => {
     },
     { title: '订单数', dataIndex: 'orders', width: 80, align: 'right' },
     {
-      title: '操作', width: 80,
-      render: (_: any, r: HVRow) => <a onClick={() => openDrill(r)}>查看趋势</a>,
+      title: '操作', width: 130,
+      render: (_: any, r: HVRow) => (
+        <Space size="small">
+          <a onClick={() => openDrill(r)}>查看趋势</a>
+          <a onClick={() => openSkus(r)}>查看明细</a>
+        </Space>
+      ),
     },
   ];
 
@@ -221,7 +237,7 @@ const CustomerAnalysis: React.FC = () => {
       </Card>
 
       <Modal
-        title={drillTarget ? `${drillTarget.customerName} - 销售分析` : ''}
+        title={drillTarget ? `${drillTarget.customerName} - 销售趋势` : ''}
         open={!!drillTarget}
         onCancel={() => setDrillTarget(null)}
         footer={null}
@@ -233,53 +249,51 @@ const CustomerAnalysis: React.FC = () => {
             客户编码 {drillTarget.customerCode}
           </div>
         )}
-        <Tabs
-          defaultActiveKey="trend"
-          items={[
-            {
-              key: 'trend',
-              label: '销售趋势',
-              children: (
-                <Spin spinning={drillLoading}>
-                  <Card title="月度销售时序" size="small" style={{ marginBottom: 12 }}>
-                    <Chart option={monthlyOption(drillData)} style={{ height: 320 }} />
-                  </Card>
-                  <Card title="历年同月对比" size="small">
-                    <Chart option={yearlyCompareOption(drillData)} style={{ height: 320 }} />
-                  </Card>
-                </Spin>
-              ),
-            },
-            {
-              key: 'skus',
-              label: '销售明细 (按 SKU)',
-              children: (
-                <Spin spinning={skusLoading}>
-                  <Table
-                    rowKey={(r: any) => r.goodsNo + '|' + r.goodsName}
-                    dataSource={skusData}
-                    size="small"
-                    pagination={{ pageSize: 20, showTotal: t => `共 ${t} 个 SKU` }}
-                    columns={[
-                      { title: '排名', width: 60, align: 'center', render: (_: any, __: any, idx: number) => idx + 1 },
-                      { title: '商品编码', dataIndex: 'goodsNo', width: 130 },
-                      { title: '商品名称', dataIndex: 'goodsName', ellipsis: true },
-                      {
-                        title: '销售额', dataIndex: 'amount', width: 120, align: 'right',
-                        render: (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
-                      },
-                      {
-                        title: '件数', dataIndex: 'qty', width: 90, align: 'right',
-                        render: (v: number) => (v || 0).toLocaleString('zh-CN'),
-                      },
-                      { title: '订单数', dataIndex: 'orderCount', width: 80, align: 'right' },
-                    ]}
-                  />
-                </Spin>
-              ),
-            },
-          ]}
-        />
+        <Spin spinning={drillLoading}>
+          <Card title="月度销售时序" size="small" style={{ marginBottom: 12 }}>
+            <Chart option={monthlyOption(drillData)} style={{ height: 320 }} />
+          </Card>
+          <Card title="历年同月对比" size="small">
+            <Chart option={yearlyCompareOption(drillData)} style={{ height: 320 }} />
+          </Card>
+        </Spin>
+      </Modal>
+
+      <Modal
+        title={skusTarget ? `${skusTarget.customerName} - 销售明细 (按 SKU)` : ''}
+        open={!!skusTarget}
+        onCancel={() => setSkusTarget(null)}
+        footer={null}
+        width={960}
+      >
+        {skusTarget && (
+          <div style={{ marginBottom: 12 }}>
+            等级 <Tag color={gradeColor(skusTarget.grade)}>{skusTarget.grade}</Tag>
+            客户编码 {skusTarget.customerCode}　时间 {start} ~ {end}
+          </div>
+        )}
+        <Spin spinning={skusLoading}>
+          <Table
+            rowKey={(r: any) => r.goodsNo + '|' + r.goodsName}
+            dataSource={skusData}
+            size="small"
+            pagination={{ pageSize: 20, showTotal: t => `共 ${t} 个 SKU` }}
+            columns={[
+              { title: '排名', width: 60, align: 'center', render: (_: any, __: any, idx: number) => idx + 1 },
+              { title: '商品编码', dataIndex: 'goodsNo', width: 130 },
+              { title: '商品名称', dataIndex: 'goodsName', ellipsis: true },
+              {
+                title: '销售额', dataIndex: 'amount', width: 120, align: 'right',
+                render: (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
+              },
+              {
+                title: '件数', dataIndex: 'qty', width: 90, align: 'right',
+                render: (v: number) => (v || 0).toLocaleString('zh-CN'),
+              },
+              { title: '订单数', dataIndex: 'orderCount', width: 80, align: 'right' },
+            ]}
+          />
+        </Spin>
       </Modal>
     </div>
   );
