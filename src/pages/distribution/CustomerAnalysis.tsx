@@ -280,6 +280,10 @@ const CustomerAnalysis: React.FC = () => {
             pagination={{ pageSize: 20, showTotal: t => `共 ${t} 个 SKU` }}
             columns={[
               { title: '排名', width: 60, align: 'center', render: (_: any, __: any, idx: number) => idx + 1 },
+              {
+                title: '类型', dataIndex: 'isPackage', width: 70, align: 'center',
+                render: (v: number) => v === 1 ? <Tag color="blue">组合</Tag> : <Tag>单品</Tag>,
+              },
               { title: '商品编码', dataIndex: 'goodsNo', width: 130 },
               { title: '商品名称', dataIndex: 'goodsName', ellipsis: true },
               {

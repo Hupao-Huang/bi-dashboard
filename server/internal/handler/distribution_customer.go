@@ -528,17 +528,21 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 		qty        float64
 		amount     float64
 		orderCount int
+		isPackage  int // 0 单品 / 1 组合装 (来自 goods.is_package_good)
 	}
 	agg := map[string]*skuAgg{}
 
 	for _, ym := range months {
 		// 跨月 trade_goods JOIN trade 按 customer_code + 时间区间 聚合 SKU
+		// LEFT JOIN goods 取 is_package_good 标记组合装/单品
 		rows, err := h.DB.Query(fmt.Sprintf(`
 			SELECT IFNULL(tg.goods_no,''), IFNULL(tg.goods_name,''),
 			       IFNULL(SUM(tg.sell_count),0), IFNULL(SUM(tg.sell_total),0),
-			       COUNT(DISTINCT tg.trade_id)
+			       COUNT(DISTINCT tg.trade_id),
+			       IFNULL(MAX(g.is_package_good),0) AS is_package
 			FROM trade_goods_%s tg
 			INNER JOIN trade_%s t ON t.trade_id=tg.trade_id
+			LEFT JOIN goods g ON g.goods_no=tg.goods_no
 			WHERE t.customer_code = ?
 			  AND t.consign_time >= ? AND t.consign_time < DATE_ADD(?, INTERVAL 1 DAY)
 			GROUP BY tg.goods_no, tg.goods_name
@@ -549,15 +553,18 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 		for rows.Next() {
 			var no, name string
 			var qty, amt float64
-			var oc int
-			rows.Scan(&no, &name, &qty, &amt, &oc)
+			var oc, pkg int
+			rows.Scan(&no, &name, &qty, &amt, &oc, &pkg)
 			key := no + "|" + name
 			if v, ok := agg[key]; ok {
 				v.qty += qty
 				v.amount += amt
 				v.orderCount += oc
+				if pkg > v.isPackage {
+					v.isPackage = pkg
+				}
 			} else {
-				agg[key] = &skuAgg{goodsNo: no, goodsName: name, qty: qty, amount: amt, orderCount: oc}
+				agg[key] = &skuAgg{goodsNo: no, goodsName: name, qty: qty, amount: amt, orderCount: oc, isPackage: pkg}
 			}
 		}
 		rows.Close()
@@ -569,6 +576,7 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 		Qty        float64 `json:"qty"`
 		Amount     float64 `json:"amount"`
 		OrderCount int     `json:"orderCount"`
+		IsPackage  int     `json:"isPackage"` // 1=组合装, 0=单品
 	}
 	list := make([]skuRow, 0, len(agg))
 	for _, v := range agg {
@@ -578,6 +586,7 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 			Qty:        v.qty,
 			Amount:     v.amount,
 			OrderCount: v.orderCount,
+			IsPackage:  v.isPackage,
 		})
 	}
 	// 销售额降序
