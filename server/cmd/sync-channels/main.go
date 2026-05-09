@@ -107,7 +107,9 @@ func main() {
 					warehouse_code=VALUES(warehouse_code), warehouse_name=VALUES(warehouse_name),
 					link_man=VALUES(link_man), link_tel=VALUES(link_tel), memo=VALUES(memo),
 					plat_shop_id=VALUES(plat_shop_id), plat_shop_name=VALUES(plat_shop_name),
-					responsible_user=VALUES(responsible_user), department=VALUES(department),
+					responsible_user=VALUES(responsible_user),
+					-- department 由跑哥手动维护(BI 看板规则), 同步不动已存在渠道的 dept;
+					-- 新渠道走上面 INSERT VALUES 仍会按 mapDepartment 给默认值
 					charge_type=VALUES(charge_type), email=VALUES(email),
 					group_id=VALUES(group_id), office_address=VALUES(office_address),
 					postcode=VALUES(postcode), city_id=VALUES(city_id), city_name=VALUES(city_name),
