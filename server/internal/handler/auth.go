@@ -2014,14 +2014,17 @@ func (h *DashboardHandler) createSessionAndRespond(w http.ResponseWriter, r *htt
 		return
 	}
 	h.DB.Exec(`UPDATE users SET last_login_at = NOW() WHERE id = ?`, userID)
-	h.logAuditNoRequest(userID, "", "", "login", "钉钉扫码登录", "", ip, truncateString(r.UserAgent(), 255))
-	setSessionCookie(w, token, expiresAt, isSecureRequest(r))
 
+	// 先加载 payload, 才能拿到 username/real_name 喂给 audit
+	// 之前 audit 用空串导致钉钉扫码登录的审计记录"用户"列空白(虎跑等用户登录看不到)
 	payload, err := h.loadAuthPayload(userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "加载用户信息失败")
 		return
 	}
+
+	h.logAuditNoRequest(userID, payload.User.Username, payload.User.RealName, "login", "钉钉扫码登录", "", ip, truncateString(r.UserAgent(), 255))
+	setSessionCookie(w, token, expiresAt, isSecureRequest(r))
 	writeJSON(w, payload)
 }
 

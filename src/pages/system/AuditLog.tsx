@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
+import { pageTitleMap } from '../../navigation';
 
 const { RangePicker } = DatePicker;
 const { Title } = Typography;
@@ -89,6 +90,20 @@ const AuditLog: React.FC = () => {
       title: '资源',
       dataIndex: 'resource',
       ellipsis: true,
+      render: (v: string) => {
+        if (!v) return '-';
+        // page_view 类资源 = URL path, 翻译成中文菜单名
+        const label = pageTitleMap[v];
+        if (label) {
+          return (
+            <div>
+              <div style={{ fontSize: 13 }}>{label}</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace' }}>{v}</div>
+            </div>
+          );
+        }
+        return <span>{v}</span>;
+      },
     },
     {
       title: '详情',
