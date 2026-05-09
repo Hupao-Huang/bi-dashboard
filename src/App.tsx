@@ -35,6 +35,8 @@ const DistributionPage = lazy(() => import('./pages/distribution'));
 const DistributionStorePreview = lazy(() => import('./pages/distribution/StorePreview'));
 const DistributionStoreDashboard = lazy(() => import('./pages/distribution/StoreDashboard'));
 const DistributionProductDashboard = lazy(() => import('./pages/distribution/ProductDashboard'));
+const DistributionCustomerAnalysis = lazy(() => import('./pages/distribution/CustomerAnalysis'));
+const DistributionCustomerListManage = lazy(() => import('./pages/distribution/CustomerListManage'));
 const InstantRetailPage = lazy(() => import('./pages/instant-retail'));
 const InstantRetailStorePreview = lazy(() => import('./pages/instant-retail/StorePreview'));
 const InstantRetailStoreDashboard = lazy(() => import('./pages/instant-retail/StoreDashboard'));
@@ -147,6 +149,8 @@ const App: React.FC = () => (
               <Route path="/distribution/store-preview" element={guard('distribution.store_preview:view', <DistributionStorePreview />)} />
               <Route path="/distribution/store-dashboard" element={guard('distribution.store_dashboard:view', <DistributionStoreDashboard />)} />
               <Route path="/distribution/product-dashboard" element={guard('distribution.product_dashboard:view', <DistributionProductDashboard />)} />
+              <Route path="/distribution/customer-analysis" element={guard('distribution.customer_analysis:view', <DistributionCustomerAnalysis />)} />
+              <Route path="/distribution/customer-list-manage" element={guard('distribution.customer_list:edit', <DistributionCustomerListManage />)} />
 
               <Route path="/instant-retail" element={guard('instant_retail:view', <InstantRetailPage />)} />
               <Route path="/instant-retail/store-preview" element={guard('instant_retail.store_preview:view', <InstantRetailStorePreview />)} />
