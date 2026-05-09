@@ -504,8 +504,8 @@ func previousPeriod(startDate, endDate string) (string, string) {
 }
 
 // DistributionCustomerSkus GET /api/distribution/customer-analysis/skus
-// 单客户跨月 SKU 销售明细 (商品维度聚合, 销售额降序)
-// 参数: customerCode, startMonth(yyyy-MM), endMonth
+// 单客户期间 SKU 销售明细 (商品维度聚合, 销售额降序)
+// 参数: customerCode, startDate(yyyy-MM-dd), endDate (跟主页 DateFilter 一致)
 func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	code := strings.TrimSpace(q.Get("customerCode"))
@@ -513,22 +513,14 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 		writeError(w, 400, "customerCode 必填")
 		return
 	}
-	startMonth := q.Get("startMonth")
-	endMonth := q.Get("endMonth")
-	if startMonth == "" {
-		startMonth = "2025-01"
+	startDate := q.Get("startDate")
+	endDate := q.Get("endDate")
+	if startDate == "" || endDate == "" {
+		now := time.Now()
+		startDate = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local).Format("2006-01-02")
+		endDate = now.Format("2006-01-02")
 	}
-	if endMonth == "" {
-		endMonth = time.Now().Format("2006-01")
-	}
-
-	months := []string{}
-	cur, _ := time.Parse("2006-01", startMonth)
-	endT, _ := time.Parse("2006-01", endMonth)
-	for !cur.After(endT) {
-		months = append(months, cur.Format("200601"))
-		cur = cur.AddDate(0, 1, 0)
-	}
+	months := monthsBetween(startDate, endDate)
 
 	type skuAgg struct {
 		goodsNo    string
@@ -540,7 +532,7 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 	agg := map[string]*skuAgg{}
 
 	for _, ym := range months {
-		// 跨月 trade_goods JOIN trade 按 customer_code 聚合 SKU
+		// 跨月 trade_goods JOIN trade 按 customer_code + 时间区间 聚合 SKU
 		rows, err := h.DB.Query(fmt.Sprintf(`
 			SELECT IFNULL(tg.goods_no,''), IFNULL(tg.goods_name,''),
 			       IFNULL(SUM(tg.sell_count),0), IFNULL(SUM(tg.sell_total),0),
@@ -548,8 +540,9 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 			FROM trade_goods_%s tg
 			INNER JOIN trade_%s t ON t.trade_id=tg.trade_id
 			WHERE t.customer_code = ?
+			  AND t.consign_time >= ? AND t.consign_time < DATE_ADD(?, INTERVAL 1 DAY)
 			GROUP BY tg.goods_no, tg.goods_name
-		`, ym, ym), code)
+		`, ym, ym), code, startDate, endDate)
 		if err != nil {
 			continue
 		}
@@ -598,8 +591,8 @@ func (h *DashboardHandler) DistributionCustomerSkus(w http.ResponseWriter, r *ht
 
 	writeJSON(w, map[string]interface{}{
 		"customerCode": code,
-		"startMonth":   startMonth,
-		"endMonth":     endMonth,
+		"startDate":    startDate,
+		"endDate":      endDate,
 		"list":         list,
 	})
 }
