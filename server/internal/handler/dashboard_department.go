@@ -144,7 +144,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		FROM sales_goods_summary
 		WHERE department = ? AND shop_name IS NOT NULL
 		  AND stat_date BETWEEN ? AND ?` + platCond + scopeCond + `
-		GROUP BY shop_name ORDER BY sales DESC LIMIT 20`
+		GROUP BY shop_name ORDER BY sales DESC`
 	}
 	shopRows, ok := queryRowsOrWriteError(w, h.DB, shopListSQL, shopListArgs...)
 	if !ok {
@@ -168,6 +168,25 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	}
 	if writeDatabaseError(w, shopRows.Err()) {
 		return
+	}
+
+	// 2.5 店铺总数（独立于 LIMIT 20 排行榜，给前端"全部 N 家"用真实总数）
+	var totalShopCount int
+	totalShopArgs := append([]interface{}{dept, start, end}, platArgs...)
+	totalShopArgs = append(totalShopArgs, scopeArgs...)
+	var totalShopSQL string
+	if dept == "offline" {
+		totalShopSQL = `SELECT COUNT(DISTINCT ` + offlineRegionExpr + `) FROM sales_goods_summary
+			WHERE department = ? AND shop_name IS NOT NULL
+			  AND stat_date BETWEEN ? AND ?` + offlineRegionPrefilter + scopeCond
+	} else {
+		totalShopSQL = `SELECT COUNT(DISTINCT shop_name) FROM sales_goods_summary
+			WHERE department = ? AND shop_name IS NOT NULL
+			  AND stat_date BETWEEN ? AND ?` + platCond + scopeCond
+	}
+	_ = h.DB.QueryRow(totalShopSQL, totalShopArgs...).Scan(&totalShopCount)
+	if totalShopCount == 0 {
+		totalShopCount = len(shops)
 	}
 
 	// 3. 商品排行
@@ -683,6 +702,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	writeJSON(w, map[string]interface{}{
 		"daily":             daily,
 		"shops":             shops,
+		"shopTotalCount":    totalShopCount,
 		"goods":             goods,
 		"goodsChannels":     goodsChannels,
 		"brands":            brands,

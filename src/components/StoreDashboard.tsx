@@ -44,6 +44,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
   const [platformTabs, setPlatformTabs] = useState<{key: string; label: string}[]>([]);
   const [platform, setPlatform] = useState('all');
   const [shopList, setShopList] = useState<any[]>([]);
+  const [shopTotalCount, setShopTotalCount] = useState<number>(0);
   const [selectedShop, setSelectedShop] = useState<string>('');
   const [shopDetail, setShopDetail] = useState<any>(null);
   const [tmallOps, setTmallOps] = useState<any>(null);
@@ -111,6 +112,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
 
         const shops = res.data?.shops || [];
         setShopList(shops);
+        setShopTotalCount(res.data?.shopTotalCount ?? shops.length);
         if (shops.length > 0) {
           const found = selectedShop === ALL_SHOPS_VALUE || shops.find((sh: any) => sh.shopName === selectedShop);
           if (!found) setSelectedShop(ALL_SHOPS_VALUE);
@@ -292,7 +294,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
   const shopSelectOptions = useMemo(() => {
     const totalSales = shopList.reduce((sum, shop) => sum + (shop.sales || 0), 0);
     return [
-      { value: ALL_SHOPS_VALUE, label: `全部${unit}（${shopList.length}家，¥${totalSales.toLocaleString()}）` },
+      { value: ALL_SHOPS_VALUE, label: `全部${unit}（${shopTotalCount || shopList.length}家，¥${totalSales.toLocaleString()}）` },
       ...shopList.map(s => ({
         value: s.shopName,
         label: `${s.shopName}（¥${s.sales?.toLocaleString()}${supportsOpsShop(s.shopName) ? '，含运营数据' : ''}）`,
@@ -556,8 +558,8 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 { title: '货品数', value: currentShop.qty, accentColor: '#10b981' },
                 { title: '客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#1e40af',
                   hint: avgOrderValue >= 10000 ? `≈ ${(avgOrderValue / 10000).toFixed(1)}万` : '' },
-                { title: `${unit}数量`, value: shopList.length, suffix: '家', accentColor: '#7c3aed',
-                  hintNode: shopRank > 0 ? <span style={{ color: shopRank <= 3 ? '#10b981' : '#64748b', fontWeight: shopRank <= 3 ? 600 : 400 }}>排名 #{shopRank}/{shopList.length}</span> : null },
+                { title: `${unit}数量`, value: shopTotalCount || shopList.length, suffix: '家', accentColor: '#7c3aed',
+                  hintNode: shopRank > 0 ? <span style={{ color: shopRank <= 3 ? '#10b981' : '#64748b', fontWeight: shopRank <= 3 ? 600 : 400 }}>排名 #{shopRank}/{shopTotalCount || shopList.length}</span> : null },
               ].map((card: any, idx: number) => (
                 <Col xs={12} sm={6} key={card.title}>
                   <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%' }}>

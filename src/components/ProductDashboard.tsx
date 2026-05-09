@@ -202,7 +202,7 @@ const ProductDashboard: React.FC<Props> = ({ dept }) => {
           expandable={{
             expandedRowRender: (record: any) => {
               const channels: any[] = goodsChannels[record.goodsNo] || [];
-              return <GoodsChannelExpand channels={channels} hidePlatSection={dept === 'offline'} />;
+              return <GoodsChannelExpand channels={channels} hidePlatSection={dept === 'offline' || dept === 'distribution'} />;
             },
             rowExpandable: (record: any) => (goodsChannels[record.goodsNo] || []).length > 0,
           }}
