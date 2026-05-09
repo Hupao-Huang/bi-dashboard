@@ -181,3 +181,26 @@ CREATE TABLE IF NOT EXISTS sales_channel (
 
 -- v0.16 起规划的 sync_log 表 (数据同步日志) v1.01 移除:
 -- 一年来代码里零引用、线上未实例化, 死代码清理. 后续如需要落 sync 日志, 直接新建.
+
+-- =============================================
+-- 7. 分销高价值客户名单 (v1.28)
+-- 全量分销客户 + 分销部门人工标 S/A 级 + 冗余聚合字段
+-- =============================================
+CREATE TABLE IF NOT EXISTS distribution_high_value_customers (
+    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+    customer_code   VARCHAR(64)    NOT NULL COMMENT '客户编码(吉客云ID)',
+    customer_name   VARCHAR(500)   NOT NULL COMMENT '客户名称',
+    grade           VARCHAR(10)    DEFAULT NULL COMMENT '客户等级 S/A 等(分销给名单后填)',
+    remark          VARCHAR(500)   DEFAULT NULL COMMENT '备注',
+    first_order_at  DATETIME       DEFAULT NULL COMMENT '首单时间(冗余便于排序)',
+    last_order_at   DATETIME       DEFAULT NULL COMMENT '末单时间(冗余便于排序)',
+    total_amount    DECIMAL(14,2)  DEFAULT 0    COMMENT '累计销售额(冗余 payment 实付口径)',
+    total_orders    INT            DEFAULT 0    COMMENT '累计订单数(冗余)',
+    created_by      VARCHAR(50)    NOT NULL DEFAULT 'system' COMMENT '录入人',
+    created_at      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE INDEX uk_customer_code (customer_code),
+    INDEX idx_grade (grade),
+    INDEX idx_customer_name (customer_name),
+    INDEX idx_total_amount (total_amount)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分销高价值客户名单 + 客户分析基础表';
