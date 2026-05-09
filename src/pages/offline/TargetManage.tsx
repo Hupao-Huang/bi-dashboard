@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Card, InputNumber, message, Select, Spin, Table, Typography } from 'antd';
+import { Button, Card, InputNumber, message, Select, Spin, Table } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
-
-const { Title } = Typography;
 
 const REGIONS = ['华北大区', '华东大区', '华中大区', '华南大区', '西南大区', '西北大区', '东北大区', '山东大区', '重客'];
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -129,14 +127,11 @@ const TargetManage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>线下大区月度销售目标</Title>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <Select options={yearOptions} value={year} onChange={setYear} style={{ width: 100 }} />
-          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-            保存
-          </Button>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, alignItems: 'center', marginBottom: 16 }}>
+        <Select options={yearOptions} value={year} onChange={setYear} style={{ width: 100 }} />
+        <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+          保存
+        </Button>
       </div>
 
       <Spin spinning={loading}>
@@ -163,7 +158,7 @@ const TargetManage: React.FC = () => {
         </Card>
       </Spin>
 
-      <div style={{ marginTop: 12, color: '#94a3b8', fontSize: 12 }}>
+      <div style={{ marginTop: 12, color: '#64748b', fontSize: 13 }}>
         提示：单位为元，留空表示未设置目标。修改后点击右上角"保存"生效。
       </div>
     </div>

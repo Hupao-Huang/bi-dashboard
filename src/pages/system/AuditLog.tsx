@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Table, Tag, Input, Select, DatePicker, Card, Typography, Row, Col, Button } from 'antd';
+import { Table, Tag, Input, Select, DatePicker, Card, Row, Col, Button } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
@@ -7,7 +7,6 @@ import { useAuth } from '../../auth/AuthContext';
 import { pageTitleMap } from '../../navigation';
 
 const { RangePicker } = DatePicker;
-const { Title } = Typography;
 
 const actionLabels: Record<string, { label: string; color: string }> = {
   login: { label: '登录', color: 'green' },
@@ -98,7 +97,7 @@ const AuditLog: React.FC = () => {
           return (
             <div>
               <div style={{ fontSize: 13 }}>{label}</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace' }}>{v}</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>{v}</div>
             </div>
           );
         }
@@ -123,14 +122,12 @@ const AuditLog: React.FC = () => {
       title: 'IP',
       dataIndex: 'ip',
       width: 130,
-      render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#94a3b8' }}>{v || '-'}</span>,
+      render: (v: string) => <span style={{ color: '#64748b' }}>{v || '-'}</span>,
     },
   ];
 
   return (
     <div style={{ padding: 0 }}>
-      <Title level={4} style={{ marginBottom: 20 }}>审计日志</Title>
-
       <Card className="bi-filter-card" style={{ marginBottom: 16 }}>
         <Row align="middle" gutter={[16, 12]} wrap>
           <Col>
