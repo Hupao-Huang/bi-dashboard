@@ -155,7 +155,7 @@ const CustomerAnalysis: React.FC = () => {
       title: '等级', dataIndex: 'grade', width: 60, align: 'center',
       render: (v: string) => <Tag color={gradeColor(v)}>{v}</Tag>,
     },
-    { title: '客户名称', dataIndex: 'customerName', ellipsis: true },
+    { title: '客户名称', dataIndex: 'customerName', width: 240, ellipsis: true },
     { title: '客户编码', dataIndex: 'customerCode', width: 130 },
     {
       title: '期间销售额', dataIndex: 'amount', width: 120, align: 'right',
