@@ -189,6 +189,11 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// 渠道部门变更影响所有按部门拆分的看板缓存(综合/电商/社媒/线下/分销/即时零售/
+	// 客服/财务/供应链/物流). 直接清整个 api| 前缀让下次请求重查, 简单且零漏.
+	// 渠道改部门是低频操作, 不会因为粗粒度清缓存造成性能问题.
+	ClearCacheByPrefix("api|")
+
 	writeJSON(w, map[string]interface{}{"message": "更新成功"})
 }
 
