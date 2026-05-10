@@ -5,16 +5,41 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"bi-dashboard/internal/config"
 	"bi-dashboard/internal/dingtalk"
 	"bi-dashboard/internal/handler"
 
+	"github.com/getsentry/sentry-go"
 	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
+	// Sentry 错误监控 (DSN 留空时静默禁用, 不影响功能)
+	// 配置: 环境变量 SENTRY_DSN=https://xxx@sentry.io/12345 + SENTRY_ENV=production
+	if dsn := os.Getenv("SENTRY_DSN"); dsn != "" {
+		environment := os.Getenv("SENTRY_ENV")
+		if environment == "" {
+			environment = "production"
+		}
+		if err := sentry.Init(sentry.ClientOptions{
+			Dsn:              dsn,
+			Environment:      environment,
+			Release:          os.Getenv("SENTRY_RELEASE"), // 空字符串 → SDK 不带 release
+			TracesSampleRate: 0.0,                          // 仅捕错误, 不做性能追踪 (省 quota)
+			AttachStacktrace: true,
+		}); err != nil {
+			log.Printf("[sentry] init failed: %v (继续启动, 不阻塞服务)", err)
+		} else {
+			log.Printf("[sentry] enabled, environment=%s", environment)
+			defer sentry.Flush(2 * time.Second)
+		}
+	} else {
+		log.Println("[sentry] disabled (未配置 SENTRY_DSN)")
+	}
+
 	cfg, err := config.Load("config.json")
 	if err != nil {
 		log.Fatalf("load config: %v", err)
@@ -78,8 +103,27 @@ func main() {
 		"http://bi.songxianxian.local": true,
 	}
 
-	corsHandler := func(next http.HandlerFunc) http.HandlerFunc {
+	// sentryRecover 包在 corsHandler 外层: 捕获 handler panic → 上报 Sentry → 返 500
+	// 不会吞错: 仍 log + 给客户端 500, 只是额外把 panic 推到 Sentry 让 admin 收到告警
+	sentryRecover := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					hub := sentry.CurrentHub().Clone()
+					hub.Scope().SetTag("path", r.URL.Path)
+					hub.Scope().SetTag("method", r.Method)
+					hub.Recover(rec)
+					hub.Flush(2 * time.Second)
+					log.Printf("[panic] %s %s: %v", r.Method, r.URL.Path, rec)
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+				}
+			}()
+			next(w, r)
+		}
+	}
+
+	corsHandler := func(next http.HandlerFunc) http.HandlerFunc {
+		return sentryRecover(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 			if origin != "" && allowedOrigins[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -101,7 +145,7 @@ func main() {
 				}
 			}
 			next(w, r)
-		}
+		})
 	}
 
 	protected := func(next http.HandlerFunc) http.HandlerFunc {
