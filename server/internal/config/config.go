@@ -94,5 +94,86 @@ func Load(path string) (*Config, error) {
 	if cfg.Database.Port == 0 {
 		cfg.Database.Port = 3306
 	}
+	applyEnvOverrides(&cfg)
 	return &cfg, nil
+}
+
+// applyEnvOverrides 用环境变量覆盖 config.json 中的敏感字段
+//
+// 生产环境推荐: 把 config.json 留为模板 (无密码), 真实凭证通过环境变量注入
+// 优先级: 环境变量 > config.json
+//
+// 命名规则: BI_<SECTION>_<FIELD>
+// 例: BI_DB_PASSWORD / BI_JACKYUN_SECRET / BI_DINGTALK_CLIENT_SECRET
+func applyEnvOverrides(cfg *Config) {
+	// Database
+	if v := os.Getenv("BI_DB_HOST"); v != "" {
+		cfg.Database.Host = v
+	}
+	if v := os.Getenv("BI_DB_USER"); v != "" {
+		cfg.Database.User = v
+	}
+	if v := os.Getenv("BI_DB_PASSWORD"); v != "" {
+		cfg.Database.Password = v
+	}
+	if v := os.Getenv("BI_DB_NAME"); v != "" {
+		cfg.Database.DBName = v
+	}
+
+	// JackYun (主)
+	if v := os.Getenv("BI_JACKYUN_APPKEY"); v != "" {
+		cfg.JackYun.AppKey = v
+	}
+	if v := os.Getenv("BI_JACKYUN_SECRET"); v != "" {
+		cfg.JackYun.Secret = v
+	}
+
+	// JackYun Trade (新 AppKey, 销售单专用)
+	if v := os.Getenv("BI_JACKYUN_TRADE_APPKEY"); v != "" {
+		cfg.JackYunTrade.AppKey = v
+	}
+	if v := os.Getenv("BI_JACKYUN_TRADE_SECRET"); v != "" {
+		cfg.JackYunTrade.Secret = v
+	}
+
+	// DingTalk
+	if v := os.Getenv("BI_DINGTALK_WEBHOOK_TOKEN"); v != "" {
+		cfg.DingTalk.WebhookToken = v
+	}
+	if v := os.Getenv("BI_DINGTALK_WEBHOOK_SECRET"); v != "" {
+		cfg.DingTalk.WebhookSecret = v
+	}
+	if v := os.Getenv("BI_DINGTALK_CLIENT_ID"); v != "" {
+		cfg.DingTalk.ClientID = v
+	}
+	if v := os.Getenv("BI_DINGTALK_CLIENT_SECRET"); v != "" {
+		cfg.DingTalk.ClientSecret = v
+	}
+	if v := os.Getenv("BI_DINGTALK_NOTIFY_APP_KEY"); v != "" {
+		cfg.DingTalk.NotifyAppKey = v
+	}
+	if v := os.Getenv("BI_DINGTALK_NOTIFY_APP_SECRET"); v != "" {
+		cfg.DingTalk.NotifyAppSecret = v
+	}
+
+	// Hesi
+	if v := os.Getenv("BI_HESI_APPKEY"); v != "" {
+		cfg.Hesi.AppKey = v
+	}
+	if v := os.Getenv("BI_HESI_SECRET"); v != "" {
+		cfg.Hesi.Secret = v
+	}
+
+	// YonSuite
+	if v := os.Getenv("BI_YONSUITE_APPKEY"); v != "" {
+		cfg.YonSuite.AppKey = v
+	}
+	if v := os.Getenv("BI_YONSUITE_APPSECRET"); v != "" {
+		cfg.YonSuite.AppSecret = v
+	}
+
+	// Webhook
+	if v := os.Getenv("BI_WEBHOOK_SECRET"); v != "" {
+		cfg.Webhook.Secret = v
+	}
 }

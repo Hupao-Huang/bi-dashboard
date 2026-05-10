@@ -47,6 +47,10 @@ frontend-serve.log
 # server config (contains passwords)
 server/config.json
 
+# .env 真实值 (含敏感凭证) - .env.example 是模板可入库
+.env
+server/.env
+
 # RPA uploads / pending imports (中间文件，源数据在 Z:\信息部\RPA_集团数据看板\)
 server/uploads/
 
