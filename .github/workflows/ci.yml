@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: server/go.sum
+
+      - name: go vet
+        run: go vet ./internal/...
+
+      - name: go test (内部包 + 覆盖率)
+        run: go test ./internal/... -count=1 -timeout 5m -coverprofile=coverage.out
+
+      - name: go build (主 server 入口)
+        run: go build -o /tmp/bi-server ./cmd/server
+
+      - name: 上传覆盖率报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: server/coverage.out
+          retention-days: 14
+
+  frontend:
+    name: Frontend (React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: npm ci
+        run: npm ci
+
+      - name: npm run build
+        run: npm run build
+        env:
+          CI: 'true'
