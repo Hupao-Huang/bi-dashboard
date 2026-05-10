@@ -53,9 +53,14 @@ const tradeFields = "tradeNo,tradeStatus,tradeStatusExplain,tradeType,shopName,s
 	"packageDetail.warehouseName,packageDetail.sellCount,packageDetail.isGift,packageDetail.isPlatGift," +
 	"packageDetail.barcode,packageDetail.tradeNo,packageDetail.sourceTradeNo," +
 	"packageDetail.buyerMemo,packageDetail.sellerMemo," +
-	// 货品自定义字段 (吉客云返回在 tradeOrderGoodsColumnExts[] 数组里, 按 SubTradeId 关联商品行)
-	// Column3 = 核销费用, Column4 = 建议价 (跑哥业务定义)
-	"customizeGoodsColumn3,customizeGoodsColumn4"
+	// 货品自定义字段 1-10 (吉客云返回在 TradeOrderGoodsColumnExts[] 数组, 按 SubTradeId 关联商品行)
+	// 接口文档定义 column1-10, 业务命名在跑哥吉客云后台配置, 已知 col3=核销费用 col4=建议价
+	"customizeGoodsColumn1,customizeGoodsColumn2,customizeGoodsColumn3,customizeGoodsColumn4,customizeGoodsColumn5," +
+	"customizeGoodsColumn6,customizeGoodsColumn7,customizeGoodsColumn8,customizeGoodsColumn9,customizeGoodsColumn10," +
+	// 订单自定义字段 1-10 + 23 (吉客云返回在 TradeOrderColumnExt 对象, 需在 fields 加 columnExt 触发返回)
+	// 业务命名在跑哥吉客云后台配置 (例: column9 当前用作"调度备注")
+	"columnExt,customizeTradeColumn1,customizeTradeColumn2,customizeTradeColumn3,customizeTradeColumn4,customizeTradeColumn5," +
+	"customizeTradeColumn6,customizeTradeColumn7,customizeTradeColumn8,customizeTradeColumn9,customizeTradeColumn10,customizeTradeColumn23"
 
 func main() {
 	unlock := importutil.AcquireLock("sync-daily-trades")
@@ -230,6 +235,19 @@ func main() {
 						continue
 					}
 
+					// 解析订单自定义字段 (TradeOrderColumnExt) — 接口文档 column 1-10 + 23
+					// 业务命名跑哥后台配置 (例: column9 当前用作"调度备注")
+					// 用 gn (nil-safe) 取值: 吉客云未返回 → NULL, 区别于业务真填 "0"
+					var tradeCustomCols [11]interface{} // 0..9 = column1..10, 10 = column23
+					if oce, ok := t["TradeOrderColumnExt"]; ok {
+						if ocem, ok := oce.(map[string]interface{}); ok {
+							for i := 1; i <= 10; i++ {
+								tradeCustomCols[i-1] = gn(ocem, fmt.Sprintf("CustomizeTradeColumn%d", i))
+							}
+							tradeCustomCols[10] = gn(ocem, "CustomizeTradeColumn23")
+						}
+					}
+
 					_, err := db.Exec(fmt.Sprintf(`INSERT INTO trade_%s
 						(trade_id, trade_no, order_no, source_trade_no, online_trade_no,
 						 trade_status, trade_status_explain, trade_type,
@@ -258,8 +276,10 @@ func main() {
 						 reviewer, auditor, register, seller,
 						 shop_type_code, agent_shop_name, source_after_no, country_code, city_code,
 						 sys_flag_ids, special_reminding, abnormal_description, append_memo,
-						 ticket_code_list, all_compass_source_content_type)
-						VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+						 ticket_code_list, all_compass_source_content_type,
+						 customize_trade_column_1, customize_trade_column_2, customize_trade_column_3, customize_trade_column_4, customize_trade_column_5,
+						 customize_trade_column_6, customize_trade_column_7, customize_trade_column_8, customize_trade_column_9, customize_trade_column_10, customize_trade_column_23)
+						VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 						ON DUPLICATE KEY UPDATE
 							shop_id=VALUES(shop_id), warehouse_id=VALUES(warehouse_id),
 							buyer_open_uid=VALUES(buyer_open_uid), customer_account=VALUES(customer_account),
@@ -303,7 +323,18 @@ func main() {
 							sys_flag_ids=VALUES(sys_flag_ids), special_reminding=VALUES(special_reminding),
 							abnormal_description=VALUES(abnormal_description), append_memo=VALUES(append_memo),
 							ticket_code_list=VALUES(ticket_code_list),
-							all_compass_source_content_type=VALUES(all_compass_source_content_type)`, tableMonth),
+							all_compass_source_content_type=VALUES(all_compass_source_content_type),
+							customize_trade_column_1=VALUES(customize_trade_column_1),
+							customize_trade_column_2=VALUES(customize_trade_column_2),
+							customize_trade_column_3=VALUES(customize_trade_column_3),
+							customize_trade_column_4=VALUES(customize_trade_column_4),
+							customize_trade_column_5=VALUES(customize_trade_column_5),
+							customize_trade_column_6=VALUES(customize_trade_column_6),
+							customize_trade_column_7=VALUES(customize_trade_column_7),
+							customize_trade_column_8=VALUES(customize_trade_column_8),
+							customize_trade_column_9=VALUES(customize_trade_column_9),
+							customize_trade_column_10=VALUES(customize_trade_column_10),
+							customize_trade_column_23=VALUES(customize_trade_column_23)`, tableMonth),
 						tradeId, tradeNo, gn(t, "OrderNo"), gn(t, "SourceTradeNo"), gn(t, "OnlineTradeNo"),
 						gn(t, "TradeStatus"), gn(t, "TradeStatusExplain"), gn(t, "TradeType"),
 						gs(t, "ShopId"), gn(t, "ShopName"), gn(t, "Shopcode"), gs(t, "WarehouseId"), gn(t, "WarehouseName"), gn(t, "WarehouseCode"),
@@ -331,15 +362,18 @@ func main() {
 						gn(t, "Reviewer"), gn(t, "Auditor"), gn(t, "Register"), gn(t, "Seller"),
 						gn(t, "ShopTypeCode"), gn(t, "AgentShopName"), gn(t, "SourceAfterNo"), gn(t, "CountryCode"), gn(t, "CityCode"),
 						gn(t, "SysFlagIds"), gn(t, "SpecialReminding"), gn(t, "AbnormalDescription"), gn(t, "AppendMemo"),
-						gn(t, "TicketCodeList"), gn(t, "AllCompassSourceContentType"))
+						gn(t, "TicketCodeList"), gn(t, "AllCompassSourceContentType"),
+						tradeCustomCols[0], tradeCustomCols[1], tradeCustomCols[2], tradeCustomCols[3], tradeCustomCols[4],
+						tradeCustomCols[5], tradeCustomCols[6], tradeCustomCols[7], tradeCustomCols[8], tradeCustomCols[9], tradeCustomCols[10])
 					if err != nil {
 						log.Printf("订单写入失败 %s: %v", tradeNo, err)
 					}
 					dayTrades++
 
 					// 解析货品自定义字段 (吉客云返回在 TradeOrderGoodsColumnExts 数组, 按 SubTradeId 关联商品行)
-					// Column3 = 核销费用, Column4 = 建议价
-					extMap := map[string][2]interface{}{}
+					// 接口文档 column 1-10, 已知 col3=核销费用 col4=建议价, 其它由跑哥吉客云后台配置
+					// 用 gn (nil-safe) 取值: 吉客云未返回 → NULL, 区别于业务真填 "0"
+					extMap := map[string][10]interface{}{}
 					if exts, ok := t["TradeOrderGoodsColumnExts"]; ok {
 						if extsList, ok := exts.([]interface{}); ok {
 							for _, e := range extsList {
@@ -348,14 +382,11 @@ func main() {
 									if sti == "" {
 										continue
 									}
-									var col3, col4 interface{}
-									if v := gs(em, "CustomizeGoodsColumn3"); v != "" {
-										col3 = v
+									var arr [10]interface{}
+									for i := 1; i <= 10; i++ {
+										arr[i-1] = gn(em, fmt.Sprintf("CustomizeGoodsColumn%d", i))
 									}
-									if v := gs(em, "CustomizeGoodsColumn4"); v != "" {
-										col4 = v
-									}
-									extMap[sti] = [2]interface{}{col3, col4}
+									extMap[sti] = arr
 								}
 							}
 						}
@@ -369,11 +400,10 @@ func main() {
 								if !ok {
 									continue
 								}
-								// 按 SubTradeId 取自定义字段
-								var custCol3, custCol4 interface{}
+								// 按 SubTradeId 取自定义字段 1-10
+								var custCols [10]interface{}
 								if ext, ok := extMap[gs(g, "SubTradeId")]; ok {
-									custCol3 = ext[0]
-									custCol4 = ext[1]
+									custCols = ext
 								}
 								_, err := db.Exec(fmt.Sprintf(`INSERT INTO trade_goods_%s
 									(trade_id, trade_no, sub_trade_id, goods_id, goods_no, goods_name,
@@ -384,8 +414,9 @@ func main() {
 									 divide_sell_total, goods_seller,
 									 shop_id, bill_date, trade_type,
 									 goods_plat_discount_fee, is_presell, share_order_discount_fee, share_order_plat_discount_fee,
-									 customize_goods_column_3, customize_goods_column_4)
-									VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+									 customize_goods_column_1, customize_goods_column_2, customize_goods_column_3, customize_goods_column_4, customize_goods_column_5,
+									 customize_goods_column_6, customize_goods_column_7, customize_goods_column_8, customize_goods_column_9, customize_goods_column_10)
+									VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 								ON DUPLICATE KEY UPDATE goods_id=VALUES(goods_id), shop_id=VALUES(shop_id),
 									sell_count=VALUES(sell_count), sell_price=VALUES(sell_price),
 									sell_total=VALUES(sell_total), cost=VALUES(cost), discount_fee=VALUES(discount_fee),
@@ -394,8 +425,16 @@ func main() {
 									goods_plat_discount_fee=VALUES(goods_plat_discount_fee), is_presell=VALUES(is_presell),
 									share_order_discount_fee=VALUES(share_order_discount_fee),
 									share_order_plat_discount_fee=VALUES(share_order_plat_discount_fee),
+									customize_goods_column_1=VALUES(customize_goods_column_1),
+									customize_goods_column_2=VALUES(customize_goods_column_2),
 									customize_goods_column_3=VALUES(customize_goods_column_3),
-									customize_goods_column_4=VALUES(customize_goods_column_4)`, tableMonth),
+									customize_goods_column_4=VALUES(customize_goods_column_4),
+									customize_goods_column_5=VALUES(customize_goods_column_5),
+									customize_goods_column_6=VALUES(customize_goods_column_6),
+									customize_goods_column_7=VALUES(customize_goods_column_7),
+									customize_goods_column_8=VALUES(customize_goods_column_8),
+									customize_goods_column_9=VALUES(customize_goods_column_9),
+									customize_goods_column_10=VALUES(customize_goods_column_10)`, tableMonth),
 									tradeId, tradeNo, gs(g, "SubTradeId"), gs(g, "GoodsId"), gn(g, "GoodsNo"), gn(g, "GoodsName"),
 									gs(g, "SpecId"), gn(g, "SpecName"), gn(g, "Barcode"),
 									gn(g, "SellCount"), gn(g, "SellPrice"), gn(g, "SellTotal"), gn(g, "Cost"), gn(g, "DiscountFee"), gn(g, "TaxFee"),
@@ -404,7 +443,8 @@ func main() {
 									gn(g, "DivideSellTotal"), gn(g, "GoodsSeller"),
 									gs(t, "ShopId"), gn(t, "BillDate"), gn(t, "TradeType"),
 									gn(g, "GoodsPlatDiscountFee"), gn(g, "IsPresell"), gn(g, "ShareOrderDiscountFee"), gn(g, "ShareOrderPlatDiscountFee"),
-									custCol3, custCol4)
+									custCols[0], custCols[1], custCols[2], custCols[3], custCols[4],
+									custCols[5], custCols[6], custCols[7], custCols[8], custCols[9])
 								if err != nil {
 									log.Printf("明细写入失败 %s: %v", tradeNo, err)
 								}
