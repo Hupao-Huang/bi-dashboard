@@ -89,10 +89,19 @@ func TestNormalizeUserStatus(t *testing.T) {
 }
 
 // isBuiltInRole — 内置角色 code 检测
+// 已 Read auth.go line 512-519: 6 个内置 role
 func TestIsBuiltInRole(t *testing.T) {
-	// 至少 super_admin 是内置 (从 builtInRoleCodes 全局)
-	// 不知道全列表, 测 stable 行为: 已知不是 → false
-	if isBuiltInRole("custom_role_xyz_does_not_exist") {
-		t.Error("不存在的 role code 必须返 false")
+	builtIn := []string{"super_admin", "management", "dept_manager", "operator", "finance", "supply_chain"}
+	for _, code := range builtIn {
+		if !isBuiltInRole(code) {
+			t.Errorf("%q 是内置 role, 应返 true", code)
+		}
+	}
+	// 自定义 role 不算
+	notBuiltIn := []string{"", "custom_role_xyz", "admin", "guest"}
+	for _, code := range notBuiltIn {
+		if isBuiltInRole(code) {
+			t.Errorf("%q 不是内置 role, 应返 false", code)
+		}
 	}
 }
