@@ -35,3 +35,65 @@ func TestProcessAliveNonExistentPID(t *testing.T) {
 		t.Error("非常大的不存在 PID 应返 false")
 	}
 }
+
+// ============ AcquireLock ============
+
+func TestAcquireLockNew(t *testing.T) {
+	// 没有现存锁 → 直接写新锁
+	name := "test-acquire-lock-new-12345"
+	release := AcquireLock(name)
+
+	lockFile := filepathJoin(name)
+	data, err := os.ReadFile(lockFile)
+	if err != nil {
+		release()
+		t.Fatalf("锁文件应存在: %v", err)
+	}
+	if len(data) == 0 {
+		release()
+		t.Error("锁文件应有 PID 内容")
+	}
+
+	release()
+	if _, err := os.Stat(lockFile); !os.IsNotExist(err) {
+		t.Error("release 后锁文件应被删除")
+	}
+}
+
+func TestAcquireLockOrphanCleanup(t *testing.T) {
+	// 注入一个 PID=9999999 (不存在的 PID) 的孤儿锁
+	name := "test-acquire-lock-orphan-67890"
+	lockFile := filepathJoin(name)
+	os.MkdirAll(lockDir, 0755)
+	defer os.Remove(lockFile)
+	os.WriteFile(lockFile, []byte("9999999"), 0644)
+
+	release := AcquireLock(name) // 应清理孤儿锁后获取新锁
+	defer release()
+
+	data, _ := os.ReadFile(lockFile)
+	if string(data) == "9999999" {
+		t.Error("孤儿锁应被替换为当前 PID")
+	}
+}
+
+func TestAcquireLockBadContent(t *testing.T) {
+	// 锁文件内容不是数字 → 当孤儿锁清理
+	name := "test-acquire-lock-badcontent-abc"
+	lockFile := filepathJoin(name)
+	os.MkdirAll(lockDir, 0755)
+	defer os.Remove(lockFile)
+	os.WriteFile(lockFile, []byte("not-a-pid"), 0644)
+
+	release := AcquireLock(name)
+	defer release()
+
+	data, _ := os.ReadFile(lockFile)
+	if string(data) == "not-a-pid" {
+		t.Error("非数字内容应被替换")
+	}
+}
+
+func filepathJoin(name string) string {
+	return lockDir + string(os.PathSeparator) + name + ".lock"
+}
