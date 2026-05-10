@@ -58,7 +58,7 @@ func TestGetMarketingCostTmallPlatformHappyPath(t *testing.T) {
 	}
 }
 
-// 测 jd 单平台 (4 SQL)
+// jd 单平台 happy (5 SQL)
 func TestGetMarketingCostJdPlatform(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
@@ -68,21 +68,28 @@ func TestGetMarketingCostJdPlatform(t *testing.T) {
 
 	mock.MatchExpectationsInOrder(false)
 
-	// 让 jd 主路径 SQL 全空 — 不知道详细 SQL 数, 给一个通用 mock + 看是否 200
-	mock.ExpectQuery(`FROM op_jd_campaign_daily.*GROUP BY stat_date`).
+	// 1. 京东 CPC trend
+	mock.ExpectQuery(`FROM op_jd_campaign_daily WHERE stat_date BETWEEN \? AND \?.*GROUP BY stat_date`).
 		WillReturnRows(sqlmock.NewRows([]string{"d", "cost", "amt", "roi", "clicks", "imp"}))
+	// 2. 京东 CPS (affiliate)
+	mock.ExpectQuery(`FROM op_jd_affiliate_daily WHERE stat_date BETWEEN \? AND \?.*GROUP BY stat_date`).
+		WillReturnRows(sqlmock.NewRows([]string{"d", "amt", "comm", "users"}))
+	// 3. 京东店铺 CPC
 	mock.ExpectQuery(`FROM op_jd_campaign_daily.*GROUP BY shop_name`).
 		WillReturnRows(sqlmock.NewRows([]string{"sn", "cost", "amt", "roi", "clicks"}))
-	mock.ExpectQuery(`FROM op_jd_campaign_daily.*GROUP BY (scene_name|product_type)`).
+	// 4. 京东推广类型明细
+	mock.ExpectQuery(`FROM op_jd_campaign_daily.*GROUP BY promo_type`).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "cost", "amt", "roi", "clicks", "cpc"}))
+	// 5. shops UNION (op_jd_campaign + op_jd_affiliate)
+	mock.ExpectQuery(`SELECT DISTINCT shop_name FROM op_jd_campaign_daily.*UNION.*op_jd_affiliate_daily`).
+		WillReturnRows(sqlmock.NewRows([]string{"sn"}))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/marketing-cost?platform=jd&start=2026-05-01&end=2026-05-31", nil)
 	(&DashboardHandler{DB: db}).GetMarketingCost(rec, req)
 
-	// 不强制 200 (mock 数可能不全), 但应不 panic
-	if rec.Code == 0 {
-		t.Error("响应无效")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
