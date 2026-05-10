@@ -88,6 +88,7 @@ func main() {
 
 	// 默认跑昨天 1 天; 支持 args: ./sync-daily-trades 20260501 [20260507]
 	// 单参数 = 只跑指定那 1 天; 双参数 = 跑日期范围
+	// 优先级: 命令行 args (yyyymmdd) > 环境变量 TRADE_SYNC_START_DATE/END_DATE (yyyy-mm-dd, 兼容 task_monitor 前端日期补拉按钮)
 	startDate := time.Now().AddDate(0, 0, -1)
 	endDate := startDate
 	if len(os.Args) >= 2 {
@@ -97,12 +98,25 @@ func main() {
 		} else {
 			log.Fatalf("日期格式错误 (要 yyyymmdd): %v", err)
 		}
+	} else if env := os.Getenv("TRADE_SYNC_START_DATE"); env != "" {
+		if d, err := time.Parse("2006-01-02", env); err == nil {
+			startDate = d
+			endDate = d
+		} else {
+			log.Fatalf("环境变量 TRADE_SYNC_START_DATE 格式错误 (要 yyyy-mm-dd): %v", err)
+		}
 	}
 	if len(os.Args) >= 3 {
 		if d, err := time.Parse("20060102", os.Args[2]); err == nil {
 			endDate = d
 		} else {
 			log.Fatalf("结束日期格式错误 (要 yyyymmdd): %v", err)
+		}
+	} else if env := os.Getenv("TRADE_SYNC_END_DATE"); env != "" {
+		if d, err := time.Parse("2006-01-02", env); err == nil {
+			endDate = d
+		} else {
+			log.Fatalf("环境变量 TRADE_SYNC_END_DATE 格式错误 (要 yyyy-mm-dd): %v", err)
 		}
 	}
 	totalDays := int(endDate.Sub(startDate).Hours()/24) + 1
@@ -123,16 +137,18 @@ func main() {
 		dayTrades := 0
 		dayGoods := 0
 
-		// 按整天单窗口拉取 (跑哥要求验证): 不拆分时段, 整天 00:00:00 - 23:59:59 一次性查
-		// scrollId 翻页. 已知风险: 吉客云 scrollId 在 200 条后可能提前失效, 整天窗口被 break
-		// 概率高, 仅用于对照实验.
-		for slot := 0; slot < 1; slot++ {
-			hourStart := fmt.Sprintf("%s 00:00:00", dayStr)
-			hourEnd := fmt.Sprintf("%s 23:59:59", dayStr)
+		// 按小时拆分拉取 (避免 scrollId 在大窗口失效, 同时兼容已删除的 sync-half-day 工具职责)
+		for hour := 0; hour < 24; hour++ {
+			hourStart := fmt.Sprintf("%s %02d:00:00", dayStr, hour)
+			hourEnd := fmt.Sprintf("%s %02d:59:59", dayStr, hour)
 			scrollId := ""
 			parseRetry := 0
+			pageNum := 0
+
+			log.Printf("[%s %02d时] 开始拉取窗口 %s ~ %s", dayStr, hour, hourStart, hourEnd)
 
 			for {
+				pageNum++
 				biz := map[string]interface{}{
 					"startConsignTime": hourStart,
 					"endConsignTime":   hourEnd,
@@ -141,6 +157,7 @@ func main() {
 					"scrollId":         scrollId,
 					"fields":           tradeFields,
 				}
+				log.Printf("[%s %02d时 page=%d] >>> 发起请求 scrollId=%.16q...", dayStr, hour, pageNum, scrollId)
 
 				var resp *jackyun.APIResponse
 				for retry := 0; retry < 5; retry++ {
@@ -183,6 +200,7 @@ func main() {
 				var result struct {
 					TotalResults int               `json:"TotalResults"`
 					Trades       []json.RawMessage `json:"Trades"`
+					ScrollId     string            `json:"ScrollId"`
 				}
 				if err := json.Unmarshal(dataBytes, &result); err != nil {
 					parseRetry++
@@ -416,14 +434,23 @@ func main() {
 					}
 				}
 
+				log.Printf("[%s %02d时 page=%d] <<< 收到响应 trades=%d wrapper.scrollId=%.16q result.scrollId=%.16q", dayStr, hour, pageNum, len(result.Trades), wrapper.ScrollId, result.ScrollId)
+
 				if len(result.Trades) < 200 {
+					log.Printf("[%s %02d时] 该段完成 共 %d 页 (末页 trades=%d 不足 200)", dayStr, hour, pageNum, len(result.Trades))
 					break
 				}
 
-				if wrapper.ScrollId != "" {
-					scrollId = wrapper.ScrollId
+				// 修 bug: 真实 scrollId 在 result.ScrollId (嵌套 data 层), 不是顶层 wrapper.ScrollId
+				// (探针 probe-trade-empty-scrollid 实测: wrapper.ScrollId 永远空, result.ScrollId 才是吉客云返回的游标)
+				nextScrollId := wrapper.ScrollId
+				if nextScrollId == "" {
+					nextScrollId = result.ScrollId
+				}
+				if nextScrollId != "" {
+					scrollId = nextScrollId
 				} else {
-					log.Printf("[警告] [%s %02d时] 无 scrollId 返回, 停止翻页 (累计 %d 条; 如怀疑漏数据, 请手动跑 sync-half-day %s 补拉)", dayStr, hour, dayTrades, dayStr)
+					log.Printf("[%s %02d时] 翻页结束 (累计 %d 条, 已到末页)", dayStr, hour, dayTrades)
 					break
 				}
 			}
