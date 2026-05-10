@@ -547,8 +547,8 @@ type RunningTask struct {
 
 var manualTaskConfigs = []ManualTaskConfig{
 	{
-		Key: "sync-trades", Name: "销售单补拉", Description: "按日期范围补拉销售单+明细+包裹",
-		Exe: "sync-trades-v2.exe",
+		Key: "sync-trades", Name: "销售单补拉", Description: "按日期范围补拉销售单+明细+包裹 (主力工具, 含核销费用/建议价)",
+		Exe: "sync-daily-trades.exe",
 		Params: []ParamConfig{
 			{Key: "startDate", Label: "开始日期", Type: "date", Required: true, EnvVar: "TRADE_SYNC_START_DATE"},
 			{Key: "endDate", Label: "结束日期", Type: "date", Required: true, EnvVar: "TRADE_SYNC_END_DATE"},
