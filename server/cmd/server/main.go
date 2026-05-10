@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"bi-dashboard/internal/config"
@@ -16,7 +18,71 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+// initStructuredLogging 初始化 slog (JSON 输出) 并接管 log 包默认 logger
+//   - LOG_FORMAT=json (默认) → JSON 单行 / 日志聚合工具 (ELK/Loki) 可直接消费
+//   - LOG_FORMAT=text         → 人类可读, 本地开发用
+//   - LOG_LEVEL=debug|info|warn|error (默认 info)
+func initStructuredLogging() {
+	level := slog.LevelInfo
+	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+
+	opts := &slog.HandlerOptions{Level: level}
+	var handler slog.Handler
+	if strings.ToLower(os.Getenv("LOG_FORMAT")) == "text" {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	}
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	// 接管 log 包默认 output: 让 log.Printf/Println/Fatalf 也走 slog handler
+	// 副作用: 所有现存 88 处 log.* 调用自动变 JSON 行 (msg 字段含原文本)
+	log.SetFlags(0) // 关掉默认 timestamp, slog 自带
+	log.SetOutput(stdLoggerWriter{})
+}
+
+// stdLoggerWriter 把 log 包写入桥接到 slog
+type stdLoggerWriter struct{}
+
+func (stdLoggerWriter) Write(p []byte) (int, error) {
+	msg := strings.TrimRight(string(p), "\n")
+	slog.Info(msg)
+	return len(p), nil
+}
+
+// statusRecorder 拦 ResponseWriter 记录状态码 (访问日志用)
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	if !r.wroteHeader {
+		r.status = code
+		r.wroteHeader = true
+	}
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	if !r.wroteHeader {
+		r.wroteHeader = true
+	}
+	return r.ResponseWriter.Write(b)
+}
+
 func main() {
+	initStructuredLogging()
+
 	// Sentry 错误监控 (DSN 留空时静默禁用, 不影响功能)
 	// 配置: 环境变量 SENTRY_DSN=https://xxx@sentry.io/12345 + SENTRY_ENV=production
 	if dsn := os.Getenv("SENTRY_DSN"); dsn != "" {
@@ -114,7 +180,7 @@ func main() {
 					hub.Scope().SetTag("method", r.Method)
 					hub.Recover(rec)
 					hub.Flush(2 * time.Second)
-					log.Printf("[panic] %s %s: %v", r.Method, r.URL.Path, rec)
+					slog.Error("panic", "method", r.Method, "path", r.URL.Path, "error", fmt.Sprintf("%v", rec))
 					http.Error(w, "internal server error", http.StatusInternalServerError)
 				}
 			}()
@@ -122,8 +188,32 @@ func main() {
 		}
 	}
 
+	// accessLog 记录每个 HTTP 请求 (method/path/status/duration_ms/client_ip)
+	// 输出 JSON 行, 便于 ELK/Loki 等聚合: {"level":"INFO","msg":"http","method":"GET",...}
+	accessLog := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			rec := &statusRecorder{ResponseWriter: w, status: 200}
+			next(rec, r)
+			elapsed := time.Since(start)
+			level := slog.LevelInfo
+			if rec.status >= 500 {
+				level = slog.LevelError
+			} else if rec.status >= 400 {
+				level = slog.LevelWarn
+			}
+			slog.LogAttrs(r.Context(), level, "http",
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.Int("status", rec.status),
+				slog.Int64("duration_ms", elapsed.Milliseconds()),
+				slog.String("remote", r.RemoteAddr),
+			)
+		}
+	}
+
 	corsHandler := func(next http.HandlerFunc) http.HandlerFunc {
-		return sentryRecover(func(w http.ResponseWriter, r *http.Request) {
+		return accessLog(sentryRecover(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 			if origin != "" && allowedOrigins[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -145,7 +235,7 @@ func main() {
 				}
 			}
 			next(w, r)
-		})
+		}))
 	}
 
 	protected := func(next http.HandlerFunc) http.HandlerFunc {
