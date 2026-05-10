@@ -11,6 +11,7 @@ import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import GoodsChannelExpand from '../../components/GoodsChannelExpand';
+import { formatShopBarTooltip } from './shopBarTooltip';
 import { API_BASE, DATA_END_DATE, DATA_START_DATE } from '../../config';
 import {
   getBaseOption,
@@ -409,10 +410,23 @@ const OverviewPage: React.FC = () => {
 
   const shopNames = (data?.topShops || []).map((s: any) => s.shopName).reverse();
   const shopSales = (data?.topShops || []).map((s: any) => s.sales).reverse();
+  const shopBreakdown = data?.shopBreakdown || {};
   const shopBarOption = useMemo(() => ({
     ...baseOpt,
     animation: !isLongRange,
     grid: { left: 8, right: 40, top: 8, bottom: 8, containLabel: true },
+    tooltip: {
+      trigger: 'axis' as const,
+      axisPointer: { type: 'shadow' as const },
+      enterable: true,
+      confine: true,
+      appendToBody: true,
+      extraCssText: 'max-width: 380px; white-space: normal; z-index: 1100;',
+      formatter: (params: any) => {
+        const p = Array.isArray(params) ? params[0] : params;
+        return formatShopBarTooltip(p.name, p.value || 0, shopBreakdown[p.name]);
+      },
+    },
     xAxis: { ...baseOpt.xAxis, type: 'value' as const, axisLabel: { ...baseOpt.xAxis.axisLabel, formatter: formatMoney } },
     yAxis: {
       ...baseOpt.yAxis,
@@ -421,7 +435,7 @@ const OverviewPage: React.FC = () => {
       axisLabel: { color: '#334155', fontSize: 12, width: 220, overflow: 'none' as const },
     },
     series: [{ type: 'bar', data: shopSales, ...barItemStyle('#1e40af'), barWidth: 16 }],
-  }), [baseOpt, isLongRange, shopNames, shopSales]);
+  }), [baseOpt, isLongRange, shopNames, shopSales, shopBreakdown]);
 
   const totalSales = currentDepts.reduce((s: number, d: any) => s + d.sales, 0);
   const totalQty = currentDepts.reduce((s: number, d: any) => s + d.qty, 0);

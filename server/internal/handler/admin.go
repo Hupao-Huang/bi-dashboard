@@ -99,6 +99,8 @@ var adminDeptLabelMap = map[string]string{
 	"finance":        "财务部门",
 	"supply_chain":   "供应链管理",
 	"supply-chain":   "供应链管理",
+	"other":          "其他",
+	"excluded":       "不计算销售",
 }
 
 var builtInRoleCodes = func() map[string]struct{} {

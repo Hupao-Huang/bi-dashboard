@@ -10,6 +10,8 @@ const DEPT_OPTIONS = [
   { value: 'offline', label: '线下' },
   { value: 'distribution', label: '分销' },
   { value: 'instant_retail', label: '即时零售' },
+  { value: 'other', label: '其他' },
+  { value: 'excluded', label: '不计算销售' },
 ];
 
 const DEPT_MAP: Record<string, { label: string; color: string }> = {
@@ -18,6 +20,8 @@ const DEPT_MAP: Record<string, { label: string; color: string }> = {
   offline: { label: '线下', color: 'orange' },
   distribution: { label: '分销', color: 'purple' },
   instant_retail: { label: '即时零售', color: 'cyan' },
+  other: { label: '其他', color: 'default' },
+  excluded: { label: '不计算销售', color: 'red' },
 };
 
 const ChannelManagement: React.FC = () => {
@@ -159,6 +163,8 @@ const ChannelManagement: React.FC = () => {
         { text: '线下', value: 'offline' },
         { text: '分销', value: 'distribution' },
         { text: '即时零售', value: 'instant_retail' },
+        { text: '其他', value: 'other' },
+        { text: '不计算销售', value: 'excluded' },
         { text: '未分配', value: '' },
       ],
       onFilter: (value: any, record: any) => (record.department || '') === value,
@@ -223,6 +229,8 @@ const ChannelManagement: React.FC = () => {
               { value: 'offline', label: '线下' },
               { value: 'distribution', label: '分销' },
               { value: 'instant_retail', label: '即时零售' },
+              { value: 'other', label: '其他' },
+              { value: 'excluded', label: '不计算销售' },
             ]}
           />
           <Select

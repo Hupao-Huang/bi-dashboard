@@ -144,8 +144,9 @@ func (h *DashboardHandler) UpdateChannelDepartment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 验证部门值 (v1.02 加 instant_retail 即时零售部)
-	validDepts := map[string]bool{"ecommerce": true, "social": true, "offline": true, "distribution": true, "instant_retail": true, "": true}
+	// 验证部门值 (v1.02 加 instant_retail 即时零售部; v1.46.2 加 other/excluded BI 内部归类)
+	// other = 其他 (临时归类, 不计入综合看板), excluded = 不计算销售 (特殊渠道, 不进任何部门统计)
+	validDepts := map[string]bool{"ecommerce": true, "social": true, "offline": true, "distribution": true, "instant_retail": true, "other": true, "excluded": true, "": true}
 	if !validDepts[req.Department] {
 		writeError(w, 400, "无效的部门值")
 		return
