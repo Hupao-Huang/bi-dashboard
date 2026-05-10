@@ -160,7 +160,8 @@ func TestGetOverviewDatabaseErrorReturns500(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery("SELECT department,").WillReturnError(errors.New("boom"))
+	// 第一个 dept 汇总 SQL (v1.46.2 改过 SELECT prefix 含 CASE WHEN, 用通用 FROM 子句匹配最稳)
+	mock.ExpectQuery("FROM sales_goods_summary").WillReturnError(errors.New("boom"))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/overview?start=2026-03-01&end=2026-03-07", nil)

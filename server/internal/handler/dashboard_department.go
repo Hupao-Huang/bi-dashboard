@@ -655,6 +655,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			FROM sales_goods_summary s
 			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
 			WHERE s.stat_date BETWEEN ? AND ?
+			  AND IFNULL(s.department,'') NOT IN ('excluded','other','')
 			GROUP BY grade, s.department
 			ORDER BY FIELD(grade,'S','A','B','C','D','未设置'), sales DESC`, start, end)
 		if !ok {
@@ -681,6 +682,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			FROM sales_goods_summary s
 			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
 			WHERE s.stat_date BETWEEN ? AND ?
+			  AND IFNULL(s.department,'') NOT IN ('excluded','other','')
 			GROUP BY grade, s.department, s.shop_name
 			ORDER BY FIELD(grade,'S','A','B','C','D','未设置'), sales DESC`, start, end)
 		if !ok {

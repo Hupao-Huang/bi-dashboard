@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { DEPT_COLORS, CHART_COLORS } from '../chartTheme';
+import { DEPT_COLORS, CHART_COLORS, GRADE_COLORS } from '../chartTheme';
 import { Row, Col, Card, Table, Statistic, Select, Radio, Switch } from 'antd';
 import ReactECharts from './Chart';
 import DateFilter from './DateFilter';
@@ -104,15 +104,8 @@ const FinanceProductProfit: React.FC = () => {
     pieAggMap[key].profit += (it.profit || 0);
   });
 
-  // 配色（克制但可区分）
-  const gradeColorMap: Record<string, string> = {
-    'S': '#f59e0b',  // 顶级品 — 暖橙突出
-    'A': '#1e40af',  // 主题深蓝
-    'B': '#0ea5e9',  // 青蓝
-    'C': '#14b8a6',  // 青绿
-    'D': '#7c3aed',  // 紫
-    '未设置': '#94a3b8',
-  };
+  // 配色统一用 chartTheme.GRADE_COLORS, 跟 ProductDashboard / FinanceProfitOverview 等模块一致
+  const gradeColorMap: Record<string, string> = GRADE_COLORS;
   const deptColorMap: Record<string, string> = {
     '电商': DEPT_COLORS.ecommerce || '#1e40af',
     '社媒': DEPT_COLORS.social || '#7c3aed',
@@ -325,7 +318,7 @@ const FinanceProductProfit: React.FC = () => {
       ],
       onFilter: (value: any, record: any) => (record.grade || '') === value,
       render: (v: string) => v
-        ? <span style={{ fontWeight: 600, color: '#0f172a' }}>{v}</span>
+        ? <span style={{ fontWeight: 600, color: GRADE_COLORS[v] || '#0f172a' }}>{v}</span>
         : <span style={{ color: '#94a3b8' }}>—</span>,
     },
     {

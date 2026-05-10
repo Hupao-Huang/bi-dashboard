@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 )
 
 // GetOverview 综合看板
@@ -29,7 +30,8 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 			ROUND(SUM(goods_cost), 2) as cost,
 			COUNT(DISTINCT goods_id) as sku_count
 		FROM sales_goods_summary
-		WHERE stat_date BETWEEN ? AND ?`+scopeCond+`
+		WHERE stat_date BETWEEN ? AND ?
+		  AND IFNULL(department,'') NOT IN ('excluded','other','')`+scopeCond+`
 		GROUP BY dept
 		ORDER BY sales DESC`, deptArgs...)
 	if !ok {
@@ -89,7 +91,8 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 			ROUND(SUM(IFNULL(local_goods_amt, goods_amt)), 2) as sales,
 			ROUND(SUM(goods_qty), 0) as qty
 		FROM sales_goods_summary
-		WHERE stat_date BETWEEN ? AND ?`+scopeCond+`
+		WHERE stat_date BETWEEN ? AND ?
+		  AND IFNULL(department,'') NOT IN ('excluded','other','')`+scopeCond+`
 		GROUP BY stat_date, dept
 		ORDER BY stat_date`, trendArgs...)
 	if !ok {
@@ -126,7 +129,8 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		FROM sales_goods_summary s
 		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
 		WHERE s.goods_no IS NOT NULL AND s.goods_no != ''
-		  AND s.stat_date BETWEEN ? AND ?`+withAlias(scopeCond, "s")+`
+		  AND s.stat_date BETWEEN ? AND ?
+		  AND IFNULL(s.department,'') NOT IN ('excluded','other','')`+withAlias(scopeCond, "s")+`
 		GROUP BY s.goods_no, s.goods_name, s.brand_name, s.cate_name, g.goods_field7
 		ORDER BY sales DESC LIMIT 15`, goodsArgs...)
 	if !ok {
@@ -177,7 +181,8 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 				ROUND(SUM(goods_qty), 0) as qty
 			FROM sales_goods_summary
 			WHERE stat_date BETWEEN ? AND ?
-			  AND goods_no IN (`+joinStrings(ph, ",")+`)`+scopeCond+`
+			  AND goods_no IN (`+joinStrings(ph, ",")+`)
+			  AND IFNULL(department,'') NOT IN ('excluded','other','')`+scopeCond+`
 			GROUP BY goods_no, shop_name
 			ORDER BY goods_no, sales DESC`, chArgs...)
 		if !ok {
@@ -205,7 +210,8 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 			ROUND(SUM(goods_qty), 0) as qty
 		FROM sales_goods_summary
 		WHERE shop_name IS NOT NULL AND shop_name != ''
-		  AND stat_date BETWEEN ? AND ?`+scopeCond+`
+		  AND stat_date BETWEEN ? AND ?
+		  AND IFNULL(department,'') NOT IN ('excluded','other','')`+scopeCond+`
 		GROUP BY shop_name, department
 		ORDER BY sales DESC LIMIT 15`, shopArgs...)
 	if !ok {
@@ -231,6 +237,98 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 4.5 店铺销售明细 (Top15 店铺各 Top 5 SKU + Top 5 分类, 给 hover tooltip 用)
+	type ShopBreakdownGoodsItem struct {
+		GoodsNo   string  `json:"goodsNo"`
+		GoodsName string  `json:"goodsName"`
+		Grade     string  `json:"grade"`
+		Sales     float64 `json:"sales"`
+	}
+	type ShopBreakdownCateItem struct {
+		CateName string  `json:"cateName"`
+		Sales    float64 `json:"sales"`
+	}
+	type ShopBreakdownEntry struct {
+		TopGoods   []ShopBreakdownGoodsItem `json:"topGoods"`
+		TopCates   []ShopBreakdownCateItem  `json:"topCates"`
+		TotalSales float64                  `json:"totalSales"`
+	}
+	shopBreakdown := map[string]*ShopBreakdownEntry{}
+	if len(topShops) > 0 {
+		shopList := make([]string, 0, len(topShops))
+		ph := make([]string, 0, len(topShops))
+		breakdownArgs := make([]interface{}, 0, len(topShops)+2+len(scopeArgs))
+		for _, s := range topShops {
+			shopList = append(shopList, s.ShopName)
+			ph = append(ph, "?")
+			breakdownArgs = append(breakdownArgs, s.ShopName)
+			shopBreakdown[s.ShopName] = &ShopBreakdownEntry{TotalSales: s.Sales}
+		}
+		breakdownArgs = append(breakdownArgs, start, end)
+		breakdownArgs = append(breakdownArgs, scopeArgs...)
+		phJoined := strings.Join(ph, ",")
+
+		// Top 5 SKU per shop
+		gRows, gok := queryRowsOrWriteError(w, h.DB, `
+			WITH RankedGoods AS (
+				SELECT s.shop_name, s.goods_no, s.goods_name,
+					IFNULL(g.goods_field7,'') as grade,
+					ROUND(SUM(IFNULL(s.local_goods_amt, s.goods_amt)),2) as sales,
+					ROW_NUMBER() OVER (PARTITION BY s.shop_name ORDER BY SUM(IFNULL(s.local_goods_amt, s.goods_amt)) DESC) as rn
+				FROM sales_goods_summary s
+				LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+				WHERE s.shop_name IN (`+phJoined+`)
+				  AND s.stat_date BETWEEN ? AND ?
+				  AND IFNULL(s.department,'') NOT IN ('excluded','other','')`+withAlias(scopeCond, "s")+`
+				GROUP BY s.shop_name, s.goods_no, s.goods_name, g.goods_field7
+			)
+			SELECT shop_name, goods_no, goods_name, grade, sales FROM RankedGoods WHERE rn <= 5
+			ORDER BY shop_name, sales DESC`, breakdownArgs...)
+		if gok {
+			defer gRows.Close()
+			for gRows.Next() {
+				var sn, gno, gname, grade string
+				var sales float64
+				if err := gRows.Scan(&sn, &gno, &gname, &grade, &sales); err == nil {
+					if sb, exists := shopBreakdown[sn]; exists {
+						sb.TopGoods = append(sb.TopGoods, ShopBreakdownGoodsItem{
+							GoodsNo: gno, GoodsName: gname, Grade: grade, Sales: sales,
+						})
+					}
+				}
+			}
+		}
+
+		// Top 5 分类 per shop
+		cRows, cok := queryRowsOrWriteError(w, h.DB, `
+			WITH RankedCates AS (
+				SELECT s.shop_name, IFNULL(NULLIF(s.cate_name,''),'未分类') as cate_name,
+					ROUND(SUM(IFNULL(s.local_goods_amt, s.goods_amt)),2) as sales,
+					ROW_NUMBER() OVER (PARTITION BY s.shop_name ORDER BY SUM(IFNULL(s.local_goods_amt, s.goods_amt)) DESC) as rn
+				FROM sales_goods_summary s
+				WHERE s.shop_name IN (`+phJoined+`)
+				  AND s.stat_date BETWEEN ? AND ?
+				  AND IFNULL(s.department,'') NOT IN ('excluded','other','')`+withAlias(scopeCond, "s")+`
+				GROUP BY s.shop_name, s.cate_name
+			)
+			SELECT shop_name, cate_name, sales FROM RankedCates WHERE rn <= 5
+			ORDER BY shop_name, sales DESC`, breakdownArgs...)
+		if cok {
+			defer cRows.Close()
+			for cRows.Next() {
+				var sn, cate string
+				var sales float64
+				if err := cRows.Scan(&sn, &cate, &sales); err == nil {
+					if sb, exists := shopBreakdown[sn]; exists {
+						sb.TopCates = append(sb.TopCates, ShopBreakdownCateItem{
+							CateName: cate, Sales: sales,
+						})
+					}
+				}
+			}
+		}
+	}
+
 	// 5. 产品定位分布
 	type GradeDist struct {
 		Grade string  `json:"grade"`
@@ -243,7 +341,8 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 			ROUND(SUM(s.goods_amt), 2) as sales
 		FROM sales_goods_summary s
 		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
-		WHERE s.stat_date BETWEEN ? AND ?`+withAlias(scopeCond, "s")+`
+		WHERE s.stat_date BETWEEN ? AND ?
+		  AND IFNULL(s.department,'') NOT IN ('excluded','other','')`+withAlias(scopeCond, "s")+`
 		GROUP BY g.goods_field7
 		ORDER BY FIELD(g.goods_field7,'S','A','B','C','D'), sales DESC`, gradeArgs...)
 	if !ok {
@@ -277,7 +376,8 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 			ROUND(SUM(s.gross_profit), 2) as profit
 		FROM sales_goods_summary s
 		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
-		WHERE s.stat_date BETWEEN ? AND ?`+withAlias(scopeCond, "s")+`
+		WHERE s.stat_date BETWEEN ? AND ?
+		  AND IFNULL(s.department,'') NOT IN ('excluded','other','')`+withAlias(scopeCond, "s")+`
 		GROUP BY g.goods_field7, s.department
 		ORDER BY FIELD(g.goods_field7,'S','A','B','C','D'), sales DESC`, gdArgs...)
 	if !ok {
@@ -305,6 +405,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		"topGoods":       topGoods,
 		"goodsChannels":  overviewGoodsChannels,
 		"topShops":       topShops,
+		"shopBreakdown":  shopBreakdown,
 		"grades":         grades,
 		"gradeDeptSales": gradeDeptSales,
 		"dateRange":      map[string]string{"start": start, "end": end, "min": minDate, "max": maxDate},
