@@ -131,8 +131,20 @@ const SalesForecast: React.FC = () => {
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, `${ymStr}销量预测`);
-    XLSX.writeFile(wb, `销量预测_${ymStr}_${dayjs().format('YYYY-MM-DD_HHmm')}.xlsx`);
-    message.success(`已导出 ${filteredItems.length} 行 Excel`);
+    // 用 write + Blob 手动触发, 避免 XLSX.writeFile 在某些浏览器丢文件名
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const filename = `销量预测_${ymStr}_${dayjs().format('YYYY-MM-DD_HHmm')}.xlsx`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    message.success(`已导出 ${filteredItems.length} 行 Excel: ${filename}`);
   };
 
   const handleClear = async () => {
