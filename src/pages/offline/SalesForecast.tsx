@@ -163,11 +163,12 @@ const SalesForecast: React.FC = () => {
   const columns = useMemo(() => {
     const cols: any[] = [
       {
-        title: '货品',
+        title: '货品名',
         dataIndex: 'goods_name',
         key: 'goods_name',
         fixed: 'left' as const,
-        width: 220,
+        width: 200,
+        ellipsis: true,
         render: (v: string, row: ForecastItem) => {
           const f = row.seasonal_factor ?? 1;
           let factorBadge: React.ReactNode = null;
@@ -177,14 +178,19 @@ const SalesForecast: React.FC = () => {
             factorBadge = <Tag color="blue" style={{ marginInlineStart: 4 }}>×{f.toFixed(2)}</Tag>;
           }
           return (
-            <Tooltip title={f !== 1 ? `${predictMonthLabel}季节系数 ${f.toFixed(2)} (${f >= 1.2 ? '旺季' : f <= 0.8 ? '淡季' : '中性'})` : null}>
-              <div>
-                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v || '(未命名)'}</div>
-                <div style={{ color: '#94a3b8' }}>{row.sku_code}{factorBadge}</div>
-              </div>
+            <Tooltip title={f !== 1 ? `${v} · ${predictMonthLabel}季节系数 ${f.toFixed(2)} (${f >= 1.2 ? '旺季' : f <= 0.8 ? '淡季' : '中性'})` : v}>
+              <span>{v || '(未命名)'}{factorBadge}</span>
             </Tooltip>
           );
         },
+      },
+      {
+        title: '货品编码',
+        dataIndex: 'sku_code',
+        key: 'sku_code',
+        fixed: 'left' as const,
+        width: 110,
+        render: (v: string) => <span style={{ color: '#64748b' }}>{v}</span>,
       },
     ];
     regions.forEach(region => {
@@ -294,7 +300,7 @@ const SalesForecast: React.FC = () => {
             columns={columns}
             dataSource={filteredItems}
             pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
-            scroll={{ x: 220 + regions.length * 100 + 110 }}
+            scroll={{ x: 200 + 110 + regions.length * 100 + 110 }}
             size="small"
           />
         )}
