@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Radio, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
+import * as XLSX from 'xlsx';
 import { API_BASE } from '../../config';
 
 interface ForecastItem {
@@ -106,33 +107,32 @@ const SalesForecast: React.FC = () => {
 
   const handleDownload = () => {
     const headers = ['货品名', '货品编码', `${predictMonthLabel}季节系数`, ...regions, '线下总计'];
-    const rows = filteredItems.map(it => {
+    const aoa: any[][] = [headers];
+    filteredItems.forEach(it => {
       const uv = userValues[it.sku_code] || {};
-      const cells = regions.map(r => uv[r] ?? '');
+      const cells = regions.map(r => uv[r] ?? null);
       const total = regions.reduce((s, r) => s + (uv[r] || 0), 0);
-      const escape = (v: any) => {
-        const s = String(v ?? '');
-        return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      };
-      return [
-        escape(it.goods_name || ''),
-        escape(it.sku_code),
-        escape(it.seasonal_factor?.toFixed(2) ?? ''),
-        ...cells.map(escape),
+      aoa.push([
+        it.goods_name || '',
+        it.sku_code,
+        it.seasonal_factor ?? null,
+        ...cells,
         total,
-      ].join(',');
+      ]);
     });
-    const csv = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `销量预测_${ymStr}_${dayjs().format('YYYY-MM-DD_HHmm')}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    message.success(`已导出 ${filteredItems.length} 行 CSV`);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // 列宽
+    ws['!cols'] = [
+      { wch: 32 }, // 货品名
+      { wch: 14 }, // 货品编码
+      { wch: 12 }, // 季节系数
+      ...regions.map(() => ({ wch: 10 })),
+      { wch: 12 }, // 线下总计
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `${ymStr}销量预测`);
+    XLSX.writeFile(wb, `销量预测_${ymStr}_${dayjs().format('YYYY-MM-DD_HHmm')}.xlsx`);
+    message.success(`已导出 ${filteredItems.length} 行 Excel`);
   };
 
   const handleClear = async () => {
