@@ -339,8 +339,8 @@ const SalesForecast: React.FC = () => {
           {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
           <span style={{ fontWeight: 600 }}>SKU 范围</span>
           <Radio.Group size="small" value={rangeMode} onChange={e => setRangeMode(e.target.value)}>
-            <Radio.Button value="recent6m">近 6 个月有销量</Radio.Button>
-            <Radio.Button value="all">全部(近 12 月有销量)</Radio.Button>
+            <Radio.Button value="recent6m" style={{ padding: '0 14px' }}>近 6 个月有销量</Radio.Button>
+            <Radio.Button value="all" style={{ padding: '0 14px' }}>全部(近 12 月有销量)</Radio.Button>
           </Radio.Group>
           <Input
             size="small"
