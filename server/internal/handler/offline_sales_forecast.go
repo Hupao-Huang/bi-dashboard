@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -62,6 +63,118 @@ func monthsBack(targetYM string, n int) (string, string) {
 	return start.Format("2006-01-02"), end.Format("2006-01-02")
 }
 
+// 季节指数粒度: SKU × 月份(1-12), 大区共用 (大区季节性差异小, 拆分到大区样本太稀疏)
+// 公式: 季节系数[sku][m] = (该 SKU 历史月份 m 平均销量) / (该 SKU 全年月均)
+//   > 1 = 旺季, < 1 = 淡季, = 1 = 中性
+// 历史窗口: 预测月前 24 个月(2 个春节样本)
+// 降级: 历史 < 6 月有数据 → 系数全 = 1.0(等于不调整)
+// 截断: 系数 clamp 到 [0.3, 3.0] 防异常爆量(新品促销那种异常)
+type seasonalMap map[string]map[int]float64
+
+func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
+	s24, e24 := monthsBack(ym, 24)
+	cateCond, cateArgs := offlineForecastCateCond()
+	args := append([]interface{}{s24, e24}, cateArgs...)
+	rows, err := db.Query(`
+		SELECT goods_no,
+			MONTH(stat_date) AS m,
+			SUM(goods_qty) AS month_qty,
+			COUNT(DISTINCT DATE_FORMAT(stat_date, '%Y-%m')) AS appear_yrs
+		FROM sales_goods_summary
+		WHERE department = 'offline'
+			AND stat_date BETWEEN ? AND ?
+			AND goods_no IS NOT NULL AND goods_no <> ''`+cateCond+`
+		GROUP BY goods_no, MONTH(stat_date)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type cell struct {
+		qty       float64
+		appearYrs int // 该月份在 24 月窗口里出现的"年数"(1-2)
+	}
+	raw := map[string]map[int]cell{}
+	for rows.Next() {
+		var sku string
+		var m, appear int
+		var qty float64
+		if err := rows.Scan(&sku, &m, &qty, &appear); err != nil {
+			return nil, err
+		}
+		if raw[sku] == nil {
+			raw[sku] = map[int]cell{}
+		}
+		raw[sku][m] = cell{qty: qty, appearYrs: appear}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	sm := seasonalMap{}
+	for sku, months := range raw {
+		var totalQty float64
+		var totalAppear int
+		for _, c := range months {
+			totalQty += c.qty
+			totalAppear += c.appearYrs
+		}
+		sm[sku] = map[int]float64{}
+		if totalAppear < 6 || totalQty <= 0 {
+			// 历史数据不足, 全部中性
+			for m := 1; m <= 12; m++ {
+				sm[sku][m] = 1.0
+			}
+			continue
+		}
+		baseline := totalQty / float64(totalAppear) // 全年月均
+		for m := 1; m <= 12; m++ {
+			c, has := months[m]
+			if !has || c.appearYrs == 0 {
+				sm[sku][m] = 1.0
+				continue
+			}
+			monthAvg := c.qty / float64(c.appearYrs)
+			idx := monthAvg / baseline
+			if idx < 0.3 {
+				idx = 0.3
+			}
+			if idx > 3.0 {
+				idx = 3.0
+			}
+			sm[sku][m] = idx
+		}
+	}
+	return sm, nil
+}
+
+// applySeasonalAdjust 把"近 3 月均"按季节指数调整成"预测月建议值"
+// 公式: 建议 = round(近3月均 / mean(近3月对应系数) × 预测月系数)
+//   "近3月均 / mean(近3月对应系数)" = 去季节趋势(deseasonalized)
+//   再 × 预测月系数 = 注入预测月的季节性
+func applySeasonalAdjust(baseQty float64, recentMonths []int, predictMonth int, idx map[int]float64) float64 {
+	if len(idx) == 0 {
+		return baseQty
+	}
+	var sumRecent float64
+	var cnt float64
+	for _, m := range recentMonths {
+		if v, has := idx[m]; has && v > 0 {
+			sumRecent += v
+			cnt++
+		}
+	}
+	avgRecent := 1.0
+	if cnt > 0 && sumRecent > 0 {
+		avgRecent = sumRecent / cnt
+	}
+	predictIdx := 1.0
+	if v, has := idx[predictMonth]; has && v > 0 {
+		predictIdx = v
+	}
+	return math.Round(baseQty / avgRecent * predictIdx)
+}
+
 // GET /api/offline/sales-forecast?ym=2026-06&range=recent6m|all
 // 返回: { ym, regions, items: [{sku_code, goods_name, suggestions{region→qty}, forecasts{region→qty}}] }
 // suggestions = 近 3 个月在该 SKU×大区 实际发货量均值（系统建议值）
@@ -83,14 +196,27 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 
 	cateCond, cateArgs := offlineForecastCateCond()
 
-	// 1. 系统建议值 — 近 3 个月线下部门各 SKU×大区 实际销量均值 (仅成品)
+	// 0. 算 SKU × 月份(1-12) 季节指数
+	seasIdx, err := computeOfflineSeasonalIndex(h.DB, ym)
+	if writeDatabaseError(w, err) {
+		return
+	}
+	// 预测月份 + 近 3 月对应的月份数字 (1-12)
+	predictTime, _ := time.Parse("2006-01", ym)
+	predictMonth := int(predictTime.Month())
+	recentMonths := make([]int, 0, 3)
+	for i := 1; i <= 3; i++ {
+		recentMonths = append(recentMonths, int(predictTime.AddDate(0, -i, 0).Month()))
+	}
+
+	// 1. 近 3 月销量原始值 (按 SKU × 大区, 不四舍五入, 后面应用季节系数)
 	s3, e3 := monthsBack(ym, 3)
 	sugArgs := append([]interface{}{s3, e3}, cateArgs...)
 	sugRows, ok := queryRowsOrWriteError(w, h.DB, `
 		SELECT goods_no AS sku_code,
 			MAX(goods_name) AS goods_name,
 			`+offlineForecastRegionExpr+` AS region,
-			ROUND(SUM(goods_qty) / 3.0, 0) AS avg_qty
+			SUM(goods_qty) / 3.0 AS base_avg
 		FROM sales_goods_summary
 		WHERE department = 'offline'
 			AND stat_date BETWEEN ? AND ?
@@ -104,20 +230,29 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		sku    string
 		region string
 	}
-	suggestions := map[cellKey]int{}
-	skuMeta := map[string]string{} // sku_code → goods_name
+	suggestions := map[cellKey]int{}        // 季节调整后的建议值
+	baseAvgMap := map[cellKey]float64{}     // 近 3 月原始均值(tooltip 用)
+	skuMeta := map[string]string{}          // sku_code → goods_name
 	for sugRows.Next() {
 		var sku, region string
 		var goodsName sql.NullString
-		var qty float64
-		if writeDatabaseError(w, sugRows.Scan(&sku, &goodsName, &region, &qty)) {
+		var base float64
+		if writeDatabaseError(w, sugRows.Scan(&sku, &goodsName, &region, &base)) {
 			sugRows.Close()
 			return
 		}
-		if qty < 0 {
-			qty = 0
+		if base < 0 {
+			base = 0
 		}
-		suggestions[cellKey{sku, region}] = int(qty)
+		baseAvgMap[cellKey{sku, region}] = base
+
+		// 应用季节指数
+		adjusted := applySeasonalAdjust(base, recentMonths, predictMonth, seasIdx[sku])
+		if adjusted < 0 {
+			adjusted = 0
+		}
+		suggestions[cellKey{sku, region}] = int(adjusted)
+
 		if goodsName.Valid && skuMeta[sku] == "" {
 			skuMeta[sku] = goodsName.String
 		}
@@ -209,18 +344,28 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 
 	// 4. 组装返回
 	type item struct {
-		SkuCode     string         `json:"sku_code"`
-		GoodsName   string         `json:"goods_name"`
-		Suggestions map[string]int `json:"suggestions"`
-		Forecasts   map[string]int `json:"forecasts"`
+		SkuCode        string             `json:"sku_code"`
+		GoodsName      string             `json:"goods_name"`
+		Suggestions    map[string]int     `json:"suggestions"`
+		Forecasts      map[string]int     `json:"forecasts"`
+		BaseAvgs       map[string]float64 `json:"base_avgs"`       // 近 3 月原始均值, tooltip 用
+		SeasonalFactor float64            `json:"seasonal_factor"` // 预测月季节系数 (SKU 级)
 	}
 	items := make([]item, 0, len(skuSet))
 	for sku := range skuSet {
+		seasonal := 1.0
+		if idx, has := seasIdx[sku]; has {
+			if v, ok := idx[predictMonth]; ok {
+				seasonal = math.Round(v*100) / 100
+			}
+		}
 		it := item{
-			SkuCode:     sku,
-			GoodsName:   skuMeta[sku],
-			Suggestions: map[string]int{},
-			Forecasts:   map[string]int{},
+			SkuCode:        sku,
+			GoodsName:      skuMeta[sku],
+			Suggestions:    map[string]int{},
+			Forecasts:      map[string]int{},
+			BaseAvgs:       map[string]float64{},
+			SeasonalFactor: seasonal,
 		}
 		for _, region := range offlineForecastRegions {
 			if v, ok := suggestions[cellKey{sku, region}]; ok && v > 0 {
@@ -228,6 +373,9 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 			}
 			if v, ok := forecasts[cellKey{sku, region}]; ok {
 				it.Forecasts[region] = v
+			}
+			if v, ok := baseAvgMap[cellKey{sku, region}]; ok && v > 0 {
+				it.BaseAvgs[region] = math.Round(v*10) / 10
 			}
 		}
 		items = append(items, it)
