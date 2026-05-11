@@ -334,11 +334,11 @@ const SalesForecast: React.FC = () => {
             format="YYYY-MM"
           />
           {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
-          <Radio.Group size="small" value={algo} onChange={e => setAlgo(e.target.value)}>
-            <Radio.Button value="auto" style={{ padding: '0 10px' }}>智能</Radio.Button>
-            <Radio.Button value="builtin" style={{ padding: '0 10px' }}>内置</Radio.Button>
-            <Radio.Button value="prophet" style={{ padding: '0 10px' }}>Prophet</Radio.Button>
-            <Radio.Button value="statsforecast" style={{ padding: '0 10px' }}>StatsForecast</Radio.Button>
+          <Radio.Group value={algo} onChange={e => setAlgo(e.target.value)}>
+            <Radio.Button value="auto">智能</Radio.Button>
+            <Radio.Button value="builtin">内置</Radio.Button>
+            <Radio.Button value="prophet">Prophet</Radio.Button>
+            <Radio.Button value="statsforecast">StatsForecast</Radio.Button>
           </Radio.Group>
           {algo === 'auto' && effectiveAlgo && <Tag color="purple">本月走 {effectiveAlgo === 'prophet' ? 'Prophet' : effectiveAlgo === 'statsforecast' ? 'StatsForecast' : effectiveAlgo}</Tag>}
           <Input
