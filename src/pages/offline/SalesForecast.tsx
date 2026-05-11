@@ -14,6 +14,7 @@ interface ForecastItem {
   base_avgs?: Record<string, number>;
   seasonal_factor?: number;
   recent_season_avg?: number;
+  seasonal_replaced?: boolean;
 }
 
 const SalesForecast: React.FC = () => {
@@ -199,13 +200,26 @@ const SalesForecast: React.FC = () => {
         title: `${predictMonthLabel}季节`,
         key: '_seasonal',
         fixed: 'left' as const,
-        width: 90,
+        width: 110,
         align: 'center' as const,
         render: (_: any, row: ForecastItem) => {
           const f = row.seasonal_factor ?? 1;
-          if (f >= 1.2) return <Tooltip title={`${predictMonthLabel}旺季 ×${f.toFixed(2)}`}><Tag color="orange">×{f.toFixed(2)}</Tag></Tooltip>;
-          if (f <= 0.8) return <Tooltip title={`${predictMonthLabel}淡季 ×${f.toFixed(2)}`}><Tag color="blue">×{f.toFixed(2)}</Tag></Tooltip>;
-          return <span style={{ color: '#bfbfbf' }}>—</span>;
+          const replaced = !!row.seasonal_replaced;
+          const sourceText = replaced
+            ? `品类替代 — 该 SKU 该月历史数据被营销/促销污染 (同月 2 年波动 >30%), 改用调味品同类货品中位数代表客观规律`
+            : `单品自身 — 该 SKU 该月历史稳定 (同月 2 年波动 ≤30%), 用真实季节规律`;
+          let factorTag: React.ReactNode;
+          if (f >= 1.2) factorTag = <Tag color="orange" style={{ margin: 0 }}>×{f.toFixed(2)}</Tag>;
+          else if (f <= 0.8) factorTag = <Tag color="blue" style={{ margin: 0 }}>×{f.toFixed(2)}</Tag>;
+          else factorTag = <span style={{ color: '#bfbfbf' }}>—</span>;
+          const sourceTag = replaced
+            ? <Tag color="warning" style={{ margin: 0 }}>替代</Tag>
+            : <Tag color="success" style={{ margin: 0 }}>客观</Tag>;
+          return (
+            <Tooltip title={`${predictMonthLabel}系数 ${f.toFixed(2)} · ${sourceText}`}>
+              <Space size={2}>{factorTag}{sourceTag}</Space>
+            </Tooltip>
+          );
         },
       },
     ];
@@ -340,7 +354,7 @@ const SalesForecast: React.FC = () => {
             columns={columns}
             dataSource={filteredItems}
             pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
-            scroll={{ x: 240 + 110 + 90 + regions.length * 90 + 110 }}
+            scroll={{ x: 240 + 110 + 110 + regions.length * 90 + 110 }}
             size="small"
           />
         )}
