@@ -450,8 +450,25 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	if rangeMode == "" {
 		rangeMode = "recent6m"
 	}
+	algo := r.URL.Query().Get("algo") // "" (= builtin) / "prophet"
 
 	cateCond, cateArgs := offlineForecastCateCond()
+
+	// 如果选 prophet 算法, 拉大区合计预测做大区增长锚点
+	prophetRegionQty := map[string]float64{}
+	if algo == "prophet" {
+		prRows, prErr := h.DB.Query(`SELECT region, forecast_qty FROM offline_sales_forecast_prophet WHERE ym = ?`, ym)
+		if prErr == nil {
+			for prRows.Next() {
+				var rg string
+				var q int
+				if scanErr := prRows.Scan(&rg, &q); scanErr == nil {
+					prophetRegionQty[rg] = float64(q)
+				}
+			}
+			prRows.Close()
+		}
+	}
 
 	// 0. 算 SKU × 月份(1-12) 季节指数 + 客观度标识 + 大区同比增长率
 	seasIdx, replaced, err := computeOfflineSeasonalIndex(h.DB, ym)
@@ -525,7 +542,6 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		if g, ok := regionGrowth[region]; ok && g > 0 {
 			adjusted *= g
 		}
-		// 环比启用条件: 近 3 月窗口不含春节季 (1/2/3 月), 否则春节回声会反向带飞
 		if useMoM {
 			if m, ok := regionMoM[region]; ok && m > 0 {
 				adjusted *= m
@@ -534,6 +550,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		if adjusted < 0 {
 			adjusted = 0
 		}
+		// Prophet 缓存于后:此处先按内置算法记 raw, 后面如果 algo=prophet 会按大区总量重新校准
 		suggestions[cellKey{sku, region}] = int(math.Round(adjusted))
 
 		if goodsName.Valid && skuMeta[sku] == "" {
@@ -543,6 +560,21 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	sugRows.Close()
 	if writeDatabaseError(w, sugRows.Err()) {
 		return
+	}
+
+	// Prophet 算法: 按大区合计校准 — 保留 SKU 间相对比例, 大区总量对齐 Prophet 预测
+	if algo == "prophet" && len(prophetRegionQty) > 0 {
+		regionRawSum := map[string]int{}
+		for k, v := range suggestions {
+			regionRawSum[k.region] += v
+		}
+		for k, v := range suggestions {
+			rawSum := regionRawSum[k.region]
+			prophet, has := prophetRegionQty[k.region]
+			if rawSum > 0 && has && prophet > 0 {
+				suggestions[k] = int(math.Round(float64(v) * prophet / float64(rawSum)))
+			}
+		}
 	}
 
 	// 2. SKU 全集 — 近 6 个月销过的 SKU(默认),或全部 SKU
