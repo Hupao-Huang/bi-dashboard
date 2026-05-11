@@ -1,5 +1,5 @@
 import React from 'react';
-import type { MenuProps } from 'antd';
+import { Tag, type MenuProps } from 'antd';
 import {
   AlertOutlined,
   ApartmentOutlined,
@@ -44,9 +44,16 @@ export type MenuDefinition = {
   disabled?: boolean;
   icon?: React.ReactNode;
   key: string;
-  label: string;
+  label: React.ReactNode;
   permission?: string;
 };
+
+const wipLabel = (text: string) => (
+  <span>
+    {text}
+    <Tag color="default" style={{ marginInlineStart: 6 }}>待开发</Tag>
+  </span>
+);
 
 const deptMenuChildren = (prefix: string, permissions: { preview: string; store: string; product: string }, unitLabel: '店铺' | '大区' = '店铺'): MenuDefinition[] => [
   { key: `${prefix}/store-preview`, icon: <EyeOutlined />, label: `${unitLabel}数据预览`, permission: permissions.preview },
@@ -100,9 +107,9 @@ export const menuDefinitions: MenuDefinition[] = [
       }, '大区'),
       { key: '/offline/target-manage', icon: <FlagOutlined />, label: '目标管理', permission: 'offline.target:view' },
       { key: '/offline/sales-forecast', icon: <LineChartOutlined />, label: '销量预测管理', permission: 'offline.sales_forecast:view' },
-      { key: '/offline/high-value-customers', icon: <CrownOutlined />, label: '高价值客户（待开发中）', permission: 'offline.high_value_customers:view', disabled: true },
-      { key: '/offline/turnover-expiry', icon: <SyncOutlined />, label: '周转率及临期（待开发中）', permission: 'offline.turnover_expiry:view', disabled: true },
-      { key: '/offline/ka-monthly', icon: <ScheduleOutlined />, label: 'KA月度统计（待开发中）', permission: 'offline.ka_monthly:view', disabled: true },
+      { key: '/offline/high-value-customers', icon: <CrownOutlined />, label: wipLabel('高价值客户'), permission: 'offline.high_value_customers:view', disabled: true },
+      { key: '/offline/turnover-expiry', icon: <SyncOutlined />, label: wipLabel('周转率及临期'), permission: 'offline.turnover_expiry:view', disabled: true },
+      { key: '/offline/ka-monthly', icon: <ScheduleOutlined />, label: wipLabel('KA月度统计'), permission: 'offline.ka_monthly:view', disabled: true },
     ],
   },
   {
