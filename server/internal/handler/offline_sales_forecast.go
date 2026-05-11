@@ -63,6 +63,31 @@ func monthsBack(targetYM string, n int) (string, string) {
 	return start.Format("2006-01-02"), end.Format("2006-01-02")
 }
 
+// 农历春节日期(近 6 年)
+// 现有算法盲区: 春节有时落 1 月有时落 2 月, 直接按"自然月"算系数会把"春节当月"和"春节前月"混在一起
+// 修正: 算 1/2 月系数时, 只看"春节落点跟预测年同月"的历史年份, 同口径对比
+var springFestivalDates = map[int]string{
+	2023: "2023-01-22",
+	2024: "2024-02-10",
+	2025: "2025-01-29",
+	2026: "2026-02-17",
+	2027: "2027-02-06",
+	2028: "2028-01-26",
+	2029: "2029-02-13",
+	2030: "2030-02-03",
+}
+
+// springFestivalMonth 返回某年春节所在月份, 不在表中返回 0
+func springFestivalMonth(year int) int {
+	if s, ok := springFestivalDates[year]; ok {
+		t, err := time.Parse("2006-01-02", s)
+		if err == nil {
+			return int(t.Month())
+		}
+	}
+	return 0
+}
+
 // 季节指数粒度: SKU × 月份(1-12), 大区共用 (大区季节性差异小, 拆分到大区样本太稀疏)
 // 公式: 季节系数[sku][m] = (该 SKU 历史月份 m 平均销量) / (该 SKU 全年月均)
 //   > 1 = 旺季, < 1 = 淡季, = 1 = 中性
@@ -72,69 +97,87 @@ func monthsBack(targetYM string, n int) (string, string) {
 type seasonalMap map[string]map[int]float64
 
 func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
+	predictTime, _ := time.Parse("2006-01", ym)
+	predictYear := predictTime.Year()
+	predictSpringMonth := springFestivalMonth(predictYear) // 1 / 2 / 0
+
 	s24, e24 := monthsBack(ym, 24)
 	cateCond, cateArgs := offlineForecastCateCond()
 	args := append([]interface{}{s24, e24}, cateArgs...)
+
+	// 拉到 YEAR×MONTH 粒度, 后面再聚合 (春节修正需要按年份分桶)
 	rows, err := db.Query(`
 		SELECT goods_no,
+			YEAR(stat_date) AS y,
 			MONTH(stat_date) AS m,
-			SUM(goods_qty) AS month_qty,
-			COUNT(DISTINCT DATE_FORMAT(stat_date, '%Y-%m')) AS appear_yrs
+			SUM(goods_qty) AS month_qty
 		FROM sales_goods_summary
 		WHERE department = 'offline'
 			AND stat_date BETWEEN ? AND ?
 			AND goods_no IS NOT NULL AND goods_no <> ''`+cateCond+`
-		GROUP BY goods_no, MONTH(stat_date)`, args...)
+		GROUP BY goods_no, YEAR(stat_date), MONTH(stat_date)`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	type cell struct {
-		qty       float64
-		appearYrs int // 该月份在 24 月窗口里出现的"年数"(1-2)
-	}
-	raw := map[string]map[int]cell{}
+	type ymKey struct{ y, m int }
+	rawByYM := map[string]map[ymKey]float64{} // sku → (year, month) → qty
 	for rows.Next() {
 		var sku string
-		var m, appear int
+		var y, m int
 		var qty float64
-		if err := rows.Scan(&sku, &m, &qty, &appear); err != nil {
+		if err := rows.Scan(&sku, &y, &m, &qty); err != nil {
 			return nil, err
 		}
-		if raw[sku] == nil {
-			raw[sku] = map[int]cell{}
+		if rawByYM[sku] == nil {
+			rawByYM[sku] = map[ymKey]float64{}
 		}
-		raw[sku][m] = cell{qty: qty, appearYrs: appear}
+		rawByYM[sku][ymKey{y, m}] = qty
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
 	sm := seasonalMap{}
-	for sku, months := range raw {
+	for sku, ymQty := range rawByYM {
+		// 全年月均 (用所有月份数据, baseline 不分桶)
 		var totalQty float64
-		var totalAppear int
-		for _, c := range months {
-			totalQty += c.qty
-			totalAppear += c.appearYrs
+		totalAppear := len(ymQty)
+		for _, q := range ymQty {
+			totalQty += q
 		}
 		sm[sku] = map[int]float64{}
 		if totalAppear < 6 || totalQty <= 0 {
-			// 历史数据不足, 全部中性
 			for m := 1; m <= 12; m++ {
 				sm[sku][m] = 1.0
 			}
 			continue
 		}
-		baseline := totalQty / float64(totalAppear) // 全年月均
+		baseline := totalQty / float64(totalAppear)
+
 		for m := 1; m <= 12; m++ {
-			c, has := months[m]
-			if !has || c.appearYrs == 0 {
+			// 春节修正: 1/2 月只看"那年春节落同月"的历史; 其他月份用所有年
+			var sumQty float64
+			var cnt int
+			for k, q := range ymQty {
+				if k.m != m {
+					continue
+				}
+				if (m == 1 || m == 2) && predictSpringMonth != 0 {
+					yrSpring := springFestivalMonth(k.y)
+					if yrSpring != 0 && yrSpring != predictSpringMonth {
+						continue // 跳过春节落点不同年份(避免囤货月/假月混淆)
+					}
+				}
+				sumQty += q
+				cnt++
+			}
+			if cnt == 0 {
 				sm[sku][m] = 1.0
 				continue
 			}
-			monthAvg := c.qty / float64(c.appearYrs)
+			monthAvg := sumQty / float64(cnt)
 			idx := monthAvg / baseline
 			if idx < 0.3 {
 				idx = 0.3
@@ -146,6 +189,37 @@ func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 		}
 	}
 	return sm, nil
+}
+
+// holidayContext 给前端展示用 — 该月份是否含中国传统节假日
+// 用于 SKU Tag 旁边的提示文字 (业务可以参考人工微调)
+func holidayContext(year, month int) string {
+	parts := []string{}
+	// 春节
+	if sm := springFestivalMonth(year); sm == month {
+		parts = append(parts, "春节假期")
+	} else if sm := springFestivalMonth(year); sm-1 == month || (sm == 1 && month == 12 && year == 2029-1) {
+		parts = append(parts, "春节囤货")
+	}
+	// 固定假期
+	switch month {
+	case 1:
+		parts = append(parts, "元旦")
+	case 4:
+		parts = append(parts, "清明")
+	case 5:
+		parts = append(parts, "五一")
+	case 6:
+		parts = append(parts, "端午") // 多数年份在 6 月
+	case 9:
+		parts = append(parts, "中秋") // 多数年份在 9 月
+	case 10:
+		parts = append(parts, "国庆")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "/")
 }
 
 // applySeasonalAdjust 把"近 3 月均"按季节指数调整成"预测月建议值"
@@ -351,6 +425,8 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		BaseAvgs       map[string]float64 `json:"base_avgs"`       // 近 3 月原始均值, tooltip 用
 		SeasonalFactor float64            `json:"seasonal_factor"` // 预测月季节系数 (SKU 级)
 	}
+	predictYear := predictTime.Year()
+	holiday := holidayContext(predictYear, predictMonth)
 	items := make([]item, 0, len(skuSet))
 	for sku := range skuSet {
 		seasonal := 1.0
@@ -390,9 +466,10 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"ym":      ym,
-		"regions": offlineForecastRegions,
-		"items":   items,
+		"ym":              ym,
+		"regions":         offlineForecastRegions,
+		"items":           items,
+		"holiday_context": holiday, // 该月份含中国传统节假日的提示
 	})
 }
 

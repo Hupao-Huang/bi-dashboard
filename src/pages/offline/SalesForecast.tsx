@@ -23,6 +23,7 @@ const SalesForecast: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [regions, setRegions] = useState<string[]>([]);
   const [items, setItems] = useState<ForecastItem[]>([]);
+  const [holidayContext, setHolidayContext] = useState('');
   // userValues[sku][region] = 用户填的数字; 未填则不存
   const [userValues, setUserValues] = useState<Record<string, Record<string, number>>>({});
   const [keyword, setKeyword] = useState('');
@@ -43,6 +44,7 @@ const SalesForecast: React.FC = () => {
       }
       const data = json.data || {};
       setRegions(data.regions || []);
+      setHolidayContext(data.holiday_context || '');
       const list: ForecastItem[] = data.items || [];
       setItems(list);
       // 初始化 userValues = 已保存的预测
@@ -236,6 +238,7 @@ const SalesForecast: React.FC = () => {
             allowClear={false}
             format="YYYY-MM"
           />
+          {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
           <span style={{ fontWeight: 600 }}>SKU 范围</span>
           <Radio.Group value={rangeMode} onChange={e => setRangeMode(e.target.value)}>
             <Radio.Button value="recent6m">近 6 个月有销量</Radio.Button>
