@@ -97,13 +97,16 @@ func springFestivalMonth(year int) int {
 // 截断: 系数 clamp 到 [0.3, 3.0] 防异常爆量(新品促销那种异常)
 type seasonalMap map[string]map[int]float64
 
+// replacedMap[sku][month] = true 表示该格用了品类中位数替代 (营销污染), false = 保留单品自身
+type replacedMap map[string]map[int]bool
+
 // 客观度污染阈值 — 单 SKU 同月份 2 年销量波动 >30% 视为"营销污染", 换用品类中位数
 const objectivePollutionThreshold = 0.30
 
 // v1.50: 算法升级 — 客观度判定 + 品类中位数替代
 // 单 SKU 自身月度系数受促销/新品/异常事件污染 → 用同品类下"客观稳定 SKU"的月份系数中位数替代
 // "客观稳定" = 该 SKU 该月份 同月 2 年销量波动 < 30%
-func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
+func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, replacedMap, error) {
 	predictTime, _ := time.Parse("2006-01", ym)
 	predictYear := predictTime.Year()
 	predictSpringMonth := springFestivalMonth(predictYear) // 1 / 2 / 0
@@ -124,7 +127,7 @@ func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 			AND goods_no IS NOT NULL AND goods_no <> ''`+cateCond+`
 		GROUP BY goods_no, cate_name, YEAR(stat_date), MONTH(stat_date)`, args...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 
@@ -137,7 +140,7 @@ func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 		var y, m int
 		var qty float64
 		if err := rows.Scan(&sku, &cate, &y, &m, &qty); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if rawByYM[sku] == nil {
 			rawByYM[sku] = map[ymKey]float64{}
@@ -148,7 +151,7 @@ func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// 第 1 遍: 算每个 SKU × MONTH 的"单品原始系数"+ 同月 2 年波动率
@@ -245,24 +248,27 @@ func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 
 	// 第 3 遍: 应用替换规则 — 单品污染月用品类中位数; 客观月保留单品自身
 	sm := seasonalMap{}
+	rm := replacedMap{}
 	for sku, monthsData := range rawIdxMap {
 		sm[sku] = map[int]float64{}
+		rm[sku] = map[int]bool{}
 		cate := skuCate[sku]
 		for m := 1; m <= 12; m++ {
 			d := monthsData[m]
 			if d.multi && d.fluc > objectivePollutionThreshold {
-				// 营销污染 → 品类中位数替代
 				if v, ok := cateMedianIdx[cate][m]; ok && v > 0 {
 					sm[sku][m] = v
 				} else {
 					sm[sku][m] = 1.0
 				}
+				rm[sku][m] = true
 			} else {
 				sm[sku][m] = d.rawIdx
+				rm[sku][m] = false
 			}
 		}
 	}
-	return sm, nil
+	return sm, rm, nil
 }
 
 // holidayContext 给前端展示用 — 该月份是否含中国传统节假日
@@ -344,8 +350,8 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 
 	cateCond, cateArgs := offlineForecastCateCond()
 
-	// 0. 算 SKU × 月份(1-12) 季节指数
-	seasIdx, err := computeOfflineSeasonalIndex(h.DB, ym)
+	// 0. 算 SKU × 月份(1-12) 季节指数 + 客观度标识
+	seasIdx, replaced, err := computeOfflineSeasonalIndex(h.DB, ym)
 	if writeDatabaseError(w, err) {
 		return
 	}
@@ -499,6 +505,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		BaseAvgs         map[string]float64 `json:"base_avgs"`          // 近 3 月原始均值, tooltip 用
 		SeasonalFactor   float64            `json:"seasonal_factor"`    // 预测月季节系数 (SKU 级)
 		RecentSeasonAvg  float64            `json:"recent_season_avg"`  // 近 3 月对应系数均值, tooltip 用
+		SeasonalReplaced bool               `json:"seasonal_replaced"`  // 预测月系数是否被品类中位数替代(营销污染)
 	}
 	predictYear := predictTime.Year()
 	holiday := holidayContext(predictYear, predictMonth)
@@ -522,14 +529,19 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 				recentAvg = math.Round(sum/cnt*100) / 100
 			}
 		}
+		replacedThis := false
+		if rm, has := replaced[sku]; has {
+			replacedThis = rm[predictMonth]
+		}
 		it := item{
-			SkuCode:         sku,
-			GoodsName:       skuMeta[sku],
-			Suggestions:     map[string]int{},
-			Forecasts:       map[string]int{},
-			BaseAvgs:        map[string]float64{},
-			SeasonalFactor:  seasonal,
-			RecentSeasonAvg: recentAvg,
+			SkuCode:          sku,
+			GoodsName:        skuMeta[sku],
+			Suggestions:      map[string]int{},
+			Forecasts:        map[string]int{},
+			BaseAvgs:         map[string]float64{},
+			SeasonalFactor:   seasonal,
+			RecentSeasonAvg:  recentAvg,
+			SeasonalReplaced: replacedThis,
 		}
 		for _, region := range offlineForecastRegions {
 			if v, ok := suggestions[cellKey{sku, region}]; ok && v > 0 {
