@@ -326,7 +326,6 @@ const SalesForecast: React.FC = () => {
         <Space size="middle" wrap>
           <span style={{ fontWeight: 600 }}>预测月份</span>
           <DatePicker
-            size="small"
             picker="month"
             value={ym}
             onChange={d => d && setYm(d)}
@@ -342,16 +341,15 @@ const SalesForecast: React.FC = () => {
           </Radio.Group>
           {algo === 'auto' && effectiveAlgo && <Tag color="purple">本月走 {effectiveAlgo === 'prophet' ? 'Prophet' : effectiveAlgo === 'statsforecast' ? 'StatsForecast' : effectiveAlgo}</Tag>}
           <Input
-            size="small"
             allowClear
             prefix={<SearchOutlined />}
             placeholder="搜货品名或 SKU"
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
-            style={{ width: 200 }}
+            style={{ width: 220 }}
           />
           <Space size={6}>
-            <Switch checked={hideEmpty} onChange={setHideEmpty} size="small" />
+            <Switch checked={hideEmpty} onChange={setHideEmpty} />
             <span>仅看有销量历史的 SKU</span>
           </Space>
           <Tag color="blue">已填 {filledCount} 格</Tag>
@@ -365,10 +363,10 @@ const SalesForecast: React.FC = () => {
             cancelText="取消"
             okButtonProps={{ danger: true }}
           >
-            <Button size="small" danger>清空</Button>
+            <Button danger>清空</Button>
           </Popconfirm>
-          <Button size="small" onClick={handlePredict}>预测</Button>
-          <Button size="small" type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+          <Button onClick={handlePredict}>预测</Button>
+          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
             保存
           </Button>
         </Space>
