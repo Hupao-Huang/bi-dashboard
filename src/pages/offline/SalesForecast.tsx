@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Card, DatePicker, Empty, Input, InputNumber, message, Radio, Space, Spin, Switch, Table, Tag } from 'antd';
+import { Button, Card, DatePicker, Empty, Input, InputNumber, message, Radio, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
 import { ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { API_BASE } from '../../config';
@@ -11,6 +11,8 @@ interface ForecastItem {
   goods_name: string;
   suggestions: Record<string, number>;
   forecasts: Record<string, number>;
+  base_avgs?: Record<string, number>;
+  seasonal_factor?: number;
 }
 
 const SalesForecast: React.FC = () => {
@@ -154,6 +156,8 @@ const SalesForecast: React.FC = () => {
     return list;
   }, [items, keyword, hideEmpty, userValues]);
 
+  const predictMonthLabel = ym.format('M月');
+
   const columns = useMemo(() => {
     const cols: any[] = [
       {
@@ -161,26 +165,41 @@ const SalesForecast: React.FC = () => {
         dataIndex: 'goods_name',
         key: 'goods_name',
         fixed: 'left' as const,
-        width: 240,
-        render: (v: string, row: ForecastItem) => (
-          <div>
-            <div>{v || '(未命名)'}</div>
-            <div style={{ color: '#94a3b8', fontSize: 12 }}>{row.sku_code}</div>
-          </div>
-        ),
+        width: 280,
+        render: (v: string, row: ForecastItem) => {
+          const f = row.seasonal_factor ?? 1;
+          let seasonalTag: React.ReactNode = null;
+          if (f >= 1.2) {
+            seasonalTag = <Tag color="orange">{predictMonthLabel}旺季 ×{f.toFixed(2)}</Tag>;
+          } else if (f <= 0.8) {
+            seasonalTag = <Tag color="blue">{predictMonthLabel}淡季 ×{f.toFixed(2)}</Tag>;
+          }
+          return (
+            <div>
+              <div>{v || '(未命名)'} {seasonalTag}</div>
+              <div style={{ color: '#94a3b8', fontSize: 12 }}>{row.sku_code}</div>
+            </div>
+          );
+        },
       },
     ];
     regions.forEach(region => {
       cols.push({
         title: region,
         key: region,
-        width: 120,
+        width: 130,
         align: 'center' as const,
         render: (_: any, row: ForecastItem) => {
           const userVal = userValues[row.sku_code]?.[region];
           const suggest = row.suggestions?.[region];
+          const base = row.base_avgs?.[region];
+          const factor = row.seasonal_factor ?? 1;
           const placeholder = suggest && suggest > 0 ? `建议 ${suggest}` : '—';
-          return (
+          const tooltipTitle =
+            base && base > 0 && suggest
+              ? `近3月均 ${base.toFixed(1)} 件 × ${predictMonthLabel}系数 ${factor.toFixed(2)} ≈ ${suggest} 件`
+              : null;
+          const input = (
             <InputNumber
               value={userVal ?? null}
               onChange={val => handleCellChange(row.sku_code, region, val as number | null)}
@@ -192,11 +211,12 @@ const SalesForecast: React.FC = () => {
               variant="borderless"
             />
           );
+          return tooltipTitle ? <Tooltip title={tooltipTitle}>{input}</Tooltip> : input;
         },
       });
     });
     return cols;
-  }, [regions, userValues]);
+  }, [regions, userValues, predictMonthLabel]);
 
   const filledCount = useMemo(() => {
     let c = 0;
