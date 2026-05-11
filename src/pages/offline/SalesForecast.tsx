@@ -211,7 +211,7 @@ const SalesForecast: React.FC = () => {
           let factorTag: React.ReactNode;
           if (f >= 1.2) factorTag = <Tag color="orange" style={{ margin: 0 }}>×{f.toFixed(2)}</Tag>;
           else if (f <= 0.8) factorTag = <Tag color="blue" style={{ margin: 0 }}>×{f.toFixed(2)}</Tag>;
-          else factorTag = <span style={{ color: '#bfbfbf' }}>—</span>;
+          else factorTag = <Tag color="default" style={{ margin: 0 }}>×{f.toFixed(2)}</Tag>;
           const sourceTag = replaced
             ? <Tag color="warning" style={{ margin: 0 }}>替代</Tag>
             : <Tag color="success" style={{ margin: 0 }}>客观</Tag>;
