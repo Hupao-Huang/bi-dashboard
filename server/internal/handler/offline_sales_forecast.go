@@ -454,8 +454,8 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 
 	cateCond, cateArgs := offlineForecastCateCond()
 
-	// 如果选 prophet 算法, 拉大区合计预测做大区增长锚点
-	prophetRegionQty := map[string]float64{}
+	// 如果选 prophet / statsforecast 算法, 拉大区合计预测做大区增长锚点
+	mlRegionQty := map[string]float64{}
 	if algo == "prophet" {
 		prRows, prErr := h.DB.Query(`SELECT region, forecast_qty FROM offline_sales_forecast_prophet WHERE ym = ?`, ym)
 		if prErr == nil {
@@ -463,10 +463,22 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 				var rg string
 				var q int
 				if scanErr := prRows.Scan(&rg, &q); scanErr == nil {
-					prophetRegionQty[rg] = float64(q)
+					mlRegionQty[rg] = float64(q)
 				}
 			}
 			prRows.Close()
+		}
+	} else if algo == "statsforecast" {
+		sfRows, sfErr := h.DB.Query(`SELECT region, forecast_qty FROM offline_sales_forecast_statsforecast WHERE ym = ?`, ym)
+		if sfErr == nil {
+			for sfRows.Next() {
+				var rg string
+				var q int
+				if scanErr := sfRows.Scan(&rg, &q); scanErr == nil {
+					mlRegionQty[rg] = float64(q)
+				}
+			}
+			sfRows.Close()
 		}
 	}
 
@@ -562,17 +574,17 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Prophet 算法: 按大区合计校准 — 保留 SKU 间相对比例, 大区总量对齐 Prophet 预测
-	if algo == "prophet" && len(prophetRegionQty) > 0 {
+	// ML 算法 (Prophet / StatsForecast): 按大区合计校准, 保留 SKU 间相对比例
+	if (algo == "prophet" || algo == "statsforecast") && len(mlRegionQty) > 0 {
 		regionRawSum := map[string]int{}
 		for k, v := range suggestions {
 			regionRawSum[k.region] += v
 		}
 		for k, v := range suggestions {
 			rawSum := regionRawSum[k.region]
-			prophet, has := prophetRegionQty[k.region]
-			if rawSum > 0 && has && prophet > 0 {
-				suggestions[k] = int(math.Round(float64(v) * prophet / float64(rawSum)))
+			ml, has := mlRegionQty[k.region]
+			if rawSum > 0 && has && ml > 0 {
+				suggestions[k] = int(math.Round(float64(v) * ml / float64(rawSum)))
 			}
 		}
 	}

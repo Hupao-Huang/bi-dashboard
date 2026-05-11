@@ -18,7 +18,7 @@ interface ForecastItem {
 const SalesForecast: React.FC = () => {
   const defaultYM = dayjs().add(1, 'month');
   const [ym, setYm] = useState<Dayjs>(defaultYM);
-  const [algo, setAlgo] = useState<'builtin' | 'prophet'>('builtin');
+  const [algo, setAlgo] = useState<'builtin' | 'prophet' | 'statsforecast'>('builtin');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regions, setRegions] = useState<string[]>([]);
@@ -333,8 +333,9 @@ const SalesForecast: React.FC = () => {
           />
           {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
           <Radio.Group size="small" value={algo} onChange={e => setAlgo(e.target.value)}>
-            <Radio.Button value="builtin" style={{ padding: '0 12px' }}>内置算法</Radio.Button>
-            <Radio.Button value="prophet" style={{ padding: '0 12px' }}>Prophet</Radio.Button>
+            <Radio.Button value="builtin" style={{ padding: '0 10px' }}>内置</Radio.Button>
+            <Radio.Button value="prophet" style={{ padding: '0 10px' }}>Prophet</Radio.Button>
+            <Radio.Button value="statsforecast" style={{ padding: '0 10px' }}>StatsForecast</Radio.Button>
           </Radio.Group>
           <Input
             size="small"
