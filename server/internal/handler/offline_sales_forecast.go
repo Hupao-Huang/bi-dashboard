@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -96,6 +97,12 @@ func springFestivalMonth(year int) int {
 // 截断: 系数 clamp 到 [0.3, 3.0] 防异常爆量(新品促销那种异常)
 type seasonalMap map[string]map[int]float64
 
+// 客观度污染阈值 — 单 SKU 同月份 2 年销量波动 >30% 视为"营销污染", 换用品类中位数
+const objectivePollutionThreshold = 0.30
+
+// v1.50: 算法升级 — 客观度判定 + 品类中位数替代
+// 单 SKU 自身月度系数受促销/新品/异常事件污染 → 用同品类下"客观稳定 SKU"的月份系数中位数替代
+// "客观稳定" = 该 SKU 该月份 同月 2 年销量波动 < 30%
 func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 	predictTime, _ := time.Parse("2006-01", ym)
 	predictYear := predictTime.Year()
@@ -105,9 +112,9 @@ func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 	cateCond, cateArgs := offlineForecastCateCond()
 	args := append([]interface{}{s24, e24}, cateArgs...)
 
-	// 拉到 YEAR×MONTH 粒度, 后面再聚合 (春节修正需要按年份分桶)
 	rows, err := db.Query(`
 		SELECT goods_no,
+			cate_name,
 			YEAR(stat_date) AS y,
 			MONTH(stat_date) AS m,
 			SUM(goods_qty) AS month_qty
@@ -115,7 +122,7 @@ func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 		WHERE department = 'offline'
 			AND stat_date BETWEEN ? AND ?
 			AND goods_no IS NOT NULL AND goods_no <> ''`+cateCond+`
-		GROUP BY goods_no, YEAR(stat_date), MONTH(stat_date)`, args...)
+		GROUP BY goods_no, cate_name, YEAR(stat_date), MONTH(stat_date)`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -123,58 +130,69 @@ func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 
 	type ymKey struct{ y, m int }
 	rawByYM := map[string]map[ymKey]float64{} // sku → (year, month) → qty
+	skuCate := map[string]string{}            // sku → cate_name
 	for rows.Next() {
 		var sku string
+		var cate sql.NullString
 		var y, m int
 		var qty float64
-		if err := rows.Scan(&sku, &y, &m, &qty); err != nil {
+		if err := rows.Scan(&sku, &cate, &y, &m, &qty); err != nil {
 			return nil, err
 		}
 		if rawByYM[sku] == nil {
 			rawByYM[sku] = map[ymKey]float64{}
 		}
 		rawByYM[sku][ymKey{y, m}] = qty
+		if cate.Valid && skuCate[sku] == "" {
+			skuCate[sku] = cate.String
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	sm := seasonalMap{}
+	// 第 1 遍: 算每个 SKU × MONTH 的"单品原始系数"+ 同月 2 年波动率
+	type cellData struct {
+		rawIdx float64
+		fluc   float64 // 同月不同年波动率
+		multi  bool    // 是否有多年样本(>=2)
+	}
+	rawIdxMap := map[string]map[int]cellData{}
 	for sku, ymQty := range rawByYM {
-		// 全年月均 (用所有月份数据, baseline 不分桶)
 		var totalQty float64
 		totalAppear := len(ymQty)
 		for _, q := range ymQty {
 			totalQty += q
 		}
-		sm[sku] = map[int]float64{}
+		rawIdxMap[sku] = map[int]cellData{}
 		if totalAppear < 6 || totalQty <= 0 {
 			for m := 1; m <= 12; m++ {
-				sm[sku][m] = 1.0
+				rawIdxMap[sku][m] = cellData{rawIdx: 1.0}
 			}
 			continue
 		}
 		baseline := totalQty / float64(totalAppear)
-
 		for m := 1; m <= 12; m++ {
-			// 春节修正: 1/2 月只看"那年春节落同月"的历史; 其他月份用所有年
 			var sumQty float64
 			var cnt int
+			var yrQtys []float64
 			for k, q := range ymQty {
 				if k.m != m {
 					continue
 				}
+				// 春节修正(1/2 月)
 				if (m == 1 || m == 2) && predictSpringMonth != 0 {
 					yrSpring := springFestivalMonth(k.y)
 					if yrSpring != 0 && yrSpring != predictSpringMonth {
-						continue // 跳过春节落点不同年份(避免囤货月/假月混淆)
+						continue
 					}
 				}
 				sumQty += q
 				cnt++
+				yrQtys = append(yrQtys, q)
 			}
 			if cnt == 0 {
-				sm[sku][m] = 1.0
+				rawIdxMap[sku][m] = cellData{rawIdx: 1.0}
 				continue
 			}
 			monthAvg := sumQty / float64(cnt)
@@ -185,7 +203,63 @@ func computeOfflineSeasonalIndex(db *sql.DB, ym string) (seasonalMap, error) {
 			if idx > 3.0 {
 				idx = 3.0
 			}
-			sm[sku][m] = idx
+			// 同月 2 年波动率
+			var fluc float64
+			if len(yrQtys) >= 2 {
+				sort.Float64s(yrQtys)
+				low := yrQtys[0]
+				high := yrQtys[len(yrQtys)-1]
+				if low > 0 {
+					fluc = (high - low) / low
+				}
+			}
+			rawIdxMap[sku][m] = cellData{rawIdx: idx, fluc: fluc, multi: len(yrQtys) >= 2}
+		}
+	}
+
+	// 第 2 遍: 按品类计算"客观稳定 SKU 的月份系数中位数" (波动 < 30% 的 SKU 才入样本)
+	cateSkus := map[string][]string{}
+	for sku, cate := range skuCate {
+		cateSkus[cate] = append(cateSkus[cate], sku)
+	}
+	cateMedianIdx := map[string]map[int]float64{}
+	for cate, skus := range cateSkus {
+		cateMedianIdx[cate] = map[int]float64{}
+		for m := 1; m <= 12; m++ {
+			var samples []float64
+			for _, sku := range skus {
+				d := rawIdxMap[sku][m]
+				if d.rawIdx > 0 && d.fluc < objectivePollutionThreshold {
+					samples = append(samples, d.rawIdx)
+				}
+			}
+			if len(samples) >= 3 {
+				sort.Float64s(samples)
+				mid := samples[len(samples)/2]
+				cateMedianIdx[cate][m] = mid
+			} else {
+				cateMedianIdx[cate][m] = 1.0 // 客观样本不足,中性
+			}
+		}
+	}
+
+	// 第 3 遍: 应用替换规则 — 单品污染月用品类中位数; 客观月保留单品自身
+	sm := seasonalMap{}
+	for sku, monthsData := range rawIdxMap {
+		sm[sku] = map[int]float64{}
+		cate := skuCate[sku]
+		for m := 1; m <= 12; m++ {
+			d := monthsData[m]
+			if d.multi && d.fluc > objectivePollutionThreshold {
+				// 营销污染 → 品类中位数替代
+				if v, ok := cateMedianIdx[cate][m]; ok && v > 0 {
+					sm[sku][m] = v
+				} else {
+					sm[sku][m] = 1.0
+				}
+			} else {
+				sm[sku][m] = d.rawIdx
+			}
 		}
 	}
 	return sm, nil
