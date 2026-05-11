@@ -15,6 +15,23 @@ var offlineForecastRegions = []string{
 	"西南大区", "西北大区", "东北大区", "山东大区", "重客",
 }
 
+// offlineForecastCateCond 仅看成品 — 复用 supply_chain.go 的 planCategories 10 品类白名单
+// (调味料/酱油/调味汁/干制面/素蚝油/酱类/醋/汤底/番茄沙司/糖)
+// 排除: 广宣品 / 快递包材 / 成品礼盒 / 半保产品 / 测试 等非成品品类
+// 改这里没用,改 supply_chain.go planCategories 才是单一真相源
+func offlineForecastCateCond() (string, []interface{}) {
+	if len(planCategories) == 0 {
+		return "", nil
+	}
+	args := make([]interface{}, len(planCategories))
+	holders := make([]string, len(planCategories))
+	for i, c := range planCategories {
+		args[i] = c
+		holders[i] = "?"
+	}
+	return ` AND cate_name IN (` + strings.Join(holders, ",") + `)`, args
+}
+
 // shop_name → 大区 的 CASE WHEN 表达式（与 dashboard_department.go 保持一致）
 const offlineForecastRegionExpr = `CASE
 	WHEN shop_name LIKE '%华东大区%' THEN '华东大区'
@@ -64,8 +81,11 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		rangeMode = "recent6m"
 	}
 
-	// 1. 系统建议值 — 近 3 个月线下部门各 SKU×大区 实际销量均值
+	cateCond, cateArgs := offlineForecastCateCond()
+
+	// 1. 系统建议值 — 近 3 个月线下部门各 SKU×大区 实际销量均值 (仅成品)
 	s3, e3 := monthsBack(ym, 3)
+	sugArgs := append([]interface{}{s3, e3}, cateArgs...)
 	sugRows, ok := queryRowsOrWriteError(w, h.DB, `
 		SELECT goods_no AS sku_code,
 			MAX(goods_name) AS goods_name,
@@ -75,8 +95,8 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		WHERE department = 'offline'
 			AND stat_date BETWEEN ? AND ?
 			AND goods_no IS NOT NULL AND goods_no <> ''
-			AND `+offlineForecastRegionExpr+` IS NOT NULL
-		GROUP BY goods_no, region`, s3, e3)
+			AND `+offlineForecastRegionExpr+` IS NOT NULL`+cateCond+`
+		GROUP BY goods_no, region`, sugArgs...)
 	if !ok {
 		return
 	}
@@ -112,12 +132,13 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	if rangeMode == "all" {
 		// 近 12 个月内出现过的 SKU (避免几千行无销量历史 SKU 也铺出来)
 		s12, e12 := monthsBack(ym, 12)
+		args12 := append([]interface{}{s12, e12}, cateArgs...)
 		skuRows, ok2 := queryRowsOrWriteError(w, h.DB, `
 			SELECT DISTINCT goods_no, MAX(goods_name)
 			FROM sales_goods_summary
 			WHERE department = 'offline' AND stat_date BETWEEN ? AND ?
-				AND goods_no IS NOT NULL AND goods_no <> ''
-			GROUP BY goods_no`, s12, e12)
+				AND goods_no IS NOT NULL AND goods_no <> ''`+cateCond+`
+			GROUP BY goods_no`, args12...)
 		if !ok2 {
 			return
 		}
@@ -137,12 +158,13 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	} else {
 		// 近 6 个月
 		s6, e6 := monthsBack(ym, 6)
+		args6 := append([]interface{}{s6, e6}, cateArgs...)
 		skuRows, ok2 := queryRowsOrWriteError(w, h.DB, `
 			SELECT DISTINCT goods_no, MAX(goods_name)
 			FROM sales_goods_summary
 			WHERE department = 'offline' AND stat_date BETWEEN ? AND ?
-				AND goods_no IS NOT NULL AND goods_no <> ''
-			GROUP BY goods_no`, s6, e6)
+				AND goods_no IS NOT NULL AND goods_no <> ''`+cateCond+`
+			GROUP BY goods_no`, args6...)
 		if !ok2 {
 			return
 		}
