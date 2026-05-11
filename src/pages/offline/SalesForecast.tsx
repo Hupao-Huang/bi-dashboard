@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
+import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Radio, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
 import { ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { API_BASE } from '../../config';
@@ -18,6 +18,7 @@ interface ForecastItem {
 const SalesForecast: React.FC = () => {
   const defaultYM = dayjs().add(1, 'month');
   const [ym, setYm] = useState<Dayjs>(defaultYM);
+  const [algo, setAlgo] = useState<'builtin' | 'prophet'>('builtin');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regions, setRegions] = useState<string[]>([]);
@@ -33,7 +34,7 @@ const SalesForecast: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/offline/sales-forecast?ym=${ymStr}&range=recent6m`, {
+      const res = await fetch(`${API_BASE}/api/offline/sales-forecast?ym=${ymStr}&range=recent6m&algo=${algo}`, {
         credentials: 'include',
       });
       const json = await res.json();
@@ -59,7 +60,7 @@ const SalesForecast: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [ymStr]);
+  }, [ymStr, algo]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -331,6 +332,10 @@ const SalesForecast: React.FC = () => {
             format="YYYY-MM"
           />
           {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
+          <Radio.Group size="small" value={algo} onChange={e => setAlgo(e.target.value)}>
+            <Radio.Button value="builtin" style={{ padding: '0 12px' }}>内置算法</Radio.Button>
+            <Radio.Button value="prophet" style={{ padding: '0 12px' }}>Prophet</Radio.Button>
+          </Radio.Group>
           <Input
             size="small"
             allowClear
