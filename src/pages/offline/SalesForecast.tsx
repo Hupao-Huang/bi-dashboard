@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Card, DatePicker, Empty, Input, InputNumber, message, Radio, Space, Spin, Table, Tag } from 'antd';
+import { Button, Card, DatePicker, Empty, Input, InputNumber, message, Radio, Space, Spin, Switch, Table, Tag } from 'antd';
 import { ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { API_BASE } from '../../config';
@@ -24,6 +24,7 @@ const SalesForecast: React.FC = () => {
   // userValues[sku][region] = 用户填的数字; 未填则不存
   const [userValues, setUserValues] = useState<Record<string, Record<string, number>>>({});
   const [keyword, setKeyword] = useState('');
+  const [hideEmpty, setHideEmpty] = useState(true);
 
   const ymStr = ym.format('YYYY-MM');
 
@@ -135,12 +136,23 @@ const SalesForecast: React.FC = () => {
   };
 
   const filteredItems = useMemo(() => {
-    if (!keyword.trim()) return items;
-    const kw = keyword.trim().toLowerCase();
-    return items.filter(it =>
-      it.goods_name?.toLowerCase().includes(kw) || it.sku_code?.toLowerCase().includes(kw)
-    );
-  }, [items, keyword]);
+    let list = items;
+    if (hideEmpty) {
+      list = list.filter(it => {
+        const hasSuggest = it.suggestions && Object.values(it.suggestions).some(v => v > 0);
+        const hasForecast = it.forecasts && Object.keys(it.forecasts).length > 0;
+        const hasUserInput = userValues[it.sku_code] && Object.keys(userValues[it.sku_code]).length > 0;
+        return hasSuggest || hasForecast || hasUserInput;
+      });
+    }
+    if (keyword.trim()) {
+      const kw = keyword.trim().toLowerCase();
+      list = list.filter(it =>
+        it.goods_name?.toLowerCase().includes(kw) || it.sku_code?.toLowerCase().includes(kw)
+      );
+    }
+    return list;
+  }, [items, keyword, hideEmpty, userValues]);
 
   const columns = useMemo(() => {
     const cols: any[] = [
@@ -217,6 +229,10 @@ const SalesForecast: React.FC = () => {
             onChange={e => setKeyword(e.target.value)}
             style={{ width: 200 }}
           />
+          <Space size={6}>
+            <Switch checked={hideEmpty} onChange={setHideEmpty} size="small" />
+            <span>仅看有销量历史的 SKU</span>
+          </Space>
           <Tag color="blue">已填 {filledCount} 格</Tag>
         </Space>
       }
