@@ -418,30 +418,44 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 
 	// 4. 组装返回
 	type item struct {
-		SkuCode        string             `json:"sku_code"`
-		GoodsName      string             `json:"goods_name"`
-		Suggestions    map[string]int     `json:"suggestions"`
-		Forecasts      map[string]int     `json:"forecasts"`
-		BaseAvgs       map[string]float64 `json:"base_avgs"`       // 近 3 月原始均值, tooltip 用
-		SeasonalFactor float64            `json:"seasonal_factor"` // 预测月季节系数 (SKU 级)
+		SkuCode          string             `json:"sku_code"`
+		GoodsName        string             `json:"goods_name"`
+		Suggestions      map[string]int     `json:"suggestions"`
+		Forecasts        map[string]int     `json:"forecasts"`
+		BaseAvgs         map[string]float64 `json:"base_avgs"`          // 近 3 月原始均值, tooltip 用
+		SeasonalFactor   float64            `json:"seasonal_factor"`    // 预测月季节系数 (SKU 级)
+		RecentSeasonAvg  float64            `json:"recent_season_avg"`  // 近 3 月对应系数均值, tooltip 用
 	}
 	predictYear := predictTime.Year()
 	holiday := holidayContext(predictYear, predictMonth)
 	items := make([]item, 0, len(skuSet))
 	for sku := range skuSet {
 		seasonal := 1.0
+		recentAvg := 1.0
 		if idx, has := seasIdx[sku]; has {
 			if v, ok := idx[predictMonth]; ok {
 				seasonal = math.Round(v*100) / 100
 			}
+			var sum float64
+			var cnt float64
+			for _, m := range recentMonths {
+				if v, ok := idx[m]; ok && v > 0 {
+					sum += v
+					cnt++
+				}
+			}
+			if cnt > 0 && sum > 0 {
+				recentAvg = math.Round(sum/cnt*100) / 100
+			}
 		}
 		it := item{
-			SkuCode:        sku,
-			GoodsName:      skuMeta[sku],
-			Suggestions:    map[string]int{},
-			Forecasts:      map[string]int{},
-			BaseAvgs:       map[string]float64{},
-			SeasonalFactor: seasonal,
+			SkuCode:         sku,
+			GoodsName:       skuMeta[sku],
+			Suggestions:     map[string]int{},
+			Forecasts:       map[string]int{},
+			BaseAvgs:        map[string]float64{},
+			SeasonalFactor:  seasonal,
+			RecentSeasonAvg: recentAvg,
 		}
 		for _, region := range offlineForecastRegions {
 			if v, ok := suggestions[cellKey{sku, region}]; ok && v > 0 {

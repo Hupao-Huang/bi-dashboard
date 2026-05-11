@@ -13,6 +13,7 @@ interface ForecastItem {
   forecasts: Record<string, number>;
   base_avgs?: Record<string, number>;
   seasonal_factor?: number;
+  recent_season_avg?: number;
 }
 
 const SalesForecast: React.FC = () => {
@@ -204,11 +205,26 @@ const SalesForecast: React.FC = () => {
           const suggest = row.suggestions?.[region];
           const base = row.base_avgs?.[region];
           const factor = row.seasonal_factor ?? 1;
+          const recentAvg = row.recent_season_avg ?? 1;
           const placeholder = suggest && suggest > 0 ? `建议 ${suggest}` : '—';
+          // Tooltip 完整公式: 基础 ÷ 近3月系数均 × 预测月系数 ≈ 建议值
           const tooltipTitle =
             base && base > 0 && suggest
-              ? `近3月均 ${base.toFixed(1)} 件 × ${predictMonthLabel}系数 ${factor.toFixed(2)} ≈ ${suggest} 件`
+              ? (
+                <div>
+                  <div>近3月均 {base.toFixed(1)} 件</div>
+                  <div>÷ 近3月季节系数均 {recentAvg.toFixed(2)}</div>
+                  <div>× {predictMonthLabel}系数 {factor.toFixed(2)}</div>
+                  <div>≈ 建议 {suggest} 件</div>
+                  {userVal !== undefined && userVal !== suggest ? (
+                    <div style={{ marginTop: 4, color: '#faad14' }}>当前已填 {userVal}, 跟新算法建议 {suggest} 有差异</div>
+                  ) : null}
+                </div>
+              )
               : null;
+          // cell 已填值跟新建议差异 ≥ 20% 加视觉提示
+          const hasDiff = userVal !== undefined && userVal !== null && suggest && suggest > 0
+            && Math.abs(userVal - suggest) / suggest >= 0.2;
           const input = (
             <InputNumber
               value={userVal ?? null}
@@ -217,7 +233,7 @@ const SalesForecast: React.FC = () => {
               step={1}
               precision={0}
               placeholder={placeholder}
-              style={{ width: '100%' }}
+              style={{ width: '100%', ...(hasDiff ? { background: '#fff7e6' } : {}) }}
               variant="borderless"
             />
           );
