@@ -291,22 +291,28 @@ func main() {
 		"social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view",
 		"offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view",
 		"distribution.store_preview:view", "distribution.store_dashboard:view", "distribution.product_dashboard:view",
+		"instant_retail.store_preview:view", "instant_retail.store_dashboard:view", "instant_retail.product_dashboard:view",
 		"finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view",
 	))
 	mux.HandleFunc("/api/tmall/ops", pageAnyProtected(cache24h(h.GetTmallOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
+		"instant_retail.store_dashboard:view",
 	))
 	mux.HandleFunc("/api/vip/ops", pageAnyProtected(cache24h(h.GetVipOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
+		"instant_retail.store_dashboard:view",
 	))
 	mux.HandleFunc("/api/pdd/ops", pageAnyProtected(cache24h(h.GetPddOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
+		"instant_retail.store_dashboard:view",
 	))
 	mux.HandleFunc("/api/jd/ops", pageAnyProtected(cache24h(h.GetJdOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
+		"instant_retail.store_dashboard:view",
 	))
 	mux.HandleFunc("/api/tmallcs/ops", pageAnyProtected(cache24h(h.GetTmallcsOps),
 		"ecommerce.store_dashboard:view", "social.store_dashboard:view", "offline.store_dashboard:view", "distribution.store_dashboard:view",
+		"instant_retail.store_dashboard:view",
 	))
 	mux.HandleFunc("/api/feigua", pageProtected("social.feigua:view", cache24h(h.GetFeiguaData)))
 	mux.HandleFunc("/api/douyin/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinOps)))
@@ -315,6 +321,10 @@ func main() {
 	mux.HandleFunc("/api/customer/overview", pageProtected("customer.overview:view", cache24h(h.GetCustomerOverview)))
 	mux.HandleFunc("/api/s-products", pageAnyProtected(cache24h(h.GetSProducts),
 		"ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view",
+		"social.store_dashboard:view", "social.product_dashboard:view",
+		"offline.store_dashboard:view", "offline.product_dashboard:view",
+		"distribution.store_dashboard:view", "distribution.product_dashboard:view",
+		"instant_retail.store_dashboard:view", "instant_retail.product_dashboard:view",
 	))
 	mux.HandleFunc("/api/offline/targets", protected(h.GetOfflineTargets))
 	mux.HandleFunc("/api/offline/targets/save", pageProtected("offline.target:edit", h.SaveOfflineTargets))
