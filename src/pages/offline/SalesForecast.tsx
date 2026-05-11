@@ -167,22 +167,9 @@ const SalesForecast: React.FC = () => {
         dataIndex: 'goods_name',
         key: 'goods_name',
         fixed: 'left' as const,
-        width: 200,
+        width: 240,
         ellipsis: true,
-        render: (v: string, row: ForecastItem) => {
-          const f = row.seasonal_factor ?? 1;
-          let factorBadge: React.ReactNode = null;
-          if (f >= 1.2) {
-            factorBadge = <Tag color="orange" style={{ marginInlineStart: 4 }}>×{f.toFixed(2)}</Tag>;
-          } else if (f <= 0.8) {
-            factorBadge = <Tag color="blue" style={{ marginInlineStart: 4 }}>×{f.toFixed(2)}</Tag>;
-          }
-          return (
-            <Tooltip title={f !== 1 ? `${v} · ${predictMonthLabel}季节系数 ${f.toFixed(2)} (${f >= 1.2 ? '旺季' : f <= 0.8 ? '淡季' : '中性'})` : v}>
-              <span>{v || '(未命名)'}{factorBadge}</span>
-            </Tooltip>
-          );
-        },
+        render: (v: string) => <Tooltip title={v}>{v || '(未命名)'}</Tooltip>,
       },
       {
         title: '货品编码',
@@ -192,12 +179,25 @@ const SalesForecast: React.FC = () => {
         width: 110,
         render: (v: string) => <span style={{ color: '#64748b' }}>{v}</span>,
       },
+      {
+        title: `${predictMonthLabel}季节`,
+        key: '_seasonal',
+        fixed: 'left' as const,
+        width: 90,
+        align: 'center' as const,
+        render: (_: any, row: ForecastItem) => {
+          const f = row.seasonal_factor ?? 1;
+          if (f >= 1.2) return <Tooltip title={`${predictMonthLabel}旺季 ×${f.toFixed(2)}`}><Tag color="orange">×{f.toFixed(2)}</Tag></Tooltip>;
+          if (f <= 0.8) return <Tooltip title={`${predictMonthLabel}淡季 ×${f.toFixed(2)}`}><Tag color="blue">×{f.toFixed(2)}</Tag></Tooltip>;
+          return <span style={{ color: '#bfbfbf' }}>—</span>;
+        },
+      },
     ];
     regions.forEach(region => {
       cols.push({
         title: region,
         key: region,
-        width: 100,
+        width: 90,
         align: 'center' as const,
         render: (_: any, row: ForecastItem) => {
           const userVal = userValues[row.sku_code]?.[region];
@@ -300,7 +300,7 @@ const SalesForecast: React.FC = () => {
             columns={columns}
             dataSource={filteredItems}
             pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
-            scroll={{ x: 200 + 110 + regions.length * 100 + 110 }}
+            scroll={{ x: 240 + 110 + 90 + regions.length * 90 + 110 }}
             size="small"
           />
         )}
