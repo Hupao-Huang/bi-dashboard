@@ -103,6 +103,56 @@ type replacedMap map[string]map[int]bool
 // 客观度污染阈值 — 单 SKU 同月份 2 年销量波动 >30% 视为"营销污染", 换用品类中位数
 const objectivePollutionThreshold = 0.30
 
+// computeOfflineRegionGrowth 算每个大区"近 3 月销量"vs"去年同期 3 月"的同比增长率
+// 用于捕获年度业务扩张趋势, 防止季节系数算法低估增长期
+// clamp 到 [0.7, 1.6] 防异常 (单月暴增/暴跌不影响)
+func computeOfflineRegionGrowth(db *sql.DB, ym string) (map[string]float64, error) {
+	// 当年近 3 月 = ym 前 3 月
+	currStart, currEnd := monthsBack(ym, 3)
+	cateCond, cateArgs := offlineForecastCateCond()
+	// SQL 中 ? 顺序: 4 个 CASE SUM 用, 2 个子查询 stat_date 用, 然后 cateArgs
+	args := []interface{}{currStart, currEnd, currStart, currEnd, currStart, currEnd}
+	args = append(args, cateArgs...)
+
+	rows, err := db.Query(`
+		SELECT region,
+			SUM(CASE WHEN stat_date BETWEEN ? AND ? THEN goods_qty ELSE 0 END) AS curr_qty,
+			SUM(CASE WHEN stat_date BETWEEN DATE_SUB(?, INTERVAL 1 YEAR) AND DATE_SUB(?, INTERVAL 1 YEAR) THEN goods_qty ELSE 0 END) AS prev_qty
+		FROM (
+			SELECT goods_qty, stat_date, `+offlineForecastRegionExpr+` AS region
+			FROM sales_goods_summary
+			WHERE department='offline'
+				AND stat_date BETWEEN DATE_SUB(?, INTERVAL 1 YEAR) AND ?`+cateCond+`
+		) t
+		WHERE region IS NOT NULL
+		GROUP BY region`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	growth := map[string]float64{}
+	for rows.Next() {
+		var region string
+		var curr, prev float64
+		if err := rows.Scan(&region, &curr, &prev); err != nil {
+			return nil, err
+		}
+		g := 1.0
+		if prev > 0 {
+			g = curr / prev
+			// clamp 到 [0.85, 1.30] 防异常 — Q1 增长率推 4 月易过激, 限制 ±30% 内
+			if g < 0.85 {
+				g = 0.85
+			}
+			if g > 1.30 {
+				g = 1.30
+			}
+		}
+		growth[region] = g
+	}
+	return growth, rows.Err()
+}
+
 // v1.50: 算法升级 — 客观度判定 + 品类中位数替代
 // 单 SKU 自身月度系数受促销/新品/异常事件污染 → 用同品类下"客观稳定 SKU"的月份系数中位数替代
 // "客观稳定" = 该 SKU 该月份 同月 2 年销量波动 < 30%
@@ -350,8 +400,12 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 
 	cateCond, cateArgs := offlineForecastCateCond()
 
-	// 0. 算 SKU × 月份(1-12) 季节指数 + 客观度标识
+	// 0. 算 SKU × 月份(1-12) 季节指数 + 客观度标识 + 大区同比增长率
 	seasIdx, replaced, err := computeOfflineSeasonalIndex(h.DB, ym)
+	if writeDatabaseError(w, err) {
+		return
+	}
+	regionGrowth, err := computeOfflineRegionGrowth(h.DB, ym)
 	if writeDatabaseError(w, err) {
 		return
 	}
@@ -400,12 +454,15 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		}
 		baseAvgMap[cellKey{sku, region}] = base
 
-		// 应用季节指数
+		// 应用季节指数 + 大区同比增长率(年度业务扩张趋势)
 		adjusted := applySeasonalAdjust(base, recentMonths, predictMonth, seasIdx[sku])
+		if g, ok := regionGrowth[region]; ok && g > 0 {
+			adjusted *= g
+		}
 		if adjusted < 0 {
 			adjusted = 0
 		}
-		suggestions[cellKey{sku, region}] = int(adjusted)
+		suggestions[cellKey{sku, region}] = int(math.Round(adjusted))
 
 		if goodsName.Valid && skuMeta[sku] == "" {
 			skuMeta[sku] = goodsName.String
@@ -565,11 +622,18 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		}
 	}
 
+	// 大区同比增长率 (前端 tooltip 展示)
+	growthOut := map[string]float64{}
+	for r, g := range regionGrowth {
+		growthOut[r] = math.Round(g*100) / 100
+	}
+
 	writeJSON(w, map[string]interface{}{
 		"ym":              ym,
 		"regions":         offlineForecastRegions,
 		"items":           items,
 		"holiday_context": holiday, // 该月份含中国传统节假日的提示
+		"region_growth":   growthOut, // 大区近3月 vs 去年同期 同比增长率
 	})
 }
 
