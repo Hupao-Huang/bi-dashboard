@@ -637,6 +637,29 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	})
 }
 
+// POST /api/offline/sales-forecast/clear?ym=2026-06
+// 删除指定月份的全部预测 (清空操作), 用于业务从零开始重新预测
+func (h *DashboardHandler) ClearOfflineSalesForecast(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	ym := r.URL.Query().Get("ym")
+	if !validYM(ym) {
+		writeError(w, 400, "ym 格式错误(YYYY-MM)")
+		return
+	}
+	res, err := h.DB.Exec(`DELETE FROM offline_sales_forecast WHERE ym = ?`, ym)
+	if writeDatabaseError(w, err) {
+		return
+	}
+	deleted, _ := res.RowsAffected()
+	writeJSON(w, map[string]interface{}{
+		"message": fmt.Sprintf("已清空(%d 条)", deleted),
+		"deleted": deleted,
+	})
+}
+
 // POST /api/offline/sales-forecast/save
 // body: {"ym":"2026-06","items":[{"sku_code":"xxx","goods_name":"减钠鲜酱油","region":"华北大区","forecast_qty":100}, ...]}
 func (h *DashboardHandler) SaveOfflineSalesForecast(w http.ResponseWriter, r *http.Request) {

@@ -86,24 +86,8 @@ const SalesForecast: React.FC = () => {
     });
   };
 
-  const handleApplySuggestions = () => {
-    // 只填空格,不覆盖已填
-    const next: Record<string, Record<string, number>> = { ...userValues };
-    items.forEach(it => {
-      regions.forEach(region => {
-        if (next[it.sku_code]?.[region] !== undefined) return;
-        const sug = it.suggestions?.[region];
-        if (sug && sug > 0) {
-          next[it.sku_code] = { ...(next[it.sku_code] || {}), [region]: sug };
-        }
-      });
-    });
-    setUserValues(next);
-    message.success('已用建议值填充空格(已填值未覆盖)');
-  };
-
-  const handleResetAll = () => {
-    // 用新算法建议值覆盖所有(包括已填),保存后即落库
+  const handlePredict = () => {
+    // 用最新算法建议值填表 (覆盖所有), 点保存才落库
     const next: Record<string, Record<string, number>> = {};
     items.forEach(it => {
       regions.forEach(region => {
@@ -114,7 +98,29 @@ const SalesForecast: React.FC = () => {
       });
     });
     setUserValues(next);
-    message.success('已用最新建议值覆盖全部,点保存落库');
+    message.success('已用最新算法预测填表,点"保存"落库');
+  };
+
+  const handleClear = async () => {
+    // 1. 调后端清空 DB
+    try {
+      const res = await fetch(`${API_BASE}/api/offline/sales-forecast/clear?ym=${ymStr}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        message.error(`清空失败: ${json.msg || res.status}`);
+        return;
+      }
+      // 2. 清前端
+      setUserValues({});
+      message.success(json.data?.message || '已清空');
+      // 3. 重新拉数据 (forecasts 字段会清空)
+      fetchData();
+    } catch (e: any) {
+      message.error(`清空失败: ${e.message}`);
+    }
   };
 
   const handleSave = async () => {
@@ -328,17 +334,17 @@ const SalesForecast: React.FC = () => {
       }
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchData}>重新加载</Button>
-          <Button onClick={handleApplySuggestions}>填空格</Button>
           <Popconfirm
-            title="按新算法覆盖全部?"
-            description="把所有已填值替换成最新建议(基于最新季节系数+春节修正)"
-            onConfirm={handleResetAll}
-            okText="覆盖"
+            title={`清空 ${ymStr} 全部预测?`}
+            description="数据库会删掉该月所有 SKU 大区预测,不可恢复"
+            onConfirm={handleClear}
+            okText="清空"
             cancelText="取消"
+            okButtonProps={{ danger: true }}
           >
-            <Button danger>用新建议覆盖</Button>
+            <Button danger>清空</Button>
           </Popconfirm>
+          <Button onClick={handlePredict}>预测</Button>
           <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
             保存
           </Button>
