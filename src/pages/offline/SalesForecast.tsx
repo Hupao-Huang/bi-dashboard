@@ -324,57 +324,51 @@ const SalesForecast: React.FC = () => {
         </div>
       }
     />
-    <Card
-      title={
-        <Space size="middle" wrap>
-          <span style={{ fontWeight: 600 }}>预测月份</span>
-          <DatePicker
-            picker="month"
-            value={ym}
-            onChange={d => d && setYm(d)}
-            allowClear={false}
-            format="YYYY-MM"
-          />
-          {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
-          <span style={{ fontWeight: 600 }}>SKU 范围</span>
-          <Radio.Group value={rangeMode} onChange={e => setRangeMode(e.target.value)}>
-            <Radio.Button value="recent6m">近 6 个月有销量</Radio.Button>
-            <Radio.Button value="all">全部（近 12 月有销量）</Radio.Button>
-          </Radio.Group>
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="搜货品名或 SKU"
-            value={keyword}
-            onChange={e => setKeyword(e.target.value)}
-            style={{ width: 200 }}
-          />
-          <Space size={6}>
-            <Switch checked={hideEmpty} onChange={setHideEmpty} size="small" />
-            <span>仅看有销量历史的 SKU</span>
-          </Space>
-          <Tag color="blue">已填 {filledCount} 格</Tag>
+    <Card size="small">
+      <Space size="middle" wrap style={{ marginBottom: 12 }}>
+        <DatePicker
+          size="small"
+          picker="month"
+          value={ym}
+          onChange={d => d && setYm(d)}
+          allowClear={false}
+          format="YYYY-MM"
+        />
+        {holidayContext && <Tag color="gold">含 {holidayContext}</Tag>}
+        <Radio.Group size="small" value={rangeMode} onChange={e => setRangeMode(e.target.value)}>
+          <Radio.Button value="recent6m">近 6 月</Radio.Button>
+          <Radio.Button value="all">全部</Radio.Button>
+        </Radio.Group>
+        <Input
+          size="small"
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="搜货品名或 SKU"
+          value={keyword}
+          onChange={e => setKeyword(e.target.value)}
+          style={{ width: 180 }}
+        />
+        <Space size={4}>
+          <Switch checked={hideEmpty} onChange={setHideEmpty} size="small" />
+          <span>仅有销量</span>
         </Space>
-      }
-      extra={
-        <Space>
-          <Popconfirm
-            title={`清空 ${ymStr} 全部预测?`}
-            description="数据库会删掉该月所有 SKU 大区预测,不可恢复"
-            onConfirm={handleClear}
-            okText="清空"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button danger>清空</Button>
-          </Popconfirm>
-          <Button onClick={handlePredict}>预测</Button>
-          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-            保存
-          </Button>
-        </Space>
-      }
-    >
+        <Tag color="blue">已填 {filledCount}</Tag>
+        <span style={{ flex: 1 }} />
+        <Popconfirm
+          title={`清空 ${ymStr} 全部预测?`}
+          description="数据库会删掉该月所有 SKU 大区预测,不可恢复"
+          onConfirm={handleClear}
+          okText="清空"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+        >
+          <Button size="small" danger>清空</Button>
+        </Popconfirm>
+        <Button size="small" onClick={handlePredict}>预测</Button>
+        <Button size="small" type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+          保存
+        </Button>
+      </Space>
       <Spin spinning={loading}>
         {filteredItems.length === 0 && !loading ? (
           <Empty description={items.length === 0 ? '该月份范围内暂无有销量的 SKU' : '没有匹配关键词的货品'} />
