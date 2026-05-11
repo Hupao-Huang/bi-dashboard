@@ -219,6 +219,20 @@ const SalesForecast: React.FC = () => {
         },
       });
     });
+    // 线下总计列 - 9 大区填值合计 (实时跟随用户输入)
+    cols.push({
+      title: '线下总计',
+      key: '_offline_total',
+      width: 110,
+      fixed: 'right' as const,
+      align: 'center' as const,
+      render: (_: any, row: ForecastItem) => {
+        const uv = userValues[row.sku_code] || {};
+        let total = 0;
+        regions.forEach(r => { total += uv[r] || 0; });
+        return total > 0 ? <Tag color="blue">{total.toLocaleString()}</Tag> : <span style={{ color: '#bfbfbf' }}>—</span>;
+      },
+    });
     return cols;
   }, [regions, userValues, predictMonthLabel]);
 
@@ -280,7 +294,7 @@ const SalesForecast: React.FC = () => {
             columns={columns}
             dataSource={filteredItems}
             pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
-            scroll={{ x: 220 + regions.length * 100 }}
+            scroll={{ x: 220 + regions.length * 100 + 110 }}
             size="small"
           />
         )}
