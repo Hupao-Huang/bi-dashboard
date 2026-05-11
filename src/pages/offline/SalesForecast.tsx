@@ -167,20 +167,22 @@ const SalesForecast: React.FC = () => {
         dataIndex: 'goods_name',
         key: 'goods_name',
         fixed: 'left' as const,
-        width: 280,
+        width: 220,
         render: (v: string, row: ForecastItem) => {
           const f = row.seasonal_factor ?? 1;
-          let seasonalTag: React.ReactNode = null;
+          let factorBadge: React.ReactNode = null;
           if (f >= 1.2) {
-            seasonalTag = <Tag color="orange">{predictMonthLabel}旺季 ×{f.toFixed(2)}</Tag>;
+            factorBadge = <Tag color="orange" style={{ marginInlineStart: 4 }}>×{f.toFixed(2)}</Tag>;
           } else if (f <= 0.8) {
-            seasonalTag = <Tag color="blue">{predictMonthLabel}淡季 ×{f.toFixed(2)}</Tag>;
+            factorBadge = <Tag color="blue" style={{ marginInlineStart: 4 }}>×{f.toFixed(2)}</Tag>;
           }
           return (
-            <div>
-              <div>{v || '(未命名)'} {seasonalTag}</div>
-              <div style={{ color: '#94a3b8', fontSize: 12 }}>{row.sku_code}</div>
-            </div>
+            <Tooltip title={f !== 1 ? `${predictMonthLabel}季节系数 ${f.toFixed(2)} (${f >= 1.2 ? '旺季' : f <= 0.8 ? '淡季' : '中性'})` : null}>
+              <div>
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v || '(未命名)'}</div>
+                <div style={{ color: '#94a3b8' }}>{row.sku_code}{factorBadge}</div>
+              </div>
+            </Tooltip>
           );
         },
       },
@@ -189,7 +191,7 @@ const SalesForecast: React.FC = () => {
       cols.push({
         title: region,
         key: region,
-        width: 130,
+        width: 100,
         align: 'center' as const,
         render: (_: any, row: ForecastItem) => {
           const userVal = userValues[row.sku_code]?.[region];
@@ -278,8 +280,8 @@ const SalesForecast: React.FC = () => {
             columns={columns}
             dataSource={filteredItems}
             pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
-            scroll={{ x: 240 + regions.length * 120 }}
-            size="middle"
+            scroll={{ x: 220 + regions.length * 100 }}
+            size="small"
           />
         )}
       </Spin>
