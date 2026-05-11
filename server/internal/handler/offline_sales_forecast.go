@@ -473,12 +473,13 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	for i := 1; i <= 3; i++ {
 		recentMonths = append(recentMonths, int(predictTime.AddDate(0, -i, 0).Month()))
 	}
-	// 环比启用判定: 近 3 月窗口不含春节季 (1/2/3 月) 才启用, 避免春节回声反向带飞
+	// 环比启用判定: 近 1 月 (= recentMonths[0]) 不能落 1/2/3 月
+	// 春节直接影响近 1 月才会反向带飞; 近 3 月含但近 1 月不含 (如 5/6 月预测) 时启用环比仍有效
 	useMoM := true
-	for _, mn := range recentMonths {
-		if mn >= 1 && mn <= 3 {
+	if len(recentMonths) > 0 {
+		near1 := recentMonths[0]
+		if near1 >= 1 && near1 <= 3 {
 			useMoM = false
-			break
 		}
 	}
 
