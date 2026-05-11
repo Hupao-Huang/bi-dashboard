@@ -18,7 +18,8 @@ interface ForecastItem {
 const SalesForecast: React.FC = () => {
   const defaultYM = dayjs().add(1, 'month');
   const [ym, setYm] = useState<Dayjs>(defaultYM);
-  const [algo, setAlgo] = useState<'builtin' | 'prophet' | 'statsforecast'>('builtin');
+  const [algo, setAlgo] = useState<'auto' | 'builtin' | 'prophet' | 'statsforecast'>('auto');
+  const [effectiveAlgo, setEffectiveAlgo] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regions, setRegions] = useState<string[]>([]);
@@ -45,6 +46,7 @@ const SalesForecast: React.FC = () => {
       const data = json.data || {};
       setRegions(data.regions || []);
       setHolidayContext(data.holiday_context || '');
+      setEffectiveAlgo(data.effective_algo || '');
       const list: ForecastItem[] = data.items || [];
       setItems(list);
       // 切换算法时 cell 跟随算法 suggestions 实时变化, 没 suggestion 才 fallback 到数据库 forecasts
@@ -314,7 +316,8 @@ const SalesForecast: React.FC = () => {
           </ol>
           <div><b>Prophet (Facebook 开源)</b>:贝叶斯加性模型,公式 = 趋势 + 季节性 + 节假日效应 + 残差.内置中国春节假期模型(±30 天囤货 + 假期断崖),日级训练. <span style={{color:'#16a34a'}}>春节月份精度最高</span>.</div>
           <div><b>StatsForecast (Nixtla 开源)</b>:经典统计模型集成 = AutoARIMA + AutoETS + AutoTheta 三模型预测均值. AutoARIMA 自动选择 ARIMA 参数, AutoETS 自动选择指数平滑模型, AutoTheta 基于趋势分解. 月级训练,<span style={{color:'#16a34a'}}>M5/M6 销量比赛冠军级方案</span>.</div>
-          <div style={{marginTop:4,color:'#64748b'}}>3 种算法切换时表格数字实时变化,SKU 间相对比例保留,大区合计对齐该算法预测.</div>
+          <div><b>智能(默认)</b>: 系统按预测月份自动选最优算法 — 1-2 月走 Prophet (春节碾压), 3-12 月走 StatsForecast (平稳月最准). 业务无需懂算法, 跟着月份切.</div>
+          <div style={{marginTop:4,color:'#64748b'}}>4 种算法切换时表格数字实时变化,SKU 间相对比例保留,大区合计对齐该算法预测.</div>
         </div>
       }
     />
@@ -332,10 +335,12 @@ const SalesForecast: React.FC = () => {
           />
           {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
           <Radio.Group size="small" value={algo} onChange={e => setAlgo(e.target.value)}>
+            <Radio.Button value="auto" style={{ padding: '0 10px' }}>智能</Radio.Button>
             <Radio.Button value="builtin" style={{ padding: '0 10px' }}>内置</Radio.Button>
             <Radio.Button value="prophet" style={{ padding: '0 10px' }}>Prophet</Radio.Button>
             <Radio.Button value="statsforecast" style={{ padding: '0 10px' }}>StatsForecast</Radio.Button>
           </Radio.Group>
+          {algo === 'auto' && effectiveAlgo && <Tag color="purple">本月走 {effectiveAlgo === 'prophet' ? 'Prophet' : effectiveAlgo === 'statsforecast' ? 'StatsForecast' : effectiveAlgo}</Tag>}
           <Input
             size="small"
             allowClear

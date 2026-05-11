@@ -450,7 +450,20 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	if rangeMode == "" {
 		rangeMode = "recent6m"
 	}
-	algo := r.URL.Query().Get("algo") // "" (= builtin) / "prophet"
+	algo := r.URL.Query().Get("algo") // "" (= auto) / builtin / prophet / statsforecast / auto
+	if algo == "" {
+		algo = "auto"
+	}
+	// 智能路由: 1-2 月走 Prophet (春节先验), 3-12 月走 StatsForecast (平稳/季节)
+	if algo == "auto" {
+		t, _ := time.Parse("2006-01", ym)
+		m := int(t.Month())
+		if m == 1 || m == 2 {
+			algo = "prophet"
+		} else {
+			algo = "statsforecast"
+		}
+	}
 
 	cateCond, cateArgs := offlineForecastCateCond()
 
@@ -753,8 +766,9 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		"regions":         offlineForecastRegions,
 		"items":           items,
 		"holiday_context": holiday,
-		"region_growth":   growthOut, // 同比 大区近3月 vs 去年同期
-		"region_mom":      momOut,    // 环比 大区近1月 vs 近3月均
+		"region_growth":   growthOut,
+		"region_mom":      momOut,
+		"effective_algo":  algo, // 智能模式下实际使用的算法
 	})
 }
 
