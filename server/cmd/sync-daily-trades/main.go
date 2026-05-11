@@ -130,6 +130,17 @@ func main() {
 	}
 	log.Printf("同步范围: %s → %s (%d 天)", startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), totalDays)
 
+	// 吉客云 isTableSwitch: 1=日常表(默认), 2=归档表
+	// 历史数据 (3+ 个月前) 大概率已归档, 用 TRADE_ARCHIVE=1 切到归档表才能拉全
+	// v1.47.50 (5/11) 重构清理 sync-trades-v2 时漏移植此参数, v1.55.9 补回
+	isTableSwitchVal := 1
+	if os.Getenv("TRADE_ARCHIVE") == "1" {
+		isTableSwitchVal = 2
+		log.Printf("⚠️ TRADE_ARCHIVE=1, isTableSwitch=2 (归档表模式)")
+	} else {
+		log.Printf("isTableSwitch=1 (日常表模式, 设 TRADE_ARCHIVE=1 切归档)")
+	}
+
 	for dayOffset := 0; dayOffset < totalDays; dayOffset++ {
 		d := startDate.AddDate(0, 0, dayOffset)
 		dayStr := d.Format("2006-01-02")
@@ -158,6 +169,7 @@ func main() {
 					"startConsignTime": hourStart,
 					"endConsignTime":   hourEnd,
 					"isDelete":         "0",
+					"isTableSwitch":    isTableSwitchVal,
 					"pageSize":         200,
 					"scrollId":         scrollId,
 					"fields":           tradeFields,
@@ -509,7 +521,82 @@ func ensureTable(db *sql.DB, tableName, likeTable string) {
 	db.QueryRow("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", tableName).Scan(&count)
 	if count == 0 {
 		log.Printf("自动创建表: %s", tableName)
-		db.Exec(fmt.Sprintf("CREATE TABLE %s LIKE %s", tableName, likeTable))
+		if _, err := db.Exec(fmt.Sprintf("CREATE TABLE %s LIKE %s", tableName, likeTable)); err != nil {
+			log.Printf("自动创建表 %s 失败: %v", tableName, err)
+		}
+		return
+	}
+	// 表已存在 → 比对 template 字段, 自动 ALTER ADD 缺失字段
+	// 防 v1.47.51 漏 ALTER 历史月表的回退 (2026-05-11 加 customize_goods_column_3/4 时只 ALTER 当月, 历史月表全缺)
+	syncColumnsFromTemplate(db, tableName, likeTable)
+}
+
+// syncColumnsFromTemplate 比对目标表 vs template 字段, 自动 ALTER ADD 缺失字段
+// 只比字段名, 缺失用 template 的 COLUMN_TYPE + IS_NULLABLE + COLUMN_COMMENT 建
+// 不处理 DEFAULT (trade_template 字段基本都允许 NULL, 不需要默认值)
+func syncColumnsFromTemplate(db *sql.DB, tableName, likeTable string) {
+	// 1) template 字段清单
+	tRows, err := db.Query(`
+		SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_COMMENT
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+		ORDER BY ORDINAL_POSITION`, likeTable)
+	if err != nil {
+		log.Printf("[schema sync] 查 template %s 字段失败: %v", likeTable, err)
+		return
+	}
+	type col struct{ name, typ, nullable, comment string }
+	var tmplCols []col
+	for tRows.Next() {
+		var c col
+		var comment sql.NullString
+		if err := tRows.Scan(&c.name, &c.typ, &c.nullable, &comment); err != nil {
+			continue
+		}
+		c.comment = comment.String
+		tmplCols = append(tmplCols, c)
+	}
+	tRows.Close()
+
+	// 2) 目标表已有字段
+	existing := map[string]bool{}
+	eRows, err := db.Query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, tableName)
+	if err != nil {
+		log.Printf("[schema sync] 查 %s 字段失败: %v", tableName, err)
+		return
+	}
+	for eRows.Next() {
+		var n string
+		if err := eRows.Scan(&n); err == nil {
+			existing[n] = true
+		}
+	}
+	eRows.Close()
+
+	// 3) ALTER ADD 缺失字段
+	addedCount := 0
+	for _, c := range tmplCols {
+		if existing[c.name] {
+			continue
+		}
+		nullStr := "NULL"
+		if c.nullable == "NO" {
+			nullStr = "NOT NULL"
+		}
+		commentStr := ""
+		if c.comment != "" {
+			commentStr = fmt.Sprintf(" COMMENT '%s'", strings.ReplaceAll(c.comment, "'", "''"))
+		}
+		alterSQL := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s %s%s", tableName, c.name, c.typ, nullStr, commentStr)
+		if _, err := db.Exec(alterSQL); err != nil {
+			log.Printf("[schema sync] ❌ %s ADD %s 失败: %v", tableName, c.name, err)
+		} else {
+			log.Printf("[schema sync] ✅ %s ADD %s", tableName, c.name)
+			addedCount++
+		}
+	}
+	if addedCount > 0 {
+		log.Printf("[schema sync] %s 补齐 %d 个字段 (对齐 template %s)", tableName, addedCount, likeTable)
 	}
 }
 

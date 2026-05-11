@@ -21,11 +21,19 @@ type Client struct {
 }
 
 func NewClient(appkey, secret, apiURL string) *Client {
+	// 显式 Transport 配置 — 历史月份(2025-01 起)API 响应慢, 默认 transport TLS握手10s + Client.Timeout 120s 经常撞.
+	// 实测撞点: TLSHandshakeTimeout 10s(默认)/ awaiting headers (Client.Timeout 120s)/ read body (同 Client.Timeout)
+	transport := &http.Transport{
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 180 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+	}
 	return &Client{
 		AppKey: appkey,
 		Secret: secret,
 		APIURL: apiURL,
-		HTTP:   &http.Client{Timeout: 120 * time.Second},
+		HTTP:   &http.Client{Timeout: 300 * time.Second, Transport: transport},
 	}
 }
 

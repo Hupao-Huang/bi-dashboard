@@ -29,8 +29,8 @@ func TestNewClientHTTPTimeoutSet(t *testing.T) {
 	if c.AppKey != "k" || c.Secret != "s" || c.APIURL != "http://example.com" {
 		t.Errorf("NewClient 字段错: %+v", c)
 	}
-	if c.HTTP.Timeout != 120*time.Second {
-		t.Errorf("HTTP.Timeout 应 120s, got %v", c.HTTP.Timeout)
+	if c.HTTP.Timeout != 300*time.Second {
+		t.Errorf("HTTP.Timeout 应 300s, got %v", c.HTTP.Timeout)
 	}
 }
 
