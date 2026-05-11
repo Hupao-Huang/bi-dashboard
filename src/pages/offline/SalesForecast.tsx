@@ -47,12 +47,15 @@ const SalesForecast: React.FC = () => {
       setHolidayContext(data.holiday_context || '');
       const list: ForecastItem[] = data.items || [];
       setItems(list);
-      // 初始化 userValues = 已保存的预测
+      // 切换算法时 cell 跟随算法 suggestions 实时变化, 没 suggestion 才 fallback 到数据库 forecasts
       const uv: Record<string, Record<string, number>> = {};
       list.forEach(it => {
-        if (it.forecasts && Object.keys(it.forecasts).length > 0) {
-          uv[it.sku_code] = { ...it.forecasts };
-        }
+        const sug = it.suggestions || {};
+        const fc = it.forecasts || {};
+        const merged: Record<string, number> = {};
+        Object.entries(sug).forEach(([r, q]) => { if (q > 0) merged[r] = q; });
+        Object.entries(fc).forEach(([r, q]) => { if (merged[r] === undefined && q > 0) merged[r] = q; });
+        if (Object.keys(merged).length > 0) uv[it.sku_code] = merged;
       });
       setUserValues(uv);
     } catch (e: any) {
@@ -239,34 +242,28 @@ const SalesForecast: React.FC = () => {
           const base = row.base_avgs?.[region];
           const factor = row.seasonal_factor ?? 1;
           const recentAvg = row.recent_season_avg ?? 1;
-          const placeholder = suggest && suggest > 0 ? `建议 ${suggest}` : '—';
-          // Tooltip 完整公式: 基础 ÷ 近3月系数均 × 预测月系数 ≈ 建议值
+          // Cell 直接显示算法预测值 (没手填时用 suggest, 手填后用 userVal)
+          const displayValue = userVal ?? (suggest && suggest > 0 ? suggest : null);
           const tooltipTitle =
-            base && base > 0 && suggest
+            algo === 'builtin' && base && base > 0 && suggest
               ? (
                 <div>
                   <div>近3月均 {base.toFixed(1)} 件</div>
                   <div>÷ 近3月季节系数均 {recentAvg.toFixed(2)}</div>
                   <div>× {predictMonthLabel}系数 {factor.toFixed(2)}</div>
                   <div>≈ 建议 {suggest} 件</div>
-                  {userVal !== undefined && userVal !== suggest ? (
-                    <div style={{ marginTop: 4, color: '#faad14' }}>当前已填 {userVal}, 跟新算法建议 {suggest} 有差异</div>
-                  ) : null}
                 </div>
               )
               : null;
-          // cell 已填值跟新建议差异 ≥ 20% 加视觉提示
-          const hasDiff = userVal !== undefined && userVal !== null && suggest && suggest > 0
-            && Math.abs(userVal - suggest) / suggest >= 0.2;
           const input = (
             <InputNumber
-              value={userVal ?? null}
+              value={displayValue}
               onChange={val => handleCellChange(row.sku_code, region, val as number | null)}
               min={0}
               step={1}
               precision={0}
-              placeholder={placeholder}
-              style={{ width: '100%', ...(hasDiff ? { background: '#fff7e6' } : {}) }}
+              placeholder="—"
+              style={{ width: '100%' }}
               variant="borderless"
             />
           );
@@ -307,15 +304,17 @@ const SalesForecast: React.FC = () => {
       message="销量预测算法说明"
       description={
         <div style={{ lineHeight: 1.8 }}>
-          <div><b>核心公式</b>:预测值 = 近 3 月均 ÷ 近 3 月季节系数均 × 预测月季节系数 × 大区同比 × 大区环比</div>
-          <div><b>5 层智能叠加</b>:</div>
-          <ol style={{ marginTop: 4, marginBottom: 4, paddingLeft: 20 }}>
-            <li><b>季节系数</b> — 用过去 24 个月销量推算每个 SKU 的 12 个月份系数(&gt;1 旺/&lt;1 淡)</li>
-            <li><b>春节滑动修正</b> — 1/2 月只看"春节落点跟预测年同月"的历史年, 避免囤货月跟假月混算</li>
-            <li><b>客观度判定</b> — 单 SKU 同月 2 年波动 &gt;30% 视为营销污染, 改用同品类货品的月份系数中位数(代表客观规律)</li>
-            <li><b>大区同比</b> — 大区近 3 月销量 ÷ 去年同期 = 同比增长率, clamp ±30% 防异常, 捕获年度业务扩张</li>
-            <li><b>大区环比</b> — 大区近 1 月 ÷ 近 3 月均 = 短期趋势加速度, clamp ±8%, 春节季月份(近3月含1/2/3) 自动跳过防带飞</li>
+          <div><b>内置算法 (五层叠加)</b>:近3月均 ÷ 近3月季节系数均 × 预测月季节系数 × 大区同比 × 大区环比</div>
+          <ol style={{ marginTop: 4, marginBottom: 8, paddingLeft: 20 }}>
+            <li><b>季节系数</b> — 24 月历史推 12 月份系数 (&gt;1 旺/&lt;1 淡)</li>
+            <li><b>春节滑动修正</b> — 1/2 月按春节落点同月年份对齐</li>
+            <li><b>客观度判定</b> — 单 SKU 2 年波动 &gt;30% 视为污染, 用品类中位数替代</li>
+            <li><b>大区同比</b> — 近 3 月 ÷ 去年同期 (clamp ±30%)</li>
+            <li><b>大区环比</b> — 近 1 月 ÷ 近 3 月均 (clamp ±8%, 春节季自动跳过)</li>
           </ol>
+          <div><b>Prophet (Facebook 开源)</b>:贝叶斯加性模型,公式 = 趋势 + 季节性 + 节假日效应 + 残差.内置中国春节假期模型(±30 天囤货 + 假期断崖),日级训练. <span style={{color:'#16a34a'}}>春节月份精度最高</span>.</div>
+          <div><b>StatsForecast (Nixtla 开源)</b>:经典统计模型集成 = AutoARIMA + AutoETS + AutoTheta 三模型预测均值. AutoARIMA 自动选择 ARIMA 参数, AutoETS 自动选择指数平滑模型, AutoTheta 基于趋势分解. 月级训练,<span style={{color:'#16a34a'}}>M5/M6 销量比赛冠军级方案</span>.</div>
+          <div style={{marginTop:4,color:'#64748b'}}>3 种算法切换时表格数字实时变化,SKU 间相对比例保留,大区合计对齐该算法预测.</div>
         </div>
       }
     />
