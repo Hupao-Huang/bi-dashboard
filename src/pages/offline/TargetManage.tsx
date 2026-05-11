@@ -127,9 +127,9 @@ const TargetManage: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, alignItems: 'center', marginBottom: 16 }}>
-        <Select options={yearOptions} value={year} onChange={setYear} style={{ width: 100 }} />
-        <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <Select size="small" options={yearOptions} value={year} onChange={setYear} style={{ width: 90 }} />
+        <Button size="small" type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
           保存
         </Button>
       </div>
