@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Radio, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
+import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
 import { ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { API_BASE } from '../../config';
-
-type RangeMode = 'recent6m' | 'all';
 
 interface ForecastItem {
   sku_code: string;
@@ -20,7 +18,6 @@ interface ForecastItem {
 const SalesForecast: React.FC = () => {
   const defaultYM = dayjs().add(1, 'month');
   const [ym, setYm] = useState<Dayjs>(defaultYM);
-  const [rangeMode, setRangeMode] = useState<RangeMode>('recent6m');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regions, setRegions] = useState<string[]>([]);
@@ -36,7 +33,7 @@ const SalesForecast: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/offline/sales-forecast?ym=${ymStr}&range=${rangeMode}`, {
+      const res = await fetch(`${API_BASE}/api/offline/sales-forecast?ym=${ymStr}&range=recent6m`, {
         credentials: 'include',
       });
       const json = await res.json();
@@ -62,7 +59,7 @@ const SalesForecast: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [ymStr, rangeMode]);
+  }, [ymStr]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -337,11 +334,6 @@ const SalesForecast: React.FC = () => {
             format="YYYY-MM"
           />
           {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
-          <span style={{ fontWeight: 600 }}>SKU 范围</span>
-          <Radio.Group size="small" value={rangeMode} onChange={e => setRangeMode(e.target.value)}>
-            <Radio.Button value="recent6m" style={{ padding: '0 14px' }}>近 6 个月有销量</Radio.Button>
-            <Radio.Button value="all" style={{ padding: '0 14px' }}>全部(近 12 月有销量)</Radio.Button>
-          </Radio.Group>
           <Input
             size="small"
             allowClear
