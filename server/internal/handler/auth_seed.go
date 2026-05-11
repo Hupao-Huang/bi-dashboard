@@ -44,6 +44,8 @@ var permissionSeeds = []permissionSeed{
 	{Code: "offline.ka_monthly:view", Name: "线下-KA月度统计", Type: "page"},
 	{Code: "offline.target:view", Name: "线下-目标管理查看", Type: "page"},
 	{Code: "offline.target:edit", Name: "线下-目标管理编辑", Type: "action"},
+	{Code: "offline.sales_forecast:view", Name: "线下-销量预测管理查看", Type: "page"},
+	{Code: "offline.sales_forecast:edit", Name: "线下-销量预测管理编辑", Type: "action"},
 	{Code: "distribution:view", Name: "分销部门", Type: "menu"},
 	{Code: "distribution.store_preview:view", Name: "分销-店铺数据预览", Type: "page"},
 	{Code: "distribution.store_dashboard:view", Name: "分销-店铺看板", Type: "page"},

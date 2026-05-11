@@ -41,6 +41,7 @@ type MenuItem = Required<MenuProps>['items'][number];
 
 export type MenuDefinition = {
   children?: MenuDefinition[];
+  disabled?: boolean;
   icon?: React.ReactNode;
   key: string;
   label: string;
@@ -97,10 +98,11 @@ export const menuDefinitions: MenuDefinition[] = [
         store: 'offline.store_dashboard:view',
         product: 'offline.product_dashboard:view',
       }, '大区'),
-      { key: '/offline/high-value-customers', icon: <CrownOutlined />, label: '高价值客户', permission: 'offline.high_value_customers:view' },
-      { key: '/offline/turnover-expiry', icon: <SyncOutlined />, label: '周转率及临期', permission: 'offline.turnover_expiry:view' },
-      { key: '/offline/ka-monthly', icon: <ScheduleOutlined />, label: 'KA月度统计', permission: 'offline.ka_monthly:view' },
       { key: '/offline/target-manage', icon: <FlagOutlined />, label: '目标管理', permission: 'offline.target:view' },
+      { key: '/offline/sales-forecast', icon: <LineChartOutlined />, label: '销量预测管理', permission: 'offline.sales_forecast:view' },
+      { key: '/offline/high-value-customers', icon: <CrownOutlined />, label: '高价值客户（待开发中）', permission: 'offline.high_value_customers:view', disabled: true },
+      { key: '/offline/turnover-expiry', icon: <SyncOutlined />, label: '周转率及临期（待开发中）', permission: 'offline.turnover_expiry:view', disabled: true },
+      { key: '/offline/ka-monthly', icon: <ScheduleOutlined />, label: 'KA月度统计（待开发中）', permission: 'offline.ka_monthly:view', disabled: true },
     ],
   },
   {
@@ -202,10 +204,11 @@ export const pageTitleMap: Record<string, string> = {
   '/offline/store-preview': '大区数据预览',
   '/offline/store-dashboard': '大区看板',
   '/offline/product-dashboard': '货品看板',
+  '/offline/target-manage': '目标管理',
+  '/offline/sales-forecast': '销量预测管理',
   '/offline/high-value-customers': '高价值客户',
   '/offline/turnover-expiry': '周转率及临期',
   '/offline/ka-monthly': 'KA月度统计',
-  '/offline/target-manage': '目标管理',
   '/distribution': '分销部门',
   '/distribution/store-preview': '店铺数据预览',
   '/distribution/store-dashboard': '店铺看板',
@@ -277,10 +280,11 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/offline/store-preview', permission: 'offline.store_preview:view' },
   { path: '/offline/store-dashboard', permission: 'offline.store_dashboard:view' },
   { path: '/offline/product-dashboard', permission: 'offline.product_dashboard:view' },
+  { path: '/offline/target-manage', permission: 'offline.target:view' },
+  { path: '/offline/sales-forecast', permission: 'offline.sales_forecast:view' },
   { path: '/offline/high-value-customers', permission: 'offline.high_value_customers:view' },
   { path: '/offline/turnover-expiry', permission: 'offline.turnover_expiry:view' },
   { path: '/offline/ka-monthly', permission: 'offline.ka_monthly:view' },
-  { path: '/offline/target-manage', permission: 'offline.target:view' },
   { path: '/distribution', permission: 'distribution:view' },
   { path: '/distribution/store-preview', permission: 'distribution.store_preview:view' },
   { path: '/distribution/store-dashboard', permission: 'distribution.store_dashboard:view' },
@@ -328,6 +332,7 @@ const toMenuItems = (definitions: MenuDefinition[]): MenuItem[] => definitions.m
   key: definition.key,
   icon: definition.icon,
   label: definition.label,
+  disabled: definition.disabled,
   children: definition.children ? toMenuItems(definition.children) : undefined,
 }));
 
