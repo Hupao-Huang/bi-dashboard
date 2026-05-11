@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Radio, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
-import { ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
+import { DownloadOutlined, ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { API_BASE } from '../../config';
 
@@ -102,6 +102,37 @@ const SalesForecast: React.FC = () => {
     });
     setUserValues(next);
     message.success('已用最新算法预测填表,点"保存"落库');
+  };
+
+  const handleDownload = () => {
+    const headers = ['货品名', '货品编码', `${predictMonthLabel}季节系数`, ...regions, '线下总计'];
+    const rows = filteredItems.map(it => {
+      const uv = userValues[it.sku_code] || {};
+      const cells = regions.map(r => uv[r] ?? '');
+      const total = regions.reduce((s, r) => s + (uv[r] || 0), 0);
+      const escape = (v: any) => {
+        const s = String(v ?? '');
+        return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      return [
+        escape(it.goods_name || ''),
+        escape(it.sku_code),
+        escape(it.seasonal_factor?.toFixed(2) ?? ''),
+        ...cells.map(escape),
+        total,
+      ].join(',');
+    });
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `销量预测_${ymStr}_${dayjs().format('YYYY-MM-DD_HHmm')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    message.success(`已导出 ${filteredItems.length} 行 CSV`);
   };
 
   const handleClear = async () => {
@@ -366,6 +397,7 @@ const SalesForecast: React.FC = () => {
             <Button danger>清空</Button>
           </Popconfirm>
           <Button onClick={handlePredict}>预测</Button>
+          <Button icon={<DownloadOutlined />} onClick={handleDownload}>下载</Button>
           <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
             保存
           </Button>
