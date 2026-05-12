@@ -91,7 +91,9 @@ const ExpenseControl: React.FC = () => {
   const [state, setState] = useState<string | undefined>(undefined);
   const [invoiceStatus, setInvoiceStatus] = useState<string | undefined>(undefined);
   const [keyword, setKeyword] = useState('');
+  const [keywordInput, setKeywordInput] = useState(''); // v1.58.3: 输入框 draft, 点查询才提交到 keyword
   const [approver, setApprover] = useState(''); // v1.58.2: 当前审批人 LIKE 搜
+  const [approverInput, setApproverInput] = useState(''); // v1.58.3: 输入框 draft
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
   const [detailModal, setDetailModal] = useState<{ visible: boolean; flowId: string }>({ visible: false, flowId: '' });
   const [detailData, setDetailData] = useState<any>(null);
@@ -249,11 +251,14 @@ const ExpenseControl: React.FC = () => {
   };
 
   const triggerQuery = useCallback(() => {
+    // v1.58.3: 把输入框 draft 提交到实际 state, 触发 useEffect 重查
+    setKeyword(keywordInput);
+    setApprover(approverInput);
     setPage(1);
-    if (page === 1) {
+    if (page === 1 && keywordInput === keyword && approverInput === approver) {
       void fetchFlows();
     }
-  }, [fetchFlows, page]);
+  }, [fetchFlows, page, keywordInput, approverInput, keyword, approver]);
 
   const resetFilters = useCallback(() => {
     const noFilter = !formType && !state && !invoiceStatus && !keyword && !approver && !dateRange;
@@ -261,7 +266,9 @@ const ExpenseControl: React.FC = () => {
     setState(undefined);
     setInvoiceStatus(undefined);
     setKeyword('');
+    setKeywordInput('');
     setApprover('');
+    setApproverInput('');
     setDateRange(null);
     setPage(1);
     if (page === 1 && noFilter) {
@@ -501,14 +508,14 @@ const ExpenseControl: React.FC = () => {
             </Select>
           </Col>
           <Col>
-            <Input prefix={<SearchOutlined />} placeholder="搜索编码/标题" value={keyword}
-              onChange={e => setKeyword(e.target.value)}
+            <Input prefix={<SearchOutlined />} placeholder="搜索编码/标题" value={keywordInput}
+              onChange={e => setKeywordInput(e.target.value)}
               onPressEnter={triggerQuery}
               allowClear style={{ width: 200 }} />
           </Col>
           <Col>
-            <Input prefix={<SearchOutlined />} placeholder="当前审批人" value={approver}
-              onChange={e => setApprover(e.target.value)}
+            <Input prefix={<SearchOutlined />} placeholder="当前审批人" value={approverInput}
+              onChange={e => setApproverInput(e.target.value)}
               onPressEnter={triggerQuery}
               allowClear style={{ width: 140 }} />
           </Col>
