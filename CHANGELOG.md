@@ -507,6 +507,21 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.58.1 (2026-05-12) — 修"看同步日志"显示空的 bug
+
+跑哥反馈点"看日志"只显示 2 行 getAccessToken, 没真实进度.
+
+根因: sync-hesi.exe 主流程用 fmt.Printf 输出 (不是 log.Printf), v1.57.1 加的 MultiWriter 只重定向 log 包, fmt 输出走 stdout 进了 manual-sync-hesi-*.log 而不是 sync-hesi.log.
+
+修复: 后端 admin_task_log_tail.go 加 fallback —
+- 优先读固定 log
+- 内容 < 5 行时降级 glob 找最新 manual-{key}-*.log 取代
+- 跑哥前端"看日志"立刻看到完整进度 (附件 X/X / 同步完成 / 审批状态更新 X 条)
+
+实测: sync-hesi 跑完 6 分 4 秒, 1780 单 / 4366 附件 / 461 单审批回填, 数据库 251 单已写入 current_approver_name (有效审批人姓名), 26 个不同审批人.
+
+---
+
 ## v1.58.0 (2026-05-12) — 合思费控页"当前审批"显示真实姓名
 
 接 v1.57.2, 跑哥说不要只显示岗位名要看具体审批人. 这次彻底搞定.
