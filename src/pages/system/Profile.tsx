@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Avatar, Button, Card, Col, Descriptions, Form, Input, message, Popconfirm, Row, Tag, Upload } from 'antd';
-import { CameraOutlined, DingtalkOutlined, LockOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons';
+import { Avatar, Button, Card, Col, Descriptions, Form, Input, message, Popconfirm, Row, Tabs, Tag, Upload } from 'antd';
+import { CameraOutlined, DingtalkOutlined, LockOutlined, RobotOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
+import HesiBot from './HesiBot';
 
 const Profile: React.FC = () => {
   const [profile, setProfile] = useState<any>(null);
@@ -79,7 +80,7 @@ const Profile: React.FC = () => {
     viewer: '查看者',
   };
 
-  return (
+  const profileTab = (
     <Row gutter={24}>
       <Col xs={24} md={8}>
         <Card style={{ textAlign: 'center' }}>
@@ -251,6 +252,16 @@ const Profile: React.FC = () => {
         </Card>
       </Col>
     </Row>
+  );
+
+  return (
+    <Tabs
+      defaultActiveKey="profile"
+      items={[
+        { key: 'profile', label: <span><UserOutlined /> 个人信息</span>, children: profileTab },
+        { key: 'hesi-bot', label: <span><RobotOutlined /> 合思机器人</span>, children: <HesiBot /> },
+      ]}
+    />
   );
 };
 

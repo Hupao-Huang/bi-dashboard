@@ -388,6 +388,9 @@ func main() {
 	}))
 	mux.HandleFunc("/api/user/avatar", protected(h.UploadAvatar))
 
+	// v1.59.0 个人中心 → 合思机器人 Tab "我的待审批"
+	mux.HandleFunc("/api/profile/hesi-pending", protected(h.GetMyHesiPending))
+
 	// 公告
 	noticeAdmin := func(next http.HandlerFunc) http.HandlerFunc {
 		return corsHandler(h.RequirePermission("notice.manage", next))
