@@ -22,7 +22,7 @@ import {
   message,
 } from 'antd';
 import type { UploadFile } from 'antd';
-import { DeleteOutlined, UploadOutlined, SearchOutlined, TeamOutlined, CheckCircleOutlined, StopOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { DeleteOutlined, UploadOutlined, SearchOutlined, TeamOutlined, CheckCircleOutlined, StopOutlined, ClockCircleOutlined, SyncOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 
 const ROLE_COLOR_MAP: Record<string, string> = {
@@ -511,7 +511,31 @@ const UserAccessPage: React.FC = () => {
           <Card
             className="bi-card"
             title="用户列表"
-            extra={<Space><Button onClick={() => setBatchOpen(true)} icon={<UploadOutlined />}>批量导入</Button><Button type="primary" onClick={() => setCreateOpen(true)}>新增用户</Button></Space>}
+            extra={<Space>
+              <Button
+                icon={<SyncOutlined />}
+                onClick={async () => {
+                  const hide = message.loading('正在同步全员钉钉真名…', 0);
+                  try {
+                    const res = await fetch(`${API_BASE}/api/admin/sync-all-dingtalk-names`, { method: 'POST', credentials: 'include' });
+                    const data = await res.json().catch(() => ({}));
+                    hide();
+                    if (res.ok) {
+                      const d = data.data || data;
+                      message.success(`同步完成: 成功 ${d.success}/${d.total}${d.failed?.length ? `, 失败 ${d.failed.length}` : ''}`);
+                      loadUsers();
+                    } else {
+                      message.error(data.msg || data.error || '同步失败');
+                    }
+                  } catch {
+                    hide();
+                    message.error('网络错误');
+                  }
+                }}
+              >同步钉钉真名</Button>
+              <Button onClick={() => setBatchOpen(true)} icon={<UploadOutlined />}>批量导入</Button>
+              <Button type="primary" onClick={() => setCreateOpen(true)}>新增用户</Button>
+            </Space>}
           >
             <Input
               placeholder="搜索 姓名 / 账号 / 手机号"

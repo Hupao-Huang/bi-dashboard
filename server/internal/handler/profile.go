@@ -21,26 +21,29 @@ func (h *DashboardHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var realName, avatar, phone, email, dingtalkUserid, passwordHash string
+	var realName, avatar, phone, email, dingtalkUserid, passwordHash, dingtalkRealName, hesiRealName string
 	var lastLoginAt *string
 	err := h.DB.QueryRow(`SELECT IFNULL(real_name,''), IFNULL(avatar,''), IFNULL(phone,''), IFNULL(email,''),
-		DATE_FORMAT(last_login_at,'%Y-%m-%d %H:%i'), IFNULL(dingtalk_userid,''), IFNULL(password_hash,'') FROM users WHERE id=?`, payload.User.ID).
-		Scan(&realName, &avatar, &phone, &email, &lastLoginAt, &dingtalkUserid, &passwordHash)
+		DATE_FORMAT(last_login_at,'%Y-%m-%d %H:%i'), IFNULL(dingtalk_userid,''), IFNULL(password_hash,''),
+		IFNULL(dingtalk_real_name,''), IFNULL(hesi_real_name,'') FROM users WHERE id=?`, payload.User.ID).
+		Scan(&realName, &avatar, &phone, &email, &lastLoginAt, &dingtalkUserid, &passwordHash, &dingtalkRealName, &hesiRealName)
 	if err != nil {
 		writeServerError(w, 500, "获取个人信息失败", err)
 		return
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"username":       payload.User.Username,
-		"realName":       realName,
-		"avatar":         avatar,
-		"phone":          phone,
-		"email":          email,
-		"lastLoginAt":    lastLoginAt,
-		"roles":          payload.Roles,
-		"dingtalkBound":  dingtalkUserid != "",
-		"hasPassword":    passwordHash != "",
+		"username":         payload.User.Username,
+		"realName":         realName,
+		"avatar":           avatar,
+		"phone":            phone,
+		"email":            email,
+		"lastLoginAt":      lastLoginAt,
+		"roles":            payload.Roles,
+		"dingtalkBound":    dingtalkUserid != "",
+		"hasPassword":      passwordHash != "",
+		"dingtalkRealName": dingtalkRealName, // v1.60.2 钉钉通讯录真名
+		"hesiRealName":     hesiRealName,     // v1.60.1 合思真名(用于审批匹配)
 	})
 }
 

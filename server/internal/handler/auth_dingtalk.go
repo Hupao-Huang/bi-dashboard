@@ -179,6 +179,8 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusForbidden, "账号已被禁用")
 			return
 		}
+		// v1.60.2 登录后异步同步钉钉真名(不阻塞登录)
+		h.asyncSyncDingtalkName(userID, dtID)
 		h.createSessionAndRespond(w, r, userID)
 		return
 	}
@@ -196,6 +198,8 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 				writeError(w, http.StatusForbidden, "账号已被禁用")
 				return
 			}
+			// v1.60.2 登录后异步同步钉钉真名(不阻塞登录)
+			h.asyncSyncDingtalkName(userID, dtID)
 			h.createSessionAndRespond(w, r, userID)
 			return
 		}

@@ -519,6 +519,34 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.60.2 (2026-05-12) — 同步钉钉昵称/真名到 BI 看板
+
+**Why**: v1.60.1 用合思手机号自动绑定 89%, 但合思真名 = 钉钉通讯录真名, 钉钉是登录入口, 是更稳的数据源. 让用户在个人信息页直接看到自己的钉钉昵称(虎跑) vs 真名(黄承欢) 差异, 并支持手动/自动同步.
+
+**这次做的**:
+- `users` 表加 `dingtalk_real_name` 字段 (钉钉通讯录真名)
+- 后端 3 个接口/钩子:
+  - `POST /api/profile/sync-dingtalk` — 当前用户单同步
+  - `POST /api/admin/sync-all-dingtalk-names` — 管理员一键全员同步
+  - `DingtalkLogin` 钉钉扫码登录后异步触发 `asyncSyncDingtalkName` (不阻塞登录)
+- 前端:
+  - 个人信息页"账号信息"卡片加 3 行: 钉钉昵称 / 钉钉真名 / 合思真名 + "从钉钉同步" 按钮
+  - 用户管理页(/system/access)工具栏加 "同步钉钉真名" 一键全员按钮
+- `GET /api/user/profile` 接口返回新字段 `dingtalkRealName` / `hesiRealName`
+
+**实测一键全员**: 36 个绑定钉钉的用户, **36/36 全部同步成功 (100%)** — 比 v1.60.1 合思手机号匹配 89% 还高
+- 跑哥 admin (虎跑) → 黄承欢 ✓
+- 石榴 → 李磊磊 / 蹄子 → 邢荣荣 / 小雨 → 张思雨 / 贝 → 邢贝贝 (钉钉昵称背后的真名揭晓)
+
+**复用资产**:
+- 钉钉 `oauth2/accessToken` + `topapi/user/getbyunionid` + `topapi/v2/user/get` 接口链路 (`getDingtalkDepartment` 函数已用过, 提取通用 `fetchDingtalkRealName`)
+
+**后端**: `server/internal/handler/{profile_dingtalk_sync.go(新), profile.go, auth_dingtalk.go}` + `cmd/server/main.go` 注册路由
+**前端**: `src/pages/system/{Profile.tsx, UserAccess.tsx}`
+**数据**: `add-dingtalk-real-name.sql`
+
+---
+
 ## v1.60.3 (2026-05-12) — 销量预测导出 Excel 带页面样式 + 4 算法回测对比
 
 **Why**: 跑哥要把销量预测管理推广到群里, 导出 Excel 之前是纯白无样式, 跟页面视觉不一致.
