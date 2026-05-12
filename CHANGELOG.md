@@ -519,6 +519,35 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.60.1 (2026-05-12) — 合思机器人按 staffId 精确匹配 (修 91% 用户匹配不上的 bug)
+
+**Why**: v1.59.0 用 BI 看板 `users.real_name` 模糊匹配 `hesi_flow.current_approver_name`. 跑哥发现自己合思真名 "黄承欢", BI 看板昵称 "虎跑", 匹配不上看不到待审批. 数据查证: **44 个用户中 40 个(91%)用昵称, 匹配不上**.
+
+**根因**: BI 看板 real_name 字段实际填的是钉钉昵称(虎跑/石榴/蹄子/小雨/贝/大lin...), 不是身份证真名.
+
+**修法**:
+- users 表加 `hesi_staff_id` + `hesi_real_name` 字段 (ALGORITHM=INSTANT)
+- 一次性脚本拉合思全员 (867 人) 通过 `GET /api/openapi/v1.1/staffs`
+- 按 `users.username == staff.cellphone` 自动匹配, 命中 35 (80%)
+- 真名兜底 (BI nick = 合思 name) 命中 3
+- admin (跑哥)手工 SQL 绑 → 黄承欢/ID01Fp0kuLamV9
+- 合计 **39/44 = 89%** 自动绑定
+- 剩 5 个别名账号 (团大/电商/财务/客服/采购计划) 后续手填
+- 后端 `profile_hesi_pending.go` 改用 `current_approver_id LIKE '%hesi_staff_id%'` 精确匹配, 不再误命中同名
+
+**实测**:
+- 跑哥(admin→虎跑→黄承欢) 登录 "我的待审批" → 出现 S26002382 (采购晋升人员电脑申请单) ✓
+- 张俊 (real_name=张俊 自动绑成功) 维持 5 单待审批 ✓
+
+**附带改动**:
+- `BI-SyncHesi` schtask 从 Daily 10:30 改成 **Hourly** (每小时 1 次)
+- 张俊提交单据 → 本地同步 → 出现在"我的待审批", 最多滞后 1 小时
+
+**后端**: `server/internal/handler/profile_hesi_pending.go`
+**数据**: `add-hesi-staff-fields.sql` + `bind-hesi-users.sql`
+
+---
+
 ## v1.60.0 (2026-05-12) — 合思机器人加"规则编辑器" (第 2 期 MVP)
 
 **Why**: v1.59.0 只读看清单, 这一期让跑哥能**配自己的自动审批规则** (按字段+操作符+值的 AND 条件组), 但默认干跑模式, 不调合思 API 真审批. 离 v1.62 真自动审批越来越近, 但护栏越上越严.
