@@ -94,6 +94,9 @@ const Feedback: React.FC = () => {
 
   const [list, setList] = useState<FeedbackItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState<{pending: number; processing: number; resolved: number; closed: number}>({
+    pending: 0, processing: 0, resolved: 0, closed: 0,
+  });
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -123,6 +126,14 @@ const Feedback: React.FC = () => {
       const data = json.data || json;
       setList(data.list || []);
       setTotal(data.total || 0);
+      if (data.stats) {
+        setStats({
+          pending: Number(data.stats.pending) || 0,
+          processing: Number(data.stats.processing) || 0,
+          resolved: Number(data.stats.resolved) || 0,
+          closed: Number(data.stats.closed) || 0,
+        });
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       message.error('获取反馈列表失败: ' + msg);
@@ -181,13 +192,6 @@ const Feedback: React.FC = () => {
     setOriginalReply(item.reply || '');
     setOriginalStatus(item.status);
   };
-
-  const stats = useMemo(() => ({
-    pending: list.filter(i => i.status === 'pending').length,
-    processing: list.filter(i => i.status === 'processing').length,
-    resolved: list.filter(i => i.status === 'resolved').length,
-    closed: list.filter(i => i.status === 'closed').length,
-  }), [list]);
 
   const filteredList = useMemo(() => {
     const q = searchText.trim().toLowerCase();
