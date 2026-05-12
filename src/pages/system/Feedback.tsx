@@ -317,7 +317,16 @@ const Feedback: React.FC = () => {
     <div>
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
-          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: STATUS_HEX_MAP.pending }} bodyStyle={{ padding: 16 }}>
+          <Card
+            className="bi-stat-card"
+            style={{
+              ['--accent-color' as any]: STATUS_HEX_MAP.pending,
+              cursor: 'pointer',
+              outline: statusFilter === 'pending' ? `2px solid ${STATUS_HEX_MAP.pending}` : 'none',
+            }}
+            bodyStyle={{ padding: 16 }}
+            onClick={() => { setPage(1); setStatusFilter(statusFilter === 'pending' ? '' : 'pending'); }}
+          >
             <Statistic
               title={<><ClockCircleOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.pending }} />待处理</>}
               value={stats.pending}
@@ -326,7 +335,16 @@ const Feedback: React.FC = () => {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: STATUS_HEX_MAP.processing }} bodyStyle={{ padding: 16 }}>
+          <Card
+            className="bi-stat-card"
+            style={{
+              ['--accent-color' as any]: STATUS_HEX_MAP.processing,
+              cursor: 'pointer',
+              outline: statusFilter === 'processing' ? `2px solid ${STATUS_HEX_MAP.processing}` : 'none',
+            }}
+            bodyStyle={{ padding: 16 }}
+            onClick={() => { setPage(1); setStatusFilter(statusFilter === 'processing' ? '' : 'processing'); }}
+          >
             <Statistic
               title={<><SyncOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.processing }} />处理中</>}
               value={stats.processing}
@@ -335,7 +353,16 @@ const Feedback: React.FC = () => {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: STATUS_HEX_MAP.resolved }} bodyStyle={{ padding: 16 }}>
+          <Card
+            className="bi-stat-card"
+            style={{
+              ['--accent-color' as any]: STATUS_HEX_MAP.resolved,
+              cursor: 'pointer',
+              outline: statusFilter === 'resolved' ? `2px solid ${STATUS_HEX_MAP.resolved}` : 'none',
+            }}
+            bodyStyle={{ padding: 16 }}
+            onClick={() => { setPage(1); setStatusFilter(statusFilter === 'resolved' ? '' : 'resolved'); }}
+          >
             <Statistic
               title={<><CheckCircleOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.resolved }} />已解决</>}
               value={stats.resolved}
@@ -344,7 +371,16 @@ const Feedback: React.FC = () => {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: STATUS_HEX_MAP.closed }} bodyStyle={{ padding: 16 }}>
+          <Card
+            className="bi-stat-card"
+            style={{
+              ['--accent-color' as any]: STATUS_HEX_MAP.closed,
+              cursor: 'pointer',
+              outline: statusFilter === 'closed' ? `2px solid ${STATUS_HEX_MAP.closed}` : 'none',
+            }}
+            bodyStyle={{ padding: 16 }}
+            onClick={() => { setPage(1); setStatusFilter(statusFilter === 'closed' ? '' : 'closed'); }}
+          >
             <Statistic
               title={<><MinusCircleOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.closed }} />已关闭</>}
               value={stats.closed}
