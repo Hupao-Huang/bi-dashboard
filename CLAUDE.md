@@ -118,10 +118,33 @@ mysql -h127.0.0.1 -uroot -p<pwd> bi_dashboard
 - **YS 用友日期过滤必须用 `simpleVOs`**，文档说的 top-level `vouchdate` 字段静默失效
 - **YS 现存量接口 `data` 是直接 array**（不是 `data.recordList`），空 body 即全量
 
-### 部署后流程（git commit 后必做）
-- **每次 commit 必须** `INSERT INTO notices` 一条对应版本公告（取消旧置顶 + is_pinned=1）
-- **公告内容红线**: 面向用户口吻 / 不写技术变量名/文件路径/函数名 / 不写具体业务数据明细（金额/百分比/SKU 名）
-- **改了 main.go 后**: rebuild exe → 拷贝 `server/bi-server.exe` → kill 8080 PID → 启动新版
+### 部署 + 发版流程（App 版本号模式，2026-05-12 起）
+
+**commit ≠ 发版**——两件事解耦，节奏区分：
+
+**commit 阶段（每个小改动）**
+- commit message 格式：`<type>(<scope>): 主题 — 详情`（**不带版本号**）
+- 例：`feat(system): 用户管理菜单加待审批徽标`
+- 正常 push / rebuild exe / 重启 bi-server / 上生产（跟之前一样）
+- **不发 notice**，commit 阶段不打扰用户
+
+**改了 main.go / handler / 路由后**：
+1. `cd server && go build -o bi-server.exe ./cmd/server`
+2. 拷贝 `server/bi-server.exe` 到 `server/` 根
+3. kill 8080 PID 重启
+4. 改了 `.tsx` 必须 `npm run build`
+
+**发版阶段（一组改动收尾时，4 步连发）**
+1. 升版本号：MINOR 用于"一组功能闭环"，PATCH **只**用于紧急 hotfix（业务正在用的功能炸了）
+2. CHANGELOG 段落：`## v1.X.0 (YYYY-MM-DD) — 主题`，合并这组所有 commit 的改动点（4-6 点列）
+3. `git tag v1.X.0` + `git push --tags`
+4. INSERT 一条 notice（取消所有旧置顶 + is_pinned=1）
+
+**怎么算"一组改动收尾"**：跑哥说"现在发版" / 功能完整闭环 / 一波关联改动告一段落 / 跨天前主动收尾。
+
+**公告内容红线**: 面向用户口吻 / 不写技术变量名/文件路径/函数名 / 不写具体业务数据明细（金额/百分比/SKU 名）。
+
+**反例（避免）**：v1.61.0~v1.61.3 一个功能切 4 刀涨 4 版本。App 模式下应该是 1 个 v1.61.0 一次发完。
 
 ### 物化预聚合表
 - `warehouse_flow_summary` 等聚合表如果某个月份"漏"，**不能直接 build 补**——可能源数据"还在泡"（业务在补拉），先问，不要自动 fix
