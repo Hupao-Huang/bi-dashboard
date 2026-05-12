@@ -7,6 +7,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
+import HesiBotRules from './HesiBotRules';
 
 interface PendingItem {
   flowId: string;
@@ -133,11 +134,13 @@ const HesiBot: React.FC = () => {
   return (
     <div>
       {/* 顶部说明 + 后续路线 */}
+      <HesiBotRules />
+
       <Alert
         type="info"
         showIcon
         icon={<RobotOutlined />}
-        message="合思机器人 (v1.59 MVP 只读模式)"
+        message="合思机器人 — 我的待审批"
         description={
           <div>
             <div>

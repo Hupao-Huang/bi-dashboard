@@ -392,6 +392,18 @@ func main() {
 	mux.HandleFunc("/api/profile/hesi-pending", protected(h.GetMyHesiPending))
 	// v1.59.3 管理员查 distinct 审批人列表
 	mux.HandleFunc("/api/profile/hesi-approvers", protected(h.GetHesiApprovers))
+	// v1.60.0 合思机器人规则 CRUD
+	mux.HandleFunc("/api/profile/hesi-rules", protected(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			h.ListMyHesiRules(w, r)
+		case http.MethodPost:
+			h.CreateMyHesiRule(w, r)
+		default:
+			http.Error(w, "method not allowed", 405)
+		}
+	}))
+	mux.HandleFunc("/api/profile/hesi-rules/", protected(h.HesiRuleByPath))
 
 	// 公告
 	noticeAdmin := func(next http.HandlerFunc) http.HandlerFunc {

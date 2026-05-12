@@ -519,6 +519,37 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.60.0 (2026-05-12) — 合思机器人加"规则编辑器" (第 2 期 MVP)
+
+**Why**: v1.59.0 只读看清单, 这一期让跑哥能**配自己的自动审批规则** (按字段+操作符+值的 AND 条件组), 但默认干跑模式, 不调合思 API 真审批. 离 v1.62 真自动审批越来越近, 但护栏越上越严.
+
+**这一期做的**:
+- 合思机器人页顶部加 **"我的审批规则"** 卡片
+- "添加规则" / "编辑" / "删除" 完整 CRUD, 鉴权按 user_id 隔离 (谁的规则谁改)
+- 规则字段:
+  - 规则名 + 启用开关 + 干跑开关 (默认开)
+  - 动作 (同意/驳回) + 金额上限护栏 (默认 1000 元) + 优先级
+  - 审批备注 (会作为合思审批意见)
+  - 条件 (Form.List 动态加): 单据类型 / 支付金额 / 报销金额 / 借款金额 / 标题 / 当前节点 → 等于/包含/小于/大于...
+- 黄色警告条提醒: "当前规则不会真审批 (v1.60 阶段)"
+- 数据库新表 `hesi_auto_rule` (user_id + name + enabled + dry_run + action_type + max_amount + conditions_json + priority + 统计字段)
+
+**实测 (playwright)**:
+- POST 创建规则 → UI 自动 refetch ✅
+- PUT 编辑金额上限 1000 → 2000 ✅
+- DELETE 删除规则 ✅
+- GET 列表正确反序列化 conditions_json ✅
+
+**路线图**:
+- v1.60 ✅ 规则编辑器 (当前)
+- v1.61 干跑扫描 (匹配到的单据写日志, 不真审批)
+- v1.62 真自动审批 (需财务/合规先批准)
+
+**后端**: 新增 `server/internal/handler/profile_hesi_rules.go` (ListMyHesiRules / CreateMyHesiRule / HesiRuleByPath PUT+DELETE)
+**前端**: 新增 `src/pages/system/HesiBotRules.tsx`, HesiBot.tsx 顶部引入
+
+---
+
 ## v1.59.0 (2026-05-12) — 个人中心加"合思机器人" Tab (MVP 只读)
 
 **Why**: 跑哥要做合思自动审批机器人. 但全功能涉及自动调合思审批接口, 高风险, 需要财务/合规先批准. 拆 4 期 MVP 推进, 第 1 期纯只读零风险.
