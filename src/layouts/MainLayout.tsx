@@ -19,6 +19,7 @@ import AIToolboxDrawer from '../components/AIToolboxDrawer';
 import FeedbackModal from '../components/FeedbackModal';
 import NoticeBell from '../components/Noticebell';
 import Watermark from '../components/Watermark';
+import { usePendingCounts } from '../hooks/usePendingCounts';
 
 const { Sider, Header, Content } = Layout;
 
@@ -43,7 +44,12 @@ const MainLayout: React.FC = () => {
   const { hasPermission, logout, refresh, session } = useAuth();
 
   const currentPath = location.pathname === '/' ? '/overview' : location.pathname;
-  const menuItems = useMemo(() => buildMenuItems(hasPermission), [hasPermission]);
+  const canSeePendingBadges = hasPermission('user.manage') || hasPermission('feedback.manage');
+  const pendingCounts = usePendingCounts(canSeePendingBadges);
+  const menuItems = useMemo(
+    () => buildMenuItems(hasPermission, pendingCounts),
+    [hasPermission, pendingCounts],
+  );
   const pageTitle = pageTitleMap[currentPath] || '工作台';
   const deptPrefix = Object.keys(deptLabelMap).find(prefix => currentPath.startsWith(prefix + '/'));
   const deptLabel = deptPrefix ? deptLabelMap[deptPrefix] : null;
@@ -210,7 +216,10 @@ const MainLayout: React.FC = () => {
           defaultOpenKeys={collapsed && !isMobile ? [] : getDefaultOpenKeys(currentPath)}
           items={menuItems}
           onClick={({ key }) => {
-            navigate(key);
+            const pendingTarget =
+              (key === '/system/access' && pendingCounts.users > 0) ||
+              (key === '/system/feedback' && pendingCounts.feedback > 0);
+            navigate(pendingTarget ? `${key}?status=pending` : key);
             if (isMobile) setMobileMenuOpen(false);
           }}
         />

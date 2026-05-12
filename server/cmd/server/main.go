@@ -277,6 +277,7 @@ func main() {
 	mux.HandleFunc("/api/admin/roles/", adminRoles(h.AdminRoleByPath))
 	mux.HandleFunc("/api/audit/page-view", protected(h.AuditLogPageView))
 	mux.HandleFunc("/api/admin/audit-logs", adminMeta(h.AdminAuditLogs))
+	mux.HandleFunc("/api/admin/pending-counts", protected(h.AdminPendingCounts))
 
 	// T-1 数据看板：昨天/前天/上月数据永远不变，缓存 24 小时
 	// 同步脚本完成后会调 ClearCacheByPrefix 主动清除（详见 supply_chain.go / stock.go）

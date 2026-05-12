@@ -23,6 +23,7 @@ import {
 } from 'antd';
 import type { UploadFile } from 'antd';
 import { DeleteOutlined, UploadOutlined, SearchOutlined, TeamOutlined, CheckCircleOutlined, StopOutlined, ClockCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { useLocation } from 'react-router-dom';
 import { API_BASE } from '../../config';
 
 const ROLE_COLOR_MAP: Record<string, string> = {
@@ -124,6 +125,11 @@ const UserAccessPage: React.FC = () => {
   const [passwordForm] = Form.useForm();
 
   const [searchText, setSearchText] = useState('');
+  const location = useLocation();
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    const s = new URLSearchParams(location.search).get('status');
+    return s === 'pending' ? 'pending' : '';
+  });
 
   // 批量导入
   const [batchOpen, setBatchOpen] = useState(false);
@@ -192,13 +198,16 @@ const UserAccessPage: React.FC = () => {
 
   const filteredUsers = useMemo(() => {
     const q = searchText.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(u =>
-      u.realName.toLowerCase().includes(q) ||
-      u.username.toLowerCase().includes(q) ||
-      (u.phone || '').toLowerCase().includes(q)
-    );
-  }, [users, searchText]);
+    return users.filter(u => {
+      if (statusFilter && u.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
+        u.realName.toLowerCase().includes(q) ||
+        u.username.toLowerCase().includes(q) ||
+        (u.phone || '').toLowerCase().includes(q)
+      );
+    });
+  }, [users, searchText, statusFilter]);
 
   const handleSelectUser = async (user: UserItem) => {
     setSelectedUserId(user.id);
@@ -545,6 +554,16 @@ const UserAccessPage: React.FC = () => {
               onChange={(e) => setSearchText(e.target.value)}
               style={{ marginBottom: 12 }}
             />
+            {statusFilter === 'pending' && (
+              <Tag
+                color="orange"
+                closable
+                onClose={() => setStatusFilter('')}
+                style={{ marginBottom: 12 }}
+              >
+                仅看待审批 · {stats.pending}
+              </Tag>
+            )}
             <Table
               rowKey="id"
               loading={loading}

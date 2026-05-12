@@ -16,6 +16,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ClockCircleOutlined, SyncOutlined, CheckCircleOutlined, MinusCircleOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons';
+import { useLocation } from 'react-router-dom';
 import { API_BASE } from '../../config';
 import { pageTitleMap } from '../../navigation';
 
@@ -85,12 +86,18 @@ const StatusChip: React.FC<{ status: string }> = ({ status }) => {
 };
 
 const Feedback: React.FC = () => {
+  const location = useLocation();
+  const initialStatus = useMemo(() => {
+    const s = new URLSearchParams(location.search).get('status');
+    return s && statusConfig[s] ? s : '';
+  }, [location.search]);
+
   const [list, setList] = useState<FeedbackItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [searchText, setSearchText] = useState('');
   const [detailItem, setDetailItem] = useState<FeedbackItem | null>(null);
   const [originalReply, setOriginalReply] = useState('');
