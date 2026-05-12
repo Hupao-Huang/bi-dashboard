@@ -490,22 +490,58 @@ const UserAccessPage: React.FC = () => {
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
-          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#1e40af' }} bodyStyle={{ padding: 16 }}>
+          <Card
+            className="bi-stat-card"
+            style={{
+              ['--accent-color' as any]: '#1e40af',
+              cursor: 'pointer',
+              outline: statusFilter === '' ? '2px solid #1e40af' : 'none',
+            }}
+            bodyStyle={{ padding: 16 }}
+            onClick={() => setStatusFilter('')}
+          >
             <Statistic title={<><TeamOutlined style={{ marginRight: 6 }} />总用户</>} value={stats.total} valueStyle={{ color: '#1e40af', fontSize: 22 }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#16a34a' }} bodyStyle={{ padding: 16 }}>
+          <Card
+            className="bi-stat-card"
+            style={{
+              ['--accent-color' as any]: '#16a34a',
+              cursor: 'pointer',
+              outline: statusFilter === 'active' ? '2px solid #16a34a' : 'none',
+            }}
+            bodyStyle={{ padding: 16 }}
+            onClick={() => setStatusFilter(statusFilter === 'active' ? '' : 'active')}
+          >
             <Statistic title={<><CheckCircleOutlined style={{ marginRight: 6, color: '#16a34a' }} />已启用</>} value={stats.active} valueStyle={{ color: '#16a34a', fontSize: 22 }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#94a3b8' }} bodyStyle={{ padding: 16 }}>
+          <Card
+            className="bi-stat-card"
+            style={{
+              ['--accent-color' as any]: '#94a3b8',
+              cursor: 'pointer',
+              outline: statusFilter === 'disabled' ? '2px solid #94a3b8' : 'none',
+            }}
+            bodyStyle={{ padding: 16 }}
+            onClick={() => setStatusFilter(statusFilter === 'disabled' ? '' : 'disabled')}
+          >
             <Statistic title={<><StopOutlined style={{ marginRight: 6, color: '#94a3b8' }} />已停用</>} value={stats.disabled} valueStyle={{ color: '#64748b', fontSize: 22 }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#f59e0b' }} bodyStyle={{ padding: 16 }}>
+          <Card
+            className="bi-stat-card"
+            style={{
+              ['--accent-color' as any]: '#f59e0b',
+              cursor: 'pointer',
+              outline: statusFilter === 'pending' ? '2px solid #f59e0b' : 'none',
+            }}
+            bodyStyle={{ padding: 16 }}
+            onClick={() => setStatusFilter(statusFilter === 'pending' ? '' : 'pending')}
+          >
             <Statistic
               title={<><ClockCircleOutlined style={{ marginRight: 6, color: '#f59e0b' }} />待审批</>}
               value={stats.pending}
@@ -554,14 +590,16 @@ const UserAccessPage: React.FC = () => {
               onChange={(e) => setSearchText(e.target.value)}
               style={{ marginBottom: 12 }}
             />
-            {statusFilter === 'pending' && (
+            {statusFilter && (
               <Tag
-                color="orange"
+                color={statusFilter === 'pending' ? 'orange' : statusFilter === 'active' ? 'green' : 'default'}
                 closable
                 onClose={() => setStatusFilter('')}
                 style={{ marginBottom: 12 }}
               >
-                仅看待审批 · {stats.pending}
+                {statusFilter === 'pending' ? `仅看待审批 · ${stats.pending}` :
+                  statusFilter === 'active' ? `仅看已启用 · ${stats.active}` :
+                  `仅看已停用 · ${stats.disabled}`}
               </Tag>
             )}
             <Table
