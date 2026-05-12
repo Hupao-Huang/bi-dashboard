@@ -35,6 +35,7 @@ import {
   SyncOutlined,
   TeamOutlined,
   TrademarkOutlined,
+  UserOutlined,
   VideoCameraOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
@@ -177,6 +178,11 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/supply-chain/daily-alerts', icon: <WarningOutlined />, label: '每日预警', permission: 'supply_chain.daily_alerts:view' },
       { key: '/supply-chain/monthly-billing', icon: <FileTextOutlined />, label: '月度账单分析', permission: 'supply_chain.monthly_billing:view' },
     ],
+  },
+  {
+    key: '/profile',
+    icon: <UserOutlined />,
+    label: '个人中心',
   },
   {
     key: '/system',
