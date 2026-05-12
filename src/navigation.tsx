@@ -1,6 +1,7 @@
 import React from 'react';
 import { Tag, type MenuProps } from 'antd';
 import {
+  AccountBookOutlined,
   AlertOutlined,
   ApartmentOutlined,
   AppstoreOutlined,
@@ -150,6 +151,7 @@ export const menuDefinitions: MenuDefinition[] = [
     children: [
       { key: '/finance/overview', icon: <DashboardOutlined />, label: '利润总览', permission: 'finance.overview:view' },
       { key: '/finance/product-profit', icon: <RiseOutlined />, label: '产品利润统计', permission: 'finance.product_profit:view' },
+      { key: '/finance/expense-control', icon: <AccountBookOutlined />, label: '费控管理', permission: 'finance.expense:view' },
       { key: '/finance/report', icon: <FileTextOutlined />, label: '财务报表', permission: 'finance.report:view' },
     ],
   },
@@ -234,6 +236,7 @@ export const pageTitleMap: Record<string, string> = {
   '/finance/department-profit': '部门利润分析',
   '/finance/monthly-profit': '月度利润统计',
   '/finance/product-profit': '产品利润统计',
+  '/finance/expense-control': '费控管理',
   '/finance/report': '财务报表',
   '/customer': '客服部门',
   '/customer/overview': '客服总览',
@@ -310,6 +313,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/finance/department-profit', permission: 'finance.department_profit:view' },
   { path: '/finance/monthly-profit', permission: 'finance.monthly_profit:view' },
   { path: '/finance/product-profit', permission: 'finance.product_profit:view' },
+  { path: '/finance/expense-control', permission: 'finance.expense:view' },
   { path: '/customer/overview', permission: 'customer.overview:view' },
   { path: '/supply-chain/plan-dashboard', permission: 'supply_chain.plan_dashboard:view' },
   { path: '/supply-chain/purchase-plan', permission: 'supply_chain.plan_dashboard:view' },
