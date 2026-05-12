@@ -91,6 +91,7 @@ const ExpenseControl: React.FC = () => {
   const [state, setState] = useState<string | undefined>(undefined);
   const [invoiceStatus, setInvoiceStatus] = useState<string | undefined>(undefined);
   const [keyword, setKeyword] = useState('');
+  const [approver, setApprover] = useState(''); // v1.58.2: 当前审批人 LIKE 搜
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
   const [detailModal, setDetailModal] = useState<{ visible: boolean; flowId: string }>({ visible: false, flowId: '' });
   const [detailData, setDetailData] = useState<any>(null);
@@ -116,6 +117,7 @@ const ExpenseControl: React.FC = () => {
       if (state) params.set('state', state);
       if (invoiceStatus) params.set('invoiceStatus', invoiceStatus);
       if (keyword) params.set('keyword', keyword);
+      if (approver) params.set('approver', approver);
       if (dateRange?.[0]) params.set('startDate', dateRange[0].format('YYYY-MM-DD'));
       if (dateRange?.[1]) params.set('endDate', dateRange[1].format('YYYY-MM-DD'));
 
@@ -130,7 +132,7 @@ const ExpenseControl: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, formType, state, invoiceStatus, keyword, dateRange]);
+  }, [page, pageSize, formType, state, invoiceStatus, keyword, approver, dateRange]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchFlows(); }, [fetchFlows]);
@@ -254,18 +256,19 @@ const ExpenseControl: React.FC = () => {
   }, [fetchFlows, page]);
 
   const resetFilters = useCallback(() => {
-    const noFilter = !formType && !state && !invoiceStatus && !keyword && !dateRange;
+    const noFilter = !formType && !state && !invoiceStatus && !keyword && !approver && !dateRange;
     setFormType(undefined);
     setState(undefined);
     setInvoiceStatus(undefined);
     setKeyword('');
+    setApprover('');
     setDateRange(null);
     setPage(1);
     if (page === 1 && noFilter) {
       void fetchFlows();
     }
     void fetchStats();
-  }, [dateRange, fetchFlows, fetchStats, formType, invoiceStatus, keyword, page, state]);
+  }, [dateRange, fetchFlows, fetchStats, formType, invoiceStatus, keyword, approver, page, state]);
 
   const getMoney = (item: FlowItem) => {
     // payMoney为0时优先用expenseMoney（合思线下支付的单据payMoney可能为0）
@@ -502,6 +505,12 @@ const ExpenseControl: React.FC = () => {
               onChange={e => setKeyword(e.target.value)}
               onPressEnter={triggerQuery}
               allowClear style={{ width: 200 }} />
+          </Col>
+          <Col>
+            <Input prefix={<SearchOutlined />} placeholder="当前审批人" value={approver}
+              onChange={e => setApprover(e.target.value)}
+              onPressEnter={triggerQuery}
+              allowClear style={{ width: 140 }} />
           </Col>
           <Col>
             <RangePicker value={dateRange as any}
