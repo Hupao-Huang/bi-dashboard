@@ -143,6 +143,27 @@ mysql -h127.0.0.1 -uroot -p<pwd> bi_dashboard
 3. 读 `project_todo_next.md` 看上次结束基线 + 待办
 4. 列清单给跑哥确认方向，禁止直接动手 commit/build
 
+## 部署策略（2026-05-12 跑哥拍板）
+
+BI 看板**保持"改完直接生产"模式**（不上 staging）。35-43 人内部用户、只读分析工具、单人维护，staging 投入产出不划算。详见 memory `feedback_deployment_policy.md`。
+
+**配 4 条规矩，每次改动前自查**：
+
+1. **错峰重启** —— 避开 09:00-09:30 / 14:00-14:30 / 月初 1-5 号 / 月底盘点
+2. **重大改动发钉钉** —— 新增页面/改业务规则/调字段时，给同事发一句"HH:MM 重启 30 秒新增 XX，刷新即可"
+3. **业务红线（必须先本地跑通才推）**：
+   - 业务规则/算法（KPI 公式 / 客服平均 / 财务科目 / 库存计费）—— `/codex` 二审
+   - 数据库 schema 变更（加表/删表/改字段）
+   - 定时任务调度 / 关停同步
+   - main.go / 路由 / 权限
+4. **回滚步骤**（万一改坏，3 分钟救场）：
+   ```powershell
+   cd C:\Users\Administrator\bi-dashboard
+   git revert HEAD
+   # 后端坏: cd server && go build -o bi-server.exe ./cmd/server，然后 kill 8080 PID 重启
+   # 前端坏: npm run build （serve 自动 reload，不用重启）
+   ```
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. The
