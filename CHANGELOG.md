@@ -519,6 +519,37 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.60.3 (2026-05-12) — 销量预测导出 Excel 带页面样式 + 4 算法回测对比
+
+**Why**: 跑哥要把销量预测管理推广到群里, 导出 Excel 之前是纯白无样式, 跟页面视觉不一致.
+
+**这次做的**:
+- `xlsx` → `xlsx-js-style`: 替换库, 支持单元格 s 样式属性
+- `SalesForecast.tsx` handleDownload:
+  - 表头蓝底白字加粗居中
+  - 数值列右对齐
+  - 合计列(线下总计)浅黄底加粗
+  - 全表细灰边框
+- 修复 `prophet_backtest.py` 的 SQL bug: `DATE_FORMAT(stat_date, '%%Y-%%m')=%s` 跟 mysql.connector pyformat 占位符冲突导致 actual=0, 改成 BETWEEN 日期范围
+- 新增 `statsforecast_backtest_v2.py`: 月级聚合 + season_length=12 + AutoARIMA+AutoETS+AutoTheta 集成
+
+**实测回测 (2026 年 1-4 月, 大区合计 预测 vs 实际)**:
+
+| 月份 | Prophet | StatsForecast v2 | 智能(按月路由) |
+|---|---|---|---|
+| 1月 春节备货 | +10.2% | -48.8% | +10.2% (Prophet) |
+| 2月 春节 | +8.1% | +59.0% | +8.1% (Prophet) |
+| 3月 平稳 | -16.9% | -7.5% | -7.5% (SF) |
+| 4月 平稳 | -3.1% | -3.9% | -3.9% (SF) |
+| **MAPE** | **9.6%** | **29.8%** | **7.4%** ⭐ |
+
+数据印证代码注释: Prophet 春节月强 + StatsForecast 平稳月强 + 智能按月路由 MAPE 最低 (7.4%, 比单算法都低).
+
+**前端**: `src/pages/offline/SalesForecast.tsx` + `package.json` 加 xlsx-js-style@1.2.0
+**回测**: `server/cmd/prophet-backtest/{prophet_backtest.py(fix), statsforecast_backtest_v2.py(新)}`
+
+---
+
 ## v1.60.1 (2026-05-12) — 合思机器人按 staffId 精确匹配 (修 91% 用户匹配不上的 bug)
 
 **Why**: v1.59.0 用 BI 看板 `users.real_name` 模糊匹配 `hesi_flow.current_approver_name`. 跑哥发现自己合思真名 "黄承欢", BI 看板昵称 "虎跑", 匹配不上看不到待审批. 数据查证: **44 个用户中 40 个(91%)用昵称, 匹配不上**.

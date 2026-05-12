@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Radio, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { API_BASE } from '../../config';
 
 interface ForecastItem {
@@ -120,6 +120,7 @@ const SalesForecast: React.FC = () => {
         total,
       ]);
     });
+    // v1.60.3: 加 Antd 风格的视觉样式(表头蓝底白字 + 行边框 + 数值右对齐 + 合计列黄底加粗)
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     // 列宽
     ws['!cols'] = [
@@ -129,6 +130,53 @@ const SalesForecast: React.FC = () => {
       ...regions.map(() => ({ wch: 10 })),
       { wch: 12 }, // 线下总计
     ];
+    // 行高(表头加高)
+    ws['!rows'] = [{ hpt: 22 }, ...filteredItems.map(() => ({ hpt: 18 }))];
+
+    const thinBorder = {
+      top:    { style: 'thin', color: { rgb: 'D9D9D9' } },
+      bottom: { style: 'thin', color: { rgb: 'D9D9D9' } },
+      left:   { style: 'thin', color: { rgb: 'D9D9D9' } },
+      right:  { style: 'thin', color: { rgb: 'D9D9D9' } },
+    };
+    const headerStyle = {
+      font:      { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+      fill:      { patternType: 'solid', fgColor: { rgb: '1677FF' } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border:    thinBorder,
+    };
+    const textStyle = {
+      alignment: { vertical: 'center' },
+      border:    thinBorder,
+    };
+    const numberStyle = {
+      alignment: { horizontal: 'right', vertical: 'center' },
+      border:    thinBorder,
+    };
+    const totalColStyle = {
+      font:      { bold: true },
+      fill:      { patternType: 'solid', fgColor: { rgb: 'FFF7E6' } }, // 浅黄
+      alignment: { horizontal: 'right', vertical: 'center' },
+      border:    thinBorder,
+    };
+
+    const range = XLSX.utils.decode_range(ws['!ref'] as string);
+    const lastCol = range.e.c; // 最后一列(线下总计)
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+        if (R === 0) {
+          ws[addr].s = headerStyle;
+        } else if (C === lastCol) {
+          ws[addr].s = totalColStyle;
+        } else if (C >= 2) {
+          ws[addr].s = numberStyle;
+        } else {
+          ws[addr].s = textStyle;
+        }
+      }
+    }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, `${ymStr}销量预测`);
     // 用 write + Blob 手动触发, 避免 XLSX.writeFile 在某些浏览器丢文件名
