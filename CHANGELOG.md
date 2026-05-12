@@ -519,6 +519,22 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.60.5 (2026-05-12) — 个人信息页字段精简 + 头像下方/左下角显示"虎跑-黄承欢"
+
+跑哥进一步反馈: 合思名字 = 钉钉真名 = 同一个真名, 不用重复展示; 真实姓名(BI看板用) 跟钉钉昵称同源也不展示; 顶部头像下方 + 左下角导航卡都用"昵称-真名"格式更直观.
+
+**改动**:
+- `auth.go` authUser 加 `DingtalkRealName` 字段, `auth_session.go loadAuthPayload` SELECT 多取 dingtalk_real_name
+- 前端 `AuthContext` AuthUser 类型加 dingtalkRealName?
+- `MainLayout.tsx` displayName 改成 `${nick}-${realName}` (二者不同时), 左下角卡片自动跟着改
+- `Profile.tsx` 左侧账号信息: 删 "合思真名" 行, "钉钉真名" → "真实名字"
+- `Profile.tsx` 右侧个人信息 Form: 删 "合思名字" + "真实姓名（BI 看板用）"
+- `Profile.tsx` 头像下方 h2: realName-dingtalkRealName
+
+**实测**: 跑哥页面顶/底/左/右 4 处都显示 "虎跑-黄承欢" 一致.
+
+---
+
 ## v1.60.4 (2026-05-12) — 个人信息页右侧加 3 个只读字段(钉钉昵称/真实名字/合思名字)
 
 跑哥反馈左侧"账号信息"看了一眼就过去, 右侧"个人信息"编辑区也想要 3 个名字字段并列展示, 方便对比.
