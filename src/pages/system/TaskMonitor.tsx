@@ -122,6 +122,70 @@ const TaskMonitor: React.FC = () => {
   // 日志自动滚到底部的 ref map
   const logRefs = useRef<Record<string, HTMLPreElement | null>>({});
 
+  // 实时日志查看 (v1.56.1)
+  const [logModalOpen, setLogModalOpen] = useState(false);
+  const [logModalKey, setLogModalKey] = useState<string>('');
+  const [logModalName, setLogModalName] = useState<string>('');
+  const [logModalText, setLogModalText] = useState<string>('');
+  const [logModalLoading, setLogModalLoading] = useState(false);
+  const logModalTimerRef = useRef<number | null>(null);
+  const logModalBoxRef = useRef<HTMLPreElement | null>(null);
+
+  // 哪些 task 有固定日志可看 (跟后端 fixedToolLogMap 一致)
+  const LIVE_LOG_KEYS = ['sync-trades', 'sync-summary', 'snapshot-stock'];
+
+  const fetchLiveLog = useCallback(async (key: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/sync-tools/log?key=${encodeURIComponent(key)}&lines=300`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const text = (json.data?.lines || []).join('\n');
+      setLogModalText(text || '(暂无日志)');
+      // 自动滚到底
+      setTimeout(() => {
+        if (logModalBoxRef.current) {
+          logModalBoxRef.current.scrollTop = logModalBoxRef.current.scrollHeight;
+        }
+      }, 50);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setLogModalText(`获取失败: ${msg}`);
+    } finally {
+      setLogModalLoading(false);
+    }
+  }, []);
+
+  const openLogModal = useCallback((key: string, name: string) => {
+    setLogModalKey(key);
+    setLogModalName(name);
+    setLogModalText('');
+    setLogModalLoading(true);
+    setLogModalOpen(true);
+    fetchLiveLog(key);
+    if (logModalTimerRef.current) {
+      window.clearInterval(logModalTimerRef.current);
+    }
+    logModalTimerRef.current = window.setInterval(() => fetchLiveLog(key), 3000);
+  }, [fetchLiveLog]);
+
+  const closeLogModal = useCallback(() => {
+    setLogModalOpen(false);
+    if (logModalTimerRef.current) {
+      window.clearInterval(logModalTimerRef.current);
+      logModalTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (logModalTimerRef.current) {
+        window.clearInterval(logModalTimerRef.current);
+      }
+    };
+  }, []);
+
   const fetchTasks = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch(`${API_BASE}/api/admin/tasks`, {
@@ -595,16 +659,25 @@ const TaskMonitor: React.FC = () => {
                                     </Typography.Text>
                                   </div>
                                 </div>
-                                <Button
-                                  type="primary"
-                                  size="small"
-                                  disabled={running}
-                                  loading={isStarting}
-                                  onClick={() => handleRunTask(config)}
-                                  style={{ marginLeft: 8, flexShrink: 0 }}
-                                >
-                                  {running ? '运行中' : '运行'}
-                                </Button>
+                                <Space size={4} style={{ marginLeft: 8, flexShrink: 0 }}>
+                                  {LIVE_LOG_KEYS.includes(config.key) && (
+                                    <Button
+                                      size="small"
+                                      onClick={() => openLogModal(config.key, config.name)}
+                                    >
+                                      看日志
+                                    </Button>
+                                  )}
+                                  <Button
+                                    type="primary"
+                                    size="small"
+                                    disabled={running}
+                                    loading={isStarting}
+                                    onClick={() => handleRunTask(config)}
+                                  >
+                                    {running ? '运行中' : '运行'}
+                                  </Button>
+                                </Space>
                               </div>
                               {hasParams && (
                                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -720,6 +793,41 @@ const TaskMonitor: React.FC = () => {
           },
         ]}
       />
+
+      <Modal
+        title={`实时日志 - ${logModalName}`}
+        open={logModalOpen}
+        onCancel={closeLogModal}
+        footer={[
+          <Button key="refresh" icon={<ReloadOutlined />} onClick={() => fetchLiveLog(logModalKey)}>立即刷新</Button>,
+          <Button key="close" type="primary" onClick={closeLogModal}>关闭</Button>,
+        ]}
+        width={900}
+      >
+        <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginBottom: 8 }}>
+          每 3 秒自动刷新, 显示末尾 300 行
+        </div>
+        <Spin spinning={logModalLoading && !logModalText}>
+          <pre
+            ref={logModalBoxRef}
+            style={{
+              background: '#1e1e1e',
+              color: '#d4d4d4',
+              padding: 12,
+              borderRadius: 6,
+              height: 500,
+              overflow: 'auto',
+              fontSize: 12,
+              margin: 0,
+              fontFamily: 'Consolas, Monaco, monospace',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+            }}
+          >
+            {logModalText || '加载中...'}
+          </pre>
+        </Spin>
+      </Modal>
     </div>
   );
 };

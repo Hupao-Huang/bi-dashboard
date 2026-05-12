@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -68,7 +69,8 @@ func main() {
 
 	logFile, err := os.OpenFile(`C:\Users\Administrator\bi-dashboard\server\sync-daily-trades.log`, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
-		log.SetOutput(logFile)
+		// 同时写固定文件 + stdout, 让 bi-server 触发的 manual-*.log 也能捕获 (v1.56.1)
+		log.SetOutput(io.MultiWriter(logFile, os.Stdout))
 		defer logFile.Close()
 	}
 

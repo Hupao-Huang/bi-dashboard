@@ -408,6 +408,9 @@ func main() {
 	// 销售单核对 (跑哥手工对吉客云后台用), 借用 role.manage 权限
 	mux.HandleFunc("/api/admin/trade-audit", corsHandler(h.RequirePermission("role.manage", h.AdminTradeAudit)))
 
+	// 同步工具实时日志 (sync-daily-trades 等独立 exe 写固定文件, 这里直接读末尾返回前端)
+	mux.HandleFunc("/api/admin/sync-tools/log", corsHandler(h.RequirePermission("role.manage", h.AdminSyncToolLog)))
+
 	// 合思费控
 	mux.HandleFunc("/api/hesi/stats", pageProtected("finance.expense:view", h.GetHesiStats))
 	mux.HandleFunc("/api/hesi/flows", pageProtected("finance.expense:view", h.GetHesiFlows))
