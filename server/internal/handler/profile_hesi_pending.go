@@ -4,6 +4,7 @@ package handler
 // 当前登录用户 real_name 模糊匹配 hesi_flow.current_approver_name, 拿待审批清单
 
 import (
+	"database/sql"
 	"net/http"
 	"strings"
 )
@@ -73,43 +74,75 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var realName string
-	if err := h.DB.QueryRow(`SELECT IFNULL(real_name,'') FROM users WHERE id=?`, payload.User.ID).Scan(&realName); err != nil {
+	// v1.60.1: 优先用 hesi_staff_id 精确匹配, 没绑定再 fallback real_name
+	var realName, hesiStaffID, hesiRealName string
+	if err := h.DB.QueryRow(`SELECT IFNULL(real_name,''), IFNULL(hesi_staff_id,''), IFNULL(hesi_real_name,'') FROM users WHERE id=?`, payload.User.ID).Scan(&realName, &hesiStaffID, &hesiRealName); err != nil {
 		writeServerError(w, 500, "查用户失败", err)
 		return
 	}
 	realName = strings.TrimSpace(realName)
+	hesiStaffID = strings.TrimSpace(hesiStaffID)
+	hesiRealName = strings.TrimSpace(hesiRealName)
 
-	// v1.59.3: 管理员可以传 ?approver=xxx 查别人的待审批 (普通用户参数被忽略)
+	// v1.59.3: 管理员可以传 ?approver=xxx (姓名) 查别人的待审批; 或 ?staffId=xxx 精确查
+	// 优先级: ?staffId > ?approver > 当前用户的 hesi_staff_id > 当前用户的 real_name
 	isAdmin := hasPermission(payload, "user.manage")
+	queryStaffID := hesiStaffID
 	queryName := realName
+	displayName := hesiRealName
+	if displayName == "" {
+		displayName = realName
+	}
 	if isAdmin {
-		if a := strings.TrimSpace(r.URL.Query().Get("approver")); a != "" {
+		if sid := strings.TrimSpace(r.URL.Query().Get("staffId")); sid != "" {
+			queryStaffID = sid
+			queryName = ""
+			displayName = sid
+		} else if a := strings.TrimSpace(r.URL.Query().Get("approver")); a != "" {
+			queryStaffID = ""
 			queryName = a
+			displayName = a
 		}
 	}
 
-	if queryName == "" {
-		// 没填 real_name 直接返空, 提示前端
+	if queryStaffID == "" && queryName == "" {
 		writeJSON(w, map[string]interface{}{
-			"realName": realName,
+			"realName":  realName,
 			"queryName": "",
-			"isAdmin": isAdmin,
-			"items":    []myHesiPendingRow{},
-			"warning":  "您账号未填真实姓名, 无法匹配合思待审批. 请到'个人信息'页填真实姓名.",
+			"isAdmin":   isAdmin,
+			"items":     []myHesiPendingRow{},
+			"warning":   "您账号未绑定合思员工, 无法匹配待审批单据. 请联系管理员绑定合思真名/工号.",
 		})
 		return
 	}
 
-	rows, err := h.DB.Query(`SELECT flow_id, code, IFNULL(title,''), form_type, state,
-		current_stage_name, current_approver_name,
-		pay_money, expense_money, loan_money, submit_date, submitter_id, department_id
-		FROM hesi_flow
-		WHERE active=1
-		  AND state IN ('approving','paying','pending')
-		  AND current_approver_name LIKE ?
-		ORDER BY submit_date DESC, create_time DESC
-		LIMIT 500`, "%"+queryName+"%")
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if queryStaffID != "" {
+		// 精确匹配: current_approver_id 含 staffId (格式 corp:staff, LIKE %staff%)
+		rows, err = h.DB.Query(`SELECT flow_id, code, IFNULL(title,''), form_type, state,
+			current_stage_name, current_approver_name,
+			pay_money, expense_money, loan_money, submit_date, submitter_id, department_id
+			FROM hesi_flow
+			WHERE active=1
+			  AND state IN ('approving','paying','pending')
+			  AND current_approver_id LIKE ?
+			ORDER BY submit_date DESC, create_time DESC
+			LIMIT 500`, "%"+queryStaffID+"%")
+	} else {
+		// 兜底 fallback: 姓名模糊
+		rows, err = h.DB.Query(`SELECT flow_id, code, IFNULL(title,''), form_type, state,
+			current_stage_name, current_approver_name,
+			pay_money, expense_money, loan_money, submit_date, submitter_id, department_id
+			FROM hesi_flow
+			WHERE active=1
+			  AND state IN ('approving','paying','pending')
+			  AND current_approver_name LIKE ?
+			ORDER BY submit_date DESC, create_time DESC
+			LIMIT 500`, "%"+queryName+"%")
+	}
 	if err != nil {
 		writeServerError(w, 500, "查待审批失败", err)
 		return
@@ -130,9 +163,10 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"realName":  realName,  // 当前登录用户的真实姓名
-		"queryName": queryName, // 实际查询的姓名 (管理员可能切到别人)
-		"isAdmin":   isAdmin,   // 前端据此显示/隐藏切换控件
+		"realName":  realName,     // BI 看板 real_name (昵称)
+		"queryName": displayName,  // 实际查询展示名 (优先 hesi_real_name, 管理员切人时为对方名)
+		"staffId":   queryStaffID, // 实际查询用的合思 staffId (空=用姓名兜底)
+		"isAdmin":   isAdmin,      // 前端据此显示/隐藏切换控件
 		"items":     items,
 		"count":     len(items),
 	})
