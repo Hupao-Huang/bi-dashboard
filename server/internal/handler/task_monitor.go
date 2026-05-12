@@ -638,6 +638,11 @@ var manualTaskConfigs = []ManualTaskConfig{
 		Params: []ParamConfig{},
 	},
 	{
+		Key: "sync-hesi", Name: "合思费控同步", Description: "拉合思单据 + 报销 + 流程明细 + 附件 (耗时约 5-10 分钟)",
+		Exe:    "sync-hesi.exe",
+		Params: []ParamConfig{},
+	},
+	{
 		Key: "sync-goods", Name: "货品档案同步", Description: "同步吉客云货品档案",
 		Exe:    "sync-goods.exe",
 		Params: []ParamConfig{},
