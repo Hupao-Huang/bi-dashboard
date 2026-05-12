@@ -405,6 +405,9 @@ func main() {
 	mux.HandleFunc("/api/admin/channels/sync", channelAdmin(h.SyncChannels))
 	mux.HandleFunc("/api/admin/channels/", channelAdmin(h.ChannelByPath))
 
+	// 销售单核对 (跑哥手工对吉客云后台用), 借用 role.manage 权限
+	mux.HandleFunc("/api/admin/trade-audit", corsHandler(h.RequirePermission("role.manage", h.AdminTradeAudit)))
+
 	// 合思费控
 	mux.HandleFunc("/api/hesi/stats", pageProtected("finance.expense:view", h.GetHesiStats))
 	mux.HandleFunc("/api/hesi/flows", pageProtected("finance.expense:view", h.GetHesiFlows))

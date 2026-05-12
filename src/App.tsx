@@ -66,6 +66,7 @@ const ProfilePage = lazy(() => import('./pages/system/Profile'));
 const ChannelManagementPage = lazy(() => import('./pages/system/ChannelManagement'));
 const DBDictionaryPage = lazy(() => import('./pages/system/DBDictionary'));
 const RPAManagementPage = lazy(() => import('./pages/system/RPAManagement'));
+const TradeAuditPage = lazy(() => import('./pages/system/TradeAudit'));
 const OpsMonitorPage = lazy(() => import('./pages/system/OpsMonitor'));
 const DingtalkCallback = lazy(() => import('./pages/DingtalkCallback'));
 
@@ -183,6 +184,7 @@ const App: React.FC = () => (
               <Route path="/system/channels" element={guard('channel.manage', <ChannelManagementPage />)} />
               <Route path="/system/rpa" element={guard('role.manage', <RPAManagementPage />)} />
               <Route path="/system/db-dict" element={guard('role.manage', <DBDictionaryPage />)} />
+              <Route path="/system/trade-audit" element={guard('role.manage', <TradeAuditPage />)} />
               {/* 旧路由兼容跳转 */}
               <Route path="/system/tasks" element={<Navigate to="/system/ops" replace />} />
               <Route path="/system/rpa-mapping" element={<Navigate to="/system/rpa" replace />} />
