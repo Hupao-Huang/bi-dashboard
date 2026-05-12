@@ -404,6 +404,9 @@ func main() {
 		}
 	}))
 	mux.HandleFunc("/api/profile/hesi-rules/", protected(h.HesiRuleByPath))
+	// v1.60.2 个人中心同步钉钉昵称/真名
+	mux.HandleFunc("/api/profile/sync-dingtalk", protected(h.SyncMyDingtalk))
+	mux.HandleFunc("/api/admin/sync-all-dingtalk-names", adminUsers(h.SyncAllDingtalk))
 
 	// 公告
 	noticeAdmin := func(next http.HandlerFunc) http.HandlerFunc {

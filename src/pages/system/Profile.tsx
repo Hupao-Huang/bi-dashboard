@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Avatar, Button, Card, Col, Descriptions, Form, Input, message, Popconfirm, Row, Tag, Upload } from 'antd';
-import { CameraOutlined, DingtalkOutlined, LockOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons';
+import { CameraOutlined, DingtalkOutlined, LockOutlined, SaveOutlined, SyncOutlined, UserOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 
 const Profile: React.FC = () => {
@@ -8,8 +8,30 @@ const Profile: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pwSaving, setPwSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [form] = Form.useForm();
   const [pwForm] = Form.useForm();
+
+  const handleSyncDingtalk = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/profile/sync-dingtalk`, {
+        method: 'POST', credentials: 'include',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const realName = data.data?.realName || data.realName;
+        message.success(`已同步钉钉真名: ${realName}`);
+        fetchProfile();
+      } else {
+        message.error(data.msg || data.error || '同步失败');
+      }
+    } catch {
+      message.error('网络错误');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const fetchProfile = useCallback(() => {
     fetch(`${API_BASE}/api/user/profile`, { credentials: 'include' })
@@ -122,6 +144,26 @@ const Profile: React.FC = () => {
         <Card title="账号信息" style={{ marginTop: 16 }}>
           <Descriptions column={1} size="small">
             <Descriptions.Item label="用户名">{profile.username}</Descriptions.Item>
+            <Descriptions.Item label="钉钉昵称">{profile.realName || '-'}</Descriptions.Item>
+            <Descriptions.Item label="钉钉真名">
+              {profile.dingtalkRealName ? (
+                <span><strong>{profile.dingtalkRealName}</strong></span>
+              ) : (
+                <Tag>未同步</Tag>
+              )}
+              {profile.dingtalkBound && (
+                <Button
+                  size="small" type="link" icon={<SyncOutlined spin={syncing} />}
+                  onClick={handleSyncDingtalk} loading={syncing}
+                  style={{ marginLeft: 8 }}
+                >
+                  从钉钉同步
+                </Button>
+              )}
+            </Descriptions.Item>
+            {profile.hesiRealName && (
+              <Descriptions.Item label="合思真名">{profile.hesiRealName}</Descriptions.Item>
+            )}
             <Descriptions.Item label="最近登录">{profile.lastLoginAt || '-'}</Descriptions.Item>
             <Descriptions.Item label="钉钉">
               {profile.dingtalkBound ? (
