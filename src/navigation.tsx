@@ -33,6 +33,7 @@ import {
   ShoppingCartOutlined,
   SettingOutlined,
   SyncOutlined,
+  RobotOutlined,
   TeamOutlined,
   TrademarkOutlined,
   UserOutlined,
@@ -183,6 +184,10 @@ export const menuDefinitions: MenuDefinition[] = [
     key: '/profile',
     icon: <UserOutlined />,
     label: '个人中心',
+    children: [
+      { key: '/profile/info', icon: <UserOutlined />, label: '个人信息' },
+      { key: '/profile/hesi-bot', icon: <RobotOutlined />, label: '合思机器人' },
+    ],
   },
   {
     key: '/system',
@@ -265,6 +270,8 @@ export const pageTitleMap: Record<string, string> = {
   '/system/trade-audit': '销售单核对',
   '/system/ops': '运维监控',
   '/profile': '个人中心',
+  '/profile/info': '个人信息',
+  '/profile/hesi-bot': '合思机器人',
   '/forbidden': '无权限',
 };
 

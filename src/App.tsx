@@ -64,6 +64,7 @@ const RoleAccessPage = lazy(() => import('./pages/system/RoleAccess'));
 const FeedbackPage = lazy(() => import('./pages/system/Feedback'));
 const NoticesPage = lazy(() => import('./pages/system/Notices'));
 const ProfilePage = lazy(() => import('./pages/system/Profile'));
+const HesiBotPage = lazy(() => import('./pages/system/HesiBot'));
 const ChannelManagementPage = lazy(() => import('./pages/system/ChannelManagement'));
 const DBDictionaryPage = lazy(() => import('./pages/system/DBDictionary'));
 const RPAManagementPage = lazy(() => import('./pages/system/RPAManagement'));
@@ -192,7 +193,9 @@ const App: React.FC = () => (
               <Route path="/system/rpa-mapping" element={<Navigate to="/system/rpa" replace />} />
               <Route path="/system/rpa-monitor" element={<Navigate to="/system/rpa" replace />} />
               <Route path="/system/audit-log" element={<Navigate to="/system/ops" replace />} />
-              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/profile" element={<Navigate to="/profile/info" replace />} />
+              <Route path="/profile/info" element={<ProfilePage />} />
+              <Route path="/profile/hesi-bot" element={<HesiBotPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
