@@ -219,7 +219,30 @@ const Profile: React.FC = () => {
       <Col xs={24} md={16}>
         <Card title="个人信息">
           <Form form={form} layout="vertical" style={{ maxWidth: 500 }}>
-            <Form.Item name="realName" label="真实姓名" tooltip={profile.dingtalkBound ? '已绑定钉钉，姓名由钉钉同步' : undefined}>
+            <Form.Item label="钉钉昵称" tooltip="钉钉聊天里显示的名字，可在钉钉个人设置里修改">
+              <Input value={profile.realName || '-'} disabled />
+            </Form.Item>
+            <Form.Item label="真实名字" tooltip="钉钉企业通讯录里的实名">
+              <Input
+                value={profile.dingtalkRealName || '未同步'}
+                disabled
+                suffix={
+                  profile.dingtalkBound ? (
+                    <Button
+                      type="link" size="small" icon={<SyncOutlined spin={syncing} />}
+                      onClick={handleSyncDingtalk} loading={syncing}
+                      style={{ padding: 0, height: 'auto' }}
+                    >
+                      从钉钉同步
+                    </Button>
+                  ) : null
+                }
+              />
+            </Form.Item>
+            <Form.Item label="合思名字" tooltip="合思系统里的实名（用于审批匹配）">
+              <Input value={profile.hesiRealName || '未绑定'} disabled />
+            </Form.Item>
+            <Form.Item name="realName" label="真实姓名（BI 看板用）" tooltip={profile.dingtalkBound ? '已绑定钉钉，姓名由钉钉同步' : undefined}>
               <Input placeholder="请输入真实姓名" maxLength={20} disabled={profile.dingtalkBound} />
             </Form.Item>
             <Form.Item name="phone" label="手机号" tooltip={profile.dingtalkBound ? '已绑定钉钉，手机号由钉钉同步' : undefined}
