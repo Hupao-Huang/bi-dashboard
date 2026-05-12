@@ -55,10 +55,10 @@ var taskMetaByName = map[string]TaskConfig{
 	"BI-SyncAllocate":               {Name: "调拨单同步", Description: "吉客云调拨单(含特殊渠道, 7 天滚动)", Schedule: "每天 02:00", LogFile: "sync-allocate.log", Category: "sync"},
 	"BI-SyncGoods":                  {Name: "商品资料同步", Description: "吉客云商品基础档案", Schedule: "每天 04:00", LogFile: "sync-goods.log", Category: "sync"},
 	"BI-SyncHesi":                   {Name: "合思费控同步", Description: "合思费用单据 + 报销单 + 流程明细", Schedule: "每天 10:30", LogFile: "sync-hesi.log", Category: "sync"},
-	"BI-SyncYSStock":                {Name: "用友现存量同步", Description: "YS YonBIP 现存量接口", Schedule: "每天 23:15", LogFile: "sync-ys-stock.log", Category: "sync"},
-	"BI-SyncYSPurchase":             {Name: "用友采购单同步", Description: "YS 采购订单接口", Schedule: "每天 23:25", LogFile: "sync-ys-purchase.log", Category: "sync"},
-	"BI-SyncYSMaterialOut":          {Name: "用友材料出库同步", Description: "YS 材料出库接口", Schedule: "每天 09:20", LogFile: "sync-ys-materialout.log", Category: "sync"},
-	"BI-SyncYSSubcontract":          {Name: "用友委外单同步", Description: "YS 委外订单接口", Schedule: "每天 23:35", LogFile: "sync-ys-subcontract.log", Category: "sync"},
+	"BI-SyncYSStock":                {Name: "用友现存量同步", Description: "YS YonBIP 现存量接口", Schedule: "每小时(00:15起)", LogFile: "logs/sync-ys-stock-*.log", Category: "sync"},
+	"BI-SyncYSPurchase":             {Name: "用友采购单同步", Description: "YS 采购订单接口", Schedule: "每小时(00:25起)", LogFile: "logs/sync-ys-purchase-*.log", Category: "sync"},
+	"BI-SyncYSMaterialOut":          {Name: "用友材料出库同步", Description: "YS 材料出库接口", Schedule: "每天 09:20", LogFile: "logs/sync-ys-materialout-*.log", Category: "sync"},
+	"BI-SyncYSSubcontract":          {Name: "用友委外单同步", Description: "YS 委外订单接口", Schedule: "每小时(00:35起)", LogFile: "logs/sync-ys-subcontract-*.log", Category: "sync"},
 	"BI-SyncOpsFallback":            {Name: "运营数据导入", Description: "天猫/京东/拼多多/唯品会/抖音等 10 平台", Schedule: "每天 13:00 (兜底)", LogFile: "sync-ops-daily.log", Category: "sync"},
 	"BI-Build-WarehouseFlowSummary": {Name: "物化表构建", Description: "warehouse_flow_summary 预聚合 (7s→5ms)", Schedule: "每天 03:30", LogFile: "build-warehouse-flow-summary.log", Category: "stock"},
 	"BI-BackupMySQL":                {Name: "MySQL 备份", Description: "全库 mysqldump", Schedule: "每天 02:00", LogFile: "backup-mysql.log", Category: "ops"},
@@ -240,7 +240,7 @@ func buildTaskStatus(raw schtasksRaw) TaskStatus {
 
 	// 追加 log tail (前提是 meta 配置了 LogFile)
 	if hasMeta && meta.LogFile != "" {
-		logPath := logBaseDir + `\` + meta.LogFile
+		logPath := resolveLogPath(meta.LogFile)
 		lines := readLastNLines(logPath, 8)
 		if len(lines) > 0 {
 			tail := strings.Join(lines, "\n")
@@ -255,13 +255,40 @@ func buildTaskStatus(raw schtasksRaw) TaskStatus {
 	return ts
 }
 
+// resolveLogPath 把 metaMap 里的 LogFile 字段解析成绝对路径.
+// 支持 wildcard (含 *): glob 出所有匹配, 取 mtime 最新的 (用于 .bat 按日切日志, 如 sync-ys-stock-周二 22605.log)
+func resolveLogPath(logFile string) string {
+	full := logBaseDir + `\` + logFile
+	if !strings.Contains(logFile, "*") {
+		return full
+	}
+	matches, err := filepath.Glob(full)
+	if err != nil || len(matches) == 0 {
+		return full
+	}
+	var newest string
+	var newestMtime time.Time
+	for _, m := range matches {
+		if fi, err := os.Stat(m); err == nil {
+			if newest == "" || fi.ModTime().After(newestMtime) {
+				newest = m
+				newestMtime = fi.ModTime()
+			}
+		}
+	}
+	if newest == "" {
+		return full
+	}
+	return newest
+}
+
 // fillLogBasedTaskStatus 通过日志文件判断任务状态
 func fillLogBasedTaskStatus(ts *TaskStatus, cfg TaskConfig) {
 	if cfg.LogFile == "" {
 		return
 	}
 
-	logPath := logBaseDir + `\` + cfg.LogFile
+	logPath := resolveLogPath(cfg.LogFile)
 	info, err := os.Stat(logPath)
 	if err != nil {
 		return
