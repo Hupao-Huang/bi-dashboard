@@ -52,13 +52,17 @@ def fetch_daily_region(conn, end_date):
 
 def fetch_actual_monthly(conn, year_month):
     """拉指定月份各大区实际销量"""
+    # 改 BETWEEN 范围, 避开 DATE_FORMAT 里 % 跟 mysql.connector pyformat 占位符冲突
+    first_day = f"{year_month}-01"
+    next_month = pd.to_datetime(first_day) + pd.offsets.MonthBegin(1)
+    last_day = (next_month - pd.Timedelta(days=1)).strftime('%Y-%m-%d')
     sql = f"""
     SELECT {REGION_MAP} AS region, SUM(goods_qty) AS qty
     FROM sales_goods_summary
-    WHERE department='offline' AND DATE_FORMAT(stat_date, '%%Y-%%m')=%s AND {CATE_FILTER}
+    WHERE department='offline' AND stat_date BETWEEN %s AND %s AND {CATE_FILTER}
     GROUP BY region HAVING region IS NOT NULL
     """
-    df = pd.read_sql(sql, conn, params=(year_month,))
+    df = pd.read_sql(sql, conn, params=(first_day, last_day))
     return dict(zip(df['region'], df['qty'].astype(float)))
 
 def forecast_region(daily_df, region, predict_start, predict_end):
