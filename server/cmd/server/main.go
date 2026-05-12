@@ -390,6 +390,8 @@ func main() {
 
 	// v1.59.0 个人中心 → 合思机器人 Tab "我的待审批"
 	mux.HandleFunc("/api/profile/hesi-pending", protected(h.GetMyHesiPending))
+	// v1.59.3 管理员查 distinct 审批人列表
+	mux.HandleFunc("/api/profile/hesi-approvers", protected(h.GetHesiApprovers))
 
 	// 公告
 	noticeAdmin := func(next http.HandlerFunc) http.HandlerFunc {

@@ -8,6 +8,42 @@ import (
 	"strings"
 )
 
+// GetHesiApprovers GET /api/profile/hesi-approvers
+// 返回所有当前有待审批的审批人列表 (distinct), 仅管理员可调
+func (h *DashboardHandler) GetHesiApprovers(w http.ResponseWriter, r *http.Request) {
+	payload, ok := authPayloadFromContext(r)
+	if !ok || payload == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if !hasPermission(payload, "user.manage") {
+		writeError(w, http.StatusForbidden, "无权限")
+		return
+	}
+	rows, err := h.DB.Query(`SELECT current_approver_name, COUNT(*) AS cnt
+		FROM hesi_flow
+		WHERE active=1 AND state IN ('approving','paying','pending') AND current_approver_name IS NOT NULL AND current_approver_name<>''
+		GROUP BY current_approver_name
+		ORDER BY cnt DESC, current_approver_name`)
+	if err != nil {
+		writeServerError(w, 500, "查询审批人失败", err)
+		return
+	}
+	defer rows.Close()
+	type approverItem struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+	var items []approverItem
+	for rows.Next() {
+		var it approverItem
+		if err := rows.Scan(&it.Name, &it.Count); err == nil {
+			items = append(items, it)
+		}
+	}
+	writeJSON(w, map[string]interface{}{"items": items, "count": len(items)})
+}
+
 type myHesiPendingRow struct {
 	FlowID         string   `json:"flowId"`
 	Code           string   `json:"code"`
@@ -43,12 +79,24 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	realName = strings.TrimSpace(realName)
-	if realName == "" {
+
+	// v1.59.3: 管理员可以传 ?approver=xxx 查别人的待审批 (普通用户参数被忽略)
+	isAdmin := hasPermission(payload, "user.manage")
+	queryName := realName
+	if isAdmin {
+		if a := strings.TrimSpace(r.URL.Query().Get("approver")); a != "" {
+			queryName = a
+		}
+	}
+
+	if queryName == "" {
 		// 没填 real_name 直接返空, 提示前端
 		writeJSON(w, map[string]interface{}{
-			"realName": "",
+			"realName": realName,
+			"queryName": "",
+			"isAdmin": isAdmin,
 			"items":    []myHesiPendingRow{},
-			"warning":  "您账号未填真实姓名, 无法匹配合思待审批. 请到上方'个人信息'页填真实姓名.",
+			"warning":  "您账号未填真实姓名, 无法匹配合思待审批. 请到'个人信息'页填真实姓名.",
 		})
 		return
 	}
@@ -61,7 +109,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		  AND state IN ('approving','paying','pending')
 		  AND current_approver_name LIKE ?
 		ORDER BY submit_date DESC, create_time DESC
-		LIMIT 500`, "%"+realName+"%")
+		LIMIT 500`, "%"+queryName+"%")
 	if err != nil {
 		writeServerError(w, 500, "查待审批失败", err)
 		return
@@ -82,8 +130,10 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"realName": realName,
-		"items":    items,
-		"count":    len(items),
+		"realName":  realName,  // 当前登录用户的真实姓名
+		"queryName": queryName, // 实际查询的姓名 (管理员可能切到别人)
+		"isAdmin":   isAdmin,   // 前端据此显示/隐藏切换控件
+		"items":     items,
+		"count":     len(items),
 	})
 }

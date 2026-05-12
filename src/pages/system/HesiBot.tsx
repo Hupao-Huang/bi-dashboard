@@ -2,9 +2,9 @@
 // MVP: 只读"我的待审批" 单据列表. 后续 v1.60.0 加规则编辑, v1.61.0 dry run, v1.62.0 真自动审批.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Empty, Statistic, Table, Tag, Tooltip, message } from 'antd';
+import { Alert, Button, Card, Empty, Select, Statistic, Table, Tag, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, RobotOutlined } from '@ant-design/icons';
+import { ReloadOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
 
@@ -42,16 +42,26 @@ const stateMap: Record<string, { label: string; color: string }> = {
 const HesiBot: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [realName, setRealName] = useState('');
+  const [queryName, setQueryName] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
   const [warning, setWarning] = useState('');
   const [items, setItems] = useState<PendingItem[]>([]);
+  // v1.59.3: 管理员可切换查看别人的待审批
+  const [approverOptions, setApproverOptions] = useState<{name:string, count:number}[]>([]);
+  const [selectedApprover, setSelectedApprover] = useState<string | undefined>(undefined);
 
-  const fetchPending = useCallback(async () => {
+  const fetchPending = useCallback(async (approver?: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/profile/hesi-pending`, { credentials: 'include' });
+      const url = approver
+        ? `${API_BASE}/api/profile/hesi-pending?approver=${encodeURIComponent(approver)}`
+        : `${API_BASE}/api/profile/hesi-pending`;
+      const res = await fetch(url, { credentials: 'include' });
       const json = await res.json();
       if (json.code === 200 && json.data) {
         setRealName(json.data.realName || '');
+        setQueryName(json.data.queryName || '');
+        setIsAdmin(!!json.data.isAdmin);
         setItems(json.data.items || []);
         setWarning(json.data.warning || '');
       } else {
@@ -64,7 +74,18 @@ const HesiBot: React.FC = () => {
     }
   }, []);
 
+  const fetchApproverOptions = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/profile/hesi-approvers`, { credentials: 'include' });
+      const json = await res.json();
+      if (json.code === 200 && json.data) {
+        setApproverOptions(json.data.items || []);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => { fetchPending(); }, [fetchPending]);
+  useEffect(() => { if (isAdmin) fetchApproverOptions(); }, [isAdmin, fetchApproverOptions]);
 
   const getMoney = (item: PendingItem) => {
     if (item.payMoney && item.payMoney > 0) return item.payMoney;
@@ -119,7 +140,12 @@ const HesiBot: React.FC = () => {
         message="合思机器人 (v1.59 MVP 只读模式)"
         description={
           <div>
-            <div>当前显示<strong>等你审批</strong>的合思单据 (按你的真实姓名"{realName || '未设置'}"模糊匹配)。</div>
+            <div>
+              {isAdmin && queryName !== realName
+                ? <span>正在查看 <strong>{queryName}</strong> 的待审批单据 (管理员视角)</span>
+                : <span>当前显示<strong>等你审批</strong>的合思单据 (按你的真实姓名"{realName || '未设置'}"模糊匹配)</span>
+              }
+            </div>
             <div style={{ marginTop: 6, color: '#666', fontSize: 12 }}>
               路线图: v1.60 加规则编辑器 → v1.61 干跑模式(匹配但不审批, 看效果) → v1.62 真自动审批(需财务/合规批准).
             </div>
@@ -127,6 +153,36 @@ const HesiBot: React.FC = () => {
         }
         style={{ marginBottom: 16 }}
       />
+
+      {/* v1.59.3: 管理员视角切换 — 普通用户看不到这块 */}
+      {isAdmin && (
+        <Card size="small" style={{ marginBottom: 16, background: '#fafafa' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <UserOutlined style={{ color: '#1677ff' }} />
+            <span style={{ color: '#666' }}>管理员视角 · 查看谁的待审批:</span>
+            <Select
+              showSearch
+              allowClear
+              placeholder={`默认看自己(${realName})`}
+              style={{ minWidth: 240 }}
+              value={selectedApprover}
+              onChange={(v) => { setSelectedApprover(v); fetchPending(v); }}
+              options={approverOptions.map(o => ({
+                value: o.name,
+                label: `${o.name} (${o.count} 单)`,
+              }))}
+              filterOption={(input, option) =>
+                (option?.value as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            />
+            {selectedApprover && (
+              <Button size="small" onClick={() => { setSelectedApprover(undefined); fetchPending(); }}>
+                看自己
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
 
       {warning && (
         <Alert type="warning" showIcon message={warning} style={{ marginBottom: 16 }} />
@@ -136,9 +192,13 @@ const HesiBot: React.FC = () => {
       {items.length > 0 && (
         <Card size="small" style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
-            <Statistic title="等我审批" value={items.length} suffix="单" />
+            <Statistic
+              title={selectedApprover ? `${queryName} 待审批` : '等我审批'}
+              value={items.length}
+              suffix="单"
+            />
             <Statistic title="涉及金额合计" value={totalAmount} precision={2} prefix="¥" />
-            <Button icon={<ReloadOutlined />} onClick={fetchPending} loading={loading} style={{ marginLeft: 'auto' }}>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchPending(selectedApprover)} loading={loading} style={{ marginLeft: 'auto' }}>
               刷新
             </Button>
           </div>
@@ -150,9 +210,9 @@ const HesiBot: React.FC = () => {
         {items.length === 0 && !loading ? (
           <Empty
             description={
-              realName
-                ? `没有等你(${realName})审批的合思单据 ✓`
-                : '请先到"个人信息" Tab 设置真实姓名'
+              queryName
+                ? `没有等 ${queryName} 审批的合思单据 ✓`
+                : '请先到"个人信息"页设置真实姓名'
             }
           />
         ) : (
