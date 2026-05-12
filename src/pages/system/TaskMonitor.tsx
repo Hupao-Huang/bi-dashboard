@@ -36,12 +36,25 @@ type TaskItem = {
   schedule: string;
   category: string;
   status: string;
+  hidden?: boolean;
   lastRun: string;
   lastFinish: string;
   duration: string;
   lastOutput: string;
   nextRun: string;
 };
+
+// v1.56.2: 分组顺序 + 默认折叠规则
+const CATEGORY_LABELS: Record<string, string> = {
+  sync: '业务同步',
+  stock: '库存类',
+  service: '服务监控',
+  ops: '系统维护',
+  ai: '模型训练',
+  'service-legacy': '已隐藏（schtasks 状态）',
+  other: '其他',
+};
+const CATEGORY_DEFAULT_HIDDEN = ['ops', 'ai']; // 默认折叠/隐藏类别
 
 interface ManualTaskConfig {
   key: string;
@@ -69,6 +82,7 @@ const statusConfig: Record<string, { color: string; label: string; icon: React.R
   failed: { color: 'error', label: '失败', icon: <CloseCircleOutlined /> },
   running: { color: 'processing', label: '运行中', icon: <SyncOutlined spin /> },
   waiting: { color: 'default', label: '等待中', icon: <ClockCircleOutlined /> },
+  disabled: { color: 'default', label: '已禁用', icon: <CloseCircleOutlined /> },
 };
 
 const statusDotColors: Record<string, string> = {
@@ -76,6 +90,7 @@ const statusDotColors: Record<string, string> = {
   failed: '#ff4d4f',
   running: '#1677ff',
   waiting: '#d9d9d9',
+  disabled: '#94a3b8',
 };
 
 const runningStatusConfig: Record<string, { color: string; label: string }> = {
@@ -111,6 +126,11 @@ const TaskMonitor: React.FC = () => {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // v1.56.2: 显示隐藏任务的开关 (BI-APIServer/Frontend/Disabled 默认不显示)
+  const [showHidden, setShowHidden] = useState(false);
+  // v1.56.2: 系统维护(ops) + 模型训练(ai) 分组默认折叠, 跑哥日常不关心
+  const [showSystem, setShowSystem] = useState(false);
 
   // 手动任务状态
   const [manualConfigs, setManualConfigs] = useState<ManualTaskConfig[]>([]);
@@ -585,10 +605,37 @@ const TaskMonitor: React.FC = () => {
                   </Col>
                 </Row>
 
+                {/* v1.56.2: 显示开关 — 默认隐藏服务类/禁用任务 + 折叠系统维护和模型训练 */}
+                <div style={{ marginBottom: 12, display: 'flex', gap: 16, alignItems: 'center', fontSize: 12 }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>显示：</span>
+                  <label style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={showHidden}
+                      onChange={(e) => setShowHidden(e.target.checked)}
+                      style={{ marginRight: 4 }}
+                    />
+                    隐藏任务（schtasks 服务监控 / 已禁用）
+                  </label>
+                  <label style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={showSystem}
+                      onChange={(e) => setShowSystem(e.target.checked)}
+                      style={{ marginRight: 4 }}
+                    />
+                    系统维护 / 模型训练
+                  </label>
+                </div>
+
                 {/* 定时任务表格 */}
                 <Table<TaskItem>
                   columns={scheduledColumns}
-                  dataSource={tasks}
+                  dataSource={tasks.filter(t => {
+                    if (!showHidden && t.hidden) return false;
+                    if (!showSystem && CATEGORY_DEFAULT_HIDDEN.includes(t.category)) return false;
+                    return true;
+                  })}
                   rowKey="name"
                   pagination={false}
                   size="middle"

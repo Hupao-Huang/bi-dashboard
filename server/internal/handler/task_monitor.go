@@ -34,7 +34,8 @@ type TaskStatus struct {
 	Description string `json:"description"`
 	Schedule    string `json:"schedule"`
 	Category    string `json:"category"`
-	Status      string `json:"status"`     // success / failed / running / waiting
+	Status      string `json:"status"`     // success / failed / running / waiting / disabled
+	Hidden      bool   `json:"hidden"`     // v1.56.2: 默认隐藏 (BI-APIServer/Frontend 用端口实测代替 / Disabled 任务)
 	LastRun     string `json:"lastRun"`    // 上次运行时间
 	LastFinish  string `json:"lastFinish"` // 上次结束时间
 	Duration    string `json:"duration"`   // 耗时
@@ -47,7 +48,7 @@ type TaskStatus struct {
 var taskMetaByName = map[string]TaskConfig{
 	"BI-SyncDailySummary":           {Name: "每日汇总帐同步", Description: "销售货品汇总帐(最近7天覆盖)", Schedule: "每天 08:00", LogFile: "sync-daily-summary.log", Category: "sync"},
 	"BI-SyncMonthlySummary":         {Name: "月汇总帐同步", Description: "本月销售货品月度聚合", Schedule: "每天 08:30", LogFile: "sync-monthly-summary.log", Category: "sync"},
-	"BI-RefreshLastMonth":           {Name: "刷新上月汇总", Description: "每月7号刷上月汇总数据(收尾确认)", Schedule: "每月7号 02:00", LogFile: "sync-monthly-summary.log", Category: "sync"},
+	"BI-RefreshLastMonth":           {Name: "刷新上月汇总", Description: "每月7号刷上月汇总数据(收尾确认)", Schedule: "每月7号 02:00", LogFile: "sync-monthly-summary.log", Category: "ops"},
 	"BI-SyncStock":                  {Name: "库存同步", Description: "吉客云库存分页查询", Schedule: "每天 23:05", LogFile: "sync-stock.log", Category: "stock"},
 	"BI-SyncBatchStock":             {Name: "批次库存同步", Description: "按仓库同步批次库存", Schedule: "每天 23:20", LogFile: "sync-batch-stock.log", Category: "stock"},
 	"BI-SnapshotStock":              {Name: "库存每日快照", Description: "stock_quantity_daily / stock_batch_daily", Schedule: "每天 23:30", LogFile: "snapshot-stock.log", Category: "stock"},
@@ -58,12 +59,15 @@ var taskMetaByName = map[string]TaskConfig{
 	"BI-SyncYSPurchase":             {Name: "用友采购单同步", Description: "YS 采购订单接口", Schedule: "每天 23:25", LogFile: "sync-ys-purchase.log", Category: "sync"},
 	"BI-SyncYSMaterialOut":          {Name: "用友材料出库同步", Description: "YS 材料出库接口", Schedule: "每天 09:20", LogFile: "sync-ys-materialout.log", Category: "sync"},
 	"BI-SyncYSSubcontract":          {Name: "用友委外单同步", Description: "YS 委外订单接口", Schedule: "每天 23:35", LogFile: "sync-ys-subcontract.log", Category: "sync"},
-	"BI-SyncOpsFallback":            {Name: "运营数据导入", Description: "天猫/京东/拼多多/唯品会/抖音等 10 平台", Schedule: "每天 13:00 (兜底)", LogFile: "sync-ops-daily.log", Category: "ops"},
+	"BI-SyncOpsFallback":            {Name: "运营数据导入", Description: "天猫/京东/拼多多/唯品会/抖音等 10 平台", Schedule: "每天 13:00 (兜底)", LogFile: "sync-ops-daily.log", Category: "sync"},
 	"BI-Build-WarehouseFlowSummary": {Name: "物化表构建", Description: "warehouse_flow_summary 预聚合 (7s→5ms)", Schedule: "每天 03:30", LogFile: "build-warehouse-flow-summary.log", Category: "stock"},
 	"BI-BackupMySQL":                {Name: "MySQL 备份", Description: "全库 mysqldump", Schedule: "每天 02:00", LogFile: "backup-mysql.log", Category: "ops"},
 	"BI-RotateLogs":                 {Name: "日志轮转", Description: "清理 30 天前日志", Schedule: "每周日 03:00", LogFile: "rotate-logs.log", Category: "ops"},
-	"BI-APIServer":                  {Name: "API 服务", Description: "后端 HTTP API 服务 (8080 端口)", Schedule: "开机自启", LogFile: "bi-server.err", Category: "service"},
-	"BI-Frontend":                   {Name: "前端服务", Description: "serve -s build (3000 端口)", Schedule: "开机自启", LogFile: "", Category: "service"},
+	"BI-APIServer":                  {Name: "API 服务", Description: "后端 HTTP API 服务 (8080 端口)", Schedule: "开机自启", LogFile: "bi-server.err", Category: "service-legacy"},
+	"BI-Frontend":                   {Name: "前端服务", Description: "serve -s build (3000 端口)", Schedule: "开机自启", LogFile: "", Category: "service-legacy"},
+	"BI-SyncDailyTrades":            {Name: "销售单同步", Description: "每天 04:00 拉昨日销售单+明细+包裹", Schedule: "每天 04:00", LogFile: "sync-daily-trades.log", Category: "sync"},
+	"BI-TrainProphet":               {Name: "Prophet 模型重训", Description: "销量预测 Prophet 季节模型每周自动重训", Schedule: "每周日 03:00", LogFile: "", Category: "ai"},
+	"BI-TrainStatsForecast":         {Name: "StatsForecast 模型重训", Description: "销量预测多模型集成 (Nixtla) 每周重训", Schedule: "每周日 03:30", LogFile: "", Category: "ai"},
 }
 
 const (
@@ -161,6 +165,23 @@ func loadSchtasksStatus() ([]TaskStatus, error) {
 	}
 	result = append(result, apiPing)
 
+	// v1.56.2: 前端服务端口实测 (替代 BI-Frontend schtasks 状态)
+	fePing := TaskStatus{
+		Name:        "前端服务（端口实测）",
+		Description: "TCP 探测 3000 端口是否监听 (serve -s build)",
+		Schedule:    "实时",
+		Category:    "service",
+	}
+	if conn, err := net.DialTimeout("tcp", "127.0.0.1:3000", 2*time.Second); err == nil {
+		conn.Close()
+		fePing.Status = "running"
+		fePing.LastRun = "服务运行中"
+	} else {
+		fePing.Status = "failed"
+		fePing.LastOutput = "3000 端口未监听: " + err.Error()
+	}
+	result = append(result, fePing)
+
 	return result, nil
 }
 
@@ -183,8 +204,20 @@ func buildTaskStatus(raw schtasksRaw) TaskStatus {
 		ts.Category = meta.Category
 	}
 
+	// v1.56.2: 默认隐藏 (跑哥日常不关心)
+	// 1. service-legacy: BI-APIServer / BI-Frontend, schtasks 状态不可靠, 已有端口实测代替
+	// 2. Disabled: 任务被禁用 (如合思费控搁置后), 显示反而误导
+	if ts.Category == "service-legacy" || raw.State == "Disabled" {
+		ts.Hidden = true
+	}
+	if raw.State == "Disabled" {
+		ts.Status = "disabled"
+	}
+
 	// 状态判断 (优先级: 卡死 > 运行中 > 成功 > 失败 > 等待)
 	switch {
+	case raw.State == "Disabled":
+		// 已经在上面设置
 	case raw.State == "Running":
 		ts.Status = "running"
 		// 卡死检测: Running 但 LastRunTime > 1h 前
