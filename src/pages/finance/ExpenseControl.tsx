@@ -4,7 +4,7 @@ import {
   FileTextOutlined, DollarOutlined, WarningOutlined,
   CheckCircleOutlined, ClockCircleOutlined, SearchOutlined,
   PaperClipOutlined, FileImageOutlined, ReloadOutlined,
-  EyeOutlined
+  EyeOutlined, SyncOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -129,6 +129,80 @@ const ExpenseControl: React.FC = () => {
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchFlows(); }, [fetchFlows]);
+
+  // v1.57.1: 立即同步 + 实时日志
+  const [syncing, setSyncing] = useState(false);
+  const [logModalOpen, setLogModalOpen] = useState(false);
+  const [logText, setLogText] = useState('');
+  const logTimerRef = React.useRef<number | null>(null);
+  const logBoxRef = React.useRef<HTMLPreElement | null>(null);
+
+  const handleSync = async () => {
+    Modal.confirm({
+      title: '立即同步合思单据',
+      content: '将启动后台同步任务 (拉合思单据 + 报销 + 流程明细 + 附件), 大约 5-10 分钟. 期间页面数据不会立刻刷新, 完成后手动刷新本页即可.',
+      okText: '启动',
+      cancelText: '取消',
+      onOk: async () => {
+        setSyncing(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/admin/tasks/run`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task: 'sync-hesi', params: {} }),
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || `HTTP ${res.status}`);
+          }
+          message.success('合思同步已启动, 5-10 分钟后回来刷新看新数据 (点"看日志"查实时进度)');
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          message.error(`启动失败: ${msg}`);
+        } finally {
+          setSyncing(false);
+        }
+      },
+    });
+  };
+
+  const fetchSyncLog = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/sync-tools/log?key=sync-hesi&lines=300`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const text = (json.data?.lines || []).join('\n');
+      setLogText(text || '(暂无日志, 还没跑过)');
+      setTimeout(() => {
+        if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
+      }, 50);
+    } catch (err) {
+      setLogText(`获取失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, []);
+
+  const openLogModal = () => {
+    setLogModalOpen(true);
+    setLogText('加载中...');
+    fetchSyncLog();
+    if (logTimerRef.current) window.clearInterval(logTimerRef.current);
+    logTimerRef.current = window.setInterval(fetchSyncLog, 3000);
+  };
+
+  const closeLogModal = () => {
+    setLogModalOpen(false);
+    if (logTimerRef.current) {
+      window.clearInterval(logTimerRef.current);
+      logTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => () => {
+    if (logTimerRef.current) window.clearInterval(logTimerRef.current);
+  }, []);
 
   const showDetail = async (flowId: string) => {
     setDetailModal({ visible: true, flowId });
@@ -338,6 +412,12 @@ const ExpenseControl: React.FC = () => {
 
   return (
     <div>
+      {/* v1.57.1 顶部工具栏: 立即同步 + 看日志 */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <Button icon={<FileTextOutlined />} onClick={openLogModal}>看同步日志</Button>
+        <Button type="primary" icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={handleSync}>立即同步合思</Button>
+      </div>
+
       {/* KPI 卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         {statCards.map((card) => (
@@ -584,6 +664,32 @@ const ExpenseControl: React.FC = () => {
             },
           ]} />
         )}
+      </Modal>
+
+      {/* v1.57.1 同步日志 modal */}
+      <Modal
+        title="合思同步日志"
+        open={logModalOpen}
+        onCancel={closeLogModal}
+        footer={[
+          <Button key="refresh" icon={<ReloadOutlined />} onClick={fetchSyncLog}>立即刷新</Button>,
+          <Button key="close" type="primary" onClick={closeLogModal}>关闭</Button>,
+        ]}
+        width={900}
+      >
+        <div style={{ color: '#666', fontSize: 12, marginBottom: 8 }}>
+          每 3 秒自动刷新, 显示末尾 300 行 (来自 sync-hesi.log)
+        </div>
+        <pre
+          ref={logBoxRef}
+          style={{
+            background: '#1e1e1e', color: '#d4d4d4', padding: 12, borderRadius: 6,
+            height: 500, overflow: 'auto', fontSize: 12, margin: 0,
+            fontFamily: 'Consolas, Monaco, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+          }}
+        >
+          {logText || '加载中...'}
+        </pre>
       </Modal>
     </div>
   );

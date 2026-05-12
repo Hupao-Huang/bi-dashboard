@@ -589,6 +589,14 @@ func syncAttachments(db *sql.DB, token string, flowIds []string) int {
 }
 
 func main() {
+	// v1.57.1: 日志双写 — 既写固定 sync-hesi.log 又走 stdout
+	// 这样 schtasks 通过 vbs 触发(写 sync-hesi.log) 跟 bi-server 触发(读 stdout 进 manual-*.log) 都能拿到日志
+	logFile, err := os.OpenFile(`C:\Users\Administrator\bi-dashboard\server\sync-hesi.log`, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		log.SetOutput(io.MultiWriter(logFile, os.Stdout))
+		defer logFile.Close()
+	}
+
 	// 整体超时保护：30 分钟未结束强制退出
 	// 防止合思 API 卡死/死循环导致 schtasks 显示 Running 数小时
 	// (2026-05-09 实测过 13 小时卡死, vbs 同步等待无法回收)

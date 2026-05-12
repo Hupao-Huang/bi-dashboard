@@ -14,6 +14,7 @@ var fixedToolLogMap = map[string]string{
 	"sync-trades":    `C:\Users\Administrator\bi-dashboard\server\sync-daily-trades.log`,
 	"sync-summary":   `C:\Users\Administrator\bi-dashboard\server\sync-daily-summary.log`,
 	"snapshot-stock": `C:\Users\Administrator\bi-dashboard\server\snapshot-stock.log`,
+	"sync-hesi":      `C:\Users\Administrator\bi-dashboard\server\sync-hesi.log`,
 }
 
 // AdminSyncToolLog GET /api/admin/sync-tools/log?key=sync-trades&lines=200
