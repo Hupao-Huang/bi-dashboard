@@ -126,14 +126,15 @@ func (h *DashboardHandler) loadAuthPayload(userID int64) (*authPayload, error) {
 		},
 	}
 
-	var realName sql.NullString
+	var realName, dingtalkRealName sql.NullString
 	if err := h.DB.QueryRow(
-		`SELECT id, username, real_name, must_change_password FROM users WHERE id = ? AND status = 'active'`,
+		`SELECT id, username, real_name, IFNULL(dingtalk_real_name,''), must_change_password FROM users WHERE id = ? AND status = 'active'`,
 		userID,
-	).Scan(&payload.User.ID, &payload.User.Username, &realName, &payload.MustChangePassword); err != nil {
+	).Scan(&payload.User.ID, &payload.User.Username, &realName, &dingtalkRealName, &payload.MustChangePassword); err != nil {
 		return nil, err
 	}
 	payload.User.RealName = realName.String
+	payload.User.DingtalkRealName = dingtalkRealName.String
 
 	roleIDs := []int64{}
 	roleRows, err := h.DB.Query(

@@ -48,9 +48,10 @@ type authPayload struct {
 }
 
 type authUser struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
-	RealName string `json:"realName"`
+	ID               int64  `json:"id"`
+	Username         string `json:"username"`
+	RealName         string `json:"realName"`
+	DingtalkRealName string `json:"dingtalkRealName"`
 }
 
 type authDataScopes struct {

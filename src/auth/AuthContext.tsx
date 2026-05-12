@@ -5,6 +5,7 @@ type AuthUser = {
   id: number;
   realName: string;
   username: string;
+  dingtalkRealName?: string;
 };
 
 type DataScopes = {

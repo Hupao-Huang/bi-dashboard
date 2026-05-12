@@ -47,7 +47,11 @@ const MainLayout: React.FC = () => {
   const pageTitle = pageTitleMap[currentPath] || '工作台';
   const deptPrefix = Object.keys(deptLabelMap).find(prefix => currentPath.startsWith(prefix + '/'));
   const deptLabel = deptPrefix ? deptLabelMap[deptPrefix] : null;
-  const displayName = session?.user.realName || session?.user.username || '未登录用户';
+  const nick = session?.user.realName;
+  const realName = session?.user.dingtalkRealName;
+  const displayName = (nick && realName && nick !== realName)
+    ? `${nick}-${realName}`
+    : (nick || realName || session?.user.username || '未登录用户');
   const username = session?.user.username || 'guest';
   const primaryRole = session?.roles?.[0];
   const roleLabel = primaryRole ? (roleLabelMap[primaryRole] || primaryRole) : '已登录';

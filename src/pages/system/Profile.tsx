@@ -132,7 +132,11 @@ const Profile: React.FC = () => {
               />
             </Upload>
           </div>
-          <h2 style={{ margin: '8px 0 4px' }}>{profile.realName || profile.username}</h2>
+          <h2 style={{ margin: '8px 0 4px' }}>
+            {profile.dingtalkRealName && profile.realName && profile.dingtalkRealName !== profile.realName
+              ? `${profile.realName}-${profile.dingtalkRealName}`
+              : (profile.realName || profile.username)}
+          </h2>
           <div style={{ color: '#999', marginBottom: 12 }}>@{profile.username}</div>
           <div>
             {(profile.roles || []).map((r: string) => (
@@ -145,7 +149,7 @@ const Profile: React.FC = () => {
           <Descriptions column={1} size="small">
             <Descriptions.Item label="用户名">{profile.username}</Descriptions.Item>
             <Descriptions.Item label="钉钉昵称">{profile.realName || '-'}</Descriptions.Item>
-            <Descriptions.Item label="钉钉真名">
+            <Descriptions.Item label="真实名字">
               {profile.dingtalkRealName ? (
                 <span><strong>{profile.dingtalkRealName}</strong></span>
               ) : (
@@ -161,9 +165,6 @@ const Profile: React.FC = () => {
                 </Button>
               )}
             </Descriptions.Item>
-            {profile.hesiRealName && (
-              <Descriptions.Item label="合思真名">{profile.hesiRealName}</Descriptions.Item>
-            )}
             <Descriptions.Item label="最近登录">{profile.lastLoginAt || '-'}</Descriptions.Item>
             <Descriptions.Item label="钉钉">
               {profile.dingtalkBound ? (
@@ -238,12 +239,6 @@ const Profile: React.FC = () => {
                   ) : null
                 }
               />
-            </Form.Item>
-            <Form.Item label="合思名字" tooltip="合思系统里的实名（用于审批匹配）">
-              <Input value={profile.hesiRealName || '未绑定'} disabled />
-            </Form.Item>
-            <Form.Item name="realName" label="真实姓名（BI 看板用）" tooltip={profile.dingtalkBound ? '已绑定钉钉，姓名由钉钉同步' : undefined}>
-              <Input placeholder="请输入真实姓名" maxLength={20} disabled={profile.dingtalkBound} />
             </Form.Item>
             <Form.Item name="phone" label="手机号" tooltip={profile.dingtalkBound ? '已绑定钉钉，手机号由钉钉同步' : undefined}
               rules={[{ pattern: /^1\d{10}$/, message: '请输入正确的手机号' }]}>
