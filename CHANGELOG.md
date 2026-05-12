@@ -507,6 +507,36 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.58.0 (2026-05-12) — 合思费控页"当前审批"显示真实姓名
+
+接 v1.57.2, 跑哥说不要只显示岗位名要看具体审批人. 这次彻底搞定.
+
+**接口攻关**:
+- 翻 GitHub `ekuaibao/open-platform-docs` 仓库找到合思官方文档
+- 定位到 `GET /api/openapi/v2/approveStates/[ids]?accessToken=xxx` (path 必须含方括号)
+- Response 返回 `stageName` + `operators[{id,name,code}]`, 拿到当前节点+审批人姓名+工号
+
+**数据库**:
+- ALTER hesi_flow 加 4 列: current_stage_name / current_approver_id / current_approver_name / current_approver_code (INSTANT 算法, 0 锁表)
+
+**sync-hesi.exe 扩**:
+- 加 fetchApproveStates() 函数, 批量 20/批调合思接口, 限流 200ms/批
+- 多审批人节点拼接显示 (例: 张三+李四)
+- 主流程末尾对 active=1 且 state NOT IN (paid/archived/rejected/draft) 的单据全量回填
+- 每天 10:30 自动同步会刷新当前审批人
+
+**后端 hesi.go GetHesiFlows**:
+- SELECT 加 current_stage_name + current_approver_name + current_approver_code 3 列
+- FlowItem struct 加 3 字段
+
+**前端 ExpenseControl 表格**:
+- "当前进度" 列重命名"当前审批", 优先显示真实姓名 (粗体) + 节点 (小字)
+- 已结束 (paid/archived/rejected) 显示"已结束"
+- 没拉到审批状态时 fallback 显示上一步节点名 + ✓ (兼容 v1.57.2 老逻辑)
+- Tooltip 完整显示节点+审批人姓名+工号
+
+---
+
 ## v1.57.2 (2026-05-12) — 合思费控页加"当前进度"列
 
 - 表格在"状态"后多了**当前进度**列, 显示单据走到哪一步 (上一步已审批的节点名)

@@ -84,6 +84,89 @@ func getFlowList(token, formType string, start, count int) (int, []map[string]in
 	return result.Count, result.Items, nil
 }
 
+// v1.58.0: 拉单据当前审批节点 + 审批人信息
+// GET /api/openapi/v2/approveStates/[id1,id2,...]?accessToken=xxx
+// Response: {items:[{flowId, stageName, operators:[{id,name,code}], delegateData}]}
+// 注意: path 参数必须含 [], 例如 /approveStates/[ID01xxx,ID01yyy]
+type ApproveState struct {
+	FlowID    string
+	StageName string
+	OpID      string
+	OpName    string
+	OpCode    string
+}
+
+func fetchApproveStates(token string, flowIds []string) (map[string]ApproveState, error) {
+	result := make(map[string]ApproveState, len(flowIds))
+	if len(flowIds) == 0 {
+		return result, nil
+	}
+	const batchSize = 20 // 合思接口 path 长度有限, 单批不能太大
+	for i := 0; i < len(flowIds); i += batchSize {
+		end := i + batchSize
+		if end > len(flowIds) {
+			end = len(flowIds)
+		}
+		batch := flowIds[i:end]
+		// path 形如 [id1,id2,...]
+		idsParam := "[" + joinStrings(batch, ",") + "]"
+		url := fmt.Sprintf("%s/api/openapi/v2/approveStates/%s?accessToken=%s", hesiAPIBase, idsParam, token)
+		resp, err := httpClient.Get(url)
+		if err != nil {
+			log.Printf("[approveStates] HTTP 失败 batch=%d: %v", i, err)
+			continue
+		}
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		var r struct {
+			Items []struct {
+				FlowID    string `json:"flowId"`
+				StageName string `json:"stageName"`
+				Operators []struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+					Code string `json:"code"`
+				} `json:"operators"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(data, &r); err != nil {
+			log.Printf("[approveStates] 解析失败 batch=%d body=%s: %v", i, string(data[:min(len(data), 200)]), err)
+			continue
+		}
+		for _, it := range r.Items {
+			st := ApproveState{FlowID: it.FlowID, StageName: it.StageName}
+			if len(it.Operators) > 0 {
+				st.OpID = it.Operators[0].ID
+				st.OpName = it.Operators[0].Name
+				st.OpCode = it.Operators[0].Code
+				// 多审批人时拼接显示 (例: 张三+李四)
+				if len(it.Operators) > 1 {
+					names := make([]string, len(it.Operators))
+					for j, op := range it.Operators {
+						names[j] = op.Name
+					}
+					st.OpName = joinStrings(names, "+")
+				}
+			}
+			result[it.FlowID] = st
+		}
+		time.Sleep(200 * time.Millisecond) // 限流: 每批间 200ms 间隔
+	}
+	return result, nil
+}
+
+func joinStrings(ss []string, sep string) string {
+	if len(ss) == 0 {
+		return ""
+	}
+	out := ss[0]
+	for i := 1; i < len(ss); i++ {
+		out += sep + ss[i]
+	}
+	return out
+}
+
 // 获取附件信息
 func getAttachments(token string, flowIds []string) ([]map[string]interface{}, error) {
 	body := map[string]interface{}{"flowIds": flowIds}
@@ -752,6 +835,41 @@ func main() {
 			db.Exec("DELETE d FROM hesi_flow_detail d LEFT JOIN hesi_flow f ON d.flow_id=f.flow_id WHERE f.flow_id IS NULL")
 			db.Exec("DELETE i FROM hesi_flow_invoice i LEFT JOIN hesi_flow f ON i.flow_id=f.flow_id WHERE f.flow_id IS NULL")
 			db.Exec("DELETE a FROM hesi_flow_attachment a LEFT JOIN hesi_flow f ON a.flow_id=f.flow_id WHERE f.flow_id IS NULL")
+		}
+	}
+
+	// v1.58.0: 对所有进行中状态的单据拉当前审批节点 + 审批人
+	fmt.Println("\n========== 拉取当前审批节点 + 审批人信息 ==========")
+	activeRows, err := db.Query(`SELECT flow_id FROM hesi_flow WHERE active=1 AND state NOT IN ('paid','archived','rejected','draft')`)
+	if err != nil {
+		log.Printf("[approveStates] 查 active flow 失败: %v", err)
+	} else {
+		var activeFlowIds []string
+		for activeRows.Next() {
+			var fid string
+			if err := activeRows.Scan(&fid); err == nil {
+				activeFlowIds = append(activeFlowIds, fid)
+			}
+		}
+		activeRows.Close()
+		fmt.Printf("待拉取审批状态: %d 单\n", len(activeFlowIds))
+		if len(activeFlowIds) > 0 {
+			states, err := fetchApproveStates(token, activeFlowIds)
+			if err != nil {
+				log.Printf("[approveStates] 拉取失败: %v", err)
+			} else {
+				updateCount := 0
+				for _, st := range states {
+					_, err := db.Exec(`UPDATE hesi_flow SET current_stage_name=?, current_approver_id=?, current_approver_name=?, current_approver_code=? WHERE flow_id=?`,
+						nullStr(st.StageName), nullStr(st.OpID), nullStr(st.OpName), nullStr(st.OpCode), st.FlowID)
+					if err != nil {
+						log.Printf("[approveStates] 更新 %s 失败: %v", st.FlowID, err)
+						continue
+					}
+					updateCount++
+				}
+				fmt.Printf("审批状态更新: %d 条\n", updateCount)
+			}
 		}
 	}
 

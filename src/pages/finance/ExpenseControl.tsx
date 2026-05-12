@@ -60,6 +60,9 @@ interface FlowItem {
   attachmentCount: number;
   preApprovedNode?: string | null;  // v1.57.2: 上一步已审批节点名
   preApprovedTime?: string | null;  // v1.57.2: 上一步通过时间戳(毫秒, string 因 raw_json 提取)
+  currentStageName?: string | null;    // v1.58.0: 当前审批节点 (来自合思 approveStates 接口)
+  currentApproverName?: string | null; // v1.58.0: 当前审批人姓名
+  currentApproverCode?: string | null; // v1.58.0: 当前审批人工号
 }
 
 interface StatsData {
@@ -333,17 +336,34 @@ const ExpenseControl: React.FC = () => {
       },
     },
     {
-      title: '当前进度', dataIndex: 'preApprovedNode', width: 130,
-      render: (v: string | null, record) => {
-        if (!v) return record.state === 'paid' || record.state === 'archived' ? '-' : <span style={{color:'#999'}}>未启动</span>;
-        const t = record.preApprovedTime ? Number(record.preApprovedTime) : 0;
-        const tStr = t > 0 ? dayjs(t).format('MM-DD HH:mm') : '';
-        return (
-          <Tooltip title={tStr ? `${v} 于 ${tStr} 通过` : v}>
-            <span>{v}</span>
-            {tStr && <div style={{fontSize:11, color:'#999'}}>{tStr}</div>}
-          </Tooltip>
-        );
+      title: '当前审批', width: 160,
+      render: (_, record) => {
+        // v1.58.0: 优先显示真实审批人 (合思 approveStates 接口)
+        if (record.currentApproverName && record.currentStageName) {
+          return (
+            <Tooltip title={`节点: ${record.currentStageName}  审批人: ${record.currentApproverName}${record.currentApproverCode ? ' (' + record.currentApproverCode + ')' : ''}`}>
+              <div><strong>{record.currentApproverName}</strong></div>
+              <div style={{fontSize:11, color:'#666'}}>{record.currentStageName}</div>
+            </Tooltip>
+          );
+        }
+        // fallback: 已结束单据 (合思接口不返审批人) → 显示上一步
+        if (record.state === 'paid' || record.state === 'archived' || record.state === 'rejected') {
+          return record.preApprovedNode
+            ? <Tooltip title={`已结束 (上一步: ${record.preApprovedNode})`}><span style={{color:'#999'}}>已结束</span></Tooltip>
+            : <span style={{color:'#999'}}>-</span>;
+        }
+        // 进行中但还没拉到审批状态 — 显示上一步节点 (v1.57.2 老逻辑)
+        if (record.preApprovedNode) {
+          const t = record.preApprovedTime ? Number(record.preApprovedTime) : 0;
+          const tStr = t > 0 ? dayjs(t).format('MM-DD HH:mm') : '';
+          return (
+            <Tooltip title={tStr ? `上一步 ${record.preApprovedNode} 于 ${tStr} 通过, 待下游` : record.preApprovedNode}>
+              <span style={{color:'#666'}}>{record.preApprovedNode} ✓</span>
+            </Tooltip>
+          );
+        }
+        return <span style={{color:'#999'}}>未启动</span>;
       },
     },
     {
