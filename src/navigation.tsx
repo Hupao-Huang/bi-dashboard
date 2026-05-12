@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag, type MenuProps } from 'antd';
+import { Badge, Tag, type MenuProps } from 'antd';
 import {
   AccountBookOutlined,
   AlertOutlined,
@@ -356,16 +356,60 @@ const filterMenuDefinitions = (
   return acc;
 }, []);
 
-const toMenuItems = (definitions: MenuDefinition[]): MenuItem[] => definitions.map(definition => ({
+export type PendingBadgeCounts = {
+  users?: number;
+  feedback?: number;
+};
+
+const badgeKeyMap: Record<string, keyof PendingBadgeCounts> = {
+  '/system/access': 'users',
+  '/system/feedback': 'feedback',
+};
+
+const decorateLabel = (
+  key: string,
+  label: React.ReactNode,
+  counts: PendingBadgeCounts,
+): React.ReactNode => {
+  // 子项：用户管理 / 反馈管理 直接挂数字徽标
+  const badgeKey = badgeKeyMap[key];
+  if (badgeKey) {
+    const n = counts[badgeKey] || 0;
+    if (n <= 0) return label;
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        {label}
+        <Badge count={n} size="small" overflowCount={99} />
+      </span>
+    );
+  }
+  // 父项 /system 聚合显示红点（无数字）
+  if (key === '/system') {
+    const total = (counts.users || 0) + (counts.feedback || 0);
+    if (total <= 0) return label;
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        {label}
+        <Badge dot />
+      </span>
+    );
+  }
+  return label;
+};
+
+const toMenuItems = (definitions: MenuDefinition[], counts: PendingBadgeCounts): MenuItem[] => definitions.map(definition => ({
   key: definition.key,
   icon: definition.icon,
-  label: definition.label,
+  label: decorateLabel(definition.key, definition.label, counts),
   disabled: definition.disabled,
-  children: definition.children ? toMenuItems(definition.children) : undefined,
+  children: definition.children ? toMenuItems(definition.children, counts) : undefined,
 }));
 
-export const buildMenuItems = (hasPermission: (permission?: string) => boolean): MenuItem[] => (
-  toMenuItems(filterMenuDefinitions(menuDefinitions, hasPermission))
+export const buildMenuItems = (
+  hasPermission: (permission?: string) => boolean,
+  pendingCounts: PendingBadgeCounts = {},
+): MenuItem[] => (
+  toMenuItems(filterMenuDefinitions(menuDefinitions, hasPermission), pendingCounts)
 );
 
 export const getDefaultOpenKeys = (pathname: string): string[] => {
