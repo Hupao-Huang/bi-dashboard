@@ -58,6 +58,8 @@ interface FlowItem {
   invoiceExist: number;
   invoiceMissing: number;
   attachmentCount: number;
+  preApprovedNode?: string | null;  // v1.57.2: 上一步已审批节点名
+  preApprovedTime?: string | null;  // v1.57.2: 上一步通过时间戳(毫秒, string 因 raw_json 提取)
 }
 
 interface StatsData {
@@ -328,6 +330,20 @@ const ExpenseControl: React.FC = () => {
       render: (v) => {
         const m = stateMap[v];
         return m ? <Tag color={m.color}>{m.label}</Tag> : v;
+      },
+    },
+    {
+      title: '当前进度', dataIndex: 'preApprovedNode', width: 130,
+      render: (v: string | null, record) => {
+        if (!v) return record.state === 'paid' || record.state === 'archived' ? '-' : <span style={{color:'#999'}}>未启动</span>;
+        const t = record.preApprovedTime ? Number(record.preApprovedTime) : 0;
+        const tStr = t > 0 ? dayjs(t).format('MM-DD HH:mm') : '';
+        return (
+          <Tooltip title={tStr ? `${v} 于 ${tStr} 通过` : v}>
+            <span>{v}</span>
+            {tStr && <div style={{fontSize:11, color:'#999'}}>{tStr}</div>}
+          </Tooltip>
+        );
       },
     },
     {

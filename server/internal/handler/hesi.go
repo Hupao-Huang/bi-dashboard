@@ -105,7 +105,7 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 	// 如果筛选发票状态，需要JOIN明细表
 	hasInvoiceFilter := invoiceStatus != ""
 	fromClause := "hesi_flow f"
-	selectFields := "DISTINCT f.flow_id, f.code, f.title, f.form_type, f.state, f.owner_id, f.department_id, f.submitter_id, f.pay_money, f.expense_money, f.loan_money, f.create_time, f.update_time, f.submit_date, f.pay_date, f.flow_end_time, f.voucher_no, f.voucher_status"
+	selectFields := "DISTINCT f.flow_id, f.code, f.title, f.form_type, f.state, f.owner_id, f.department_id, f.submitter_id, f.pay_money, f.expense_money, f.loan_money, f.create_time, f.update_time, f.submit_date, f.pay_date, f.flow_end_time, f.voucher_no, f.voucher_status, JSON_UNQUOTE(JSON_EXTRACT(f.raw_json, '$.preApprovedNodeName')) AS pre_approved_node, JSON_UNQUOTE(JSON_EXTRACT(f.raw_json, '$.preNodeApprovedTime')) AS pre_approved_time"
 
 	if hasInvoiceFilter {
 		fromClause += " JOIN hesi_flow_detail d ON f.flow_id = d.flow_id"
@@ -149,6 +149,9 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 		FlowEndTime   *int64   `json:"flowEndTime"`
 		VoucherNo     *string  `json:"voucherNo"`
 		VoucherStatus *string  `json:"voucherStatus"`
+		// v1.57.2: 审批流进度 (从 raw_json 解析, 来自合思 API)
+		PreApprovedNode *string `json:"preApprovedNode"` // 上一步已审批通过的节点名 (岗位级, 例: 直属上级/资金预算负责人)
+		PreApprovedTime *string `json:"preApprovedTime"` // 上一步通过时间 (毫秒时间戳字符串)
 		// 明细汇总
 		DetailCount     int `json:"detailCount"`
 		InvoiceExist    int `json:"invoiceExist"`
@@ -163,7 +166,8 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 			&item.OwnerId, &item.DepartmentId, &item.SubmitterId,
 			&item.PayMoney, &item.ExpenseMoney, &item.LoanMoney,
 			&item.CreateTime, &item.UpdateTime, &item.SubmitDate, &item.PayDate, &item.FlowEndTime,
-			&item.VoucherNo, &item.VoucherStatus)) {
+			&item.VoucherNo, &item.VoucherStatus,
+			&item.PreApprovedNode, &item.PreApprovedTime)) {
 			return
 		}
 		items = append(items, item)
