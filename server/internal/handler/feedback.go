@@ -250,11 +250,26 @@ func (h *DashboardHandler) ListFeedback(w http.ResponseWriter, r *http.Request) 
 		list = []FeedbackItem{}
 	}
 
+	// 统计每个状态的全量数 — 不受 status 过滤影响,供 KPI 卡显示
+	stats := map[string]int{"pending": 0, "processing": 0, "resolved": 0, "closed": 0}
+	statRows, statErr := h.DB.Query("SELECT status, COUNT(*) FROM feedback GROUP BY status")
+	if statErr == nil {
+		defer statRows.Close()
+		for statRows.Next() {
+			var s string
+			var n int
+			if err := statRows.Scan(&s, &n); err == nil {
+				stats[s] = n
+			}
+		}
+	}
+
 	writeJSON(w, map[string]interface{}{
 		"list":     list,
 		"total":    total,
 		"page":     page,
 		"pageSize": pageSize,
+		"stats":    stats,
 	})
 }
 
