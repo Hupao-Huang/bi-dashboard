@@ -292,9 +292,10 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		SubmitDate    *int64   `json:"submitDate"`
 		PayDate       *int64   `json:"payDate"`
 		FlowEndTime   *int64   `json:"flowEndTime"`
-		VoucherNo       *string  `json:"voucherNo"`
-		VoucherStatus   *string  `json:"voucherStatus"`
-		SpecificationId *string  `json:"specificationId"`
+		VoucherNo         *string `json:"voucherNo"`
+		VoucherStatus     *string `json:"voucherStatus"`
+		SpecificationId   *string `json:"specificationId"`
+		SpecificationName string  `json:"specificationName"`
 	}
 	err := h.DB.QueryRow(`SELECT flow_id, code, title, form_type, state, owner_id, department_id, submitter_id,
 		pay_money, expense_money, loan_money, create_time, update_time, submit_date, pay_date, flow_end_time,
@@ -307,6 +308,11 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		writeError(w, 404, "单据不存在")
 		return
+	}
+
+	// v1.62.x: 查模板名称 (60s 缓存)
+	if flow.SpecificationId != nil && *flow.SpecificationId != "" {
+		flow.SpecificationName = h.LookupSpecName(*flow.SpecificationId)
 	}
 
 	// 明细

@@ -446,6 +446,7 @@ func main() {
 	mux.HandleFunc("/api/hesi/stats", pageProtected("finance.expense:view", h.GetHesiStats))
 	mux.HandleFunc("/api/hesi/flows", pageProtected("finance.expense:view", h.GetHesiFlows))
 	mux.HandleFunc("/api/hesi/flow-detail", pageProtected("finance.expense:view", h.GetHesiFlowDetail))
+	mux.HandleFunc("/api/hesi/specifications", pageProtected("finance.expense:view", h.GetHesiSpecifications))
 	mux.HandleFunc("/api/hesi/attachment-urls", pageProtected("finance.expense:view", h.GetHesiAttachmentURLs))
 
 	// 财务报表

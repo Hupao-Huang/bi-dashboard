@@ -600,17 +600,13 @@ const ExpenseControl: React.FC = () => {
                   <Descriptions.Item label="单据模板" span={2}>
                     {(() => {
                       const sid: string | null = detailData.flow.specificationId;
+                      const sname: string | null = detailData.flow.specificationName;
                       if (!sid) return '-';
-                      const presetMap: Record<string, string> = {
-                        PRESET_REQUISITION_TRIP: '出差申请单 (系统预置)',
-                        PRESET_REQUISITION_TEAM_BUILDING: '团建申请单 (系统预置)',
-                        PRESET_REQUISITION_LOAN: '借款申请单 (系统预置)',
-                      };
-                      const presetMatch = Object.keys(presetMap).find(k => sid.includes(k));
-                      const hint = presetMatch ? presetMap[presetMatch] : '企业自定义模板';
                       return (
                         <Tooltip title={sid}>
-                          <Tag color="blue" style={{ cursor: 'help' }}>{hint}</Tag>
+                          <Tag color="blue" style={{ cursor: 'help' }}>
+                            {sname || '未匹配字典'}
+                          </Tag>
                           <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }} copyable={{ text: sid }}>
                             ID: {sid.length > 40 ? sid.slice(0, 40) + '...' : sid}
                           </Typography.Text>
