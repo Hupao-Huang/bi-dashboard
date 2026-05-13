@@ -186,7 +186,7 @@ export const menuDefinitions: MenuDefinition[] = [
     label: '个人中心',
     children: [
       { key: '/profile/info', icon: <UserOutlined />, label: '个人信息' },
-      { key: '/profile/hesi-bot', icon: <RobotOutlined />, label: '合思机器人' },
+      { key: '/profile/hesi-bot', icon: <RobotOutlined />, label: '合思机器人', permission: 'profile.hesi_bot:view' },
     ],
   },
   {

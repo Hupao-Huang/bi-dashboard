@@ -1,11 +1,15 @@
 package handler
 
+// ⚠️ 注意: 当前这套规则**仅适用于张俊**作为审批人时使用 (规则源自张俊提供的 Excel 私有定义)
+// 调用前必须在上游判断 displayName/queryName 含"张俊", 别人不跑这套规则
+// 见 profile_hesi_pending.go 的 enableAuditSuggestion 开关
+
 import (
 	"encoding/json"
 	"strings"
 )
 
-// AuditSuggestion 审批建议输出
+// AuditSuggestion 审批建议输出 (仅张俊场景使用)
 type AuditSuggestion struct {
 	Action  string   `json:"action"` // agree / reject / manual
 	Reasons []string `json:"reasons"`
