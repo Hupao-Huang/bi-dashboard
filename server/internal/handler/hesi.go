@@ -292,17 +292,18 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		SubmitDate    *int64   `json:"submitDate"`
 		PayDate       *int64   `json:"payDate"`
 		FlowEndTime   *int64   `json:"flowEndTime"`
-		VoucherNo     *string  `json:"voucherNo"`
-		VoucherStatus *string  `json:"voucherStatus"`
+		VoucherNo       *string  `json:"voucherNo"`
+		VoucherStatus   *string  `json:"voucherStatus"`
+		SpecificationId *string  `json:"specificationId"`
 	}
 	err := h.DB.QueryRow(`SELECT flow_id, code, title, form_type, state, owner_id, department_id, submitter_id,
 		pay_money, expense_money, loan_money, create_time, update_time, submit_date, pay_date, flow_end_time,
-		voucher_no, voucher_status, raw_json FROM hesi_flow WHERE flow_id=?`, flowId).Scan(
+		voucher_no, voucher_status, specification_id, raw_json FROM hesi_flow WHERE flow_id=?`, flowId).Scan(
 		&flow.FlowId, &flow.Code, &flow.Title, &flow.FormType, &flow.State,
 		&flow.OwnerId, &flow.DepartmentId, &flow.SubmitterId,
 		&flow.PayMoney, &flow.ExpenseMoney, &flow.LoanMoney,
 		&flow.CreateTime, &flow.UpdateTime, &flow.SubmitDate, &flow.PayDate, &flow.FlowEndTime,
-		&flow.VoucherNo, &flow.VoucherStatus, &rawJSON)
+		&flow.VoucherNo, &flow.VoucherStatus, &flow.SpecificationId, &rawJSON)
 	if err != nil {
 		writeError(w, 404, "单据不存在")
 		return

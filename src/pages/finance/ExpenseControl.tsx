@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Tag, Select, Input, DatePicker, Row, Col, Statistic, Button, Modal, Descriptions, Tabs, Badge, Tooltip, message } from 'antd';
+import { Card, Table, Tag, Select, Input, DatePicker, Row, Col, Statistic, Button, Modal, Descriptions, Tabs, Typography, Badge, Tooltip, message } from 'antd';
 import {
   FileTextOutlined, DollarOutlined, WarningOutlined,
   CheckCircleOutlined, ClockCircleOutlined, SearchOutlined,
@@ -597,6 +597,27 @@ const ExpenseControl: React.FC = () => {
                   <Descriptions.Item label="提交时间">{formatTime(detailData.flow.submitDate)}</Descriptions.Item>
                   <Descriptions.Item label="支付时间">{formatTime(detailData.flow.payDate)}</Descriptions.Item>
                   <Descriptions.Item label="完成时间">{formatTime(detailData.flow.flowEndTime)}</Descriptions.Item>
+                  <Descriptions.Item label="单据模板" span={2}>
+                    {(() => {
+                      const sid: string | null = detailData.flow.specificationId;
+                      if (!sid) return '-';
+                      const presetMap: Record<string, string> = {
+                        PRESET_REQUISITION_TRIP: '出差申请单 (系统预置)',
+                        PRESET_REQUISITION_TEAM_BUILDING: '团建申请单 (系统预置)',
+                        PRESET_REQUISITION_LOAN: '借款申请单 (系统预置)',
+                      };
+                      const presetMatch = Object.keys(presetMap).find(k => sid.includes(k));
+                      const hint = presetMatch ? presetMap[presetMatch] : '企业自定义模板';
+                      return (
+                        <Tooltip title={sid}>
+                          <Tag color="blue" style={{ cursor: 'help' }}>{hint}</Tag>
+                          <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }} copyable={{ text: sid }}>
+                            ID: {sid.length > 40 ? sid.slice(0, 40) + '...' : sid}
+                          </Typography.Text>
+                        </Tooltip>
+                      );
+                    })()}
+                  </Descriptions.Item>
                 </Descriptions>
               ),
             },
