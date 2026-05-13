@@ -79,8 +79,16 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 		args = append(args, formType)
 	}
 	if state != "" {
-		where += " AND f.state=?"
-		args = append(args, state)
+		// v1.62.x: 支持分组别名 active=未结束 / terminal=已结束 / 其他=精确匹配
+		switch state {
+		case "active":
+			where += " AND f.state IN ('approving','paying','pending','PROCESSING')"
+		case "terminal":
+			where += " AND f.state IN ('paid','archived','rejected')"
+		default:
+			where += " AND f.state=?"
+			args = append(args, state)
+		}
 	}
 	if keyword != "" {
 		where += " AND (f.title LIKE ? OR f.code LIKE ?)"

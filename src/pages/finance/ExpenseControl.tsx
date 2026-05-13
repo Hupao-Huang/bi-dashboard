@@ -88,7 +88,7 @@ const ExpenseControl: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [formType, setFormType] = useState<string | undefined>(undefined);
-  const [state, setState] = useState<string | undefined>(undefined);
+  const [state, setState] = useState<string | undefined>('active'); // v1.62.x 默认隐藏已结束
   const [invoiceStatus, setInvoiceStatus] = useState<string | undefined>(undefined);
   const [keyword, setKeyword] = useState('');
   const [keywordInput, setKeywordInput] = useState(''); // v1.58.3: 输入框 draft, 点查询才提交到 keyword
@@ -261,9 +261,9 @@ const ExpenseControl: React.FC = () => {
   }, [fetchFlows, page, keywordInput, approverInput, keyword, approver]);
 
   const resetFilters = useCallback(() => {
-    const noFilter = !formType && !state && !invoiceStatus && !keyword && !approver && !dateRange;
+    const noFilter = !formType && state === 'active' && !invoiceStatus && !keyword && !approver && !dateRange;
     setFormType(undefined);
-    setState(undefined);
+    setState('active'); // v1.62.x 重置回默认"未结束"
     setInvoiceStatus(undefined);
     setKeyword('');
     setKeywordInput('');
@@ -492,12 +492,14 @@ const ExpenseControl: React.FC = () => {
             </Select>
           </Col>
           <Col>
-            <Select value={state} onChange={v => { setState(v); setPage(1); }} allowClear placeholder="状态" style={{ width: 110 }}>
-              <Option value="paid">已支付</Option>
-              <Option value="archived">已归档</Option>
+            <Select value={state} onChange={v => { setState(v); setPage(1); }} allowClear placeholder="状态(默认未结束)" style={{ width: 140 }}>
+              <Option value="active">未结束 (默认)</Option>
               <Option value="approving">审批中</Option>
               <Option value="paying">待支付</Option>
+              <Option value="paid">已支付</Option>
+              <Option value="archived">已归档</Option>
               <Option value="rejected">已驳回</Option>
+              <Option value="terminal">已结束 (合并)</Option>
               <Option value="draft">草稿</Option>
             </Select>
           </Col>
