@@ -83,6 +83,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "channel.manage", Name: "渠道管理", Type: "action"},
 	{Code: "requirement.manage", Name: "需求管理", Type: "action"},
 	{Code: "data:export", Name: "数据导出", Type: "action"},
+	{Code: "profile.hesi_bot:view", Name: "个人中心-合思机器人", Type: "page"},
 }
 
 var roleSeeds = []roleSeed{
@@ -107,6 +108,7 @@ var roleDefaultPermissions = map[string][]string{
 		"customer:view", "customer.overview:view",
 		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view",
 		"profit:view", "cost:view", "gross_margin:view",
+		"profile.hesi_bot:view",
 	},
 	"dept_manager": {
 		"overview:view",
@@ -117,6 +119,7 @@ var roleDefaultPermissions = map[string][]string{
 		"distribution:view", "distribution.store_preview:view", "distribution.store_dashboard:view", "distribution.product_dashboard:view", "distribution.customer_analysis:view", "distribution.customer_list:edit",
 		"instant_retail:view", "instant_retail.store_preview:view", "instant_retail.store_dashboard:view", "instant_retail.product_dashboard:view", "instant_retail.special_channel_allot:view",
 		"customer:view", "customer.overview:view",
+		"profile.hesi_bot:view",
 	},
 	"operator": {
 		"brand:view",
@@ -132,6 +135,7 @@ var roleDefaultPermissions = map[string][]string{
 		"brand:view",
 		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view", "finance.report:view", "finance.report:import",
 		"profit:view", "cost:view", "gross_margin:view",
+		"profile.hesi_bot:view",
 	},
 	"supply_chain": {
 		"brand:view",
