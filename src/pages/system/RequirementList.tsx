@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Button, Card, Col, DatePicker, Input, Modal, Row, Select, Statistic, Table, Tag, Typography, message,
+  Button, Card, Col, DatePicker, Input, Modal, Row, Select, Statistic, Table, Tabs, Tag, Typography, message,
 } from 'antd';
+import RequirementKanban from './RequirementKanban';
 import type { ColumnsType } from 'antd/es/table';
 import {
   ClockCircleOutlined, CheckCircleOutlined,
@@ -75,6 +76,7 @@ const PriorityChip: React.FC<{ p: string }> = ({ p }) => {
 };
 
 const RequirementList: React.FC = () => {
+  const [view, setView] = useState<'list' | 'kanban' | 'gantt'>('list');
   const [list, setList] = useState<RequirementItem[]>([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<StatsData>({ status: {}, priority: {} });
@@ -225,6 +227,25 @@ const RequirementList: React.FC = () => {
 
   return (
     <div>
+      <Tabs
+        activeKey={view}
+        onChange={(k) => setView(k as any)}
+        items={[
+          { key: 'list', label: '列表' },
+          { key: 'kanban', label: '看板' },
+          { key: 'gantt', label: '甘特图' },
+        ]}
+        size="small"
+        style={{ marginBottom: 12 }}
+      />
+      {view === 'kanban' && <RequirementKanban />}
+      {view === 'gantt' && (
+        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+          甘特图视图即将上线（v1.62.0 收尾前完成）
+        </div>
+      )}
+      {view === 'list' && (
+      <>
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         {kpiCards.map(card => {
           const hex = STATUS_HEX_MAP[card.key];
@@ -428,6 +449,8 @@ const RequirementList: React.FC = () => {
           </div>
         )}
       </Modal>
+      </>
+      )}
     </div>
   );
 };
