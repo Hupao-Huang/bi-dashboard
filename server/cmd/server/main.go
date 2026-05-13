@@ -347,6 +347,10 @@ func main() {
 	mux.HandleFunc("/api/supply-chain/in-transit-detail", pageProtected("supply_chain.plan_dashboard:view", cache24h(h.GetInTransitDetail)))
 	mux.HandleFunc("/api/supply-chain/sync-ys-stock", pageProtected("supply_chain.plan_dashboard:view", h.SyncYSStock))
 	mux.HandleFunc("/api/supply-chain/sync-ys-progress", pageProtected("supply_chain.plan_dashboard:view", h.GetSyncYSProgress))
+	// 原料行情（期货）—— MVP 阶段开放给所有登录用户（不挂 permission，登录即可看）
+	mux.HandleFunc("/api/futures/symbols", protected(cache24h(h.GetFuturesSymbols)))
+	mux.HandleFunc("/api/futures/quotes", protected(cache24h(h.GetFuturesQuotes)))
+	mux.HandleFunc("/api/futures/daily", protected(cache24h(h.GetFuturesDaily)))
 	// 分销·客户分析 (v1.29)
 	mux.HandleFunc("/api/distribution/customers/list", pageProtected("distribution.customer_list:edit", h.ListDistributionCustomers))
 	mux.HandleFunc("/api/distribution/customers/grade", pageProtected("distribution.customer_list:edit", h.SetDistributionCustomerGrade))
