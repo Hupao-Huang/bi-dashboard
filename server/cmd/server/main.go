@@ -377,6 +377,7 @@ func main() {
 	mux.HandleFunc("/api/feedback/", feedbackAdmin(h.FeedbackByPath))
 
 	// 需求管理（v1.62.0 新增）
+	mux.HandleFunc("/api/hesi-bot/approve", protected(h.HesiApprove))
 	mux.HandleFunc("/api/requirements", protected(h.SubmitRequirement))
 	mux.HandleFunc("/api/requirements/list", protected(h.ListRequirements))
 	mux.HandleFunc("/api/requirements/stats", protected(h.RequirementStats))
