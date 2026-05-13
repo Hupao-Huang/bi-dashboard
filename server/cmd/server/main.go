@@ -376,6 +376,13 @@ func main() {
 	mux.HandleFunc("/api/feedback/list", feedbackAdmin(h.ListFeedback))
 	mux.HandleFunc("/api/feedback/", feedbackAdmin(h.FeedbackByPath))
 
+	// 需求管理（v1.62.0 新增）
+	mux.HandleFunc("/api/requirements", protected(h.SubmitRequirement))
+	mux.HandleFunc("/api/requirements/list", protected(h.ListRequirements))
+	mux.HandleFunc("/api/requirements/stats", protected(h.RequirementStats))
+	mux.HandleFunc("/api/requirements/gantt", protected(h.RequirementGantt))
+	mux.HandleFunc("/api/requirements/", protected(h.RequirementByPath))
+
 	// 个人中心
 	mux.HandleFunc("/api/user/profile", protected(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

@@ -197,7 +197,7 @@ export const menuDefinitions: MenuDefinition[] = [
     children: [
       { key: '/system/access', icon: <TeamOutlined />, label: '用户管理', permission: 'user.manage' },
       { key: '/system/roles', icon: <SafetyCertificateOutlined />, label: '角色管理', permission: 'role.manage' },
-      { key: '/system/feedback', icon: <CommentOutlined />, label: '反馈管理', permission: 'feedback.manage' },
+      { key: '/system/feedback', icon: <CommentOutlined />, label: '需求与反馈', permission: 'feedback.manage' },
       { key: '/system/notices', icon: <NotificationOutlined />, label: '公告管理', permission: 'notice.manage' },
       { key: '/system/channels', icon: <ApartmentOutlined />, label: '渠道管理', permission: 'channel.manage' },
       { key: '/system/rpa', icon: <FileTextOutlined />, label: 'RPA管理', permission: 'role.manage' },
@@ -262,7 +262,7 @@ export const pageTitleMap: Record<string, string> = {
   '/system': '系统设置',
   '/system/access': '用户管理',
   '/system/roles': '角色管理',
-  '/system/feedback': '反馈管理',
+  '/system/feedback': '需求与反馈',
   '/system/notices': '公告管理',
   '/system/channels': '渠道管理',
   '/system/rpa': 'RPA管理',
