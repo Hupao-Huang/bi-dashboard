@@ -59,6 +59,11 @@ const HesiBot: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [formTypeFilter, setFormTypeFilter] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
+  // v1.62.x: 异步审批队列
+  type QueueItem = { id: number; flowId: string; flowCode: string; action: string; status: string; errorMsg?: string; createdAt: string; finishedAt?: string };
+  const [activeQueue, setActiveQueue] = useState<QueueItem[]>([]);
+  const [recentQueue, setRecentQueue] = useState<QueueItem[]>([]);
+  const [queueTotal, setQueueTotal] = useState({ queued: 0, running: 0 });
 
   const fetchPending = useCallback(async (approver?: string) => {
     setLoading(true);
@@ -96,6 +101,28 @@ const HesiBot: React.FC = () => {
 
   useEffect(() => { fetchPending(); }, [fetchPending]);
   useEffect(() => { if (isAdmin) fetchApproverOptions(); }, [isAdmin, fetchApproverOptions]);
+
+  const fetchQueue = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/hesi-bot/approve/queue`, { credentials: 'include' });
+      const json = await res.json();
+      if (json.code === 200 && json.data) {
+        setActiveQueue(json.data.active || []);
+        setRecentQueue(json.data.recent || []);
+        setQueueTotal({ queued: json.data.totalQueued || 0, running: json.data.totalRunning || 0 });
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  // 30s polling 队列 + 待审批列表
+  useEffect(() => {
+    fetchQueue();
+    const t = setInterval(() => {
+      fetchQueue();
+      fetchPending(selectedApprover);
+    }, 30000);
+    return () => clearInterval(t);
+  }, [fetchQueue, fetchPending, selectedApprover]);
 
   const getMoney = (item: PendingItem) => {
     if (item.payMoney && item.payMoney > 0) return item.payMoney;
@@ -153,8 +180,13 @@ const HesiBot: React.FC = () => {
       if (!res.ok || json.code !== 200) {
         throw new Error(json.msg || `HTTP ${res.status}`);
       }
-      message.success(approveAction === 'agree' ? '已同意,合思已更新' : '已驳回');
+      const d = json.data || {};
+      const wait = d.estimateSeconds || 0;
+      const pos = d.position || 1;
+      const waitText = wait < 60 ? `约 ${wait} 秒` : `约 ${Math.round(wait / 60)} 分钟`;
+      message.success(`已加入审批队列, 排第 ${pos} 位, 预计 ${waitText}后处理 (合思 60s 限流)`);
       setApproveTarget(null);
+      fetchQueue();
       fetchPending(selectedApprover);
     } catch (e) {
       message.error('审批失败: ' + (e instanceof Error ? e.message : String(e)));
@@ -196,16 +228,20 @@ const HesiBot: React.FC = () => {
       render: (v) => v ? dayjs(Number(v)).format('YYYY-MM-DD') : '-',
     },
     {
-      title: '操作', width: 100, fixed: 'right', align: 'center',
-      render: (_, record) => (
-        <Button
-          size="small"
-          type="primary"
-          onClick={() => openApproveModal(record)}
-        >
-          审批
-        </Button>
-      ),
+      title: '操作', width: 110, fixed: 'right', align: 'center',
+      render: (_, record) => {
+        const inQueue = activeQueue.find(q => q.flowId === record.flowId);
+        if (inQueue) {
+          const color = inQueue.status === 'running' ? 'processing' : 'default';
+          const label = inQueue.status === 'running' ? '处理中' : '排队中';
+          return <Tag color={color}>{label}</Tag>;
+        }
+        return (
+          <Button size="small" type="primary" onClick={() => openApproveModal(record)}>
+            审批
+          </Button>
+        );
+      },
     },
   ];
 

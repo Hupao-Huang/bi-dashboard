@@ -378,6 +378,8 @@ func main() {
 
 	// 需求管理（v1.62.0 新增）
 	mux.HandleFunc("/api/hesi-bot/approve", protected(h.HesiApprove))
+	mux.HandleFunc("/api/hesi-bot/approve/queue", protected(h.HesiApprovalQueue))
+	mux.HandleFunc("/api/hesi-bot/approve/queue/", protected(h.HesiApprovalQueueItem))
 	mux.HandleFunc("/api/requirements", protected(h.SubmitRequirement))
 	mux.HandleFunc("/api/requirements/list", protected(h.ListRequirements))
 	mux.HandleFunc("/api/requirements/stats", protected(h.RequirementStats))
@@ -471,6 +473,10 @@ func main() {
 	log.Printf("Server starting on %s", addr)
 
 	go h.StartCleanupRoutines()
+
+	// v1.62.x: 合思审批队列 worker (单 goroutine + 65s 限流 + 批量合并)
+	hesiApprovalStop := make(chan struct{})
+	go h.StartHesiApprovalWorker(hesiApprovalStop)
 
 	srv := &http.Server{
 		Addr:              addr,
