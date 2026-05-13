@@ -87,15 +87,54 @@ def statsforecast_predict_monthly(monthly_df, predict_ym):
     return grouped
 
 
+def upsert_backtest(conn, algo, ym, train_end, region, fc, actual):
+    """把回测结果 UPSERT 到 offline_sales_forecast_backtest 表"""
+    if fc is None or actual == 0:
+        return
+    err_pct = round((fc - actual) / actual * 100, 2)
+    abs_err = abs(err_pct)
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO offline_sales_forecast_backtest
+           (ym, algo, region, forecast_qty, actual_qty, err_pct, abs_err_pct, train_end_date, run_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+           ON DUPLICATE KEY UPDATE
+             forecast_qty=VALUES(forecast_qty),
+             actual_qty=VALUES(actual_qty),
+             err_pct=VALUES(err_pct),
+             abs_err_pct=VALUES(abs_err_pct),
+             train_end_date=VALUES(train_end_date),
+             run_at=NOW()""",
+        (ym, algo, region, round(fc), round(actual), err_pct, abs_err, train_end),
+    )
+    cur.close()
+
+
+def parse_months_arg():
+    """支持 --months=YYYY-MM,YYYY-MM,... 不传则默认上个月"""
+    import argparse, sys
+    p = argparse.ArgumentParser()
+    p.add_argument('--months', default='', help='逗号分隔回测月份, 默认上月')
+    args = p.parse_args()
+    if args.months.strip():
+        return [m.strip() for m in args.months.split(',') if m.strip()]
+    # 默认上月
+    today = pd.Timestamp.now()
+    last_month = (today - pd.offsets.MonthBegin(1)).strftime('%Y-%m')
+    return [last_month]
+
+
+def ym_to_train_end(ym):
+    """YYYY-MM → 该月前一天 YYYY-MM-DD"""
+    return (pd.Timestamp(f"{ym}-01") - pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+
+
 def main():
     conn = mysql.connector.connect(**DB)
     results = []
-    for ym, train_end in [
-        ('2026-01', '2025-12-31'),
-        ('2026-02', '2026-01-31'),
-        ('2026-03', '2026-02-28'),
-        ('2026-04', '2026-03-31'),
-    ]:
+    backtest_months = [(ym, ym_to_train_end(ym)) for ym in parse_months_arg()]
+    print(f"回测月份: {[m for m,_ in backtest_months]}")
+    for ym, train_end in backtest_months:
         print(f"\n== {ym} (训练截至 {train_end}) ==")
         monthly = fetch_monthly_region(conn, train_end)
         actual = fetch_actual_monthly(conn, ym)
@@ -104,13 +143,11 @@ def main():
                        '西北大区', '东北大区', '山东大区', '重客']:
             fc = forecasts.get(region)
             a = round(actual.get(region, 0))
-            results.append({
-                'ym': ym,
-                'region': region,
-                'sf_forecast': round(fc) if fc else None,
-                'actual': a,
-            })
+            results.append({'ym': ym, 'region': region,
+                            'sf_forecast': round(fc) if fc else None, 'actual': a})
             print(f"  {ym} {region}: SF={round(fc) if fc else 'N/A':>8} vs 实际={a:>8}")
+            upsert_backtest(conn, 'statsforecast', ym, train_end, region, fc, a)
+        conn.commit()
     df = pd.DataFrame(results)
     df['err_pct'] = ((df['sf_forecast'] - df['actual']) / df['actual'] * 100).round(1)
     print('\n=== 汇总 (SKU×大区) ===')
@@ -119,9 +156,9 @@ def main():
     summary['err_pct'] = ((summary['sf'] - summary['actual']) / summary['actual'] * 100).round(1)
     print('\n=== 月级汇总 (大区合计) ===')
     print(summary.to_string())
-    # MAPE
     mape = summary['err_pct'].abs().mean()
     print(f"\n=== 平均绝对误差 (MAPE): {mape:.1f}% ===")
+    print(f"\n[OK] 回测结果已 UPSERT 入 offline_sales_forecast_backtest (algo=statsforecast)")
     conn.close()
 
 

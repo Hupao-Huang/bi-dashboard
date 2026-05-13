@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Radio, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
+import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Radio, Space, Spin, Switch, Table, Tabs, Tag, Tooltip } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import * as XLSX from 'xlsx-js-style';
 import { API_BASE } from '../../config';
+import SalesForecastBacktest from './SalesForecastBacktest';
 
 interface ForecastItem {
   sku_code: string;
@@ -21,6 +22,7 @@ const SalesForecast: React.FC = () => {
   const [ym, setYm] = useState<Dayjs>(defaultYM);
   const [algo, setAlgo] = useState<'auto' | 'builtin' | 'prophet' | 'statsforecast'>('auto');
   const [effectiveAlgo, setEffectiveAlgo] = useState('');
+  const [effectiveReason, setEffectiveReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regions, setRegions] = useState<string[]>([]);
@@ -48,6 +50,7 @@ const SalesForecast: React.FC = () => {
       setRegions(data.regions || []);
       setHolidayContext(data.holiday_context || '');
       setEffectiveAlgo(data.effective_algo || '');
+      setEffectiveReason(data.effective_reason || '');
       const list: ForecastItem[] = data.items || [];
       setItems(list);
       // 切换算法时 cell 跟随算法 suggestions 实时变化, 没 suggestion 才 fallback 到数据库 forecasts
@@ -387,7 +390,7 @@ const SalesForecast: React.FC = () => {
     return c;
   }, [userValues]);
 
-  return (
+  const forecastTabContent = (
     <>
     <Alert
       type="info"
@@ -397,7 +400,7 @@ const SalesForecast: React.FC = () => {
       message="销量预测算法说明"
       description={
         <div style={{ lineHeight: 1.8 }}>
-          <div><b>内置算法 (五层叠加)</b>:近3月均 ÷ 近3月季节系数均 × 预测月季节系数 × 大区同比 × 大区环比</div>
+          <div><b>内置公式 (五层叠加)</b>:近3月均 ÷ 近3月季节系数均 × 预测月季节系数 × 大区同比 × 大区环比</div>
           <ol style={{ marginTop: 4, marginBottom: 8, paddingLeft: 20 }}>
             <li><b>季节系数</b> — 24 月历史推 12 月份系数 (&gt;1 旺/&lt;1 淡)</li>
             <li><b>春节滑动修正</b> — 1/2 月按春节落点同月年份对齐</li>
@@ -405,9 +408,9 @@ const SalesForecast: React.FC = () => {
             <li><b>大区同比</b> — 近 3 月 ÷ 去年同期 (clamp ±30%)</li>
             <li><b>大区环比</b> — 近 1 月 ÷ 近 3 月均 (clamp ±8%, 春节季自动跳过)</li>
           </ol>
-          <div><b>Prophet (Facebook 开源)</b>:贝叶斯加性模型,公式 = 趋势 + 季节性 + 节假日效应 + 残差.内置中国春节假期模型(±30 天囤货 + 假期断崖),日级训练. <span style={{color:'#16a34a'}}>春节月份精度最高</span>.</div>
-          <div><b>StatsForecast (Nixtla 开源)</b>:经典统计模型集成 = AutoARIMA + AutoETS + AutoTheta 三模型预测均值. AutoARIMA 自动选择 ARIMA 参数, AutoETS 自动选择指数平滑模型, AutoTheta 基于趋势分解. 月级训练,<span style={{color:'#16a34a'}}>M5/M6 销量比赛冠军级方案</span>.</div>
-          <div><b>智能(默认)</b>: 系统按预测月份自动选最优算法 — 1-2 月走 Prophet (春节碾压), 3-12 月走 StatsForecast (平稳月最准). 业务无需懂算法, 跟着月份切.</div>
+          <div><b>贝叶斯时序 (Prophet, Facebook 开源)</b>:贝叶斯加性模型,公式 = 趋势 + 季节性 + 节假日效应 + 残差.内置中国春节假期模型(±30 天囤货 + 假期断崖),日级训练. <span style={{color:'#dc2626'}}>当前回测表现差 (MAPE 99%)</span>.</div>
+          <div><b>统计集成 (StatsForecast, Nixtla 开源)</b>:经典统计模型集成 = AutoARIMA + AutoETS + AutoTheta 三模型预测均值. M4 / M5 销量比赛冠军级方案, 月级训练. <span style={{color:'#16a34a'}}>当前回测 MAPE 37.7%</span>.</div>
+          <div><b>智能路由 (默认)</b>: <span style={{color:'#16a34a'}}>数据驱动</span> — 优先看同月份历史 MAPE, 退而看全部历史平均 MAPE, 都没数据兜底按月份硬编码. 鼠标 hover "本月走 XX" Tag 可看选择理由.</div>
           <div style={{marginTop:4,color:'#64748b'}}>4 种算法切换时表格数字实时变化,SKU 间相对比例保留,大区合计对齐该算法预测.</div>
         </div>
       }
@@ -425,12 +428,26 @@ const SalesForecast: React.FC = () => {
           />
           {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
           <Radio.Group value={algo} onChange={e => setAlgo(e.target.value)}>
-            <Radio.Button value="auto">智能</Radio.Button>
-            <Radio.Button value="builtin">内置</Radio.Button>
-            <Radio.Button value="prophet">Prophet</Radio.Button>
-            <Radio.Button value="statsforecast">StatsForecast</Radio.Button>
+            <Tooltip title="看历史回测 MAPE 自动选最准算法">
+              <Radio.Button value="auto">智能路由</Radio.Button>
+            </Tooltip>
+            <Tooltip title="近 3 月均 ÷ 季节系数 × 大区同比 × 大区环比">
+              <Radio.Button value="builtin">内置公式</Radio.Button>
+            </Tooltip>
+            <Tooltip title="Facebook 开源贝叶斯加性模型, 含中国春节假期">
+              <Radio.Button value="prophet">贝叶斯时序 (Prophet)</Radio.Button>
+            </Tooltip>
+            <Tooltip title="Nixtla 三模型集成 — AutoARIMA + AutoETS + AutoTheta 的均值">
+              <Radio.Button value="statsforecast">统计集成 (StatsForecast)</Radio.Button>
+            </Tooltip>
           </Radio.Group>
-          {algo === 'auto' && effectiveAlgo && <Tag color="purple">本月走 {effectiveAlgo === 'prophet' ? 'Prophet' : effectiveAlgo === 'statsforecast' ? 'StatsForecast' : effectiveAlgo}</Tag>}
+          {algo === 'auto' && effectiveAlgo && (
+            <Tooltip title={effectiveReason || '智能路由根据历史回测 MAPE 选最准的算法'}>
+              <Tag color="purple" style={{ cursor: 'help' }}>
+                本月走 {effectiveAlgo === 'prophet' ? '贝叶斯时序' : effectiveAlgo === 'statsforecast' ? '统计集成' : effectiveAlgo}
+              </Tag>
+            </Tooltip>
+          )}
           <Input
             allowClear
             prefix={<SearchOutlined />}
@@ -479,6 +496,16 @@ const SalesForecast: React.FC = () => {
       </Spin>
     </Card>
     </>
+  );
+
+  return (
+    <Tabs
+      defaultActiveKey="forecast"
+      items={[
+        { key: 'forecast', label: '销量预测', children: forecastTabContent },
+        { key: 'backtest', label: '历史回测', children: <SalesForecastBacktest /> },
+      ]}
+    />
   );
 };
 
