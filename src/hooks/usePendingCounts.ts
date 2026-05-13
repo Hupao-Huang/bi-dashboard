@@ -4,9 +4,10 @@ import { API_BASE } from '../config';
 export type PendingCounts = {
   users: number;
   feedback: number;
+  requirements: number;
 };
 
-const ZERO: PendingCounts = { users: 0, feedback: 0 };
+const ZERO: PendingCounts = { users: 0, feedback: 0, requirements: 0 };
 
 const POLL_MS = 5 * 60 * 1000;
 
@@ -21,6 +22,7 @@ export const usePendingCounts = (enabled: boolean): PendingCounts => {
           setCounts({
             users: Number(res.data.users) || 0,
             feedback: Number(res.data.feedback) || 0,
+            requirements: Number(res.data.requirements) || 0,
           });
         }
       })

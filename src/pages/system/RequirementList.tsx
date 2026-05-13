@@ -3,6 +3,7 @@ import {
   Button, Card, Col, DatePicker, Input, Modal, Row, Select, Statistic, Table, Tabs, Tag, Typography, message,
 } from 'antd';
 import RequirementKanban from './RequirementKanban';
+import RequirementGantt from './RequirementGantt';
 import type { ColumnsType } from 'antd/es/table';
 import {
   ClockCircleOutlined, CheckCircleOutlined,
@@ -239,11 +240,7 @@ const RequirementList: React.FC = () => {
         style={{ marginBottom: 12 }}
       />
       {view === 'kanban' && <RequirementKanban />}
-      {view === 'gantt' && (
-        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
-          甘特图视图即将上线（v1.62.0 收尾前完成）
-        </div>
-      )}
+      {view === 'gantt' && <RequirementGantt />}
       {view === 'list' && (
       <>
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
