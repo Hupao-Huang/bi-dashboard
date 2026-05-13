@@ -1,10 +1,95 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Radio, Space, Spin, Switch, Table, Tabs, Tag, Tooltip } from 'antd';
+import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Popover, Radio, Space, Spin, Switch, Table, Tabs, Tag, Tooltip } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import * as XLSX from 'xlsx-js-style';
 import { API_BASE } from '../../config';
 import SalesForecastBacktest from './SalesForecastBacktest';
+import Chart from '../../components/Chart';
+
+// 组件级缓存 — 跨多次 hover 共享, 避免重复 fetch 同一 SKU
+const skuTrendCache = new Map<string, { goods_name: string; items: { ym: string; qty: number }[] }>();
+
+interface SkuTrendData { goods_name: string; items: { ym: string; qty: number }[]; }
+
+const SkuTrendPopover: React.FC<{ skuCode: string; children: React.ReactNode }> = ({ skuCode, children }) => {
+  const [data, setData] = useState<SkuTrendData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const fetchTrend = useCallback(async () => {
+    if (skuTrendCache.has(skuCode)) {
+      setData(skuTrendCache.get(skuCode)!);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/offline/sales-forecast/sku-trend?sku_code=${encodeURIComponent(skuCode)}`, { credentials: 'include' });
+      const json = await res.json();
+      if (json.code === 200 && json.data) {
+        skuTrendCache.set(skuCode, json.data);
+        setData(json.data);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [skuCode]);
+
+  useEffect(() => { if (open) fetchTrend(); }, [open, fetchTrend]);
+
+  const option = useMemo(() => {
+    if (!data) return null;
+    const months = data.items.map(p => p.ym);
+    const values = data.items.map(p => Math.round(p.qty));
+    return {
+      grid: { top: 40, right: 32, bottom: 48, left: 72 },
+      xAxis: { type: 'category', data: months, axisLabel: { fontSize: 11, rotate: 30 } },
+      yAxis: { type: 'value', axisLabel: { fontSize: 11 } },
+      tooltip: { trigger: 'axis', valueFormatter: (v: number) => `${v.toLocaleString()} 件` },
+      series: [{
+        type: 'line', data: values, smooth: true, symbol: 'circle', symbolSize: 6,
+        lineStyle: { width: 2 }, areaStyle: { opacity: 0.15 },
+        // 每个点显示数字标签 — 业务一眼看清每月销量
+        label: {
+          show: true,
+          position: 'top',
+          fontSize: 11,
+          color: '#1e40af',
+          formatter: (p: any) => Number(p.value).toLocaleString(),
+        },
+      }],
+    };
+  }, [data]);
+
+  const content = (
+    <div style={{ width: 720 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14 }}>{data?.goods_name || skuCode}</div>
+      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>近 13 个月实际销量趋势 (大区合计)</div>
+      {loading || !data ? (
+        <div style={{ height: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin /></div>
+      ) : data.items.length === 0 ? (
+        <Empty description="近 13 月无销售数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <Chart option={option!} style={{ height: 360, width: '100%' }} />
+      )}
+    </div>
+  );
+
+  return (
+    <Popover
+      content={content}
+      trigger="hover"
+      placement="right"
+      mouseEnterDelay={0.3}
+      onOpenChange={setOpen}
+      getPopupContainer={() => document.body}
+      overlayStyle={{ zIndex: 1080 }}
+      autoAdjustOverflow
+    >
+      {children}
+    </Popover>
+  );
+};
 
 interface ForecastItem {
   sku_code: string;
@@ -297,7 +382,11 @@ const SalesForecast: React.FC = () => {
         key: 'sku_code',
         fixed: 'left' as const,
         width: 110,
-        render: (v: string) => <span style={{ color: '#64748b' }}>{v}</span>,
+        render: (v: string) => (
+          <SkuTrendPopover skuCode={v}>
+            <span style={{ color: '#1677ff', cursor: 'help', borderBottom: '1px dashed #94a3b8' }}>{v}</span>
+          </SkuTrendPopover>
+        ),
       },
       {
         title: `${predictMonthLabel}季节`,
@@ -367,18 +456,43 @@ const SalesForecast: React.FC = () => {
         },
       });
     });
-    // 线下总计列 - 9 大区填值合计 (实时跟随用户输入)
+    // 线下总计列 - 9 大区填值合计 (实时跟随用户输入) + 偏离标记
+    // 偏离 = (本月预测合计 - 近 3 月大区合计月均) / 近 3 月大区合计月均
+    // |偏离| > 20% 红/橙 标记, 提醒业务复核
     cols.push({
       title: '线下总计',
       key: '_offline_total',
-      width: 110,
+      width: 150,
       fixed: 'right' as const,
       align: 'center' as const,
       render: (_: any, row: ForecastItem) => {
         const uv = userValues[row.sku_code] || {};
         let total = 0;
         regions.forEach(r => { total += uv[r] || 0; });
-        return total > 0 ? <Tag color="blue">{total.toLocaleString()}</Tag> : <span style={{ color: '#bfbfbf' }}>—</span>;
+        if (total === 0) return <span style={{ color: '#bfbfbf' }}>—</span>;
+
+        // 计算偏离 (基于后端 base_avgs - 该 SKU × 大区 近 3 月销量均值)
+        let baseTotal = 0;
+        regions.forEach(r => { baseTotal += row.base_avgs?.[r] || 0; });
+        const totalTag = <Tag color="blue">{total.toLocaleString()}</Tag>;
+        if (baseTotal <= 0) return totalTag;
+
+        const dev = (total - baseTotal) / baseTotal;
+        const devPct = Math.round(dev * 100);
+        if (Math.abs(devPct) < 20) return totalTag;
+
+        const isHigh = devPct > 0;
+        const tooltipText = `预测 ${total.toLocaleString()} / 近 3 月均 ${Math.round(baseTotal).toLocaleString()} / 偏离 ${devPct > 0 ? '+' : ''}${devPct}%`;
+        return (
+          <Tooltip title={tooltipText}>
+            <div style={{ display: 'flex', gap: 4, justifyContent: 'center', alignItems: 'center', cursor: 'help' }}>
+              {totalTag}
+              <Tag color={Math.abs(devPct) >= 50 ? 'red' : isHigh ? 'orange' : 'gold'} style={{ marginInlineEnd: 0 }}>
+                {isHigh ? '↑' : '↓'} {Math.abs(devPct)}%
+              </Tag>
+            </div>
+          </Tooltip>
+        );
       },
     });
     return cols;

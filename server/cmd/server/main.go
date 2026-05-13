@@ -334,6 +334,7 @@ func main() {
 	mux.HandleFunc("/api/offline/sales-forecast/save", pageProtected("offline.sales_forecast:edit", h.SaveOfflineSalesForecast))
 	mux.HandleFunc("/api/offline/sales-forecast/clear", pageProtected("offline.sales_forecast:edit", h.ClearOfflineSalesForecast))
 	mux.HandleFunc("/api/offline/sales-forecast/backtest", pageProtected("offline.sales_forecast:view", h.GetOfflineSalesForecastBacktest))
+	mux.HandleFunc("/api/offline/sales-forecast/sku-trend", pageProtected("offline.sales_forecast:view", h.GetOfflineSalesForecastSKUTrend))
 	mux.HandleFunc("/api/webhook/sync-ops", corsHandler(h.SyncOps))
 	mux.HandleFunc("/api/webhook/sync-status", corsHandler(h.SyncStatus))
 	mux.HandleFunc("/api/webhook/clear-cache", corsHandler(h.ClearCache))
