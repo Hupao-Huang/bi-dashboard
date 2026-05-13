@@ -107,8 +107,10 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyBytes, _ := json.Marshal(hesiBody)
 
+	// 关键：合思要求 path 里的 flowId 用 [方括号] 字面字符包起来（不是占位符标识！）
+	// URL-encode 方括号 → %5B / %5D
 	hesiURL := fmt.Sprintf(
-		"%s/api/openapi/v1/backlog/data/%s?accessToken=%s&messageCode=debug&powerCode=TICKET_AUDIT_switch",
+		"%s/api/openapi/v1/backlog/data/%%5B%s%%5D?accessToken=%s&messageCode=debug&powerCode=TICKET_AUDIT_switch",
 		hesiAPIBase, req.FlowID, token,
 	)
 	httpReq, _ := http.NewRequest("POST", hesiURL, bytes.NewReader(bodyBytes))
