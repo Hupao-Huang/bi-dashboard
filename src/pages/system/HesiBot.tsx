@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, DatePicker, Empty, Input, Modal, Radio, Select, Statistic, Table, Tag, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { CheckOutlined, CloseOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
+import { CheckOutlined, ClockCircleOutlined, CloseOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
 import HesiBotRules from './HesiBotRules';
@@ -23,6 +23,7 @@ interface PendingItem {
   submitDate: number | null;
   submitterId: string | null;
   departmentId: string | null;
+  suggestion?: { action: 'agree' | 'reject' | 'manual'; reasons: string[] };
 }
 
 const formTypeMap: Record<string, { label: string; color: string }> = {
@@ -226,6 +227,23 @@ const HesiBot: React.FC = () => {
     {
       title: '提交日期', dataIndex: 'submitDate', width: 110,
       render: (v) => v ? dayjs(Number(v)).format('YYYY-MM-DD') : '-',
+    },
+    {
+      title: 'AI 建议', width: 130, align: 'center',
+      render: (_, record) => {
+        const s = record.suggestion;
+        if (!s) return <span style={{ color: '#cbd5e1' }}>-</span>;
+        const cfg = {
+          agree: { color: 'success', label: '建议同意', icon: <CheckOutlined /> },
+          reject: { color: 'error', label: '建议驳回', icon: <CloseOutlined /> },
+          manual: { color: 'warning', label: '转人工', icon: <ClockCircleOutlined /> },
+        }[s.action] || { color: 'default', label: s.action, icon: null };
+        return (
+          <Tooltip title={<div>{s.reasons.map((r, i) => <div key={i}>· {r}</div>)}</div>}>
+            <Tag color={cfg.color} icon={cfg.icon}>{cfg.label}</Tag>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '操作', width: 110, fixed: 'right', align: 'center',

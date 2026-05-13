@@ -46,19 +46,20 @@ func (h *DashboardHandler) GetHesiApprovers(w http.ResponseWriter, r *http.Reque
 }
 
 type myHesiPendingRow struct {
-	FlowID         string   `json:"flowId"`
-	Code           string   `json:"code"`
-	Title          string   `json:"title"`
-	FormType       string   `json:"formType"`
-	State          string   `json:"state"`
-	StageName      *string  `json:"stageName"`
-	ApproverName   *string  `json:"approverName"`   // 当前审批人 (可能多人, 含逗号/+)
-	PayMoney       *float64 `json:"payMoney"`
-	ExpenseMoney   *float64 `json:"expenseMoney"`
-	LoanMoney      *float64 `json:"loanMoney"`
-	SubmitDate     *int64   `json:"submitDate"`
-	SubmitterId    *string  `json:"submitterId"`
-	DepartmentId   *string  `json:"departmentId"`
+	FlowID         string           `json:"flowId"`
+	Code           string           `json:"code"`
+	Title          string           `json:"title"`
+	FormType       string           `json:"formType"`
+	State          string           `json:"state"`
+	StageName      *string          `json:"stageName"`
+	ApproverName   *string          `json:"approverName"`   // 当前审批人 (可能多人, 含逗号/+)
+	PayMoney       *float64         `json:"payMoney"`
+	ExpenseMoney   *float64         `json:"expenseMoney"`
+	LoanMoney      *float64         `json:"loanMoney"`
+	SubmitDate     *int64           `json:"submitDate"`
+	SubmitterId    *string          `json:"submitterId"`
+	DepartmentId   *string          `json:"departmentId"`
+	Suggestion     *AuditSuggestion `json:"suggestion,omitempty"` // v1.63 MVP 报销单审批建议
 }
 
 // GetMyHesiPending GET /api/profile/hesi-pending
@@ -124,7 +125,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		// 精确匹配: current_approver_id 含 staffId (格式 corp:staff, LIKE %staff%)
 		rows, err = h.DB.Query(`SELECT flow_id, code, IFNULL(title,''), form_type, state,
 			current_stage_name, current_approver_name,
-			pay_money, expense_money, loan_money, submit_date, submitter_id, department_id
+			pay_money, expense_money, loan_money, submit_date, submitter_id, department_id, IFNULL(raw_json,'')
 			FROM hesi_flow
 			WHERE active=1
 			  AND state IN ('approving','paying','pending')
@@ -135,7 +136,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		// 兜底 fallback: 姓名模糊
 		rows, err = h.DB.Query(`SELECT flow_id, code, IFNULL(title,''), form_type, state,
 			current_stage_name, current_approver_name,
-			pay_money, expense_money, loan_money, submit_date, submitter_id, department_id
+			pay_money, expense_money, loan_money, submit_date, submitter_id, department_id, IFNULL(raw_json,'')
 			FROM hesi_flow
 			WHERE active=1
 			  AND state IN ('approving','paying','pending')
@@ -152,12 +153,17 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 	items := []myHesiPendingRow{}
 	for rows.Next() {
 		var row myHesiPendingRow
+		var rawJSON string
 		if err := rows.Scan(&row.FlowID, &row.Code, &row.Title, &row.FormType, &row.State,
 			&row.StageName, &row.ApproverName,
 			&row.PayMoney, &row.ExpenseMoney, &row.LoanMoney, &row.SubmitDate,
-			&row.SubmitterId, &row.DepartmentId); err != nil {
+			&row.SubmitterId, &row.DepartmentId, &rawJSON); err != nil {
 			writeServerError(w, 500, "扫描失败", err)
 			return
+		}
+		// v1.63 MVP: 仅对报销单跑审批建议规则
+		if row.FormType == "expense" {
+			row.Suggestion = AuditExpenseFlow(rawJSON)
 		}
 		items = append(items, row)
 	}
