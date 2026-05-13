@@ -868,6 +868,52 @@ func (h *DashboardHandler) SaveOfflineSalesForecast(w http.ResponseWriter, r *ht
 	})
 }
 
+// GetOfflineSalesForecastSKUTrend GET /api/offline/sales-forecast/sku-trend?sku_code=xxx
+// 返回该 SKU 近 13 个月的实际销量 (大区合计), 给销量预测页 hover 弹趋势图用
+func (h *DashboardHandler) GetOfflineSalesForecastSKUTrend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	sku := strings.TrimSpace(r.URL.Query().Get("sku_code"))
+	if sku == "" {
+		writeError(w, 400, "缺少 sku_code")
+		return
+	}
+	// 近 13 个月 (按当月起回退), 月级聚合, 大区合计 + 按大区拆 (返回两份)
+	rows, err := h.DB.Query(`
+		SELECT DATE_FORMAT(stat_date, '%Y-%m') AS ym, SUM(goods_qty) AS qty
+		FROM sales_goods_summary
+		WHERE department='offline' AND goods_no=?
+		  AND stat_date >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 13 MONTH)
+		GROUP BY DATE_FORMAT(stat_date, '%Y-%m')
+		ORDER BY ym`, sku)
+	if err != nil {
+		writeServerError(w, 500, "查询失败", err)
+		return
+	}
+	defer rows.Close()
+	type point struct {
+		Ym  string  `json:"ym"`
+		Qty float64 `json:"qty"`
+	}
+	items := []point{}
+	for rows.Next() {
+		var p point
+		if err := rows.Scan(&p.Ym, &p.Qty); err == nil {
+			items = append(items, p)
+		}
+	}
+	// 顺便查货品名 (方便 Tooltip 标题)
+	var goodsName string
+	_ = h.DB.QueryRow(`SELECT goods_name FROM sales_goods_summary WHERE goods_no=? AND goods_name IS NOT NULL LIMIT 1`, sku).Scan(&goodsName)
+	writeJSON(w, map[string]interface{}{
+		"sku_code":   sku,
+		"goods_name": goodsName,
+		"items":      items,
+	})
+}
+
 // chooseAutoAlgo v1.63 智能路由 — 数据驱动版
 // 根据 offline_sales_forecast_backtest 表的历史 MAPE 选最准的算法
 // 候选: prophet / statsforecast (前端业务能切的 ML 算法 + 已有回测)
