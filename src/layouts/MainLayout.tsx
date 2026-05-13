@@ -36,6 +36,7 @@ const MainLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackType, setFeedbackType] = useState<'feedback' | 'requirement'>('feedback');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md; // <768px
@@ -390,14 +391,27 @@ const MainLayout: React.FC = () => {
               {!isMobile && 'AI工具箱'}
             </Button>
             <NoticeBell />
-            <Tooltip title="问题反馈">
-              <Button
-                type="text"
-                icon={<CommentOutlined />}
-                onClick={() => setFeedbackOpen(true)}
-                style={{ color: '#64748b', fontSize: 16 }}
-              />
-            </Tooltip>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'feedback', label: '反馈问题' },
+                  { key: 'requirement', label: '提交需求' },
+                ],
+                onClick: ({ key }) => {
+                  setFeedbackType(key as 'feedback' | 'requirement');
+                  setFeedbackOpen(true);
+                },
+              }}
+              placement="bottomRight"
+            >
+              <Tooltip title="反馈 / 提需求">
+                <Button
+                  type="text"
+                  icon={<CommentOutlined />}
+                  style={{ color: '#64748b', fontSize: 16 }}
+                />
+              </Tooltip>
+            </Dropdown>
           </div>
         </Header>
 
@@ -408,7 +422,7 @@ const MainLayout: React.FC = () => {
         </Content>
       </Layout>
       <AIToolboxDrawer open={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} />
-      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} defaultType={feedbackType} />
       <Watermark text={`松鲜鲜工作台 · ${displayName}`} subtext={new Date().toLocaleDateString('zh-CN')} />
       <Modal
         title={noPassword ? '设置登录密码' : forceChange ? '首次登录，请修改密码' : '修改密码'}
