@@ -81,6 +81,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "feedback.manage", Name: "反馈管理", Type: "action"},
 	{Code: "notice.manage", Name: "公告管理", Type: "action"},
 	{Code: "channel.manage", Name: "渠道管理", Type: "action"},
+	{Code: "requirement.manage", Name: "需求管理", Type: "action"},
 	{Code: "data:export", Name: "数据导出", Type: "action"},
 }
 

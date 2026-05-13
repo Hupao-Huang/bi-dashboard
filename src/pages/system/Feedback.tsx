@@ -10,15 +10,17 @@ import {
   Select,
   Statistic,
   Table,
+  Tabs,
   Tooltip,
   Typography,
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ClockCircleOutlined, SyncOutlined, CheckCircleOutlined, MinusCircleOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { API_BASE } from '../../config';
 import { pageTitleMap } from '../../navigation';
+import RequirementList from './RequirementList';
 
 const STATUS_HEX_MAP: Record<string, string> = {
   pending: '#f59e0b',
@@ -87,10 +89,16 @@ const StatusChip: React.FC<{ status: string }> = ({ status }) => {
 
 const Feedback: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const initialStatus = useMemo(() => {
     const s = new URLSearchParams(location.search).get('status');
     return s && statusConfig[s] ? s : '';
   }, [location.search]);
+  const initialTab = useMemo(() => {
+    const t = new URLSearchParams(location.search).get('tab');
+    return t === 'requirements' ? 'requirements' : 'feedback';
+  }, [location.search]);
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   const [list, setList] = useState<FeedbackItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -317,8 +325,29 @@ const Feedback: React.FC = () => {
     },
   ];
 
+  const handleTabChange = (k: string) => {
+    setActiveTab(k);
+    const params = new URLSearchParams(location.search);
+    if (k === 'requirements') params.set('tab', 'requirements');
+    else params.delete('tab');
+    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
+  };
+
   return (
     <div>
+      <Tabs
+        activeKey={activeTab}
+        onChange={handleTabChange}
+        items={[
+          { key: 'feedback', label: '反馈' },
+          { key: 'requirements', label: '需求' },
+        ]}
+        style={{ marginBottom: 12 }}
+      />
+      {activeTab === 'requirements' ? (
+        <RequirementList />
+      ) : (
+      <>
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
           <Card
@@ -562,6 +591,8 @@ const Feedback: React.FC = () => {
           );
         })()}
       </Modal>
+      </>
+      )}
     </div>
   );
 };
