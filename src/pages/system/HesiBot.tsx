@@ -2,9 +2,9 @@
 // MVP: 只读"我的待审批" 单据列表. 后续 v1.60.0 加规则编辑, v1.61.0 dry run, v1.62.0 真自动审批.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Empty, Select, Statistic, Table, Tag, Tooltip, message } from 'antd';
+import { Alert, Button, Card, Empty, Input, Modal, Radio, Select, Statistic, Table, Tag, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, ReloadOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
 import HesiBotRules from './HesiBotRules';
@@ -50,6 +50,11 @@ const HesiBot: React.FC = () => {
   // v1.59.3: 管理员可切换查看别人的待审批
   const [approverOptions, setApproverOptions] = useState<{name:string, count:number}[]>([]);
   const [selectedApprover, setSelectedApprover] = useState<string | undefined>(undefined);
+  // v1.63: 手动审批
+  const [approveTarget, setApproveTarget] = useState<PendingItem | null>(null);
+  const [approveAction, setApproveAction] = useState<'agree' | 'reject'>('agree');
+  const [approveComment, setApproveComment] = useState('');
+  const [approveLoading, setApproveLoading] = useState(false);
 
   const fetchPending = useCallback(async (approver?: string) => {
     setLoading(true);
@@ -97,6 +102,44 @@ const HesiBot: React.FC = () => {
 
   const totalAmount = items.reduce((sum, item) => sum + (getMoney(item) || 0), 0);
 
+  const openApproveModal = (item: PendingItem) => {
+    setApproveTarget(item);
+    setApproveAction('agree');
+    setApproveComment('');
+  };
+
+  const handleApproveSubmit = async () => {
+    if (!approveTarget) return;
+    if (approveAction === 'reject' && !approveComment.trim()) {
+      message.warning('驳回必须填写备注');
+      return;
+    }
+    setApproveLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/hesi-bot/approve`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flowId: approveTarget.flowId,
+          action: approveAction,
+          comment: approveComment.trim(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.code !== 200) {
+        throw new Error(json.msg || `HTTP ${res.status}`);
+      }
+      message.success(approveAction === 'agree' ? '已同意,合思已更新' : '已驳回');
+      setApproveTarget(null);
+      fetchPending(selectedApprover);
+    } catch (e) {
+      message.error('审批失败: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setApproveLoading(false);
+    }
+  };
+
   const columns: ColumnsType<PendingItem> = [
     { title: '单据编码', dataIndex: 'code', width: 130, fixed: 'left' },
     {
@@ -128,6 +171,18 @@ const HesiBot: React.FC = () => {
     {
       title: '提交日期', dataIndex: 'submitDate', width: 110,
       render: (v) => v ? dayjs(Number(v)).format('YYYY-MM-DD') : '-',
+    },
+    {
+      title: '操作', width: 100, fixed: 'right', align: 'center',
+      render: (_, record) => (
+        <Button
+          size="small"
+          type="primary"
+          onClick={() => openApproveModal(record)}
+        >
+          审批
+        </Button>
+      ),
     },
   ];
 
@@ -230,6 +285,65 @@ const HesiBot: React.FC = () => {
           />
         )}
       </Card>
+
+      <Modal
+        title={approveTarget ? `审批单据 · ${approveTarget.code}` : ''}
+        open={!!approveTarget}
+        onCancel={() => setApproveTarget(null)}
+        onOk={handleApproveSubmit}
+        okText="确定"
+        cancelText="取消"
+        confirmLoading={approveLoading}
+        width={520}
+        destroyOnHidden
+      >
+        {approveTarget && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ background: '#f8fafc', padding: 10, borderRadius: 4, fontSize: 13 }}>
+              <div style={{ marginBottom: 4 }}><strong>{approveTarget.title}</strong></div>
+              <div style={{ color: '#64748b', fontSize: 12 }}>
+                {formTypeMap[approveTarget.formType]?.label || approveTarget.formType}
+                {(() => {
+                  const m = getMoney(approveTarget);
+                  return m ? ` · ¥${m.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '';
+                })()}
+                {approveTarget.stageName ? ` · 当前节点: ${approveTarget.stageName}` : ''}
+              </div>
+            </div>
+            <div>
+              <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>审批结果</div>
+              <Radio.Group
+                value={approveAction}
+                onChange={(e) => setApproveAction(e.target.value)}
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="agree"><CheckOutlined /> 同意</Radio.Button>
+                <Radio.Button value="reject"><CloseOutlined /> 驳回</Radio.Button>
+              </Radio.Group>
+            </div>
+            <div>
+              <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>
+                备注{approveAction === 'reject' ? <span style={{ color: '#ef4444' }}> (驳回必填)</span> : ' (可选)'}
+              </div>
+              <Input.TextArea
+                value={approveComment}
+                onChange={(e) => setApproveComment(e.target.value)}
+                rows={3}
+                maxLength={500}
+                showCount
+                placeholder={approveAction === 'reject' ? '请写明驳回理由(将提交到合思)' : '可选,会一同提交到合思'}
+              />
+            </div>
+            <Alert
+              type="warning"
+              showIcon
+              message="审批操作会直接提交到合思系统,无法撤销,请确认"
+              style={{ fontSize: 12 }}
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
