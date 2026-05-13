@@ -5,9 +5,47 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
+
+// GetHesiLastSync GET /api/hesi/last-sync
+// 返回 sync-hesi.log 最后修改时间作为"上次同步时间"
+// 权限: finance.expense:view (跟费控管理页面同级)
+func (h *DashboardHandler) GetHesiLastSync(w http.ResponseWriter, r *http.Request) {
+	// 候选路径: server/sync-hesi.log → ../sync-hesi.log → 当前 exe 同级
+	candidates := []string{
+		"sync-hesi.log",
+		filepath.Join("server", "sync-hesi.log"),
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "sync-hesi.log"))
+	}
+	var info os.FileInfo
+	var usedPath string
+	for _, p := range candidates {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			info = fi
+			usedPath = p
+			break
+		}
+	}
+	if info == nil {
+		writeJSON(w, map[string]interface{}{
+			"lastSyncAt": nil,
+			"message":    "未找到 sync-hesi.log",
+		})
+		return
+	}
+	t := info.ModTime()
+	writeJSON(w, map[string]interface{}{
+		"lastSyncAt":     t.Format("2006-01-02 15:04:05"),
+		"lastSyncMillis": t.UnixMilli(),
+		"logPath":        usedPath,
+	})
+}
 
 // 合思单据模板字典 (19 条左右, 内存缓存 60s)
 type hesiSpec struct {

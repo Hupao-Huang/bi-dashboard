@@ -103,11 +103,21 @@ const ExpenseControl: React.FC = () => {
   const [attachUrls, setAttachUrls] = useState<any>(null);
   const [attachLoading, setAttachLoading] = useState(false);
 
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+
   const fetchStats = useCallback(async () => {
     try {
       const res = await fetch(`${API}/stats`, { credentials: 'include' });
       const json = await res.json();
       if (json.code === 200) setStats(json.data);
+    } catch (e) { /* ignore */ }
+  }, []);
+
+  const fetchLastSync = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/last-sync`, { credentials: 'include' });
+      const json = await res.json();
+      if (json.code === 200 && json.data?.lastSyncAt) setLastSyncAt(json.data.lastSyncAt);
     } catch (e) { /* ignore */ }
   }, []);
 
@@ -140,6 +150,11 @@ const ExpenseControl: React.FC = () => {
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchFlows(); }, [fetchFlows]);
+  useEffect(() => {
+    fetchLastSync();
+    const t = setInterval(fetchLastSync, 60000); // 60s 自动刷新
+    return () => clearInterval(t);
+  }, [fetchLastSync]);
 
   // v1.57.1: 立即同步 + 实时日志
   const [syncing, setSyncing] = useState(false);
@@ -471,10 +486,24 @@ const ExpenseControl: React.FC = () => {
 
   return (
     <div>
-      {/* v1.57.1 顶部工具栏: 立即同步 + 看日志 */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <Button icon={<FileTextOutlined />} onClick={openLogModal}>看同步日志</Button>
-        <Button type="primary" icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={handleSync}>立即同步合思</Button>
+      {/* v1.57.1 顶部工具栏: 上次同步时间 + 立即同步 + 看日志 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <ClockCircleOutlined />
+          <span>
+            上次同步时间:{' '}
+            <Typography.Text strong>
+              {lastSyncAt || '未知'}
+            </Typography.Text>
+            <Tooltip title="后台定时任务每 15 分钟自动同步合思一次; 想立即同步请点右侧按钮 (5-10 分钟)">
+              <span style={{ marginLeft: 6, color: '#94a3b8', cursor: 'help' }}>?</span>
+            </Tooltip>
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button icon={<FileTextOutlined />} onClick={openLogModal}>看同步日志</Button>
+          <Button type="primary" icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={handleSync}>立即同步合思</Button>
+        </div>
       </div>
 
       {/* KPI 卡片 */}
