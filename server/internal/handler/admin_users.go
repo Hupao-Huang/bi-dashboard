@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -234,7 +235,58 @@ func (h *DashboardHandler) adminUserStatusUpdate(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// v1.63 账号审批通过自动钉钉通知申请人 (status: !active → active)
+	if status == "active" && existingStatus != "active" {
+		go h.notifyAccountActivated(userID, payload)
+	}
+
 	writeJSON(w, map[string]string{"status": status})
+}
+
+// notifyAccountActivated 账号被审批通过/启用后, 钉钉私聊推送给用户本人
+// 触发场景: 管理员把 status 从 pending/disabled 改成 active
+// 凭证未配置 / 用户未绑定钉钉 → 静默跳过 (跟 feedback 通知一致的容错策略)
+func (h *DashboardHandler) notifyAccountActivated(userID int64, payload *authPayload) {
+	if h.Notifier == nil {
+		return
+	}
+	var (
+		username   sql.NullString
+		realName   sql.NullString
+		unionID    sql.NullString
+		mustChange sql.NullInt64
+	)
+	err := h.DB.QueryRow(`SELECT username, IFNULL(real_name,''), IFNULL(dingtalk_userid,''), IFNULL(must_change_password,0)
+		FROM users WHERE id = ?`, userID).Scan(&username, &realName, &unionID, &mustChange)
+	if err != nil {
+		log.Printf("[user-activate-notify] query user %d: %v", userID, err)
+		return
+	}
+	if !unionID.Valid || unionID.String == "" {
+		log.Printf("[user-activate-notify] user %d 未绑定钉钉, skip", userID)
+		return
+	}
+	greeting := realName.String
+	if greeting == "" {
+		greeting = username.String
+	}
+	if greeting == "" {
+		greeting = "你好"
+	}
+	approver := ""
+	if payload != nil && payload.User.RealName != "" {
+		approver = payload.User.RealName
+	} else if payload != nil && payload.User.Username != "" {
+		approver = payload.User.Username
+	}
+	msg := greeting + "，你的 BI 看板账号已开通，可以登录使用了。\n\n登录地址: http://192.168.200.48:3000\n用户名: " + username.String
+	if mustChange.Int64 == 1 {
+		msg += "\n首次登录会提示改密码"
+	}
+	if approver != "" {
+		msg += "\n\n— 审批人: " + approver
+	}
+	h.Notifier.SendTextAsync([]string{unionID.String}, msg)
 }
 
 func (h *DashboardHandler) adminUserPasswordUpdate(w http.ResponseWriter, r *http.Request, userID int64) {
