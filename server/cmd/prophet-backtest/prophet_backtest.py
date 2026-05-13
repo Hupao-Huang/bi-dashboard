@@ -83,37 +83,82 @@ def forecast_region(daily_df, region, predict_start, predict_end):
     fc = m.predict(future)
     return float(fc['yhat'].sum())
 
+def upsert_backtest(conn, algo, ym, train_end, region, fc, actual):
+    """把回测结果 UPSERT 到 offline_sales_forecast_backtest 表"""
+    if fc is None or actual == 0:
+        return
+    err_pct = round((fc - actual) / actual * 100, 2)
+    abs_err = abs(err_pct)
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO offline_sales_forecast_backtest
+           (ym, algo, region, forecast_qty, actual_qty, err_pct, abs_err_pct, train_end_date, run_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+           ON DUPLICATE KEY UPDATE
+             forecast_qty=VALUES(forecast_qty),
+             actual_qty=VALUES(actual_qty),
+             err_pct=VALUES(err_pct),
+             abs_err_pct=VALUES(abs_err_pct),
+             train_end_date=VALUES(train_end_date),
+             run_at=NOW()""",
+        (ym, algo, region, round(fc), round(actual), err_pct, abs_err, train_end),
+    )
+    cur.close()
+
+
+def parse_months_arg():
+    """支持 --months=YYYY-MM,... 不传则默认上月"""
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument('--months', default='')
+    args = p.parse_args()
+    if args.months.strip():
+        return [m.strip() for m in args.months.split(',') if m.strip()]
+    today = pd.Timestamp.now()
+    return [(today - pd.offsets.MonthBegin(1)).strftime('%Y-%m')]
+
+
+def expand_month(ym):
+    """YYYY-MM → (start, end, train_end)"""
+    first = pd.Timestamp(f"{ym}-01")
+    next_month = first + pd.offsets.MonthBegin(1)
+    end = next_month - pd.Timedelta(days=1)
+    train_end = first - pd.Timedelta(days=1)
+    return first.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'), train_end.strftime('%Y-%m-%d')
+
+
 def main():
     conn = mysql.connector.connect(**DB)
     results = []
-    for ym, predict_start, predict_end, train_end in [
-        ('2026-01', '2026-01-01', '2026-01-31', '2025-12-31'),
-        ('2026-02', '2026-02-01', '2026-02-28', '2026-01-31'),
-        ('2026-03', '2026-03-01', '2026-03-31', '2026-02-28'),
-        ('2026-04', '2026-04-01', '2026-04-30', '2026-03-31'),
-    ]:
+    months_list = []
+    for ym in parse_months_arg():
+        s, e, t = expand_month(ym)
+        months_list.append((ym, s, e, t))
+    print(f"Prophet 回测月份: {[m[0] for m in months_list]}")
+    for ym, predict_start, predict_end, train_end in months_list:
         daily = fetch_daily_region(conn, train_end)
         actual = fetch_actual_monthly(conn, ym)
         for region in ['华北大区', '华东大区', '华中大区', '华南大区', '西南大区',
                        '西北大区', '东北大区', '山东大区', '重客']:
             fc = forecast_region(daily, region, predict_start, predict_end)
+            a = round(actual.get(region, 0))
             results.append({
-                'ym': ym,
-                'region': region,
-                'prophet_forecast': round(fc) if fc else None,
-                'actual': round(actual.get(region, 0)),
+                'ym': ym, 'region': region,
+                'prophet_forecast': round(fc) if fc else None, 'actual': a,
             })
-            print(f"  {ym} {region}: Prophet={round(fc) if fc else 'N/A':>8} vs 实际={round(actual.get(region, 0)):>8}")
+            print(f"  {ym} {region}: Prophet={round(fc) if fc else 'N/A':>8} vs 实际={a:>8}")
+            upsert_backtest(conn, 'prophet', ym, train_end, region, fc, a)
+        conn.commit()
     df = pd.DataFrame(results)
     df['err_pct'] = (df['prophet_forecast'] - df['actual']) / df['actual'] * 100
     df['err_pct'] = df['err_pct'].round(1)
     print('\n=== 汇总 ===')
     print(df.to_string(index=False))
-    # 月级合计
     summary = df.groupby('ym').agg(prophet=('prophet_forecast','sum'), actual=('actual','sum'))
     summary['err_pct'] = ((summary['prophet']-summary['actual'])/summary['actual']*100).round(1)
     print('\n=== 月级汇总 ===')
     print(summary.to_string())
+    print("\n[OK] 回测结果已 UPSERT 入 offline_sales_forecast_backtest (algo=prophet)")
     conn.close()
 
 if __name__ == '__main__':
