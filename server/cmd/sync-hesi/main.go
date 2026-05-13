@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -555,9 +556,9 @@ func saveAttachments(db *sql.DB, items []map[string]interface{}) {
 	}
 }
 
-// syncFlows 同步指定类型和状态的单据，maxCount限制最多拉取条数（0=不限）
-func syncFlows(db *sql.DB, token, formType, state string, maxCount int) (int, []string) {
-	total, _, err := getFlowListWithState(token, formType, state, 0, 1)
+// syncFlows 同步指定类型和状态的单据，maxCount 限制最多拉取条数（0=不限），startDate=yyyy-MM-dd HH:mm:ss 时间过滤（空=不限）
+func syncFlows(db *sql.DB, token, formType, state string, maxCount int, startDate string) (int, []string) {
+	total, _, err := getFlowListWithState(token, formType, state, 0, 1, startDate)
 	if err != nil {
 		log.Printf("[%s/%s] 查询失败: %v", formType, state, err)
 		return 0, nil
@@ -569,12 +570,16 @@ func syncFlows(db *sql.DB, token, formType, state string, maxCount int) (int, []
 	if maxCount > 0 && limit > maxCount {
 		limit = maxCount
 	}
-	fmt.Printf("  %s(%s): %d 条(拉取%d)\n", formType, state, total, limit)
+	suffix := ""
+	if startDate != "" {
+		suffix = fmt.Sprintf(" startDate>=%s", startDate)
+	}
+	fmt.Printf("  %s(%s): %d 条(拉取%d)%s\n", formType, state, total, limit, suffix)
 
 	var flowIds []string
 	count := 0
 	for start := 0; start < limit; start += pageSize {
-		_, items, err := getFlowListWithState(token, formType, state, start, pageSize)
+		_, items, err := getFlowListWithState(token, formType, state, start, pageSize, startDate)
 		if err != nil {
 			log.Printf("[%s/%s] 第%d页失败: %v", formType, state, start/pageSize+1, err)
 			continue
@@ -603,12 +608,16 @@ func syncFlows(db *sql.DB, token, formType, state string, maxCount int) (int, []
 	return count, flowIds
 }
 
-// getFlowListWithState 带状态筛选的列表请求
-func getFlowListWithState(token, formType, state string, start, count int) (int, []map[string]interface{}, error) {
+// getFlowListWithState 带状态筛选+起始时间过滤的列表请求 (startDate 空=不限)
+func getFlowListWithState(token, formType, state string, start, count int, startDate string) (int, []map[string]interface{}, error) {
 	url := fmt.Sprintf("%s/api/openapi/v1.1/docs/getApplyList?type=%s&start=%d&count=%d&accessToken=%s",
 		hesiAPIBase, formType, start, count, token)
 	if state != "" {
 		url += "&state=" + state
+	}
+	if startDate != "" {
+		// 合思 v1.1 文档: orderBy=updateTime 默认查最近 1 年; 加 startDate 过滤 updateTime>=startDate
+		url += "&orderBy=updateTime&startDate=" + strings.ReplaceAll(startDate, " ", "%20")
 	}
 	resp, err := httpClient.Get(url)
 	if err != nil {
@@ -725,34 +734,36 @@ func main() {
 	var allFlowIds []string
 
 	if mode == "full" {
-		// 全量模式：拉所有非草稿状态
+		// 全量模式：拉所有非草稿状态（无时间过滤，跑哥周末手动 --full 兜底）
 		fmt.Println("========== 全量同步 ==========")
 		allStates := []string{"approving", "paying", "pending", "PROCESSING", "paid", "archived", "rejected"}
 		for _, formType := range types {
 			fmt.Printf("\n=== %s ===\n", formType)
 			for _, st := range allStates {
-				count, ids := syncFlows(db, token, formType, st, 0)
+				count, ids := syncFlows(db, token, formType, st, 0, "")
 				totalFlows += count
 				allFlowIds = append(allFlowIds, ids...)
 			}
 		}
 	} else {
-		// 增量模式：
-		// 1. 活跃单据全拉（approving/paying/pending/PROCESSING）
-		// 2. 已完成的只拉最近200条（捕获刚变更的）
-		fmt.Println("========== 增量同步 ==========")
+		// 增量模式 (v1.62.x 优化):
+		// 1. 活跃单据全拉 (approving/paying/pending/PROCESSING) — 大概率 1k 内
+		// 2. 已完成只拉 paid/rejected 最近 7 天 (覆盖凭证回写 + 流转回退场景)
+		// 3. archived 不拉 — 永久归档不会变, 周末 --full 兜底
+		fmt.Println("========== 增量同步 (v1.62.x: archived 不拉, paid/rejected 7天内) ==========")
 		activeStates := []string{"approving", "paying", "pending", "PROCESSING"}
-		recentStates := []string{"paid", "archived", "rejected"}
+		recentStates := []string{"paid", "rejected"}
+		sevenDaysAgo := time.Now().AddDate(0, 0, -7).Format("2006-01-02 15:04:05")
 
 		for _, formType := range types {
 			fmt.Printf("\n=== %s ===\n", formType)
 			for _, st := range activeStates {
-				count, ids := syncFlows(db, token, formType, st, 0)
+				count, ids := syncFlows(db, token, formType, st, 0, "")
 				totalFlows += count
 				allFlowIds = append(allFlowIds, ids...)
 			}
 			for _, st := range recentStates {
-				count, ids := syncFlows(db, token, formType, st, 200)
+				count, ids := syncFlows(db, token, formType, st, 0, sevenDaysAgo)
 				totalFlows += count
 				allFlowIds = append(allFlowIds, ids...)
 			}
