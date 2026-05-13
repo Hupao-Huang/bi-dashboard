@@ -1,10 +1,10 @@
 // v1.59.0 个人中心 → 合思机器人 Tab
 // MVP: 只读"我的待审批" 单据列表. 后续 v1.60.0 加规则编辑, v1.61.0 dry run, v1.62.0 真自动审批.
 
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Empty, Input, Modal, Radio, Select, Statistic, Table, Tag, Tooltip, message } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Card, DatePicker, Empty, Input, Modal, Radio, Select, Statistic, Table, Tag, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { CheckOutlined, CloseOutlined, ReloadOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
 import HesiBotRules from './HesiBotRules';
@@ -55,6 +55,10 @@ const HesiBot: React.FC = () => {
   const [approveAction, setApproveAction] = useState<'agree' | 'reject'>('agree');
   const [approveComment, setApproveComment] = useState('');
   const [approveLoading, setApproveLoading] = useState(false);
+  // v1.63: 搜索筛选
+  const [searchText, setSearchText] = useState('');
+  const [formTypeFilter, setFormTypeFilter] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
 
   const fetchPending = useCallback(async (approver?: string) => {
     setLoading(true);
@@ -100,7 +104,26 @@ const HesiBot: React.FC = () => {
     return null;
   };
 
-  const totalAmount = items.reduce((sum, item) => sum + (getMoney(item) || 0), 0);
+  const filteredItems = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    return items.filter(it => {
+      if (q) {
+        const matchCode = (it.code || '').toLowerCase().includes(q);
+        const matchTitle = (it.title || '').toLowerCase().includes(q);
+        if (!matchCode && !matchTitle) return false;
+      }
+      if (formTypeFilter.length > 0 && !formTypeFilter.includes(it.formType)) return false;
+      if (dateRange && (dateRange[0] || dateRange[1]) && it.submitDate) {
+        const ts = Number(it.submitDate);
+        if (dateRange[0] && ts < dateRange[0].startOf('day').valueOf()) return false;
+        if (dateRange[1] && ts > dateRange[1].endOf('day').valueOf()) return false;
+      }
+      return true;
+    });
+  }, [items, searchText, formTypeFilter, dateRange]);
+
+  const totalAmount = filteredItems.reduce((sum, item) => sum + (getMoney(item) || 0), 0);
+  const hasFilter = searchText || formTypeFilter.length > 0 || (dateRange && (dateRange[0] || dateRange[1]));
 
   const openApproveModal = (item: PendingItem) => {
     setApproveTarget(item);
@@ -246,13 +269,54 @@ const HesiBot: React.FC = () => {
         <Alert type="warning" showIcon message={warning} style={{ marginBottom: 16 }} />
       )}
 
+      {/* 搜索筛选 */}
+      {items.length > 0 && (
+        <Card size="small" style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Input
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              placeholder="搜索 单据编码 / 标题"
+              value={searchText}
+              onChange={e => setSearchText(e.target.value)}
+              allowClear
+              style={{ width: 260 }}
+            />
+            <Select
+              mode="multiple"
+              placeholder="单据类型"
+              value={formTypeFilter}
+              onChange={setFormTypeFilter}
+              style={{ minWidth: 200 }}
+              allowClear
+              maxTagCount="responsive"
+              options={Object.entries(formTypeMap).map(([v, m]) => ({ value: v, label: m.label }))}
+            />
+            <DatePicker.RangePicker
+              value={dateRange as any}
+              onChange={(v) => setDateRange(v as any)}
+              placeholder={['提交起', '提交止']}
+              style={{ width: 280 }}
+            />
+            {hasFilter && (
+              <Button size="small" onClick={() => { setSearchText(''); setFormTypeFilter([]); setDateRange(null); }}>
+                清空筛选
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
       {/* 统计 */}
       {items.length > 0 && (
         <Card size="small" style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
             <Statistic
-              title={selectedApprover ? `${queryName} 待审批` : '等我审批'}
-              value={items.length}
+              title={
+                hasFilter
+                  ? `筛选后 (共 ${items.length} 单)`
+                  : (selectedApprover ? `${queryName} 待审批` : '等我审批')
+              }
+              value={filteredItems.length}
               suffix="单"
             />
             <Statistic title="涉及金额合计" value={totalAmount} precision={2} prefix="¥" />
@@ -276,12 +340,13 @@ const HesiBot: React.FC = () => {
         ) : (
           <Table<PendingItem>
             columns={columns}
-            dataSource={items}
+            dataSource={filteredItems}
             rowKey="flowId"
             loading={loading}
             pagination={{ pageSize: 20, showSizeChanger: false }}
             size="middle"
             scroll={{ x: 800 }}
+            locale={{ emptyText: hasFilter ? '当前筛选下无匹配单据' : '暂无数据' }}
           />
         )}
       </Card>
