@@ -359,11 +359,7 @@ const filterMenuDefinitions = (
 export type PendingBadgeCounts = {
   users?: number;
   feedback?: number;
-};
-
-const badgeKeyMap: Record<string, keyof PendingBadgeCounts> = {
-  '/system/access': 'users',
-  '/system/feedback': 'feedback',
+  requirements?: number;
 };
 
 const decorateLabel = (
@@ -371,10 +367,20 @@ const decorateLabel = (
   label: React.ReactNode,
   counts: PendingBadgeCounts,
 ): React.ReactNode => {
-  // 子项：用户管理 / 反馈管理 直接挂数字徽标
-  const badgeKey = badgeKeyMap[key];
-  if (badgeKey) {
-    const n = counts[badgeKey] || 0;
+  // 子项徽标：用户管理 / 需求与反馈 直接挂数字徽标
+  if (key === '/system/access') {
+    const n = counts.users || 0;
+    if (n <= 0) return label;
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        {label}
+        <Badge count={n} size="small" overflowCount={99} />
+      </span>
+    );
+  }
+  if (key === '/system/feedback') {
+    // 需求与反馈合并显示 = 反馈 pending + 需求 pending
+    const n = (counts.feedback || 0) + (counts.requirements || 0);
     if (n <= 0) return label;
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -385,7 +391,7 @@ const decorateLabel = (
   }
   // 父项 /system 聚合显示红点（无数字）
   if (key === '/system') {
-    const total = (counts.users || 0) + (counts.feedback || 0);
+    const total = (counts.users || 0) + (counts.feedback || 0) + (counts.requirements || 0);
     if (total <= 0) return label;
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>

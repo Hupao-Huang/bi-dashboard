@@ -45,7 +45,7 @@ const MainLayout: React.FC = () => {
   const { hasPermission, logout, refresh, session } = useAuth();
 
   const currentPath = location.pathname === '/' ? '/overview' : location.pathname;
-  const canSeePendingBadges = hasPermission('user.manage') || hasPermission('feedback.manage');
+  const canSeePendingBadges = hasPermission('user.manage') || hasPermission('feedback.manage') || hasPermission('requirement.manage');
   const pendingCounts = usePendingCounts(canSeePendingBadges);
   const menuItems = useMemo(
     () => buildMenuItems(hasPermission, pendingCounts),
@@ -217,10 +217,18 @@ const MainLayout: React.FC = () => {
           defaultOpenKeys={collapsed && !isMobile ? [] : getDefaultOpenKeys(currentPath)}
           items={menuItems}
           onClick={({ key }) => {
-            const pendingTarget =
-              (key === '/system/access' && pendingCounts.users > 0) ||
-              (key === '/system/feedback' && pendingCounts.feedback > 0);
-            navigate(pendingTarget ? `${key}?status=pending` : key);
+            // 用户管理 ?status=pending；需求与反馈优先跳"需求"tab(需求有pending),否则反馈
+            let target = key;
+            if (key === '/system/access' && pendingCounts.users > 0) {
+              target = `${key}?status=pending`;
+            } else if (key === '/system/feedback') {
+              if (pendingCounts.requirements > 0) {
+                target = `${key}?tab=requirements&status=pending`;
+              } else if (pendingCounts.feedback > 0) {
+                target = `${key}?status=pending`;
+              }
+            }
+            navigate(target);
             if (isMobile) setMobileMenuOpen(false);
           }}
         />

@@ -9,7 +9,7 @@ import (
 func (h *DashboardHandler) AdminPendingCounts(w http.ResponseWriter, r *http.Request) {
 	payload, _ := authPayloadFromContext(r)
 
-	resp := map[string]int{"users": 0, "feedback": 0}
+	resp := map[string]int{"users": 0, "feedback": 0, "requirements": 0}
 
 	if hasPermission(payload, "user.manage") {
 		var n int
@@ -22,6 +22,13 @@ func (h *DashboardHandler) AdminPendingCounts(w http.ResponseWriter, r *http.Req
 		var n int
 		if err := h.DB.QueryRow(`SELECT COUNT(*) FROM feedback WHERE status='pending'`).Scan(&n); err == nil {
 			resp["feedback"] = n
+		}
+	}
+
+	if hasPermission(payload, "requirement.manage") {
+		var n int
+		if err := h.DB.QueryRow(`SELECT COUNT(*) FROM requirements WHERE status='pending'`).Scan(&n); err == nil {
+			resp["requirements"] = n
 		}
 	}
 
