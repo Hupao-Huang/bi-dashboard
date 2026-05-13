@@ -119,7 +119,7 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 	// 如果筛选发票状态，需要JOIN明细表
 	hasInvoiceFilter := invoiceStatus != ""
 	fromClause := "hesi_flow f"
-	selectFields := "DISTINCT f.flow_id, f.code, f.title, f.form_type, f.state, f.owner_id, f.department_id, f.submitter_id, f.pay_money, f.expense_money, f.loan_money, f.create_time, f.update_time, f.submit_date, f.pay_date, f.flow_end_time, f.voucher_no, f.voucher_status, JSON_UNQUOTE(JSON_EXTRACT(f.raw_json, '$.preApprovedNodeName')) AS pre_approved_node, JSON_UNQUOTE(JSON_EXTRACT(f.raw_json, '$.preNodeApprovedTime')) AS pre_approved_time, f.current_stage_name, f.current_approver_name, f.current_approver_code"
+	selectFields := "DISTINCT f.flow_id, f.code, f.title, f.form_type, f.state, f.owner_id, f.department_id, f.submitter_id, f.pay_money, f.expense_money, f.loan_money, f.create_time, f.update_time, f.submit_date, f.pay_date, f.flow_end_time, f.voucher_no, f.voucher_status, JSON_UNQUOTE(JSON_EXTRACT(f.raw_json, '$.preApprovedNodeName')) AS pre_approved_node, JSON_UNQUOTE(JSON_EXTRACT(f.raw_json, '$.preNodeApprovedTime')) AS pre_approved_time, f.current_stage_name, f.current_approver_name, f.current_approver_code, f.specification_id"
 
 	if hasInvoiceFilter {
 		fromClause += " JOIN hesi_flow_detail d ON f.flow_id = d.flow_id"
@@ -170,6 +170,9 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 		CurrentStageName    *string `json:"currentStageName"`    // 当前审批节点 (例: 总经理/出纳支付)
 		CurrentApproverName *string `json:"currentApproverName"` // 当前审批人姓名 (例: 易子涵, 多人时拼接 张三+李四)
 		CurrentApproverCode *string `json:"currentApproverCode"` // 当前审批人工号
+		// v1.62.x: 单据模板
+		SpecificationId   *string `json:"specificationId"`
+		SpecificationName string  `json:"specificationName"`
 		// 明细汇总
 		DetailCount     int `json:"detailCount"`
 		InvoiceExist    int `json:"invoiceExist"`
@@ -186,8 +189,12 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 			&item.CreateTime, &item.UpdateTime, &item.SubmitDate, &item.PayDate, &item.FlowEndTime,
 			&item.VoucherNo, &item.VoucherStatus,
 			&item.PreApprovedNode, &item.PreApprovedTime,
-			&item.CurrentStageName, &item.CurrentApproverName, &item.CurrentApproverCode)) {
+			&item.CurrentStageName, &item.CurrentApproverName, &item.CurrentApproverCode,
+			&item.SpecificationId)) {
 			return
+		}
+		if item.SpecificationId != nil && *item.SpecificationId != "" {
+			item.SpecificationName = h.LookupSpecName(*item.SpecificationId)
 		}
 		items = append(items, item)
 	}

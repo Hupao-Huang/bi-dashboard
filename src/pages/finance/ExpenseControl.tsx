@@ -63,6 +63,8 @@ interface FlowItem {
   currentStageName?: string | null;    // v1.58.0: 当前审批节点 (来自合思 approveStates 接口)
   currentApproverName?: string | null; // v1.58.0: 当前审批人姓名
   currentApproverCode?: string | null; // v1.58.0: 当前审批人工号
+  specificationId?: string | null;     // v1.62.x: 合思单据模板 ID
+  specificationName?: string | null;   // v1.62.x: 合思单据模板真实名称 (字典查)
 }
 
 interface StatsData {
@@ -336,6 +338,17 @@ const ExpenseControl: React.FC = () => {
       render: (v) => {
         const m = formTypeMap[v];
         return m ? <Tag color={m.color}>{m.label}</Tag> : v;
+      },
+    },
+    {
+      title: '单据模板', dataIndex: 'specificationName', width: 140,
+      render: (v: string | null, record: FlowItem) => {
+        if (!v) return <span style={{ color: '#cbd5e1' }}>-</span>;
+        return (
+          <Tooltip title={record.specificationId || ''}>
+            <Tag color="blue" style={{ cursor: 'help' }}>{v}</Tag>
+          </Tooltip>
+        );
       },
     },
     {
