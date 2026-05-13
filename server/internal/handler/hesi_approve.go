@@ -74,13 +74,10 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. 提取 approveId（current_approver_id 格式 "corpId:staffId"，取冒号后半部分）
+	// 2. approveId 用完整 "corpId:staffId" 格式（按官方文档示例 djg8LshfUkfM00:ID_3kpneISgylw）
 	approveID := currentApproverID.String
-	if idx := strings.Index(approveID, ":"); idx >= 0 {
-		approveID = approveID[idx+1:]
-	}
-	if approveID == "" {
-		writeError(w, 500, "解析合思审批人ID失败")
+	if approveID == "" || !strings.Contains(approveID, ":") {
+		writeError(w, 500, fmt.Sprintf("合思审批人ID格式异常: %q", approveID))
 		return
 	}
 
@@ -124,8 +121,15 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	respData, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// 合思错误透传给前端
-		writeError(w, 400, fmt.Sprintf("合思返回 HTTP %d: %s", resp.StatusCode, string(respData)))
+		// 合思错误透传给前端 + 服务端日志带请求详情便于诊断
+		bodySnippet := string(respData)
+		if len(bodySnippet) > 500 {
+			bodySnippet = bodySnippet[:500] + "...(truncated)"
+		}
+		writeError(w, 400, fmt.Sprintf(
+			"合思返回 HTTP %d\n请求路径: /api/openapi/v1/backlog/data/%s\n请求 approveId: %s\n响应: %s",
+			resp.StatusCode, req.FlowID, approveID, bodySnippet,
+		))
 		return
 	}
 
