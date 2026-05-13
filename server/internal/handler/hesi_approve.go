@@ -10,6 +10,14 @@ import (
 	"strings"
 )
 
+// nullableStr 空字符串转 SQL NULL (用于 hesi_flow.current_* 字段)
+func nullableStr(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
 // HesiApprove 手动审批合思单据
 // POST /api/hesi-bot/approve
 // Body: { flowId, action: "agree"|"reject", comment }
@@ -135,11 +143,52 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. 成功 — 标记 hesi_flow 本地状态变更（等下次 sync 校准）
-	if req.Action == "agree" {
-		h.DB.Exec(`UPDATE hesi_flow SET state='paying' WHERE flow_id=?`, req.FlowID)
-	} else {
-		h.DB.Exec(`UPDATE hesi_flow SET state='rejected' WHERE flow_id=?`, req.FlowID)
+	// 5. 成功 — 实时拉合思 approveStates 刷新本地"当前审批人/节点", 避免前端拿陈旧数据误点
+	//    审批成功后单据已流转到下个节点 (同意) 或回退 (驳回), 新审批人变了
+	//    不等下次 sync (最多 1h), 立即同步, 防止重复审批
+	refreshURL := fmt.Sprintf(
+		"%s/api/openapi/v2/approveStates/%%5B%s%%5D?accessToken=%s",
+		hesiAPIBase, req.FlowID, token,
+	)
+	if refreshResp, refreshErr := hesiHTTP.Get(refreshURL); refreshErr == nil {
+		refreshData, _ := io.ReadAll(refreshResp.Body)
+		refreshResp.Body.Close()
+		var rs struct {
+			Items []struct {
+				FlowID    string `json:"flowId"`
+				StageName string `json:"stageName"`
+				Operators []struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+					Code string `json:"code"`
+				} `json:"operators"`
+			} `json:"items"`
+		}
+		if json.Unmarshal(refreshData, &rs) == nil && len(rs.Items) > 0 {
+			it := rs.Items[0]
+			var opID, opName, opCode string
+			if len(it.Operators) > 0 {
+				opID = it.Operators[0].ID
+				opName = it.Operators[0].Name
+				opCode = it.Operators[0].Code
+				for j := 1; j < len(it.Operators); j++ {
+					opName += "+" + it.Operators[j].Name
+				}
+			}
+			// state 推断: 如果还有 operator 说明还在审批中; 没有 operator 说明流程结束
+			newState := "approving"
+			if len(it.Operators) == 0 {
+				if req.Action == "agree" {
+					newState = "paying" // 最终节点同意 → 进入支付
+				} else {
+					newState = "rejected"
+				}
+			}
+			h.DB.Exec(
+				`UPDATE hesi_flow SET state=?, current_stage_name=?, current_approver_id=?, current_approver_name=?, current_approver_code=? WHERE flow_id=?`,
+				newState, nullableStr(it.StageName), nullableStr(opID), nullableStr(opName), nullableStr(opCode), req.FlowID,
+			)
+		}
 	}
 
 	// 6. 审计日志（写 audit_log，沿用现有表）
