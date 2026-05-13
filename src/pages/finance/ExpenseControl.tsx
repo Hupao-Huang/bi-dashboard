@@ -96,6 +96,8 @@ const ExpenseControl: React.FC = () => {
   const [keywordInput, setKeywordInput] = useState(''); // v1.58.3: 输入框 draft, 点查询才提交到 keyword
   const [approver, setApprover] = useState(''); // v1.58.2: 当前审批人 LIKE 搜
   const [approverInput, setApproverInput] = useState(''); // v1.58.3: 输入框 draft
+  const [specificationId, setSpecificationId] = useState<string | undefined>(undefined); // v1.63.x: 单据模板筛选
+  const [specOptions, setSpecOptions] = useState<{ id: string; name: string; type: string }[]>([]);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
   const [detailModal, setDetailModal] = useState<{ visible: boolean; flowId: string }>({ visible: false, flowId: '' });
   const [detailData, setDetailData] = useState<any>(null);
@@ -132,6 +134,7 @@ const ExpenseControl: React.FC = () => {
       if (invoiceStatus) params.set('invoiceStatus', invoiceStatus);
       if (keyword) params.set('keyword', keyword);
       if (approver) params.set('approver', approver);
+      if (specificationId) params.set('specificationId', specificationId);
       if (dateRange?.[0]) params.set('startDate', dateRange[0].format('YYYY-MM-DD'));
       if (dateRange?.[1]) params.set('endDate', dateRange[1].format('YYYY-MM-DD'));
 
@@ -146,7 +149,7 @@ const ExpenseControl: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, formType, state, invoiceStatus, keyword, approver, dateRange]);
+  }, [page, pageSize, formType, state, invoiceStatus, keyword, approver, specificationId, dateRange]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchFlows(); }, [fetchFlows]);
@@ -155,6 +158,14 @@ const ExpenseControl: React.FC = () => {
     const t = setInterval(fetchLastSync, 60000); // 60s 自动刷新
     return () => clearInterval(t);
   }, [fetchLastSync]);
+
+  // v1.63.x 拉合思单据模板字典 (60s 服务端缓存, 页面打开拉一次)
+  useEffect(() => {
+    fetch(`${API}/specifications`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(json => { if (json.code === 200) setSpecOptions(json.data?.items || []); })
+      .catch(() => {});
+  }, []);
 
   // v1.57.1: 立即同步 + 实时日志
   const [syncing, setSyncing] = useState(false);
@@ -278,7 +289,7 @@ const ExpenseControl: React.FC = () => {
   }, [fetchFlows, page, keywordInput, approverInput, keyword, approver]);
 
   const resetFilters = useCallback(() => {
-    const noFilter = !formType && state === 'active' && !invoiceStatus && !keyword && !approver && !dateRange;
+    const noFilter = !formType && state === 'active' && !invoiceStatus && !keyword && !approver && !specificationId && !dateRange;
     setFormType(undefined);
     setState('active'); // v1.62.x 重置回默认"未结束"
     setInvoiceStatus(undefined);
@@ -286,13 +297,14 @@ const ExpenseControl: React.FC = () => {
     setKeywordInput('');
     setApprover('');
     setApproverInput('');
+    setSpecificationId(undefined);
     setDateRange(null);
     setPage(1);
     if (page === 1 && noFilter) {
       void fetchFlows();
     }
     void fetchStats();
-  }, [dateRange, fetchFlows, fetchStats, formType, invoiceStatus, keyword, approver, page, state]);
+  }, [dateRange, fetchFlows, fetchStats, formType, invoiceStatus, keyword, approver, specificationId, page, state]);
 
   const getMoney = (item: FlowItem) => {
     // payMoney为0时优先用expenseMoney（合思线下支付的单据payMoney可能为0）
@@ -550,6 +562,20 @@ const ExpenseControl: React.FC = () => {
               <Option value="noExist">未到票</Option>
               <Option value="exist">已到票</Option>
             </Select>
+          </Col>
+          <Col>
+            <Select
+              value={specificationId}
+              onChange={v => { setSpecificationId(v); setPage(1); }}
+              allowClear
+              showSearch
+              placeholder="单据模板"
+              style={{ width: 180 }}
+              filterOption={(input, opt) =>
+                (opt?.label as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+              options={specOptions.map(s => ({ value: s.id, label: s.name }))}
+            />
           </Col>
           <Col>
             <Input prefix={<SearchOutlined />} placeholder="搜索编码/标题" value={keywordInput}

@@ -67,6 +67,7 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 	invoiceStatus := q.Get("invoiceStatus")
 	keyword := q.Get("keyword")
 	approver := q.Get("approver") // v1.58.2: 当前审批人姓名 LIKE 搜索
+	specificationID := q.Get("specificationId") // v1.63.x: 单据模板筛选 (字典 id 是 specification_id 的前缀)
 	startDate := q.Get("startDate")
 	endDate := q.Get("endDate")
 
@@ -99,6 +100,11 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 		// v1.58.2: 按当前审批人姓名 LIKE 搜索 (含多人拼接 张三+李四)
 		where += " AND f.current_approver_name LIKE ?"
 		args = append(args, "%"+approver+"%")
+	}
+	if specificationID != "" {
+		// v1.63.x: 单据模板筛选 — 字典 id 是 specification_id 的前缀 (LIKE 'ID01xxx%')
+		where += " AND f.specification_id LIKE ?"
+		args = append(args, specificationID+"%")
 	}
 	if startDate != "" {
 		// 转毫秒时间戳
