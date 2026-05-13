@@ -71,6 +71,9 @@ const RPAManagementPage = lazy(() => import('./pages/system/RPAManagement'));
 const TradeAuditPage = lazy(() => import('./pages/system/TradeAudit'));
 const OpsMonitorPage = lazy(() => import('./pages/system/OpsMonitor'));
 const DingtalkCallback = lazy(() => import('./pages/DingtalkCallback'));
+const FuturesOverview = lazy(() => import('./pages/futures'));
+const FuturesTrend = lazy(() => import('./pages/futures/TrendChart'));
+const FuturesDetail = lazy(() => import('./pages/futures/Detail'));
 
 dayjs.locale('zh-cn');
 
@@ -196,6 +199,12 @@ const App: React.FC = () => (
               <Route path="/profile" element={<Navigate to="/profile/info" replace />} />
               <Route path="/profile/info" element={<ProfilePage />} />
               <Route path="/profile/hesi-bot" element={<HesiBotPage />} />
+
+              {/* 原料行情 v0.61 */}
+              <Route path="/futures" element={<FuturesOverview />} />
+              <Route path="/futures/trend" element={<FuturesTrend />} />
+              <Route path="/futures/detail" element={<FuturesDetail />} />
+
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>

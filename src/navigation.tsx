@@ -3,6 +3,7 @@ import { Badge, Tag, type MenuProps } from 'antd';
 import {
   AccountBookOutlined,
   AlertOutlined,
+  AreaChartOutlined,
   ApartmentOutlined,
   AppstoreOutlined,
   AuditOutlined,
@@ -181,6 +182,15 @@ export const menuDefinitions: MenuDefinition[] = [
     ],
   },
   {
+    key: '/futures',
+    icon: <AreaChartOutlined />,
+    label: '原料行情',
+    children: [
+      { key: '/futures', icon: <AreaChartOutlined />, label: '行情总览' },
+      { key: '/futures/trend', icon: <LineChartOutlined />, label: '走势图' },
+    ],
+  },
+  {
     key: '/profile',
     icon: <UserOutlined />,
     label: '个人中心',
@@ -272,6 +282,9 @@ export const pageTitleMap: Record<string, string> = {
   '/profile': '个人中心',
   '/profile/info': '个人信息',
   '/profile/hesi-bot': '合思机器人',
+  '/futures': '原料行情',
+  '/futures/trend': '走势图',
+  '/futures/detail': '品种详情',
   '/forbidden': '无权限',
 };
 
@@ -284,6 +297,7 @@ export const deptLabelMap: Record<string, string> = {
   '/finance': '财务部门',
   '/customer': '客服部门',
   '/supply-chain': '供应链管理',
+  '/futures': '原料行情',
   '/system': '系统设置',
 };
 
