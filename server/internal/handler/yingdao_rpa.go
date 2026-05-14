@@ -517,6 +517,96 @@ func (dh *DashboardHandler) GetYingDaoSubApps(w http.ResponseWriter, r *http.Req
 	writeJSON(w, detail.RobotList)
 }
 
+// ======== 后台状态巡检 (避免 trigger_log status 卡 running) ========
+
+// StartYingDaoStatusReaper 后台 goroutine 每 30s 扫所有 running 任务,
+// 主动调影刀查状态, 终态的更新 trigger_log + 发钉钉通知
+// 解决问题: 跑哥批量触发后不打开 Modal, 状态没人刷, Badge 数字一直不降
+func (dh *DashboardHandler) StartYingDaoStatusReaper() {
+	if dh.YingDao == nil || !dh.YingDao.Configured() {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		// 启动 5s 后先跑一次 (避免冷启动看到旧 running 数据)
+		time.Sleep(5 * time.Second)
+		dh.reapRunningRPATasks()
+		for range ticker.C {
+			dh.reapRunningRPATasks()
+		}
+	}()
+}
+
+// reapRunningRPATasks 扫所有 status='running' 任务, 调影刀更新终态
+func (dh *DashboardHandler) reapRunningRPATasks() {
+	defer func() {
+		if r := recover(); r != nil {
+			// 防 panic 影响其他任务
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	// 只扫 6 小时内的 running 任务 (太老的认为僵死, 不再调影刀, 后面用 SQL 标 timeout)
+	rows, err := dh.DB.QueryContext(ctx,
+		`SELECT id, platform, COALESCE(robot_name,''), job_uuid, started_at
+		 FROM rpa_trigger_log
+		 WHERE status='running'
+		   AND started_at > NOW() - INTERVAL 6 HOUR
+		 ORDER BY id ASC LIMIT 50`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	type task struct {
+		ID        int64
+		Platform  string
+		RobotName string
+		JobUuid   string
+		StartedAt time.Time
+	}
+	var list []task
+	for rows.Next() {
+		var t task
+		if err := rows.Scan(&t.ID, &t.Platform, &t.RobotName, &t.JobUuid, &t.StartedAt); err == nil {
+			list = append(list, t)
+		}
+	}
+
+	// 同时把 6 小时以上的 running 标 timeout (避免永远占着)
+	_, _ = dh.DB.ExecContext(ctx,
+		`UPDATE rpa_trigger_log SET status='timeout', finished_at=NOW(),
+		 result_msg='超过 6 小时未拿到影刀终态'
+		 WHERE status='running' AND started_at <= NOW() - INTERVAL 6 HOUR`)
+
+	// 逐个查影刀状态
+	for _, t := range list {
+		js, err := dh.YingDao.QueryJob(ctx, t.JobUuid)
+		if err != nil || js == nil {
+			continue
+		}
+		switch js.Status {
+		case "finish", "error", "cancel", "fail":
+			newStatus := js.Status
+			if newStatus == "fail" {
+				newStatus = "error"
+			}
+			msg := js.Remark
+			if msg == "" {
+				msg = js.StatusName
+			}
+			_, _ = dh.DB.ExecContext(ctx,
+				`UPDATE rpa_trigger_log SET status=?, result_msg=?, finished_at=NOW() WHERE id=? AND status='running'`,
+				newStatus, msg, t.ID)
+			// 算耗时发钉钉
+			elapsed := int(time.Since(t.StartedAt).Seconds())
+			go dh.notifyRPADone(t.Platform, t.RobotName, newStatus, elapsed, msg)
+		}
+		// 防止短时间打满影刀 API
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 // ======== helpers ========
 
 // getCurrentUserName 从 RequireAuth 注入的 authPayload 拿当前用户名

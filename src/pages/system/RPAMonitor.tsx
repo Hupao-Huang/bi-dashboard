@@ -341,6 +341,10 @@ const Legend: React.FC = () => (
 
 // ─── Transform backend response into PlatformData ────────────────────────────
 
+// 后端返回 Z 盘所有日期目录 (有 100+ 天 × 11 平台 = 1100+ 行, 渲染慢)
+// 前端只保留最近 N 天 (业务一般看最近 1-2 个月)
+const MAX_DAYS_VISIBLE = 60;
+
 function transformData(raw: any): ScanResult {
   const platforms: PlatformData[] = (raw.platforms || []).map((p: any) => {
     const storeSet = new Set<string>();
@@ -348,7 +352,10 @@ function transformData(raw: any): ScanResult {
     const grid: Record<string, Record<string, DateStoreEntry>> = {};
     const dateMeta: Record<string, DateMeta> = {};
 
-    for (const d of (p.dates || [])) {
+    // 后端按日期降序返回, 前 N 个就是最近 N 天
+    const sourceDates = (p.dates || []).slice(0, MAX_DAYS_VISIBLE);
+
+    for (const d of sourceDates) {
       const dateKey = d.formatted_date || d.date;
       dates.push(dateKey);
       grid[dateKey] = {};
@@ -560,9 +567,11 @@ const RPAMonitor: React.FC = () => {
   }, []);
 
   const handleSyncDone = useCallback(() => {
-    fetchData(); // 同步完成自动刷新 RPA 监控数据
-    fetchActiveTasks(); // 也刷新活跃任务列表
-  }, [fetchData, fetchActiveTasks]);
+    // 单次同步完成只刷新活跃任务列表 (轻量), 不全量重拉 RPA 扫描数据
+    // 原因: 全量数据 700KB+ 1000+ 行渲染慢, 跑哥批量同步时多个 done 叠加更卡
+    // 跑哥要看最新 RPA 文件状态主动点 "刷新" 按钮 (或等 5 分钟自动刷)
+    fetchActiveTasks();
+  }, [fetchActiveTasks]);
 
   // 从 Drawer 点某个 active task → 重新打开 Modal 看进度
   const handleResumeTask = useCallback((task: ActiveTask) => {
@@ -743,12 +752,13 @@ const RPAMonitor: React.FC = () => {
             )}
             {activeTasks.length > 0 && (
               <Tooltip title="点击查看后台正在跑的同步任务">
-                <Badge count={activeTasks.length} offset={[-2, 4]}>
+                <Badge count={activeTasks.length} overflowCount={999}>
                   <Button
                     size="small"
                     type="primary"
                     icon={<SyncOutlined spin />}
                     onClick={() => setTaskDrawerOpen(true)}
+                    style={{ marginRight: 12 }}
                   >
                     正在同步
                   </Button>

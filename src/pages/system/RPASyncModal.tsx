@@ -5,6 +5,7 @@
 // 完成 → toast + 自动关闭 + 触发外部 onDone (刷新主表)
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Modal, Progress, Statistic, Tag, Typography, Empty, Button, message } from 'antd';
+import { SyncOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 
 const { Text } = Typography;
@@ -46,7 +47,9 @@ const POLL_INTERVAL_MS = 5000;
 const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, open, onClose, onDone }) => {
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [logs, setLogs] = useState<LogItem[]>([]);
+  const [localElapsed, setLocalElapsed] = useState(0); // 本地秒表 1s 一跳, 不等后端 5s 轮询
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logsBoxRef = useRef<HTMLDivElement>(null);
   const doneRef = useRef(false);
 
@@ -103,10 +106,35 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
     doneRef.current = false;
     setStatus(null);
     setLogs([]);
+    setLocalElapsed(0);
     poll();
     timerRef.current = setInterval(poll, POLL_INTERVAL_MS);
     return stopPoll;
   }, [open, triggerId, poll, stopPoll]);
+
+  // 后端 5s 一次返回 elapsed_sec, 用作秒表基准 + 1s 本地递增
+  useEffect(() => {
+    if (status?.elapsed_sec !== undefined) {
+      setLocalElapsed(status.elapsed_sec);
+    }
+  }, [status?.elapsed_sec]);
+
+  useEffect(() => {
+    if (!open || !status || status.done) {
+      if (tickRef.current) {
+        clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
+      return;
+    }
+    tickRef.current = setInterval(() => setLocalElapsed(s => s + 1), 1000);
+    return () => {
+      if (tickRef.current) {
+        clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
+    };
+  }, [open, status?.done, status]);
 
   // 自动滚到日志最新
   useEffect(() => {
@@ -121,17 +149,6 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
     if (s === 'running') return 'processing';
     return 'warning';
   };
-
-  // 进度估算: waiting=15%, running 按时长涨, finish=100%
-  // 影刀没有真实进度百分比, 这里用启发式让用户有感知
-  const estimatedPercent = (() => {
-    if (!status) return 0;
-    if (status.done) return 100;
-    if (status.status === 'waiting') return 15;
-    // running: 按已用时长估，假设 5 分钟跑完
-    const pct = 20 + Math.min(70, Math.floor((status.elapsed_sec / 300) * 70));
-    return pct;
-  })();
 
   return (
     <Modal
@@ -167,7 +184,7 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
                 {status.status_name || status.status}
               </Tag>
             )} value={0} />
-            <Statistic title="已用时" value={formatTime(status.elapsed_sec)} />
+            <Statistic title="已用时" value={formatTime(localElapsed)} />
             {status.start_time && (
               <Statistic title="开始时间" value={status.start_time} valueStyle={{ fontSize: 14 }} />
             )}
@@ -179,12 +196,28 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
             </div>
           )}
 
-          {/* 进度条 */}
-          <Progress
-            percent={estimatedPercent}
-            status={status.status === 'error' || status.status === 'fail' ? 'exception' : status.done ? 'success' : 'active'}
-            style={{ marginBottom: 20 }}
-          />
+          {/* 进度: 影刀 API 没真实进度百分比, 终态显示完整条, 进行中显示动画"不定进度"风格 */}
+          {status.done ? (
+            <Progress
+              percent={100}
+              status={status.status === 'error' || status.status === 'fail' ? 'exception' : 'success'}
+              style={{ marginBottom: 20 }}
+            />
+          ) : (
+            <div style={{
+              marginBottom: 20,
+              padding: '8px 12px',
+              borderRadius: 4,
+              background: '#f0f5ff',
+              border: '1px solid #d6e4ff',
+              fontSize: 13,
+              color: '#1677ff',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <SyncOutlined spin />
+              <span>影刀正在执行（影刀未提供进度百分比，请通过下方日志和已用时观察进度）</span>
+            </div>
+          )}
 
           {/* 日志区 */}
           <div style={{ marginBottom: 8 }}>

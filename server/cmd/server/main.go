@@ -171,6 +171,9 @@ func main() {
 	// 启动定时任务健康巡检 (失败/卡死自动钉钉告警 admin)
 	go h.StartTaskHealthMonitor()
 
+	// 启动影刀 RPA 状态巡检 (30s 扫 running 任务, 主动更新终态 + 钉钉通知)
+	h.StartYingDaoStatusReaper()
+
 	mux := http.NewServeMux()
 
 	allowedOrigins := map[string]bool{
