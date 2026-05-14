@@ -112,10 +112,17 @@ const SalesForecastBacktest: React.FC = () => {
       .sort((a, b) => a.ym.localeCompare(b.ym));
   }, [filteredSummary]);
 
-  // 全局 MAPE
+  // 全局 MAPE (大区平均误差, 技术视角)
   const overallMape = useMemo(() => {
     if (filteredSummary.length === 0) return 0;
     const sum = filteredSummary.reduce((s, x) => s + x.mape, 0);
+    return Math.round(sum / filteredSummary.length * 10) / 10;
+  }, [filteredSummary]);
+
+  // 全局汇总误差绝对值平均 (业务视角: 全部大区合计 forecast vs actual 的偏差)
+  const overallTotalErr = useMemo(() => {
+    if (filteredSummary.length === 0) return 0;
+    const sum = filteredSummary.reduce((s, x) => s + Math.abs(x.totalErrPct), 0);
     return Math.round(sum / filteredSummary.length * 10) / 10;
   }, [filteredSummary]);
 
@@ -171,13 +178,20 @@ const SalesForecastBacktest: React.FC = () => {
       <Alert
         type="info"
         showIcon
-        message="什么是算法回测?"
+        message="什么是算法回测? 两种误差视角的区别"
         description={
           <div style={{ lineHeight: 1.8 }}>
             <div>用<b>截至上月底</b>的历史数据训练算法 → 预测当月 → 对比当月实际销量, 得出每个算法的精度.</div>
-            <div style={{ color: '#64748b' }}>
-              MAPE = 平均绝对误差%, 越小越准. 一般 10% 内算优秀 · 10-30% 可接受 · 30%+ 算法需要调整.
-              数据由后台 Python 脚本回写, 当前覆盖 2026-01 ~ 2026-04 月 × Prophet / StatsForecast 两个算法.
+            <div style={{ marginTop: 4 }}>
+              <Tag color="purple" style={{ marginInlineStart: 0 }}>业务视角</Tag>
+              <b>汇总误差%</b> = 全部大区合计 (预测合计 − 实际合计) / 实际合计 — <span style={{ color: '#64748b' }}>判断"总销量预测准不准"</span>
+            </div>
+            <div>
+              <Tag color="blue" style={{ marginInlineStart: 0 }}>技术视角</Tag>
+              <b>MAPE</b> = 每个大区单独算误差再平均 — <span style={{ color: '#64748b' }}>判断"模型在小区域是否稳定"</span>
+            </div>
+            <div style={{ color: '#64748b', marginTop: 4 }}>
+              业务汇报口径建议看汇总误差; 技术调优看 MAPE. 一般 10% 内算优秀 · 10-30% 可接受 · 30%+ 算法需要调整.
             </div>
           </div>
         }
@@ -197,9 +211,17 @@ const SalesForecastBacktest: React.FC = () => {
               <Card size="small" style={{ minWidth: 160 }}>
                 <Statistic title="覆盖算法" value={mapeMatrix.algos.length} suffix="个" />
               </Card>
-              <Card size="small" style={{ minWidth: 200 }}>
+              <Card size="small" style={{ minWidth: 220 }}>
                 <Statistic
-                  title="总体平均 MAPE"
+                  title={<span><Tag color="purple" style={{ fontSize: 11, lineHeight: '16px', padding: '0 6px' }}>业务</Tag>汇总误差 |绝对|</span>}
+                  value={overallTotalErr}
+                  suffix="%"
+                  valueStyle={{ color: errColor(overallTotalErr) === 'success' ? '#16a34a' : errColor(overallTotalErr) === 'warning' ? '#d97706' : '#dc2626' }}
+                />
+              </Card>
+              <Card size="small" style={{ minWidth: 220 }}>
+                <Statistic
+                  title={<span><Tag color="blue" style={{ fontSize: 11, lineHeight: '16px', padding: '0 6px' }}>技术</Tag>大区平均 MAPE</span>}
                   value={overallMape}
                   suffix="%"
                   valueStyle={{ color: errColor(overallMape) === 'success' ? '#16a34a' : errColor(overallMape) === 'warning' ? '#d97706' : '#dc2626' }}
@@ -219,8 +241,12 @@ const SalesForecastBacktest: React.FC = () => {
               </Radio.Group>
             </Card>
 
-            {/* MAPE 矩阵 (月份 × 算法) */}
-            <Card title="按月 × 算法 MAPE 矩阵 (越绿越准, 越红越偏)" size="small" style={{ marginBottom: 12 }}>
+            {/* 矩阵 (月份 × 算法) - 双指标: 业务汇总误差 + 技术 MAPE */}
+            <Card
+              title={<span>按月 × 算法 误差矩阵 <Tag color="purple">业务汇总误差</Tag> <Tag color="blue">大区 MAPE</Tag></span>}
+              size="small"
+              style={{ marginBottom: 12 }}
+            >
               <Table
                 size="small"
                 pagination={false}
@@ -235,19 +261,28 @@ const SalesForecastBacktest: React.FC = () => {
                   ...mapeMatrix.algos.map(a => ({
                     title: <Tooltip title={algoTooltip(a)}><span style={{ cursor: 'help', borderBottom: '1px dashed #94a3b8' }}>{algoLabel(a)}</span></Tooltip>,
                     dataIndex: a,
-                    width: 180,
+                    width: 200,
                     render: (s: SummaryItem | undefined) => {
                       if (!s) return <span style={{ color: '#cbd5e1' }}>-</span>;
+                      const totalAbs = Math.abs(s.totalErrPct);
                       return (
                         <Tooltip title={<div>
                           <div>预测合计: {s.forecastQty.toLocaleString()}</div>
                           <div>实际合计: {s.actualQty.toLocaleString()}</div>
-                          <div>大区合计误差: {s.totalErrPct > 0 ? '+' : ''}{s.totalErrPct}%</div>
                           <div>覆盖大区: {s.regionCount}</div>
+                          <div style={{ marginTop: 4, color: '#cbd5e1' }}>
+                            汇总误差 = (预测合计 - 实际合计) / 实际合计<br />
+                            MAPE = 各大区误差% 的平均
+                          </div>
                         </div>}>
-                          <Tag color={errColor(s.mape)} style={{ cursor: 'help' }}>
-                            MAPE {s.mape}%
-                          </Tag>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'help' }}>
+                            <Tag color={errColor(totalAbs)} style={{ marginInlineEnd: 0 }}>
+                              业务 {s.totalErrPct > 0 ? '+' : ''}{s.totalErrPct}%
+                            </Tag>
+                            <Tag color={errColor(s.mape)} style={{ marginInlineEnd: 0, opacity: 0.85 }}>
+                              MAPE {s.mape}%
+                            </Tag>
+                          </div>
                         </Tooltip>
                       );
                     },
