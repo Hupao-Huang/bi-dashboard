@@ -193,12 +193,14 @@ func computeOfflineRegionGrowth(db *sql.DB, ym string) (map[string]float64, erro
 		g := 1.0
 		if prev > 0 {
 			g = curr / prev
-			// clamp 到 [0.85, 1.30] 防异常 — Q1 增长率推 4 月易过激, 限制 ±30% 内
-			if g < 0.85 {
-				g = 0.85
+			// v1.66.1: 基于 12 月回测优化, 收紧 clamp [0.85,1.30] → [0.95,1.10]
+			// 原因: 上限 1.30 在 9-10 月会过度放大同比项 (实际 9-10 月销量持平/微跌)
+			// 收紧后只对"持续小幅增长" (5-15%) 微调, 激进涨/跌都不动
+			if g < 0.95 {
+				g = 0.95
 			}
-			if g > 1.30 {
-				g = 1.30
+			if g > 1.10 {
+				g = 1.10
 			}
 		}
 		growth[region] = g

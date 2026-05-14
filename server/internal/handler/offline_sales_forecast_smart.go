@@ -40,10 +40,15 @@ type MonthFactors struct {
 }
 
 // monthFactorsTable 12 个月的权重表
+// v1.66.1 节假日因子基于 12 月回测优化:
+//   - 1月 1.00→1.05 (春节备货实际比预测高 30%, 上调因子)
+//   - 9月 1.05→1.00 (中秋影响小, 实际接近平淡)
+//   - 10月 1.05→0.95 (国庆放假反而少销售, 实际比预测低 12%)
+//   - 11月 1.10→1.00 (线下大区双11效应不明显, 实际比预测低 10%)
 func monthFactorsTable(month int) MonthFactors {
 	switch month {
 	case 1:
-		return MonthFactors{Alpha: 0.20, Beta: 0.70, Gamma: 0.10, HolidayFactor: 1.00, HolidayContext: "春节备货"}
+		return MonthFactors{Alpha: 0.20, Beta: 0.70, Gamma: 0.10, HolidayFactor: 1.05, HolidayContext: "春节备货 (同比 +5%)"}
 	case 2:
 		return MonthFactors{Alpha: 0.10, Beta: 0.80, Gamma: 0.10, HolidayFactor: 1.00, HolidayContext: "春节假期"}
 	case 3, 4, 5:
@@ -52,10 +57,12 @@ func monthFactorsTable(month int) MonthFactors {
 		return MonthFactors{Alpha: 0.40, Beta: 0.50, Gamma: 0.10, HolidayFactor: 1.05, HolidayContext: "618 大促 (同比 +5%)"}
 	case 7, 8:
 		return MonthFactors{Alpha: 0.70, Beta: 0.20, Gamma: 0.10, HolidayFactor: 1.00, HolidayContext: "平淡期"}
-	case 9, 10:
-		return MonthFactors{Alpha: 0.40, Beta: 0.50, Gamma: 0.10, HolidayFactor: 1.05, HolidayContext: "中秋/国庆 (同比 +5%)"}
+	case 9:
+		return MonthFactors{Alpha: 0.40, Beta: 0.50, Gamma: 0.10, HolidayFactor: 1.00, HolidayContext: "中秋"}
+	case 10:
+		return MonthFactors{Alpha: 0.40, Beta: 0.50, Gamma: 0.10, HolidayFactor: 0.95, HolidayContext: "国庆放假 (同比 -5%)"}
 	case 11:
-		return MonthFactors{Alpha: 0.30, Beta: 0.60, Gamma: 0.10, HolidayFactor: 1.10, HolidayContext: "双11 (同比 +10%)"}
+		return MonthFactors{Alpha: 0.30, Beta: 0.60, Gamma: 0.10, HolidayFactor: 1.00, HolidayContext: "双11 (线下不爆发)"}
 	case 12:
 		return MonthFactors{Alpha: 0.50, Beta: 0.40, Gamma: 0.10, HolidayFactor: 1.00, HolidayContext: "年终"}
 	}
