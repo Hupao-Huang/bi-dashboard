@@ -5,6 +5,7 @@ import dayjs, { Dayjs } from 'dayjs';
 import * as XLSX from 'xlsx-js-style';
 import { API_BASE } from '../../config';
 import Chart from '../../components/Chart';
+import ForecastBacktestCard from './ForecastBacktestCard';
 
 // 组件级缓存 — 跨多次 hover 共享, 避免重复 fetch 同一 SKU
 const skuTrendCache = new Map<string, { goods_name: string; items: { ym: string; qty: number }[] }>();
@@ -626,6 +627,8 @@ const SalesForecast: React.FC = () => {
         )}
       </Spin>
     </Card>
+    {/* v1.66.2 加回测对比卡片 - 业务直观看到当前算法准确度 */}
+    <ForecastBacktestCard />
     </>
   );
 
