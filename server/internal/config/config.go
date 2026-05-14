@@ -16,6 +16,7 @@ type Config struct {
 	Hesi         HesiConfig     `json:"hesi"`
 	YonSuite     YonSuiteConfig `json:"yonsuite"`
 	Webhook      WebhookConfig  `json:"webhook"`
+	YingDao      YingDaoConfig  `json:"yingdao"`
 }
 
 type ServerConfig struct {
@@ -70,6 +71,18 @@ type YonSuiteConfig struct {
 
 type WebhookConfig struct {
 	Secret string `json:"secret"`
+}
+
+// YingDaoConfig 影刀 RPA 开放 API 配置
+// AuthURL 取 token 用 (api.yingdao.com)
+// BizURL 业务接口用 (api.winrobot360.com), 列任务/任务详情接口走这个域名
+// DefaultAccount 启动应用时关联的机器人账号 (如 lhx@sxx)
+type YingDaoConfig struct {
+	AccessKeyID     string `json:"access_key_id"`
+	AccessKeySecret string `json:"access_key_secret"`
+	AuthURL         string `json:"auth_url"`
+	BizURL          string `json:"biz_url"`
+	DefaultAccount  string `json:"default_account"`
 }
 
 func Load(path string) (*Config, error) {
@@ -175,5 +188,13 @@ func applyEnvOverrides(cfg *Config) {
 	// Webhook
 	if v := os.Getenv("BI_WEBHOOK_SECRET"); v != "" {
 		cfg.Webhook.Secret = v
+	}
+
+	// YingDao
+	if v := os.Getenv("BI_YINGDAO_ACCESS_KEY_ID"); v != "" {
+		cfg.YingDao.AccessKeyID = v
+	}
+	if v := os.Getenv("BI_YINGDAO_ACCESS_KEY_SECRET"); v != "" {
+		cfg.YingDao.AccessKeySecret = v
 	}
 }

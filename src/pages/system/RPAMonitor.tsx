@@ -15,9 +15,13 @@ import {
   Input,
   Modal,
   message,
+  Badge,
+  List,
+  Empty,
 } from 'antd';
-import { ReloadOutlined, CheckCircleOutlined, WarningOutlined, CloseCircleOutlined, MinusCircleOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, CheckCircleOutlined, WarningOutlined, CloseCircleOutlined, MinusCircleOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
+import RPASyncModal from './RPASyncModal';
 
 const { Text } = Typography;
 
@@ -113,12 +117,24 @@ const StatusCell: React.FC<CellProps> = ({ entry, onClick }) => {
 
 // ─── Platform tab content ─────────────────────────────────────────────────────
 
+interface ActiveTask {
+  trigger_id: number;
+  platform: string;
+  robot_name: string;
+  run_date: string;
+  trigger_user: string;
+  started_at: string;
+  elapsed_sec: number;
+}
+
 interface PlatformPanelProps {
   platform: PlatformData;
   onImport: (date: string, platform: string) => void;
+  onSync: (platform: string, date: string) => void;
+  syncingDates?: string[]; // 当前正在同步的日期列表 (按钮 loading + disable)
 }
 
-const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport }) => {
+const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSync, syncingDates }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [cellDetail, setCellDetail] = useState<CellDetail | null>(null);
 
@@ -164,6 +180,31 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport }) => 
         );
       },
     },
+    {
+      title: '同步影刀',
+      key: 'sync',
+      fixed: 'left' as const,
+      width: 100,
+      align: 'center' as const,
+      render: (_: any, row: { date: string }) => {
+        const syncing = syncingDates?.includes(row.date) ?? false;
+        return (
+          <Tooltip title={syncing ? `${platform.name} ${row.date} 已在同步中` : `触发影刀采集 ${platform.name} ${row.date} 数据`}>
+            <Button
+              size="small"
+              type="link"
+              icon={<SyncOutlined spin={syncing} />}
+              loading={syncing}
+              disabled={syncing}
+              onClick={() => onSync(platform.name, row.date)}
+              style={{ fontSize: 11, padding: 0 }}
+            >
+              {syncing ? '同步中' : '同步'}
+            </Button>
+          </Tooltip>
+        );
+      },
+    },
     ...platform.stores.map(store => ({
       title: (
         <Tooltip title={store}>
@@ -203,7 +244,9 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport }) => 
           style={{ width: 220 }}
           strokeColor={platform.completeness >= 80 ? '#10b981' : platform.completeness >= 50 ? '#f59e0b' : '#ef4444'}
         />
-        <Text type="secondary" style={{ fontSize: 12 }}>（各店铺近30天数据）</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          （各店铺近30天数据。点表格里"同步影刀"按钮可补采指定日期的数据）
+        </Text>
       </div>
 
       {/* Per-store completeness badges */}
@@ -461,6 +504,78 @@ const RPAMonitor: React.FC = () => {
     };
   }, []);
 
+  // === 影刀 RPA 同步触发 ===
+  const [activeSync, setActiveSync] = useState<{ triggerId: number; platform: string; date: string; robotName: string } | null>(null);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const activeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchActiveTasks = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/rpa/active-tasks`, { credentials: 'include' });
+      const j = await res.json();
+      if (j.code === 200) setActiveTasks(j.data || []);
+    } catch {}
+  }, []);
+
+  // 5s 一次轮询活跃任务列表
+  useEffect(() => {
+    fetchActiveTasks();
+    activeTimerRef.current = setInterval(fetchActiveTasks, 5000);
+    return () => {
+      if (activeTimerRef.current) clearInterval(activeTimerRef.current);
+    };
+  }, [fetchActiveTasks]);
+
+  const handleSync = useCallback(async (platform: string, date: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/rpa/trigger`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, date }),
+      });
+      const j = await res.json();
+      if (j.code !== 200) {
+        message.error(j.msg || j.error || `触发失败：${platform} ${date}`);
+        return;
+      }
+      setActiveSync({
+        triggerId: j.data.trigger_id,
+        platform,
+        date,
+        robotName: j.data.robot_name || '',
+      });
+      setSyncModalOpen(true);
+      message.success(`已触发影刀采集 - ${platform} ${date}`);
+    } catch {
+      message.error('触发同步请求失败（网络错误）');
+    }
+  }, []);
+
+  const handleSyncClose = useCallback(() => {
+    setSyncModalOpen(false);
+    setActiveSync(null);
+  }, []);
+
+  const handleSyncDone = useCallback(() => {
+    fetchData(); // 同步完成自动刷新 RPA 监控数据
+    fetchActiveTasks(); // 也刷新活跃任务列表
+  }, [fetchData, fetchActiveTasks]);
+
+  // 从 Drawer 点某个 active task → 重新打开 Modal 看进度
+  const handleResumeTask = useCallback((task: ActiveTask) => {
+    setActiveSync({
+      triggerId: task.trigger_id,
+      platform: task.platform,
+      date: task.run_date,
+      robotName: task.robot_name,
+    });
+    setSyncModalOpen(true);
+    setTaskDrawerOpen(false);
+  }, []);
+
   // 问题汇总：把所有平台/日期/店铺/缺失文件展平
   const issueRows = useMemo(() => {
     const rows: { platform: string; date: string; store: string; status: ItemStatus; missingItems: string[]; dbImported: boolean; fileStatus: ItemStatus }[] = [];
@@ -596,7 +711,14 @@ const RPAMonitor: React.FC = () => {
         </Tag>
       </Space>
     ),
-    children: <PlatformPanel platform={p} onImport={startImport} />,
+    children: (
+      <PlatformPanel
+        platform={p}
+        onImport={startImport}
+        onSync={handleSync}
+        syncingDates={activeTasks.filter(t => t.platform === p.name).map(t => t.run_date)}
+      />
+    ),
   })),
 ];
 
@@ -618,6 +740,20 @@ const RPAMonitor: React.FC = () => {
               <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>
                 最后扫描时间：{data.scannedAt}
               </span>
+            )}
+            {activeTasks.length > 0 && (
+              <Tooltip title="点击查看后台正在跑的同步任务">
+                <Badge count={activeTasks.length} offset={[-2, 4]}>
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<SyncOutlined spin />}
+                    onClick={() => setTaskDrawerOpen(true)}
+                  >
+                    正在同步
+                  </Button>
+                </Badge>
+              </Tooltip>
             )}
           </Space>
         }
@@ -704,6 +840,69 @@ const RPAMonitor: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      {/* 影刀 RPA 同步进度 Modal */}
+      <RPASyncModal
+        triggerId={activeSync?.triggerId ?? null}
+        platform={activeSync?.platform ?? ''}
+        robotName={activeSync?.robotName ?? ''}
+        date={activeSync?.date}
+        open={syncModalOpen}
+        onClose={handleSyncClose}
+        onDone={handleSyncDone}
+      />
+
+      {/* 后台正在跑的任务列表 Drawer */}
+      <Drawer
+        title={
+          <Space>
+            <SyncOutlined spin />
+            <span>正在跑的同步任务</span>
+            <Tag color="blue">{activeTasks.length} 个</Tag>
+          </Space>
+        }
+        open={taskDrawerOpen}
+        onClose={() => setTaskDrawerOpen(false)}
+        width={520}
+      >
+        {activeTasks.length === 0 ? (
+          <Empty description="当前没有正在跑的任务" />
+        ) : (
+          <List
+            dataSource={activeTasks}
+            renderItem={t => (
+              <List.Item
+                actions={[
+                  <Button key="view" type="primary" size="small" onClick={() => handleResumeTask(t)}>
+                    查看进度
+                  </Button>,
+                ]}
+              >
+                <List.Item.Meta
+                  title={
+                    <Space>
+                      <Tag color="blue">{t.platform}</Tag>
+                      <span>{t.run_date}</span>
+                    </Space>
+                  }
+                  description={
+                    <Space size={12} wrap>
+                      <Text type="secondary" style={{ fontSize: 12 }}>{t.robot_name}</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>由 {t.trigger_user} 触发</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        已用时 {Math.floor(t.elapsed_sec / 60)} 分 {t.elapsed_sec % 60} 秒
+                      </Text>
+                    </Space>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+        )}
+        <div style={{ marginTop: 16, fontSize: 12, color: '#94a3b8' }}>
+          💡 同步任务在后台跑，跑完通过钉钉通知。点"查看进度"可以重新打开 Modal 看实时日志。
+        </div>
+      </Drawer>
     </div>
   );
 };

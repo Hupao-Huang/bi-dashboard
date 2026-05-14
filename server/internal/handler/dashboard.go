@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"bi-dashboard/internal/dingtalk"
+	"bi-dashboard/internal/yingdao"
 )
 
 type DashboardHandler struct {
@@ -21,6 +22,7 @@ type DashboardHandler struct {
 	HesiSecret       string
 	WebhookSecret    string
 	Notifier         *dingtalk.Notifier // 钉钉主动通知（反馈回复推送），凭证未配置时为 nil
+	YingDao          *yingdao.Client    // 影刀 RPA 客户端（点同步按钮触发 RPA 流程），未配置时为 nil
 }
 
 // round2 浮点数累加防精度尾巴(0.090000000001 → 0.09)

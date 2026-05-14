@@ -3,6 +3,7 @@ import { Card, Table, Select, Input, Tag, Space } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 import PageLoading from '../../components/PageLoading';
+import RPAPlatformMappingCard from './RPAPlatformMappingCard';
 
 // 平台对应的 Tag 颜色
 const PLATFORM_COLORS: Record<string, string> = {
@@ -123,7 +124,9 @@ const RPAMapping: React.FC = () => {
   if (loading && data.length === 0) return <PageLoading />;
 
   return (
-    <Card title="RPA文件映射">
+    <>
+      <RPAPlatformMappingCard />
+      <Card title="RPA文件映射">
       <Space style={{ marginBottom: 16 }} wrap>
         <Select
           placeholder="按平台筛选"
@@ -152,7 +155,8 @@ const RPAMapping: React.FC = () => {
         scroll={{ y: 500, x: 890 }}
         rowClassName={(r: RPAMappingRow) => `rpa-row-${(r.platform || 'unknown').replace(/[^a-zA-Z0-9]/g, '')}`}
       />
-    </Card>
+      </Card>
+    </>
   );
 };
 

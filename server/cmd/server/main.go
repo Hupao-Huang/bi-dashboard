@@ -13,6 +13,7 @@ import (
 	"bi-dashboard/internal/config"
 	"bi-dashboard/internal/dingtalk"
 	"bi-dashboard/internal/handler"
+	"bi-dashboard/internal/yingdao"
 
 	"github.com/getsentry/sentry-go"
 	_ "github.com/go-sql-driver/mysql"
@@ -143,6 +144,16 @@ func main() {
 		log.Println("DingTalk notifier disabled (未配置 notify_app_key/notify_app_secret)")
 	}
 
+	yingdaoClient := yingdao.NewClient(
+		cfg.YingDao.AccessKeyID, cfg.YingDao.AccessKeySecret,
+		cfg.YingDao.AuthURL, cfg.YingDao.BizURL, cfg.YingDao.DefaultAccount,
+	)
+	if yingdaoClient.Configured() {
+		log.Printf("YingDao RPA client ready (account=%s)", cfg.YingDao.DefaultAccount)
+	} else {
+		log.Println("YingDao RPA client disabled (未配置 yingdao.access_key_id/access_key_secret)")
+	}
+
 	h := &handler.DashboardHandler{
 		DB:               db,
 		DingToken:        cfg.DingTalk.WebhookToken,
@@ -154,6 +165,7 @@ func main() {
 		HesiSecret:       cfg.Hesi.Secret,
 		WebhookSecret:    cfg.Webhook.Secret,
 		Notifier:         notifier,
+		YingDao:          yingdaoClient,
 	}
 
 	// 启动定时任务健康巡检 (失败/卡死自动钉钉告警 admin)
@@ -374,6 +386,15 @@ func main() {
 	mux.HandleFunc("/api/admin/rpa-scan/refresh", adminRoles(h.RefreshRPAScan))
 	mux.HandleFunc("/api/admin/rpa-scan/import", adminRoles(h.ManualImport))
 	mux.HandleFunc("/api/admin/rpa-scan/import-progress", adminRoles(h.ImportProgress))
+
+	// 影刀 RPA 触发 (点平台 Tab "立即同步" 按钮)
+	mux.HandleFunc("/api/admin/rpa/trigger", adminRoles(h.TriggerRPASync))
+	mux.HandleFunc("/api/admin/rpa/job-status", adminRoles(h.GetRPAJobStatus))
+	mux.HandleFunc("/api/admin/rpa/active-tasks", adminRoles(h.GetRPAActiveTasks))
+	mux.HandleFunc("/api/admin/rpa/platform-mapping", adminRoles(h.GetRPAPlatformMapping))
+	mux.HandleFunc("/api/admin/rpa/platform-mapping/update", adminRoles(h.UpdateRPAPlatformMapping))
+	mux.HandleFunc("/api/admin/yingdao/tasks", adminRoles(h.GetYingDaoTasks))
+	mux.HandleFunc("/api/admin/yingdao/sub-apps", adminRoles(h.GetYingDaoSubApps))
 
 	// 反馈
 	feedbackAdmin := func(next http.HandlerFunc) http.HandlerFunc {
