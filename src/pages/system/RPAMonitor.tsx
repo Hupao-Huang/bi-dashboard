@@ -131,12 +131,15 @@ interface PlatformPanelProps {
   platform: PlatformData;
   onImport: (date: string, platform: string) => void;
   onSync: (platform: string, date: string) => void;
+  onBatchSync: (platform: string, dates: string[]) => void;
   syncingDates?: string[]; // 当前正在同步的日期列表 (按钮 loading + disable)
 }
 
-const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSync, syncingDates }) => {
+const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSync, onBatchSync, syncingDates }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [cellDetail, setCellDetail] = useState<CellDetail | null>(null);
+  const [dateFilter, setDateFilter] = useState<'all' | 'issues'>('all');
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
 
   const openDetail = (date: string, store: string) => {
     const entry = platform.grid[date]?.[store];
@@ -144,6 +147,21 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSyn
     setCellDetail({ platform: platform.name, store, date, status: entry.status, items: entry.items });
     setDrawerOpen(true);
   };
+
+  // 一行算"异常" = (导入状态!=已导入) 或 (任意店铺单元格!=完整)
+  const isIssueDate = (date: string): boolean => {
+    const meta = platform.dateMeta[date];
+    const imported = meta?.dbImported;
+    const fileComplete = meta?.fileStatus === 'complete';
+    if (!imported || !fileComplete) return true;
+    // 导入状态 OK 但是某店铺缺数据也算异常
+    for (const store of platform.stores) {
+      const entry = platform.grid[date]?.[store];
+      if (entry && entry.status !== 'complete') return true;
+    }
+    return false;
+  };
+  const issueCount = platform.dates.filter(isIssueDate).length;
 
   // Build columns: first col = date, then DB status, then one col per store
   const columns = [
@@ -223,7 +241,9 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSyn
     })),
   ];
 
-  const dataSource = platform.dates.map(date => ({ key: date, date }));
+  const dataSource = platform.dates
+    .filter(date => dateFilter === 'all' || isIssueDate(date))
+    .map(date => ({ key: date, date }));
 
   // Compute per-store completeness for summary row
   const storeCompleteness = platform.stores.map(store => {
@@ -249,20 +269,48 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSyn
         </Text>
       </div>
 
-      {/* Per-store completeness badges */}
-      <Space wrap style={{ marginBottom: 12 }}>
-        {platform.stores.map((store, idx) => {
-          const pct = storeCompleteness[idx];
-          if (pct === null) return null;
-          const color = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444';
-          return (
-            <div key={store} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 8px' }}>
-              <span style={{ fontSize: 12, color: '#475569', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store}</span>
-              <span style={{ fontSize: 12, fontWeight: 600, color }}>{pct}%</span>
-            </div>
-          );
-        })}
-      </Space>
+      {/* Per-store completeness badges + 状态筛选 */}
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <Space wrap style={{ flex: 1 }}>
+          {platform.stores.map((store, idx) => {
+            const pct = storeCompleteness[idx];
+            if (pct === null) return null;
+            const color = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444';
+            return (
+              <div key={store} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 8px' }}>
+                <span style={{ fontSize: 12, color: '#475569', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color }}>{pct}%</span>
+              </div>
+            );
+          })}
+        </Space>
+        <Radio.Group
+          value={dateFilter}
+          onChange={e => setDateFilter(e.target.value)}
+          size="small"
+          optionType="button"
+          buttonStyle="solid"
+        >
+          <Radio.Button value="all">全部 ({platform.dates.length})</Radio.Button>
+          <Radio.Button value="issues">只看异常 ({issueCount})</Radio.Button>
+        </Radio.Group>
+        {selectedDates.length > 0 && (
+          <Space>
+            <Button
+              type="primary"
+              size="small"
+              icon={<SyncOutlined />}
+              onClick={() => {
+                onBatchSync(platform.name, selectedDates);
+                setSelectedDates([]);
+              }}
+            >
+              批量同步 ({selectedDates.length})
+            </Button>
+            <Button size="small" onClick={() => setSelectedDates([])}>取消选择</Button>
+          </Space>
+        )}
+      </div>
 
       {/* Date grid table */}
       <Table
@@ -272,7 +320,17 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSyn
         size="small"
         pagination={false}
         scroll={{ x: Math.max(500, 220 + platform.stores.length * 100), y: 520 }}
+        virtual
         bordered
+        rowSelection={{
+          selectedRowKeys: selectedDates,
+          onChange: keys => setSelectedDates(keys as string[]),
+          getCheckboxProps: (row: any) => ({
+            disabled: syncingDates?.includes(row.date) ?? false,
+          }),
+          columnWidth: 40,
+          fixed: true,
+        }}
       />
 
       {/* Detail drawer */}
@@ -341,10 +399,6 @@ const Legend: React.FC = () => (
 
 // ─── Transform backend response into PlatformData ────────────────────────────
 
-// 后端返回 Z 盘所有日期目录 (有 100+ 天 × 11 平台 = 1100+ 行, 渲染慢)
-// 前端只保留最近 N 天 (业务一般看最近 1-2 个月)
-const MAX_DAYS_VISIBLE = 60;
-
 function transformData(raw: any): ScanResult {
   const platforms: PlatformData[] = (raw.platforms || []).map((p: any) => {
     const storeSet = new Set<string>();
@@ -352,10 +406,7 @@ function transformData(raw: any): ScanResult {
     const grid: Record<string, Record<string, DateStoreEntry>> = {};
     const dateMeta: Record<string, DateMeta> = {};
 
-    // 后端按日期降序返回, 前 N 个就是最近 N 天
-    const sourceDates = (p.dates || []).slice(0, MAX_DAYS_VISIBLE);
-
-    for (const d of sourceDates) {
+    for (const d of (p.dates || [])) {
       const dateKey = d.formatted_date || d.date;
       dates.push(dateKey);
       grid[dateKey] = {};
@@ -573,6 +624,37 @@ const RPAMonitor: React.FC = () => {
     fetchActiveTasks();
   }, [fetchActiveTasks]);
 
+  // 批量同步: 循环调 trigger 接口, 不弹 Modal, 完成后 toast + 自动展开 Drawer
+  const handleBatchSync = useCallback(async (platform: string, dates: string[]) => {
+    if (dates.length === 0) return;
+    message.loading({ content: `正在批量触发 ${platform} ${dates.length} 个日期...`, key: 'batch-sync', duration: 0 });
+    let ok = 0, fail = 0;
+    for (const date of dates) {
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/rpa/trigger`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform, date }),
+        });
+        const j = await res.json();
+        if (j.code === 200) ok++; else fail++;
+      } catch {
+        fail++;
+      }
+      // 200ms 间隔, 避免压满 BI 后端
+      await new Promise(r => setTimeout(r, 200));
+    }
+    message.destroy('batch-sync');
+    if (fail === 0) {
+      message.success(`已触发 ${platform} ${ok} 个日期, 在后台排队跑, 跑完发钉钉`);
+    } else {
+      message.warning(`成功 ${ok} 个, 失败 ${fail} 个`);
+    }
+    fetchActiveTasks();
+    setTaskDrawerOpen(true); // 自动展开 Drawer 看进度
+  }, [fetchActiveTasks]);
+
   // 从 Drawer 点某个 active task → 重新打开 Modal 看进度
   const handleResumeTask = useCallback((task: ActiveTask) => {
     setActiveSync({
@@ -725,6 +807,7 @@ const RPAMonitor: React.FC = () => {
         platform={p}
         onImport={startImport}
         onSync={handleSync}
+        onBatchSync={handleBatchSync}
         syncingDates={activeTasks.filter(t => t.platform === p.name).map(t => t.run_date)}
       />
     ),
