@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Popover, Radio, Space, Spin, Switch, Table, Tabs, Tag, Tooltip } from 'antd';
+import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Popover, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import * as XLSX from 'xlsx-js-style';
 import { API_BASE } from '../../config';
-import SalesForecastBacktest from './SalesForecastBacktest';
 import Chart from '../../components/Chart';
 
 // 组件级缓存 — 跨多次 hover 共享, 避免重复 fetch 同一 SKU
@@ -105,9 +104,12 @@ interface ForecastItem {
 const SalesForecast: React.FC = () => {
   const defaultYM = dayjs().add(1, 'month');
   const [ym, setYm] = useState<Dayjs>(defaultYM);
-  const [algo, setAlgo] = useState<'auto' | 'builtin' | 'statsforecast' | 'yoy_v2'>('auto');
-  const [effectiveAlgo, setEffectiveAlgo] = useState('');
-  const [effectiveReason, setEffectiveReason] = useState('');
+  // v1.66 起删除算法切换 (algo/effectiveAlgo/effectiveReason), 只保留一个智能算法
+  const [forecastSummary, setForecastSummary] = useState<{
+    formulaText?: string; alpha?: number; beta?: number; gamma?: number;
+    holidayFactor?: number; holidayContext?: string;
+  } | null>(null);
+  const [regionTrend, setRegionTrend] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regions, setRegions] = useState<string[]>([]);
@@ -123,7 +125,7 @@ const SalesForecast: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/offline/sales-forecast?ym=${ymStr}&range=recent6m&algo=${algo}`, {
+      const res = await fetch(`${API_BASE}/api/offline/sales-forecast?ym=${ymStr}&range=recent6m`, {
         credentials: 'include',
       });
       const json = await res.json();
@@ -134,8 +136,8 @@ const SalesForecast: React.FC = () => {
       const data = json.data || {};
       setRegions(data.regions || []);
       setHolidayContext(data.holiday_context || '');
-      setEffectiveAlgo(data.effective_algo || '');
-      setEffectiveReason(data.effective_reason || '');
+      setForecastSummary(data.forecast_summary || null);
+      setRegionTrend(data.region_trend || {});
       const list: ForecastItem[] = data.items || [];
       setItems(list);
       // 切换算法时 cell 跟随算法 suggestions 实时变化, 没 suggestion 才 fallback 到数据库 forecasts
@@ -154,7 +156,7 @@ const SalesForecast: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [ymStr, algo]);
+  }, [ymStr]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -429,17 +431,23 @@ const SalesForecast: React.FC = () => {
           const recentAvg = row.recent_season_avg ?? 1;
           // Cell 直接显示算法预测值 (没手填时用 suggest, 手填后用 userVal)
           const displayValue = userVal ?? (suggest && suggest > 0 ? suggest : null);
-          const tooltipTitle =
-            algo === 'builtin' && base && base > 0 && suggest
-              ? (
-                <div>
-                  <div>近3月均 {base.toFixed(1)} 件</div>
-                  <div>÷ 近3月季节系数均 {recentAvg.toFixed(2)}</div>
-                  <div>× {predictMonthLabel}系数 {factor.toFixed(2)}</div>
-                  <div>≈ 建议 {suggest} 件</div>
-                </div>
-              )
-              : null;
+          const trend = regionTrend[region];
+          const tooltipTitle = base && base > 0 && suggest ? (
+            <div style={{ lineHeight: 1.7 }}>
+              <div>近3月均 {base.toFixed(1)} 件</div>
+              <div>÷ 近3月季节系数均 {recentAvg.toFixed(2)}</div>
+              <div>× {predictMonthLabel}系数 {factor.toFixed(2)}</div>
+              {forecastSummary?.holidayFactor && forecastSummary.holidayFactor !== 1 && (
+                <div>× 节假日因子 {forecastSummary.holidayFactor.toFixed(2)} ({forecastSummary.holidayContext})</div>
+              )}
+              {trend && trend !== 1 && (
+                <div>× {region}近12月趋势 {trend.toFixed(2)} ({trend > 1 ? '上升' : '下降'})</div>
+              )}
+              <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid #475569' }}>
+                ≈ 建议 <b>{suggest}</b> 件
+              </div>
+            </div>
+          ) : null;
           const input = (
             <InputNumber
               value={displayValue}
@@ -511,21 +519,30 @@ const SalesForecast: React.FC = () => {
       showIcon
       closable
       style={{ marginBottom: 12 }}
-      message="销量预测算法说明"
+      message="销量预测·智能算法说明 (v1.66 起单一算法)"
       description={
         <div style={{ lineHeight: 1.8 }}>
-          <div><b>内置公式 (五层叠加)</b>:近3月均 ÷ 近3月季节系数均 × 预测月季节系数 × 大区同比 × 大区环比</div>
+          <div><b>核心公式</b>: 预测 = (α × 近3月均 + β × 同比 + γ × 环比) × 季节系数 × 节假日因子 × 大区12月趋势</div>
+          <div style={{marginTop:6}}><b>权重按月份动态调整 (节假日驱动)</b>:</div>
           <ol style={{ marginTop: 4, marginBottom: 8, paddingLeft: 20 }}>
-            <li><b>季节系数</b> — 24 月历史推 12 月份系数 (&gt;1 旺/&lt;1 淡)</li>
-            <li><b>春节滑动修正</b> — 1/2 月按春节落点同月年份对齐</li>
-            <li><b>客观度判定</b> — 单 SKU 2 年波动 &gt;30% 视为污染, 用品类中位数替代</li>
-            <li><b>大区同比</b> — 近 3 月 ÷ 去年同期 (clamp ±30%)</li>
-            <li><b>大区环比</b> — 近 1 月 ÷ 近 3 月均 (clamp ±8%, 春节季自动跳过)</li>
+            <li><b>1月 (春节备货)</b> — α=20% / β=70% / γ=10%, 主用同比</li>
+            <li><b>2月 (春节假期)</b> — α=10% / β=80% / γ=10%, 主用同比</li>
+            <li><b>3-5月 (春节后)</b> — α=60% / β=30% / γ=10%, 主用近3月均</li>
+            <li><b>6月 (618)</b> — α=40% / β=50% / γ=10%, 节假日因子 ×1.05</li>
+            <li><b>7-8月 (平淡期)</b> — α=70% / β=20% / γ=10%, 主用近3月均</li>
+            <li><b>9-10月 (中秋国庆)</b> — α=40% / β=50% / γ=10%, 节假日因子 ×1.05</li>
+            <li><b>11月 (双11)</b> — α=30% / β=60% / γ=10%, 节假日因子 ×1.10</li>
+            <li><b>12月 (年终)</b> — α=50% / β=40% / γ=10%</li>
           </ol>
-          <div><b>统计集成 (StatsForecast, Nixtla 开源)</b>:经典统计模型集成 = AutoARIMA + AutoETS + AutoTheta 三模型预测均值. M4 / M5 销量比赛冠军级方案, 月级训练. <span style={{color:'#16a34a'}}>汇总误差 -0.7%</span>.</div>
-          <div><b>去年同期 (yoy_v2)</b>:取去年同月销量当本月预测. 业务手算同比验证, 春节月最稳 (1 月误差 28% / 2 月误差 11%, 比所有 ML 算法都低). <span style={{color:'#16a34a'}}>汇总误差 +1.6%</span>.</div>
-          <div><b>智能路由 (默认)</b>: <span style={{color:'#16a34a'}}>数据驱动</span> — 优先看同月份历史 MAPE, 退而看全部历史平均, 都没数据兜底按月份硬编码 (1/2 月走"去年同期"春节先验, 其他月走"统计集成"). 鼠标 hover "本月走 XX" Tag 可看选择理由.</div>
-          <div style={{marginTop:4,color:'#64748b'}}>v1.65 起删除 Prophet/lightgbm/last_month/旧 yoy 共 4 个高误差算法 (回测 MAPE &gt; 50%). 4 种算法切换时表格数字实时变化, SKU 间相对比例保留, 大区合计对齐该算法预测.</div>
+          <div><b>4 个数据来源</b>:</div>
+          <ol style={{ marginTop: 4, marginBottom: 8, paddingLeft: 20 }}>
+            <li><b>近3月均</b> — 上月+前月+大前月销量平均, 短期趋势锚</li>
+            <li><b>同比</b> — 去年同月销量, 春节月最稳</li>
+            <li><b>环比</b> — 上月销量, 短期趋势校验</li>
+            <li><b>节假日因子</b> — 618/双11/中秋国庆 适当上调</li>
+          </ol>
+          <div><b>大区12月趋势调整</b> — 每个大区拉近12月销量做线性回归,持续上升 ×1.05 / 持续下降 ×0.95 / 平稳 ×1.00.</div>
+          <div style={{marginTop:4,color:'#64748b'}}>顶部"本月公式"Tag hover 可看具体权重和趋势调整明细. 鼠标移到表格 cell 也能看每个 SKU × 大区的完整计算链路.</div>
         </div>
       }
     />
@@ -541,24 +558,24 @@ const SalesForecast: React.FC = () => {
             format="YYYY-MM"
           />
           {holidayContext && <Tag color="gold">含 {holidayContext} 假期</Tag>}
-          <Radio.Group value={algo} onChange={e => setAlgo(e.target.value)}>
-            <Tooltip title="看历史回测 MAPE 自动选最准算法">
-              <Radio.Button value="auto">智能路由</Radio.Button>
-            </Tooltip>
-            <Tooltip title="近 3 月均 ÷ 季节系数 × 大区同比 × 大区环比">
-              <Radio.Button value="builtin">内置公式</Radio.Button>
-            </Tooltip>
-            <Tooltip title="Nixtla 三模型集成 — AutoARIMA + AutoETS + AutoTheta 的均值">
-              <Radio.Button value="statsforecast">统计集成 (StatsForecast)</Radio.Button>
-            </Tooltip>
-            <Tooltip title="去年同期销量直接当本月预测 (春节月推荐, 业务手算同比)">
-              <Radio.Button value="yoy_v2">去年同期</Radio.Button>
-            </Tooltip>
-          </Radio.Group>
-          {algo === 'auto' && effectiveAlgo && (
-            <Tooltip title={effectiveReason || '智能路由根据历史回测 MAPE 选最准的算法'}>
+          {forecastSummary?.formulaText && (
+            <Tooltip title={
+              <div style={{ lineHeight: 1.7 }}>
+                <div><b>本月预测公式</b></div>
+                <div>{forecastSummary.formulaText}</div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#cbd5e1' }}>
+                  α (近3月均) = {((forecastSummary.alpha || 0) * 100).toFixed(0)}%<br />
+                  β (同比)    = {((forecastSummary.beta || 0) * 100).toFixed(0)}%<br />
+                  γ (环比)    = {((forecastSummary.gamma || 0) * 100).toFixed(0)}%<br />
+                  节假日因子   = ×{(forecastSummary.holidayFactor || 1).toFixed(2)}
+                </div>
+                <div style={{ marginTop: 4, fontSize: 12, color: '#cbd5e1' }}>
+                  另外按各大区近12月趋势 ×1.05 / ×0.95 / ×1.00 调整
+                </div>
+              </div>
+            }>
               <Tag color="purple" style={{ cursor: 'help' }}>
-                本月走 {effectiveAlgo === 'statsforecast' ? '统计集成' : effectiveAlgo === 'yoy_v2' ? '去年同期' : effectiveAlgo}
+                本月公式: {forecastSummary.formulaText}
               </Tag>
             </Tooltip>
           )}
@@ -612,15 +629,8 @@ const SalesForecast: React.FC = () => {
     </>
   );
 
-  return (
-    <Tabs
-      defaultActiveKey="forecast"
-      items={[
-        { key: 'forecast', label: '销量预测', children: forecastTabContent },
-        { key: 'backtest', label: '历史回测', children: <SalesForecastBacktest /> },
-      ]}
-    />
-  );
+  // v1.66 删除"历史回测" Tab (回测体系下线, 改成 1 个智能算法)
+  return forecastTabContent;
 };
 
 export default SalesForecast;
