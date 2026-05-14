@@ -1,12 +1,14 @@
 // forecast-baseline-backtest
-// 给销量预测做 4 个 baseline 算法的回测, 入库 offline_sales_forecast_backtest
+// 给销量预测做 baseline 算法的回测, 入库 offline_sales_forecast_backtest
 // 用法: ./forecast-baseline-backtest --months=2026-01,2026-02,2026-03,2026-04
 //
-// 4 个 baseline 算法 (大区合计维度, 与 Prophet/StatsForecast 口径一致):
-//   1. last_month — 上月销量直接当预测 (最朴素)
-//   2. yoy        — 去年同月销量当预测
-//   3. avg3m      — 近 3 个月均值
-//   4. wma3       — 0.5×y[t-1] + 0.3×y[t-2] + 0.2×y[t-3] 加权移动平均
+// 当前 3 个 baseline 算法 (大区合计维度, 与 StatsForecast 口径一致):
+//   1. avg3m  — 近 3 个月均值
+//   2. wma3   — 0.5×y[t-1] + 0.3×y[t-2] + 0.2×y[t-3] 加权移动平均
+//   3. yoy_v2 — 去年同月销量当预测 (业务"手算同比", 春节月推荐用)
+//
+// v1.65.0 起删除: last_month / yoy / lightgbm (回测平均误差 > 50%)
+// v1.65.0 新增: yoy_v2 (跑哥"手算同比"主推算法, 1-2 月智能路由默认走它)
 package main
 
 import (
@@ -22,7 +24,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// 与 Prophet / StatsForecast 脚本口径完全一致
+// 与 StatsForecast 脚本口径完全一致
 const regionMapSQL = `CASE
 	WHEN shop_name LIKE '%华东大区%' THEN '华东大区'
 	WHEN shop_name LIKE '%华北大区%' THEN '华北大区'
@@ -39,7 +41,6 @@ const cateFilter = "cate_name IN ('调味料','酱油','调味汁','干制面','
 
 var regions = []string{"华北大区", "华东大区", "华中大区", "华南大区", "西南大区", "西北大区", "东北大区", "山东大区", "重客"}
 
-// fetchMonthlyByRegion 拉指定月份每大区销量
 func fetchMonthlyByRegion(db *sql.DB, ym string) (map[string]float64, error) {
 	t, err := time.Parse("2006-01", ym)
 	if err != nil {
@@ -67,13 +68,11 @@ func fetchMonthlyByRegion(db *sql.DB, ym string) (map[string]float64, error) {
 	return out, nil
 }
 
-// shiftMonth 把 "2026-03" 偏移 n 个月, 返回 "YYYY-MM"
 func shiftMonth(ym string, delta int) string {
 	t, _ := time.Parse("2006-01", ym)
 	return t.AddDate(0, delta, 0).Format("2006-01")
 }
 
-// upsertBacktest 写入回测表
 func upsertBacktest(db *sql.DB, algo, ym, trainEnd, region string, fc, actual float64) error {
 	if actual == 0 {
 		return nil
@@ -95,25 +94,19 @@ func upsertBacktest(db *sql.DB, algo, ym, trainEnd, region string, fc, actual fl
 	return err
 }
 
-// computeBaselinesForMonth 对单一回测月份算 4 个 baseline 值并入库
 func computeBaselinesForMonth(db *sql.DB, ym string) error {
-	// 训练截至 = 该月 1 号 - 1 天
 	t, _ := time.Parse("2006-01", ym)
 	trainEnd := t.AddDate(0, 0, -1).Format("2006-01-02")
 
-	// 实际销量
 	actual, err := fetchMonthlyByRegion(db, ym)
 	if err != nil {
 		return err
 	}
 
-	// 准备 baseline 用的历史月数据
-	// last_month: y[ym-1]
 	prev1, err := fetchMonthlyByRegion(db, shiftMonth(ym, -1))
 	if err != nil {
 		return err
 	}
-	// avg3m: y[ym-1..ym-3]
 	prev2, err := fetchMonthlyByRegion(db, shiftMonth(ym, -2))
 	if err != nil {
 		return err
@@ -122,7 +115,6 @@ func computeBaselinesForMonth(db *sql.DB, ym string) error {
 	if err != nil {
 		return err
 	}
-	// yoy: y[ym-12]
 	prevYear, err := fetchMonthlyByRegion(db, shiftMonth(ym, -12))
 	if err != nil {
 		return err
@@ -136,21 +128,7 @@ func computeBaselinesForMonth(db *sql.DB, ym string) error {
 			continue
 		}
 
-		// 1. last_month
-		lm := prev1[region]
-		if err := upsertBacktest(db, "last_month", ym, trainEnd, region, lm, a); err != nil {
-			log.Printf("[WARN] %s/%s/last_month: %v", ym, region, err)
-		}
-
-		// 2. yoy
-		yoy := prevYear[region]
-		if yoy > 0 {
-			if err := upsertBacktest(db, "yoy", ym, trainEnd, region, yoy, a); err != nil {
-				log.Printf("[WARN] %s/%s/yoy: %v", ym, region, err)
-			}
-		}
-
-		// 3. avg3m
+		// avg3m: y[ym-1..ym-3] 算术平均, 缺失月不计入
 		p1, p2, p3 := prev1[region], prev2[region], prev3[region]
 		var avg3 float64
 		var cnt int
@@ -167,10 +145,9 @@ func computeBaselinesForMonth(db *sql.DB, ym string) error {
 			}
 		}
 
-		// 4. wma3 — 加权移动平均, 越近权重越大
+		// wma3: 0.5×y[t-1] + 0.3×y[t-2] + 0.2×y[t-3], 缺失月权重归一化
 		if p1 > 0 || p2 > 0 || p3 > 0 {
 			wma := 0.5*p1 + 0.3*p2 + 0.2*p3
-			// 权重归一化处理 (如果某月缺失, 补 0 会偏低)
 			totalW := 0.0
 			if p1 > 0 {
 				totalW += 0.5
@@ -189,14 +166,21 @@ func computeBaselinesForMonth(db *sql.DB, ym string) error {
 			}
 		}
 
-		fmt.Printf("  %s: last=%6.0f yoy=%6.0f avg3=%6.0f wma3=%6.0f | actual=%6.0f\n",
-			region, lm, yoy, avg3, 0.5*p1+0.3*p2+0.2*p3, a)
+		// yoy_v2: 去年同月销量当预测 (跑哥"手算同比" 主推, 春节月最稳)
+		yoy := prevYear[region]
+		if yoy > 0 {
+			if err := upsertBacktest(db, "yoy_v2", ym, trainEnd, region, yoy, a); err != nil {
+				log.Printf("[WARN] %s/%s/yoy_v2: %v", ym, region, err)
+			}
+		}
+
+		fmt.Printf("  %s: avg3=%6.0f wma3=%6.0f yoy_v2=%6.0f | actual=%6.0f\n",
+			region, avg3, 0.5*p1+0.3*p2+0.2*p3, yoy, a)
 	}
 	return nil
 }
 
 func main() {
-	// 默认上月 (例: 2026-05-13 跑 → 2026-04)
 	defaultLast := time.Now().AddDate(0, -1, 0).Format("2006-01")
 	monthsArg := flag.String("months", defaultLast, "逗号分隔的回测月份, 默认上月")
 	flag.Parse()
@@ -218,5 +202,5 @@ func main() {
 			log.Printf("[ERROR] %s: %v", ym, err)
 		}
 	}
-	fmt.Println("\n[OK] baseline 回测已 UPSERT 入 offline_sales_forecast_backtest (algo=last_month/yoy/avg3m/wma3)")
+	fmt.Println("\n[OK] baseline 回测已 UPSERT 入 offline_sales_forecast_backtest (algo=avg3m/wma3/yoy_v2)")
 }
