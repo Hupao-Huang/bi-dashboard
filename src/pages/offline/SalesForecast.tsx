@@ -522,10 +522,10 @@ const SalesForecast: React.FC = () => {
             <li><b>大区同比</b> — 近 3 月 ÷ 去年同期 (clamp ±30%)</li>
             <li><b>大区环比</b> — 近 1 月 ÷ 近 3 月均 (clamp ±8%, 春节季自动跳过)</li>
           </ol>
-          <div><b>贝叶斯时序 (Prophet, Facebook 开源)</b>:贝叶斯加性模型,公式 = 趋势 + 季节性 + 节假日效应 + 残差.内置中国春节假期模型(±30 天囤货 + 假期断崖),日级训练. <span style={{color:'#dc2626'}}>当前回测表现差 (MAPE 99%)</span>.</div>
-          <div><b>统计集成 (StatsForecast, Nixtla 开源)</b>:经典统计模型集成 = AutoARIMA + AutoETS + AutoTheta 三模型预测均值. M4 / M5 销量比赛冠军级方案, 月级训练. <span style={{color:'#16a34a'}}>当前回测 MAPE 37.7%</span>.</div>
-          <div><b>智能路由 (默认)</b>: <span style={{color:'#16a34a'}}>数据驱动</span> — 优先看同月份历史 MAPE, 退而看全部历史平均 MAPE, 都没数据兜底按月份硬编码. 鼠标 hover "本月走 XX" Tag 可看选择理由.</div>
-          <div style={{marginTop:4,color:'#64748b'}}>4 种算法切换时表格数字实时变化,SKU 间相对比例保留,大区合计对齐该算法预测.</div>
+          <div><b>统计集成 (StatsForecast, Nixtla 开源)</b>:经典统计模型集成 = AutoARIMA + AutoETS + AutoTheta 三模型预测均值. M4 / M5 销量比赛冠军级方案, 月级训练. <span style={{color:'#16a34a'}}>汇总误差 -0.7%</span>.</div>
+          <div><b>去年同期 (yoy_v2)</b>:取去年同月销量当本月预测. 业务手算同比验证, 春节月最稳 (1 月误差 28% / 2 月误差 11%, 比所有 ML 算法都低). <span style={{color:'#16a34a'}}>汇总误差 +1.6%</span>.</div>
+          <div><b>智能路由 (默认)</b>: <span style={{color:'#16a34a'}}>数据驱动</span> — 优先看同月份历史 MAPE, 退而看全部历史平均, 都没数据兜底按月份硬编码 (1/2 月走"去年同期"春节先验, 其他月走"统计集成"). 鼠标 hover "本月走 XX" Tag 可看选择理由.</div>
+          <div style={{marginTop:4,color:'#64748b'}}>v1.65 起删除 Prophet/lightgbm/last_month/旧 yoy 共 4 个高误差算法 (回测 MAPE &gt; 50%). 4 种算法切换时表格数字实时变化, SKU 间相对比例保留, 大区合计对齐该算法预测.</div>
         </div>
       }
     />
