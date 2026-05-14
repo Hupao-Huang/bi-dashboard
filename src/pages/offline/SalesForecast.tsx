@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Popover, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd';
+import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Popover, Space, Spin, Switch, Table, Tabs, Tag, Tooltip } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import * as XLSX from 'xlsx-js-style';
@@ -627,13 +627,19 @@ const SalesForecast: React.FC = () => {
         )}
       </Spin>
     </Card>
-    {/* v1.66.2 加回测对比卡片 - 业务直观看到当前算法准确度 */}
-    <ForecastBacktestCard />
     </>
   );
 
-  // v1.66 删除"历史回测" Tab (回测体系下线, 改成 1 个智能算法)
-  return forecastTabContent;
+  // v1.66.3 算法回测改成独立 Tab (跟销量预测并列)
+  return (
+    <Tabs
+      defaultActiveKey="forecast"
+      items={[
+        { key: 'forecast', label: '销量预测', children: forecastTabContent },
+        { key: 'backtest', label: '算法回测', children: <ForecastBacktestCard /> },
+      ]}
+    />
+  );
 };
 
 export default SalesForecast;
