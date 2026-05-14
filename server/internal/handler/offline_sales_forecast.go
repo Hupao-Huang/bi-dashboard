@@ -450,57 +450,10 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	if rangeMode == "" {
 		rangeMode = "recent6m"
 	}
-	algo := r.URL.Query().Get("algo") // "" (= auto) / builtin / statsforecast / yoy_v2 / auto
-	if algo == "" {
-		algo = "auto"
-	}
-	// v1.65 智能路由 — 数据驱动: 看历史回测 MAPE, 选最准的算法
-	// 候选: statsforecast / yoy_v2 (v1.65 删除 prophet/yoy/last_month/lightgbm 因为误差 > 50%)
-	// fallback: 没回测数据 → 按月份硬编码 (1/2 月 yoy_v2 春节先验, 其他 SF)
-	autoReason := ""
-	if algo == "auto" {
-		algo, autoReason = chooseAutoAlgo(h.DB, ym)
-	}
-
+	// v1.66 起销量预测只保留一个智能算法
+	// 4 因素融合: 近3月均 + 同比 + 环比 + 季节性 + 节假日因子 + 趋势调整
+	// 见 offline_sales_forecast_smart.go: monthFactorsTable / computeTrendAdjustment
 	cateCond, cateArgs := offlineForecastCateCond()
-
-	// 如果选 statsforecast / yoy_v2 算法, 拉大区合计预测/历史做大区增长锚点
-	// statsforecast 用预跑的模型结果, yoy_v2 用去年同月真实销量 (实时算)
-	mlRegionQty := map[string]float64{}
-	if algo == "statsforecast" {
-		sfRows, sfErr := h.DB.Query(`SELECT region, forecast_qty FROM offline_sales_forecast_statsforecast WHERE ym = ?`, ym)
-		if sfErr == nil {
-			for sfRows.Next() {
-				var rg string
-				var q int
-				if scanErr := sfRows.Scan(&rg, &q); scanErr == nil {
-					mlRegionQty[rg] = float64(q)
-				}
-			}
-			sfRows.Close()
-		}
-	} else if algo == "yoy_v2" {
-		// 去年同月: ym 减 12 个月, 取该月每大区合计销量
-		ymTime, _ := time.Parse("2006-01", ym)
-		pyStart := ymTime.AddDate(-1, 0, 0).Format("2006-01-02")
-		pyEnd := ymTime.AddDate(-1, 1, 0).Format("2006-01-02")
-		yoyArgs := append([]interface{}{pyStart, pyEnd}, cateArgs...)
-		yoyRows, yoyErr := h.DB.Query(`SELECT `+offlineForecastRegionExpr+` AS region, SUM(goods_qty) AS qty
-			FROM sales_goods_summary
-			WHERE department='offline' AND stat_date >= ? AND stat_date < ?
-			  AND `+offlineForecastRegionExpr+` IS NOT NULL`+cateCond+`
-			GROUP BY region`, yoyArgs...)
-		if yoyErr == nil {
-			for yoyRows.Next() {
-				var rg string
-				var q float64
-				if scanErr := yoyRows.Scan(&rg, &q); scanErr == nil {
-					mlRegionQty[rg] = q
-				}
-			}
-			yoyRows.Close()
-		}
-	}
 
 	// 0. 算 SKU × 月份(1-12) 季节指数 + 客观度标识 + 大区同比增长率
 	seasIdx, replaced, err := computeOfflineSeasonalIndex(h.DB, ym)
@@ -582,7 +535,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		if adjusted < 0 {
 			adjusted = 0
 		}
-		// 此处先按内置算法记 raw, 后面如果 algo=statsforecast/yoy_v2 会按大区合计校准
+		// 此处先按内置 5 因素算法记 raw, 后面统一应用节假日因子 + 趋势调整
 		suggestions[cellKey{sku, region}] = int(math.Round(adjusted))
 
 		if goodsName.Valid && skuMeta[sku] == "" {
@@ -594,19 +547,20 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 算法 (StatsForecast / YoY_v2): 按大区合计校准, 保留 SKU 间相对比例
-	if (algo == "statsforecast" || algo == "yoy_v2") && len(mlRegionQty) > 0 {
-		regionRawSum := map[string]int{}
-		for k, v := range suggestions {
-			regionRawSum[k.region] += v
+	// v1.66 节假日因子 + 趋势调整 (按大区算近12月趋势)
+	// 1. 节假日因子: 按预测月份固定 (1月春节备货 / 11月双11 等)
+	monthFactor := monthFactorsTable(predictMonth)
+	// 2. 大区近12月趋势 (按月销量做线性回归, 上升/下降/平稳)
+	regionTrend, _ := computeOfflineRegionTrend(h.DB, ym)
+	for k, v := range suggestions {
+		final := float64(v) * monthFactor.HolidayFactor
+		if t, has := regionTrend[k.region]; has {
+			final *= t
 		}
-		for k, v := range suggestions {
-			rawSum := regionRawSum[k.region]
-			ml, has := mlRegionQty[k.region]
-			if rawSum > 0 && has && ml > 0 {
-				suggestions[k] = int(math.Round(float64(v) * ml / float64(rawSum)))
-			}
+		if final < 0 {
+			final = 0
 		}
+		suggestions[k] = int(math.Round(final))
 	}
 
 	// 2. SKU 全集 — 近 6 个月销过的 SKU(默认),或全部 SKU
@@ -768,6 +722,13 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		momOut[r] = math.Round(v*100) / 100
 	}
 
+	// v1.66 智能算法本月公式说明 (前端顶部 Tag hover 展示)
+	summary := smartForecastSummary(predictMonth)
+	regionTrendOut := map[string]float64{}
+	for r, t := range regionTrend {
+		regionTrendOut[r] = math.Round(t*1000) / 1000
+	}
+
 	writeJSON(w, map[string]interface{}{
 		"ym":               ym,
 		"regions":          offlineForecastRegions,
@@ -775,8 +736,8 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		"holiday_context":  holiday,
 		"region_growth":    growthOut,
 		"region_mom":       momOut,
-		"effective_algo":   algo,        // 智能模式下实际使用的算法
-		"effective_reason": autoReason,  // v1.63 智能路由的选择理由 (空表示非智能模式)
+		"forecast_summary": summary,        // v1.66 本月用了什么权重 + 节假日因子
+		"region_trend":     regionTrendOut, // v1.66 各大区近12月趋势调整因子 (1.05/0.95/1.0)
 	})
 }
 
@@ -924,191 +885,43 @@ func (h *DashboardHandler) GetOfflineSalesForecastSKUTrend(w http.ResponseWriter
 	})
 }
 
-// chooseAutoAlgo v1.65 智能路由 — 数据驱动版
-// 根据 offline_sales_forecast_backtest 表的历史 MAPE 选最准的算法
-// 候选: statsforecast / yoy_v2 (v1.65 删除 prophet/yoy/last_month/lightgbm 因为误差 > 50%)
-// 策略:
-//   1. 优先看预测月份对应的"同月份"历史 MAPE (例: 预测 2026-05 → 看历史所有 5 月的 MAPE)
-//   2. 同月份样本不够 (<2 算法) → 退回看全部历史 MAPE
-//   3. 全部历史也没数据 → fallback 按月份硬编码 (1/2 月 yoy_v2 同比, 其他 SF)
-func chooseAutoAlgo(db *sql.DB, ym string) (algo string, reason string) {
-	type cand struct {
-		algo    string
-		mape    float64
-		samples int
-	}
-
-	queryMape := func(sql string, args ...interface{}) []cand {
-		rows, err := db.Query(sql, args...)
-		if err != nil {
-			return nil
-		}
-		defer rows.Close()
-		var out []cand
-		for rows.Next() {
-			var c cand
-			if err := rows.Scan(&c.algo, &c.mape, &c.samples); err == nil {
-				out = append(out, c)
-			}
-		}
-		return out
-	}
-
-	// 1) 先看预测月份对应的"同月份"历史 (例: 预测 5 月 → 看历史所有 5 月)
-	t, terr := time.Parse("2006-01", ym)
-	if terr == nil {
-		mm := fmt.Sprintf("%02d", int(t.Month()))
-		sameMonthCands := queryMape(`
-			SELECT algo, AVG(abs_err_pct) AS mape, COUNT(*) AS samples
-			FROM offline_sales_forecast_backtest
-			WHERE algo IN ('statsforecast','yoy_v2')
-			  AND SUBSTRING(ym, 6, 2) = ?
-			GROUP BY algo
-			ORDER BY mape ASC`, mm)
-		if len(sameMonthCands) >= 2 {
-			best := sameMonthCands[0]
-			return best.algo, fmt.Sprintf("基于历史同月 (%s 月) MAPE 选: %s 最准 (MAPE %.1f%%, %d 条样本)",
-				mm, algoLabelCN(best.algo), best.mape, best.samples)
-		}
-	}
-
-	// 2) 看全部历史 MAPE
-	allCands := queryMape(`
-		SELECT algo, AVG(abs_err_pct) AS mape, COUNT(*) AS samples
-		FROM offline_sales_forecast_backtest
-		WHERE algo IN ('statsforecast','yoy_v2')
-		GROUP BY algo
-		ORDER BY mape ASC`)
-	if len(allCands) >= 2 {
-		best := allCands[0]
-		return best.algo, fmt.Sprintf("基于全部历史回测 MAPE 选: %s 最准 (MAPE %.1f%%, %d 条样本)",
-			algoLabelCN(best.algo), best.mape, best.samples)
-	}
-
-	// 3) Fallback: 没回测数据 → 按月份硬编码
-	// v1.65.0 起春节月默认走 yoy_v2 (跑哥手算同比验证最稳, 1-2 月误差 11-28%)
-	// 其他月走 statsforecast (3-12 月统计集成最准)
-	if terr == nil {
-		m := int(t.Month())
-		if m == 1 || m == 2 {
-			return "yoy_v2", "兜底规则: 1/2 月按春节先验走 去年同期 (业务手算同比验证最稳)"
-		}
-	}
-	return "statsforecast", "兜底规则: 默认 统计集成 (暂无回测数据可参考)"
-}
-
-func algoLabelCN(algo string) string {
-	m := map[string]string{
-		"statsforecast": "统计集成",
-		"builtin":       "内置公式",
-		"lightgbm_sku":  "梯度提升·SKU级",
-		"yoy_v2":        "去年同期",
-		"avg3m":         "近3月均",
-		"wma3":          "加权3月均",
-	}
-	if v, ok := m[algo]; ok {
-		return v
-	}
-	return algo
-}
-
-// GetOfflineSalesForecastBacktest GET /api/offline/sales-forecast/backtest
-// 返回销量预测算法回测结果 (按 月 × 算法 × 大区)
-// 数据来源: offline_sales_forecast_backtest 表 (由 forecast-baseline-backtest.exe 跑 avg3m/wma3/yoy_v2; lightgbm-train/statsforecast-train Python 脚本跑 ML)
-func (h *DashboardHandler) GetOfflineSalesForecastBacktest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, 405, "method not allowed")
-		return
-	}
-	rows, err := h.DB.Query(`SELECT ym, algo, region, forecast_qty, actual_qty,
-		IFNULL(err_pct, 0), IFNULL(abs_err_pct, 0),
-		IFNULL(DATE_FORMAT(train_end_date,'%Y-%m-%d'), ''),
-		DATE_FORMAT(run_at,'%Y-%m-%d %H:%i:%s')
-		FROM offline_sales_forecast_backtest
-		ORDER BY ym DESC, algo, region`)
+// computeOfflineRegionTrend v1.66 各大区近 12 月销量做线性回归, 返回趋势调整因子
+//   上升趋势 (>+5%/月) → 1.05
+//   下降趋势 (<-5%/月) → 0.95
+//   平稳            → 1.00
+func computeOfflineRegionTrend(db *sql.DB, ym string) (map[string]float64, error) {
+	t, err := time.Parse("2006-01", ym)
 	if err != nil {
-		writeServerError(w, 500, "查询回测结果失败", err)
-		return
+		return nil, err
+	}
+	startDate := t.AddDate(0, -12, 0).Format("2006-01-02")
+	endDate := t.Format("2006-01-02")
+	cateCond, cateArgs := offlineForecastCateCond()
+	args := append([]interface{}{startDate, endDate}, cateArgs...)
+	rows, err := db.Query(`SELECT DATE_FORMAT(stat_date, '%Y-%m') AS ym,
+			`+offlineForecastRegionExpr+` AS region,
+			SUM(goods_qty) AS qty
+		FROM sales_goods_summary
+		WHERE department='offline' AND stat_date >= ? AND stat_date < ?
+		  AND `+offlineForecastRegionExpr+` IS NOT NULL`+cateCond+`
+		GROUP BY DATE_FORMAT(stat_date, '%Y-%m'), region
+		ORDER BY region, ym`, args...)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
-
-	type backtestItem struct {
-		Ym           string  `json:"ym"`
-		Algo         string  `json:"algo"`
-		Region       string  `json:"region"`
-		ForecastQty  int     `json:"forecastQty"`
-		ActualQty    int     `json:"actualQty"`
-		ErrPct       float64 `json:"errPct"`
-		AbsErrPct    float64 `json:"absErrPct"`
-		TrainEndDate string  `json:"trainEndDate"`
-		RunAt        string  `json:"runAt"`
-	}
-	items := []backtestItem{}
+	regionHist := map[string][]float64{}
 	for rows.Next() {
-		var it backtestItem
-		if err := rows.Scan(&it.Ym, &it.Algo, &it.Region, &it.ForecastQty, &it.ActualQty,
-			&it.ErrPct, &it.AbsErrPct, &it.TrainEndDate, &it.RunAt); err != nil {
-			writeServerError(w, 500, "扫描失败", err)
-			return
+		var month, region string
+		var qty float64
+		if err := rows.Scan(&month, &region, &qty); err == nil {
+			regionHist[region] = append(regionHist[region], qty)
 		}
-		items = append(items, it)
 	}
-
-	// 按 月 × 算法 汇总 MAPE
-	type summaryKey struct{ ym, algo string }
-	type summaryAgg struct {
-		Forecast, Actual int
-		AbsErrSum        float64
-		Count            int
+	out := map[string]float64{}
+	for region, hist := range regionHist {
+		factor, _ := computeTrendAdjustment(hist)
+		out[region] = factor
 	}
-	summaryMap := map[summaryKey]*summaryAgg{}
-	for _, it := range items {
-		k := summaryKey{it.Ym, it.Algo}
-		if _, ok := summaryMap[k]; !ok {
-			summaryMap[k] = &summaryAgg{}
-		}
-		s := summaryMap[k]
-		s.Forecast += it.ForecastQty
-		s.Actual += it.ActualQty
-		s.AbsErrSum += it.AbsErrPct
-		s.Count++
-	}
-
-	type summaryItem struct {
-		Ym          string  `json:"ym"`
-		Algo        string  `json:"algo"`
-		ForecastQty int     `json:"forecastQty"`
-		ActualQty   int     `json:"actualQty"`
-		TotalErrPct float64 `json:"totalErrPct"` // 大区合计的相对误差
-		Mape        float64 `json:"mape"`        // 大区平均绝对误差% (MAPE)
-		RegionCount int     `json:"regionCount"`
-	}
-	summary := []summaryItem{}
-	for k, s := range summaryMap {
-		var totalErr float64
-		if s.Actual > 0 {
-			totalErr = math.Round(float64(s.Forecast-s.Actual)/float64(s.Actual)*1000) / 10
-		}
-		var mape float64
-		if s.Count > 0 {
-			mape = math.Round(s.AbsErrSum/float64(s.Count)*10) / 10
-		}
-		summary = append(summary, summaryItem{
-			Ym: k.ym, Algo: k.algo,
-			ForecastQty: s.Forecast, ActualQty: s.Actual,
-			TotalErrPct: totalErr, Mape: mape, RegionCount: s.Count,
-		})
-	}
-	sort.Slice(summary, func(i, j int) bool {
-		if summary[i].Ym != summary[j].Ym {
-			return summary[i].Ym > summary[j].Ym
-		}
-		return summary[i].Algo < summary[j].Algo
-	})
-
-	writeJSON(w, map[string]interface{}{
-		"items":   items,
-		"summary": summary,
-		"regions": offlineForecastRegions,
-	})
+	return out, nil
 }
