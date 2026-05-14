@@ -539,6 +539,25 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.65.0 (2026-05-14) — 销量预测算法精简 + 手算同比上线
+
+### 📊 销量预测 (主线, 5 件)
+
+跑哥手算同比验证, 4 个算法回测平均误差 > 50% 全部下线, 加新版同比 yoy_v2 接管 1-2 月春节先验.
+
+1. **删除 4 个高误差算法** — Prophet (99.03%), yoy (56.44%), last_month (52.84%), lightgbm (51.18%) 数据库物理清理 + 前端选择器移除
+2. **新增 yoy_v2 (去年同期)** — 取去年同月销量当本月预测, 实时从汇总账拉数据, 春节月最稳 (跑哥手算验证 1 月误差 28% / 2 月误差 11% 比所有 ML 算法都低)
+3. **智能路由收窄** — 候选只剩 statsforecast / yoy_v2; 1/2 月春节兜底从 Prophet 切换到 yoy_v2
+4. **删除 BI-TrainProphet schtasks** — 不再训 Prophet 模型, BI-TrainStatsForecast 保留
+5. **数据库整表清理** — DROP TABLE offline_sales_forecast_prophet, 节省存储
+
+### 🔧 技术细节
+- 重跑 baseline-backtest 灌 4 月 (1-4月) yoy_v2 回测样本
+- offline_sales_forecast_backtest 现存 5 个算法 (lightgbm_sku/statsforecast/avg3m/wma3/yoy_v2)
+- 智能路由 SQL 候选 algo IN ('statsforecast','yoy_v2'), 大幅减少噪声
+
+---
+
 ## v1.64.0 (2026-05-14) — 原料行情新模块 (期货行情)
 
 ### 📈 原料行情 (新菜单)
