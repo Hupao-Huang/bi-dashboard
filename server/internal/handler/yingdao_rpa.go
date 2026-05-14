@@ -215,14 +215,19 @@ func (dh *DashboardHandler) GetRPAJobStatus(w http.ResponseWriter, r *http.Reque
 	var (
 		platform, robotName, jobUuid, status, logReqID string
 		startedAt                                       sql.NullTime
+		runDate                                         sql.NullString
 	)
 	err = dh.DB.QueryRowContext(r.Context(),
-		`SELECT platform, COALESCE(robot_name,''), job_uuid, status, COALESCE(log_request_id,''), started_at
+		`SELECT platform, COALESCE(robot_name,''), job_uuid, status, COALESCE(log_request_id,''), started_at, run_date
 		 FROM rpa_trigger_log WHERE id=?`, id,
-	).Scan(&platform, &robotName, &jobUuid, &status, &logReqID, &startedAt)
+	).Scan(&platform, &robotName, &jobUuid, &status, &logReqID, &startedAt, &runDate)
 	if err != nil {
 		writeError(w, 404, "trigger_id 不存在")
 		return
+	}
+	runDateStr := ""
+	if runDate.Valid && len(runDate.String) >= 10 {
+		runDateStr = runDate.String[:10]
 	}
 
 	// 调影刀查状态
@@ -290,14 +295,14 @@ func (dh *DashboardHandler) GetRPAJobStatus(w http.ResponseWriter, r *http.Reque
 			newDBStatus, resultMsg, id)
 
 		// L4 钉钉通知
-		go dh.notifyRPADone(platform, robotName, newDBStatus, resp.ElapsedSec, resultMsg)
+		go dh.notifyRPADone(platform, robotName, runDateStr, newDBStatus, resp.ElapsedSec, resultMsg)
 	}
 
 	writeJSON(w, resp)
 }
 
-// notifyRPADone 同步完成发钉钉
-func (dh *DashboardHandler) notifyRPADone(platform, robotName, status string, elapsedSec int, msg string) {
+// notifyRPADone 同步完成发钉钉 (带业务日期, 跑哥能一眼看出补的是哪天的数据)
+func (dh *DashboardHandler) notifyRPADone(platform, robotName, runDate, status string, elapsedSec int, msg string) {
 	mins := elapsedSec / 60
 	secs := elapsedSec % 60
 	emoji := "✅"
@@ -306,8 +311,12 @@ func (dh *DashboardHandler) notifyRPADone(platform, robotName, status string, el
 		emoji = "❌"
 		statusText = "同步失败"
 	}
-	content := fmt.Sprintf("%s RPA 数据同步 - %s\n平台：%s\n应用：%s\n耗时：%d分%d秒",
-		emoji, statusText, platform, robotName, mins, secs)
+	dateLine := ""
+	if runDate != "" {
+		dateLine = fmt.Sprintf("\n日期：%s", runDate)
+	}
+	content := fmt.Sprintf("%s RPA 数据同步 - %s\n平台：%s%s\n应用：%s\n耗时：%d分%d秒",
+		emoji, statusText, platform, dateLine, robotName, mins, secs)
 	if msg != "" && status != "finish" {
 		content += fmt.Sprintf("\n失败原因：%s", msg)
 	}
@@ -549,7 +558,7 @@ func (dh *DashboardHandler) reapRunningRPATasks() {
 	defer cancel()
 	// 只扫 6 小时内的 running 任务 (太老的认为僵死, 不再调影刀, 后面用 SQL 标 timeout)
 	rows, err := dh.DB.QueryContext(ctx,
-		`SELECT id, platform, COALESCE(robot_name,''), job_uuid, started_at
+		`SELECT id, platform, COALESCE(robot_name,''), job_uuid, started_at, run_date
 		 FROM rpa_trigger_log
 		 WHERE status='running'
 		   AND started_at > NOW() - INTERVAL 6 HOUR
@@ -564,11 +573,16 @@ func (dh *DashboardHandler) reapRunningRPATasks() {
 		RobotName string
 		JobUuid   string
 		StartedAt time.Time
+		RunDate   string
 	}
 	var list []task
 	for rows.Next() {
 		var t task
-		if err := rows.Scan(&t.ID, &t.Platform, &t.RobotName, &t.JobUuid, &t.StartedAt); err == nil {
+		var runDate sql.NullString
+		if err := rows.Scan(&t.ID, &t.Platform, &t.RobotName, &t.JobUuid, &t.StartedAt, &runDate); err == nil {
+			if runDate.Valid && len(runDate.String) >= 10 {
+				t.RunDate = runDate.String[:10]
+			}
 			list = append(list, t)
 		}
 	}
@@ -600,7 +614,7 @@ func (dh *DashboardHandler) reapRunningRPATasks() {
 				newStatus, msg, t.ID)
 			// 算耗时发钉钉
 			elapsed := int(time.Since(t.StartedAt).Seconds())
-			go dh.notifyRPADone(t.Platform, t.RobotName, newStatus, elapsed, msg)
+			go dh.notifyRPADone(t.Platform, t.RobotName, t.RunDate, newStatus, elapsed, msg)
 		}
 		// 防止短时间打满影刀 API
 		time.Sleep(200 * time.Millisecond)
