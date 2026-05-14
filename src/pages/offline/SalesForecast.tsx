@@ -105,7 +105,7 @@ interface ForecastItem {
 const SalesForecast: React.FC = () => {
   const defaultYM = dayjs().add(1, 'month');
   const [ym, setYm] = useState<Dayjs>(defaultYM);
-  const [algo, setAlgo] = useState<'auto' | 'builtin' | 'prophet' | 'statsforecast'>('auto');
+  const [algo, setAlgo] = useState<'auto' | 'builtin' | 'statsforecast' | 'yoy_v2'>('auto');
   const [effectiveAlgo, setEffectiveAlgo] = useState('');
   const [effectiveReason, setEffectiveReason] = useState('');
   const [loading, setLoading] = useState(false);
@@ -548,17 +548,17 @@ const SalesForecast: React.FC = () => {
             <Tooltip title="近 3 月均 ÷ 季节系数 × 大区同比 × 大区环比">
               <Radio.Button value="builtin">内置公式</Radio.Button>
             </Tooltip>
-            <Tooltip title="Facebook 开源贝叶斯加性模型, 含中国春节假期">
-              <Radio.Button value="prophet">贝叶斯时序 (Prophet)</Radio.Button>
-            </Tooltip>
             <Tooltip title="Nixtla 三模型集成 — AutoARIMA + AutoETS + AutoTheta 的均值">
               <Radio.Button value="statsforecast">统计集成 (StatsForecast)</Radio.Button>
+            </Tooltip>
+            <Tooltip title="去年同期销量直接当本月预测 (春节月推荐, 业务手算同比)">
+              <Radio.Button value="yoy_v2">去年同期</Radio.Button>
             </Tooltip>
           </Radio.Group>
           {algo === 'auto' && effectiveAlgo && (
             <Tooltip title={effectiveReason || '智能路由根据历史回测 MAPE 选最准的算法'}>
               <Tag color="purple" style={{ cursor: 'help' }}>
-                本月走 {effectiveAlgo === 'prophet' ? '贝叶斯时序' : effectiveAlgo === 'statsforecast' ? '统计集成' : effectiveAlgo}
+                本月走 {effectiveAlgo === 'statsforecast' ? '统计集成' : effectiveAlgo === 'yoy_v2' ? '去年同期' : effectiveAlgo}
               </Tag>
             </Tooltip>
           )}

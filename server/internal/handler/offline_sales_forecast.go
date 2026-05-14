@@ -450,13 +450,13 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	if rangeMode == "" {
 		rangeMode = "recent6m"
 	}
-	algo := r.URL.Query().Get("algo") // "" (= auto) / builtin / prophet / statsforecast / auto
+	algo := r.URL.Query().Get("algo") // "" (= auto) / builtin / statsforecast / yoy_v2 / auto
 	if algo == "" {
 		algo = "auto"
 	}
-	// v1.63 智能路由 — 改成数据驱动: 看历史回测 MAPE, 选最准的算法
-	// 候选: prophet / statsforecast (前端业务能切的 ML 算法 + 已有回测数据)
-	// fallback: 没回测数据 → 按月份硬编码 (1/2 月 Prophet 春节先验, 其他 SF)
+	// v1.65 智能路由 — 数据驱动: 看历史回测 MAPE, 选最准的算法
+	// 候选: statsforecast / yoy_v2 (v1.65 删除 prophet/yoy/last_month/lightgbm 因为误差 > 50%)
+	// fallback: 没回测数据 → 按月份硬编码 (1/2 月 yoy_v2 春节先验, 其他 SF)
 	autoReason := ""
 	if algo == "auto" {
 		algo, autoReason = chooseAutoAlgo(h.DB, ym)
@@ -464,21 +464,10 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 
 	cateCond, cateArgs := offlineForecastCateCond()
 
-	// 如果选 prophet / statsforecast 算法, 拉大区合计预测做大区增长锚点
+	// 如果选 statsforecast / yoy_v2 算法, 拉大区合计预测/历史做大区增长锚点
+	// statsforecast 用预跑的模型结果, yoy_v2 用去年同月真实销量 (实时算)
 	mlRegionQty := map[string]float64{}
-	if algo == "prophet" {
-		prRows, prErr := h.DB.Query(`SELECT region, forecast_qty FROM offline_sales_forecast_prophet WHERE ym = ?`, ym)
-		if prErr == nil {
-			for prRows.Next() {
-				var rg string
-				var q int
-				if scanErr := prRows.Scan(&rg, &q); scanErr == nil {
-					mlRegionQty[rg] = float64(q)
-				}
-			}
-			prRows.Close()
-		}
-	} else if algo == "statsforecast" {
+	if algo == "statsforecast" {
 		sfRows, sfErr := h.DB.Query(`SELECT region, forecast_qty FROM offline_sales_forecast_statsforecast WHERE ym = ?`, ym)
 		if sfErr == nil {
 			for sfRows.Next() {
@@ -489,6 +478,27 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 				}
 			}
 			sfRows.Close()
+		}
+	} else if algo == "yoy_v2" {
+		// 去年同月: ym 减 12 个月, 取该月每大区合计销量
+		ymTime, _ := time.Parse("2006-01", ym)
+		pyStart := ymTime.AddDate(-1, 0, 0).Format("2006-01-02")
+		pyEnd := ymTime.AddDate(-1, 1, 0).Format("2006-01-02")
+		yoyArgs := append([]interface{}{pyStart, pyEnd}, cateArgs...)
+		yoyRows, yoyErr := h.DB.Query(`SELECT `+offlineForecastRegionExpr+` AS region, SUM(goods_qty) AS qty
+			FROM sales_goods_summary
+			WHERE department='offline' AND stat_date >= ? AND stat_date < ?
+			  AND `+offlineForecastRegionExpr+` IS NOT NULL`+cateCond+`
+			GROUP BY region`, yoyArgs...)
+		if yoyErr == nil {
+			for yoyRows.Next() {
+				var rg string
+				var q float64
+				if scanErr := yoyRows.Scan(&rg, &q); scanErr == nil {
+					mlRegionQty[rg] = q
+				}
+			}
+			yoyRows.Close()
 		}
 	}
 
@@ -572,7 +582,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		if adjusted < 0 {
 			adjusted = 0
 		}
-		// Prophet 缓存于后:此处先按内置算法记 raw, 后面如果 algo=prophet 会按大区总量重新校准
+		// 此处先按内置算法记 raw, 后面如果 algo=statsforecast/yoy_v2 会按大区合计校准
 		suggestions[cellKey{sku, region}] = int(math.Round(adjusted))
 
 		if goodsName.Valid && skuMeta[sku] == "" {
@@ -584,8 +594,8 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// ML 算法 (Prophet / StatsForecast): 按大区合计校准, 保留 SKU 间相对比例
-	if (algo == "prophet" || algo == "statsforecast") && len(mlRegionQty) > 0 {
+	// 算法 (StatsForecast / YoY_v2): 按大区合计校准, 保留 SKU 间相对比例
+	if (algo == "statsforecast" || algo == "yoy_v2") && len(mlRegionQty) > 0 {
 		regionRawSum := map[string]int{}
 		for k, v := range suggestions {
 			regionRawSum[k.region] += v
@@ -914,13 +924,13 @@ func (h *DashboardHandler) GetOfflineSalesForecastSKUTrend(w http.ResponseWriter
 	})
 }
 
-// chooseAutoAlgo v1.63 智能路由 — 数据驱动版
+// chooseAutoAlgo v1.65 智能路由 — 数据驱动版
 // 根据 offline_sales_forecast_backtest 表的历史 MAPE 选最准的算法
-// 候选: prophet / statsforecast (前端业务能切的 ML 算法 + 已有回测)
+// 候选: statsforecast / yoy_v2 (v1.65 删除 prophet/yoy/last_month/lightgbm 因为误差 > 50%)
 // 策略:
 //   1. 优先看预测月份对应的"同月份"历史 MAPE (例: 预测 2026-05 → 看历史所有 5 月的 MAPE)
 //   2. 同月份样本不够 (<2 算法) → 退回看全部历史 MAPE
-//   3. 全部历史也没数据 → fallback 按月份硬编码 (1/2 月 Prophet, 其他 SF)
+//   3. 全部历史也没数据 → fallback 按月份硬编码 (1/2 月 yoy_v2 同比, 其他 SF)
 func chooseAutoAlgo(db *sql.DB, ym string) (algo string, reason string) {
 	type cand struct {
 		algo    string
@@ -951,7 +961,7 @@ func chooseAutoAlgo(db *sql.DB, ym string) (algo string, reason string) {
 		sameMonthCands := queryMape(`
 			SELECT algo, AVG(abs_err_pct) AS mape, COUNT(*) AS samples
 			FROM offline_sales_forecast_backtest
-			WHERE algo IN ('prophet','statsforecast')
+			WHERE algo IN ('statsforecast','yoy_v2')
 			  AND SUBSTRING(ym, 6, 2) = ?
 			GROUP BY algo
 			ORDER BY mape ASC`, mm)
@@ -966,7 +976,7 @@ func chooseAutoAlgo(db *sql.DB, ym string) (algo string, reason string) {
 	allCands := queryMape(`
 		SELECT algo, AVG(abs_err_pct) AS mape, COUNT(*) AS samples
 		FROM offline_sales_forecast_backtest
-		WHERE algo IN ('prophet','statsforecast')
+		WHERE algo IN ('statsforecast','yoy_v2')
 		GROUP BY algo
 		ORDER BY mape ASC`)
 	if len(allCands) >= 2 {
@@ -976,24 +986,23 @@ func chooseAutoAlgo(db *sql.DB, ym string) (algo string, reason string) {
 	}
 
 	// 3) Fallback: 没回测数据 → 按月份硬编码
+	// v1.65.0 起春节月默认走 yoy_v2 (跑哥手算同比验证最稳, 1-2 月误差 11-28%)
+	// 其他月走 statsforecast (3-12 月统计集成最准)
 	if terr == nil {
 		m := int(t.Month())
 		if m == 1 || m == 2 {
-			return "prophet", "兜底规则: 1/2 月按春节先验选 Prophet (暂无回测数据可参考)"
+			return "yoy_v2", "兜底规则: 1/2 月按春节先验走 去年同期 (业务手算同比验证最稳)"
 		}
 	}
-	return "statsforecast", "兜底规则: 默认 StatsForecast (暂无回测数据可参考)"
+	return "statsforecast", "兜底规则: 默认 统计集成 (暂无回测数据可参考)"
 }
 
 func algoLabelCN(algo string) string {
 	m := map[string]string{
-		"prophet":       "贝叶斯时序",
 		"statsforecast": "统计集成",
 		"builtin":       "内置公式",
-		"lightgbm":      "梯度提升·大区",
 		"lightgbm_sku":  "梯度提升·SKU级",
-		"last_month":    "上月直推",
-		"yoy":           "去年同期",
+		"yoy_v2":        "去年同期",
 		"avg3m":         "近3月均",
 		"wma3":          "加权3月均",
 	}
@@ -1005,7 +1014,7 @@ func algoLabelCN(algo string) string {
 
 // GetOfflineSalesForecastBacktest GET /api/offline/sales-forecast/backtest
 // 返回销量预测算法回测结果 (按 月 × 算法 × 大区)
-// 数据来源: offline_sales_forecast_backtest 表 (由 Python 脚本 prophet_backtest.py / statsforecast_backtest_v2.py 写入)
+// 数据来源: offline_sales_forecast_backtest 表 (由 forecast-baseline-backtest.exe 跑 avg3m/wma3/yoy_v2; lightgbm-train/statsforecast-train Python 脚本跑 ML)
 func (h *DashboardHandler) GetOfflineSalesForecastBacktest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, 405, "method not allowed")

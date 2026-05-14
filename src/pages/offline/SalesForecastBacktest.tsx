@@ -28,17 +28,15 @@ interface SummaryItem {
 }
 
 // 算法中文展示名 (Tag 用) + 英文学名 + 业务能看懂的说明 (Tooltip)
+// v1.65 删除 prophet/yoy/last_month/lightgbm 因为回测平均误差 > 50%
 const algoMeta: Record<string, { label: string; en: string; desc: string }> = {
-  lightgbm_sku:   { label: '梯度提升·SKU级', en: 'LightGBM (SKU-grain)',  desc: '微软梯度提升树, M5 比赛冠军方案, SKU × 大区颗粒度训练 (当前最准)' },
-  lightgbm:       { label: '梯度提升·大区',  en: 'LightGBM (region-only)', desc: '微软梯度提升树, 大区合计版 (数据量太少, 没发挥)' },
+  lightgbm_sku:   { label: '梯度提升·SKU级', en: 'LightGBM (SKU-grain)',  desc: '微软梯度提升树, M5 比赛冠军方案, SKU × 大区颗粒度训练' },
   statsforecast:  { label: '统计集成',       en: 'StatsForecast',         desc: 'Nixtla 三模型集成 — AutoARIMA + AutoETS + AutoTheta 的均值' },
-  prophet:        { label: '贝叶斯时序',     en: 'Prophet',                desc: 'Facebook 开源贝叶斯加性模型, 含中国春节假期, 当前表现差' },
   builtin:        { label: '内置公式',       en: 'Built-in',               desc: '近 3 月均 ÷ 近 3 月季节系数均 × 预测月系数 × 大区同比 × 大区环比' },
   auto:           { label: '智能路由',       en: 'Auto-router',            desc: '看历史回测 MAPE 自动选当月最准的算法' },
   avg3m:          { label: '近 3 月均',      en: 'Average of last 3 mo.',  desc: '直接取前 3 个月销量平均值' },
   wma3:           { label: '加权 3 月均',    en: 'Weighted MA-3',          desc: '50% 上月 + 30% 前月 + 20% 大前月' },
-  last_month:     { label: '上月直推',       en: 'Last month',             desc: '直接抄上月销量当本月预测' },
-  yoy:            { label: '去年同期',       en: 'Year-on-year',           desc: '拿去年同月销量当本月预测' },
+  yoy_v2:         { label: '去年同期',       en: 'Year-on-year (v2)',     desc: '拿去年同月销量当本月预测 (春节月推荐, 业务手算同比验证最稳)' },
 };
 
 const algoLabel = (a: string) => algoMeta[a]?.label || a;
@@ -127,10 +125,11 @@ const SalesForecastBacktest: React.FC = () => {
       title: '算法', dataIndex: 'algo', width: 130,
       render: (a: string) => {
         const colorMap: Record<string, string> = {
-          lightgbm_sku: 'green', lightgbm: 'cyan',
-          statsforecast: 'blue', prophet: 'purple',
+          lightgbm_sku: 'green',
+          statsforecast: 'blue',
+          yoy_v2: 'purple',
           builtin: 'gold',
-          avg3m: 'default', wma3: 'default', last_month: 'default', yoy: 'default',
+          avg3m: 'default', wma3: 'default',
         };
         return (
           <Tooltip title={algoTooltip(a)}>
