@@ -539,6 +539,50 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.67.0 (2026-05-14) — 影刀 RPA 一键同步 + 批量补数 + 后台任务可见
+
+### 🤖 RPA 监控页 (主线功能)
+
+跑哥从此不用再手动跑去影刀控制台触发数据采集——直接在 BI 监控页一键同步:
+
+1. **每行"同步影刀"按钮** — RPA 监控页每个日期×平台都能点同步, 触发影刀对应子应用按当天日期采集
+2. **批量选中** — 表格每行 checkbox, 选多天 → 顶部"批量同步 (N)" → 一键排队跑 (适合补一周/一月历史)
+3. **状态筛选** — "全部 / 只看异常" Radio 一键过滤需要补的日期, 不用一行一行翻 (1000+ 历史日期场景)
+4. **同步进度 Modal** — 实时秒表 (1s 跳) + 影刀执行日志 (5s 轮询拿最新), 可最小化后台跑
+5. **后台任务面板** — Card 标题 "正在同步 N" Badge + Drawer 列所有跑中任务, 点"查看进度"可重新打开 Modal
+6. **完成钉钉通知** — 跑完自动发到 BI 群, 含平台/耗时/失败原因
+7. **后端自动巡检** — 30s 扫一次 running 任务, 主动跟影刀对账更新状态; 6 小时未拿到终态自动 timeout
+
+### ⚙️ RPA 文件映射 (新管理 UI)
+
+跑哥可视化维护"BI 平台 → 影刀子应用"映射:
+- "影刀任务映射"卡片在 RPA 文件映射 Tab 顶部
+- 影刀子应用下拉选 (从影刀 OpenAPI 实时拉, 5min 缓存)
+- 11 平台预置初始映射 (京东/京东自营/唯品会/天猫/天猫超市/小红书/快手/抖音/抖音分销/拼多多/飞瓜)
+
+### 🛡️ 防冲突
+- 同 (平台, 日期) 已 running 时点同步按钮自动复用现有 trigger_id, 不让影刀机器人重复跑
+- 已在跑的日期表格"同步"按钮显示"同步中"灰色 disabled, checkbox 也不让选
+
+### 🚀 性能
+- 表格 antd 6 virtual prop 虚拟滚动, 全量历史日期 1000+ 行不卡
+- 同步完成不全量重拉数据 (避免批量 N 个 done 叠加渲染), 只刷活跃任务列表
+
+### 🔧 技术细节
+- 新增 `internal/yingdao` 客户端模块 (client.go + jobs.go + schedules.go): token 缓存 (2h) + 启动应用 + 查状态 + 通知/轮询日志 + 任务列表/详情
+- 新增 8 个后端接口: `/api/admin/rpa/{trigger,job-status,active-tasks,platform-mapping,platform-mapping/update}` + `/api/admin/yingdao/{tasks,sub-apps}`
+- 新增 2 张表: `rpa_platform_mapping` (映射) + `rpa_trigger_log` (触发日志, 含 run_date)
+- 后台 goroutine `StartYingDaoStatusReaper` 30s 巡检
+- 影刀子应用入参 `run_data` (YYYY-MM-DD) 由跑哥在影刀控制台预先添加 11 平台
+- 修 2 个影刀 API 解析 bug: notify log 响应 data 是字符串 (不是对象) / log requestId 必须每次重新 notify (不能缓存, 旧的拿空)
+- 删假进度条 (影刀 OpenAPI 没暴露真实进度), 改成 "影刀正在执行..." 蓝色提示 + Spin 动画
+
+### 📂 配置
+- `server/config.json` 新增 `yingdao` 段 (access_key_id / access_key_secret / auth_url / biz_url / default_account)
+- `internal/config/YingDaoConfig` + 环境变量覆盖 `BI_YINGDAO_ACCESS_KEY_ID/SECRET`
+
+---
+
 ## v1.66.0 (2026-05-14) — 销量预测精简到 1 个智能算法 + 节假日因子 + 大区12月趋势
 
 ### 📊 销量预测 (主线, 重大重构)
