@@ -123,8 +123,8 @@ const ExpenseControl: React.FC = () => {
     } catch (e) { /* ignore */ }
   }, []);
 
-  const fetchFlows = useCallback(async () => {
-    setLoading(true);
+  const fetchFlows = useCallback(async (silent: boolean = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams();
       params.set('page', String(page));
@@ -145,19 +145,25 @@ const ExpenseControl: React.FC = () => {
         setTotal(json.data.total || 0);
       }
     } catch (e) {
-      message.error('获取单据列表失败');
+      if (!silent) message.error('获取单据列表失败');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [page, pageSize, formType, state, invoiceStatus, keyword, approver, specificationId, dateRange]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
-  useEffect(() => { fetchFlows(); }, [fetchFlows]);
+  useEffect(() => { fetchFlows(false); }, [fetchFlows]);
   useEffect(() => {
     fetchLastSync();
     const t = setInterval(fetchLastSync, 60000); // 60s 自动刷新
     return () => clearInterval(t);
   }, [fetchLastSync]);
+  // 30s 静默轮询列表 — 让合思机器人审批 / sync-hesi 跑完后费控管理也能看到新审批人, 不必手动刷新
+  // silent=true 不闪 loading、不弹错误, 不打断用户筛选/翻页
+  useEffect(() => {
+    const t = setInterval(() => { fetchFlows(true); }, 30000);
+    return () => clearInterval(t);
+  }, [fetchFlows]);
 
   // v1.63.x 拉合思单据模板字典 (60s 服务端缓存, 页面打开拉一次)
   useEffect(() => {

@@ -108,15 +108,29 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	queueID, _ := res.LastInsertId()
 
-	// 4. 估算等待时间: 前面 queued 数 × 65s
-	var ahead int
-	h.DB.QueryRow(`SELECT COUNT(*) FROM hesi_approval_queue WHERE status IN ('queued','running') AND id < ?`, queueID).Scan(&ahead)
-	estimateSeconds := ahead * 65
+	// 4. 估算等待时间: worker 按 (approve_id, action) 合批 (同组最多 10 单一次合思 API 调用)
+	//    所以等待 = 前面有几个"不同 approve_id+action 组"× 65s + 自己这组 65s
+	//    跑哥跟前面已有同 approver+action 的单会被合批, 不增加额外等待
+	var groupsAhead int
+	h.DB.QueryRow(`
+		SELECT COUNT(*) FROM (
+			SELECT approve_id, action
+			FROM hesi_approval_queue
+			WHERE status IN ('queued','running')
+			GROUP BY approve_id, action
+			HAVING MIN(created_at) < (
+				SELECT MIN(created_at) FROM hesi_approval_queue
+				WHERE status IN ('queued','running') AND approve_id=? AND action=?
+			)
+		) AS prior`, currentApproverID.String, req.Action).Scan(&groupsAhead)
+
+	position := groupsAhead + 1
+	estimateSeconds := position * 65
 
 	writeJSON(w, map[string]interface{}{
 		"queueId":         queueID,
-		"position":        ahead + 1,
+		"position":        position,
 		"estimateSeconds": estimateSeconds,
-		"message":         fmt.Sprintf("已加入审批队列, 前面 %d 单, 预计 %d 秒后处理", ahead, estimateSeconds),
+		"message":         fmt.Sprintf("已加入审批队列, 排第 %d 组, 预计 %d 秒后处理", position, estimateSeconds),
 	})
 }
