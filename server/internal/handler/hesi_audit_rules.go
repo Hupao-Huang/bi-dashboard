@@ -15,12 +15,11 @@ type AuditSuggestion struct {
 	Reasons []string `json:"reasons"`
 }
 
-// 法人实体白名单 (杭州松鲜鲜自然调味品有限公司 + 香松工厂主体)
-// 数据来源: hesi_flow.法人实体 字段 top 2 出现频次
-// TODO: 跑哥确认两个 ID 对应中文名后, 改成完整 map 含中文
-var corpWhitelist = map[string]string{
-	"ID01Fk0t6PxS5F": "杭州松鲜鲜自然调味品有限公司",
-	"ID01Fk0sq1uiBx": "杭州松鲜鲜香松食品有限公司",
+// 法人实体黑名单 (合思共 48 家主体, 跑哥确认其余 47 家都合法, 只有这 1 家是海外主体不能自动放行)
+// 数据来源: 合思 OpenAPI /v1.1/dimensions/items?dimensionId=ID01FfMgoeP7cz:法人实体
+// 维护方式: 后续合思加新主体不需要改代码 (默认放行), 只有要拉黑的主体才写这里
+var corpBlacklist = map[string]string{
+	"ID01LFye8Qw3dd": "安心食品集团有限公司 (海外主体, 跑哥要求人工审批)",
 }
 
 // 消费事由黑词
@@ -86,11 +85,11 @@ func AuditExpenseFlow(rawJSON string) *AuditSuggestion {
 		}
 	}
 
-	// 规则 4: 法人实体不在白名单 → 转人工
+	// 规则 4: 法人实体在黑名单 → 转人工 (合思 48 家主体默认全放行, 仅黑名单挡)
 	corpID, _ := raw["法人实体"].(string)
 	if corpID != "" {
-		if _, ok := corpWhitelist[corpID]; !ok {
-			manualReasons = append(manualReasons, "法人实体不在白名单 ("+corpID+")")
+		if name, ok := corpBlacklist[corpID]; ok {
+			manualReasons = append(manualReasons, "法人实体: "+name)
 		}
 	}
 
