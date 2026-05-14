@@ -88,6 +88,8 @@ const HesiBot: React.FC = () => {
   // 异步审批队列
   type QueueItem = { id: number; flowId: string; flowCode: string; action: string; status: string; errorMsg?: string; createdAt: string; finishedAt?: string };
   const [activeQueue, setActiveQueue] = useState<QueueItem[]>([]);
+  // P1 乐观更新: 跑哥点完"通过/驳回"立即标该单为"已提交, 等生效", 不必等 worker 65s + 轮询 30s 后才看到反馈
+  const [optimisticApproved, setOptimisticApproved] = useState<Set<string>>(new Set());
   // 详情 Modal
   const [detailModal, setDetailModal] = useState<{ visible: boolean; flowId: string }>({ visible: false, flowId: '' });
   const [detailData, setDetailData] = useState<any>(null);
@@ -140,20 +142,32 @@ const HesiBot: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/hesi-bot/approve/queue`, { credentials: 'include' });
       const json = await res.json();
       if (json.code === 200 && json.data) {
-        setActiveQueue(json.data.active || []);
+        const next: QueueItem[] = json.data.active || [];
+        setActiveQueue(next);
+        // P1 配套清理: activeQueue 已不含该 flowId 说明 worker 跑完了, 清掉 optimistic 残留
+        // 让 fetchPending 拿回的真实数据接管 (审批成功该单会从列表消失, 失败则恢复"审批"按钮)
+        setOptimisticApproved(prev => {
+          if (prev.size === 0) return prev;
+          const stillActive = new Set(next.map(q => q.flowId));
+          const out = new Set<string>();
+          prev.forEach(fid => { if (stillActive.has(fid)) out.add(fid); });
+          return out.size === prev.size ? prev : out;
+        });
       }
     } catch { /* silent */ }
   }, []);
 
-  // 30s polling 队列 + 待审批列表
+  // P0 加速轮询: 队列里有未完成单时 5s 一次 (跑哥审批后最快 ~70s 看到刷掉), 空闲时回到 30s
+  const activeQueueHasFlows = activeQueue.length > 0 || optimisticApproved.size > 0;
   useEffect(() => {
     fetchQueue();
+    const interval = activeQueueHasFlows ? 5000 : 30000;
     const t = setInterval(() => {
       fetchQueue();
       fetchPending(selectedApproverRef.current);
-    }, 30000);
+    }, interval);
     return () => clearInterval(t);
-  }, [fetchQueue, fetchPending]);
+  }, [fetchQueue, fetchPending, activeQueueHasFlows]);
 
   const getMoney = (item: PendingItem) => {
     if (item.payMoney && item.payMoney > 0) return item.payMoney;
@@ -223,6 +237,13 @@ const HesiBot: React.FC = () => {
       const pos = d.position || 1;
       const waitText = wait < 60 ? `约 ${wait} 秒` : `约 ${Math.round(wait / 60)} 分钟`;
       message.success(`已加入审批队列, 排第 ${pos} 位, 预计 ${waitText}后处理 (合思 60s 限流)`);
+      // P1 乐观更新: 立即标该单"已提交", 不必等 worker + 轮询
+      const submittedFlowId = approveTarget.flowId;
+      setOptimisticApproved(prev => {
+        const next = new Set(prev);
+        next.add(submittedFlowId);
+        return next;
+      });
       setApproveTarget(null);
       fetchQueue();
       fetchPending(selectedApprover);
@@ -417,16 +438,24 @@ const HesiBot: React.FC = () => {
       title: '操作', width: 160, fixed: 'right', align: 'center',
       render: (_, record) => {
         const inQueue = activeQueue.find(q => q.flowId === record.flowId);
+        const isOptimistic = optimisticApproved.has(record.flowId);
+        // 状态优先级: 乐观提交瞬间 → 队列处理中 → 可审批
+        let statusTag: React.ReactNode = null;
+        if (inQueue) {
+          statusTag = (
+            <Tag color={inQueue.status === 'running' ? 'processing' : 'default'}>
+              {inQueue.status === 'running' ? '处理中' : '排队中'}
+            </Tag>
+          );
+        } else if (isOptimistic) {
+          statusTag = <Tag color="processing">已提交,等生效</Tag>;
+        }
         return (
           <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
             <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => showDetail(record.flowId)}>
               详情
             </Button>
-            {inQueue ? (
-              <Tag color={inQueue.status === 'running' ? 'processing' : 'default'}>
-                {inQueue.status === 'running' ? '处理中' : '排队中'}
-              </Tag>
-            ) : (
+            {statusTag ? statusTag : (
               <Button size="small" type="primary" onClick={() => openApproveModal(record)}>
                 审批
               </Button>
@@ -439,6 +468,12 @@ const HesiBot: React.FC = () => {
 
   return (
     <div>
+      {/* P1 乐观更新行样式: 已提交/队列中的单据整行置灰 */}
+      <style>{`
+        .hesi-row-pending-approve td { background-color: #f1f5f9 !important; color: #94a3b8 !important; }
+        .hesi-row-pending-approve:hover td { background-color: #e2e8f0 !important; }
+      `}</style>
+
       {/* 顶部说明 + 后续路线 */}
       <HesiBotRules />
 
@@ -577,6 +612,11 @@ const HesiBot: React.FC = () => {
             size="middle"
             scroll={{ x: 1500 }}
             locale={{ emptyText: hasFilter ? '当前筛选下无匹配单据' : '暂无数据' }}
+            rowClassName={(record) => {
+              // P1 乐观更新: 已提交/队列中的单行整体置灰, 跑哥一眼看出"这单不必再点"
+              const inQueue = activeQueue.find(q => q.flowId === record.flowId);
+              return (inQueue || optimisticApproved.has(record.flowId)) ? 'hesi-row-pending-approve' : '';
+            }}
           />
         )}
       </Card>
