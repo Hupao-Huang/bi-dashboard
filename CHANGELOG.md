@@ -539,6 +539,35 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.66.0 (2026-05-14) — 销量预测精简到 1 个智能算法 + 节假日因子 + 大区12月趋势
+
+### 📊 销量预测 (主线, 重大重构)
+
+跑哥决定: 删除所有算法回测对比, 只保留一个智能算法, 综合考虑 4 因素 (近12月趋势 + 近3月平均 + 同比 + 环比 + 中国节假日).
+
+1. **新智能算法** — 4 因素加权融合 + 节假日因子 + 大区趋势调整
+   - 公式: 预测 = (α × 近3月均 + β × 同比 + γ × 环比) × 季节系数 × 节假日因子 × 大区12月趋势
+   - 12 月权重动态: 1月β=70%(春节)/2月β=80%/3-5月α=60%/6月节假日×1.05/7-8月α=70%/9-10月节假日×1.05/11月节假日×1.10/12月α=50%
+   - 大区12月趋势线性回归: 上升趋势(>+5%/月)×1.05, 下降(<-5%/月)×0.95, 平稳×1.00
+2. **删除"历史回测"Tab** — 整个回测页 SalesForecastBacktest.tsx 删除, 不再展示算法对比
+3. **删除算法切换器** — 业务页面只显示 1 个智能算法, 不再有 auto/builtin/statsforecast/yoy_v2 切换
+4. **顶部"本月公式"Tag** — 实时显示当前月用的权重 (例: "近3月×60% + 同比×30% + 环比×10%"), hover 看完整公式 + 节假日因子 + 趋势调整
+5. **Cell tooltip 升级** — 鼠标移到表格单元格能看到完整计算链路: 近3月均 ÷ 季节系数 × 节假日因子 × 大区趋势 = 建议值
+
+### 🗑️ 清理 (3 张表 + 2 schtasks)
+- DROP TABLE offline_sales_forecast_backtest
+- DROP TABLE offline_sales_forecast_statsforecast
+- 删 BI-RunForecastBacktest schtasks
+- 删 BI-TrainStatsForecast schtasks
+
+### 🔧 技术细节
+- 后端新增 offline_sales_forecast_smart.go (250+ 行, 算法核心)
+- 后端 GetOfflineSalesForecast 返回 forecast_summary + region_trend 字段
+- Python ML 训练脚本 (Prophet/StatsForecast/LightGBM) 代码保留, 但定时任务已停, 不再实际运行
+- v1.65 之前所有算法对比的代码 (chooseAutoAlgo/algoLabelCN/GetOfflineSalesForecastBacktest) 全部删除
+
+---
+
 ## v1.65.0 (2026-05-14) — 销量预测算法精简 + 手算同比上线
 
 ### 📊 销量预测 (主线, 5 件)
