@@ -16,6 +16,7 @@ import {
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
 import HesiBotRules from './HesiBotRules';
+import HesiBotStandard from './HesiBotStandard';
 
 interface PendingItem {
   flowId: string;
@@ -475,6 +476,8 @@ const HesiBot: React.FC = () => {
       `}</style>
 
       {/* 顶部说明 + 后续路线 */}
+      {/* 审批标准说明仅在审批人是张俊 (本人登录或 admin 切换查看张俊) 时展示, 规则源自张俊私人 Excel */}
+      {((queryName || realName) || '').includes('张俊') && <HesiBotStandard />}
       <HesiBotRules />
 
       <Alert
