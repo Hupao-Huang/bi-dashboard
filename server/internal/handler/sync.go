@@ -47,6 +47,21 @@ var (
 	currentImportProgress *importProgress
 )
 
+// PlatformImportTools 平台 → 对应导入 exe 工具列表 (供手动导入和批量队列自动导入复用)
+var PlatformImportTools = map[string][]string{
+	"天猫":   {"import-tmall.exe"},
+	"天猫超市": {"import-tmallcs.exe"},
+	"京东":   {"import-jd.exe", "import-promo.exe"},
+	"京东自营": {"import-customer.exe"},
+	"拼多多":  {"import-pdd.exe"},
+	"唯品会":  {"import-vip.exe"},
+	"抖音":   {"import-douyin.exe"},
+	"抖音分销": {"import-douyin-dist.exe"},
+	"快手":   {"import-customer.exe"},
+	"小红书":  {"import-customer.exe"},
+	"飞瓜":   {"import-feigua.exe"},
+}
+
 const (
 	dingWebhook = "https://oapi.dingtalk.com/robot/send"
 	toolTimeout = 5 * time.Minute
@@ -334,22 +349,7 @@ func (h *DashboardHandler) ManualImport(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 平台 → 对应的导入工具
-	platformTools := map[string][]string{
-		"天猫":   {"import-tmall.exe"},
-		"天猫超市": {"import-tmallcs.exe"},
-		"京东":   {"import-jd.exe", "import-promo.exe"},
-		"京东自营": {"import-customer.exe"},
-		"拼多多":  {"import-pdd.exe"},
-		"唯品会":  {"import-vip.exe"},
-		"抖音":   {"import-douyin.exe"},
-		"抖音分销": {"import-douyin-dist.exe"},
-		"快手":   {"import-customer.exe"},
-		"小红书":  {"import-customer.exe"},
-		"飞瓜":   {"import-feigua.exe"},
-	}
-
-	tools := platformTools[req.Platform]
+	tools := PlatformImportTools[req.Platform]
 	if len(tools) == 0 && req.Platform == "" {
 		// 不传平台则跑全部
 		tools = []string{
