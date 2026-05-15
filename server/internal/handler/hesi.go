@@ -487,9 +487,16 @@ func (h *DashboardHandler) GetHesiAttachmentURLs(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// 合思响应是 {items:[...], fromType:"..."} 直接结构, 这里平铺包成 BI 看板的
+	// {code:200, items:..., fromType:...} 给前端 (前端校验 json.code===200 && json.items)
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		writeError(w, 500, "获取附件失败: 响应解析失败")
+		return
+	}
+	payload["code"] = 200
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	w.Write(data)
+	json.NewEncoder(w).Encode(payload)
 }
 
 // GetHesiStats 获取合思数据统计概览
