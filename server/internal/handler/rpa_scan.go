@@ -180,6 +180,25 @@ func scanPlatform(platform string, dataItems map[string]struct {
 	// 按日期降序
 	sort.Sort(sort.Reverse(sort.StringSlice(dateList)))
 
+	// 补全缺失日期: 让 2026-01-01 起到 T-1 之间, Z 盘没目录的日期都显示出来 (status=no_dir),
+	// 用户能看到完整缺失情况 + 点同步按钮触发影刀重跑.
+	// 终点取昨天 T-1: 今天 RPA 还没跑完, 不要把今日标"无目录"造成误报.
+	existing := map[string]bool{}
+	for _, d := range dateList {
+		existing[d] = true
+	}
+	startDate := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
+	endDate := time.Now().AddDate(0, 0, -1)
+	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		key := d.Format("20060102")
+		if !existing[key] {
+			dateList = append(dateList, key)
+			existing[key] = true
+		}
+	}
+	// 重新降序
+	sort.Sort(sort.Reverse(sort.StringSlice(dateList)))
+
 	// 收集所有 store->items 映射（各 dataItem 下的 store 列表合并）
 	// storeItems: store -> []dataItem
 	storeItems := map[string][]string{}
@@ -204,24 +223,55 @@ func scanPlatform(platform string, dataItems map[string]struct {
 	dateInfos := make([]rpaDateInfo, 0, len(dateList))
 	for _, date := range dateList {
 		formattedDate := date[:4] + "-" + date[4:6] + "-" + date[6:]
+		dateDir := filepath.Join(yearDir, date)
+
+		// Z 盘根本没这个日期目录 → 直接构造 no_dir dateInfo (所有 store 全 missing)
+		if _, err := os.Stat(dateDir); os.IsNotExist(err) {
+			storeInfos := make([]rpaStoreInfo, 0, len(storeNames))
+			for _, store := range storeNames {
+				items := storeItems[store]
+				missing := append([]string(nil), items...)
+				if missing == nil {
+					missing = []string{}
+				}
+				storeInfos = append(storeInfos, rpaStoreInfo{
+					Name:           store,
+					Completeness:   0,
+					Status:         "no_dir",
+					CompletedItems: []string{},
+					MissingItems:   missing,
+				})
+			}
+			dateInfos = append(dateInfos, rpaDateInfo{
+				Date:          date,
+				FormattedDate: formattedDate,
+				Completeness:  0,
+				Status:        "no_dir",
+				Stores:        storeInfos,
+			})
+			continue
+		}
+
 		storeInfos := make([]rpaStoreInfo, 0, len(storeNames))
+
+		// dateDir 下的文件 (飞瓜等平台文件直接放日期根目录) — 提到 store 循环外只读 1 次
+		// (Z 盘是 SMB 网盘, IO 慢, 每个 store 重复读会 N+1)
+		var dateRootFiles []string
+		if dirEntries, err := os.ReadDir(dateDir); err == nil {
+			for _, fe := range dirEntries {
+				if !fe.IsDir() {
+					dateRootFiles = append(dateRootFiles, fe.Name())
+				}
+			}
+		}
 
 		for _, store := range storeNames {
 			items := storeItems[store]
 			storeDir := filepath.Join(yearDir, date, store)
-			dateDir := filepath.Join(yearDir, date)
 
-			// 读取该 store 目录下的文件名列表
-			// 同时检查日期根目录（飞瓜等平台文件可能直接放在日期目录下）
-			var fileNames []string
+			// 读取该 store 目录下的文件名列表 + 复用 dateRootFiles
+			fileNames := append([]string(nil), dateRootFiles...)
 			if dirEntries, err := os.ReadDir(storeDir); err == nil {
-				for _, fe := range dirEntries {
-					if !fe.IsDir() {
-						fileNames = append(fileNames, fe.Name())
-					}
-				}
-			}
-			if dirEntries, err := os.ReadDir(dateDir); err == nil {
 				for _, fe := range dirEntries {
 					if !fe.IsDir() {
 						fileNames = append(fileNames, fe.Name())

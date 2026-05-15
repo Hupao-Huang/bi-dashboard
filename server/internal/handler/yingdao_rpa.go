@@ -13,8 +13,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -637,4 +641,328 @@ func getCurrentUserName(r *http.Request) string {
 		return payload.User.Username
 	}
 	return "unknown"
+}
+
+// ======== 批量队列: 后端 goroutine 串行执行多日期同步, 前端关浏览器不影响 ========
+//
+// POST /api/admin/rpa/batch-trigger    入队批量, 立即返回 batch_id
+// GET  /api/admin/rpa/batch-queue      查所有 batch 的 (pending/running/finish/error/timeout)
+//
+// 设计:
+//   - 内存 map 跟踪 batch 状态, server 重启会丢失 (跑哥重发即可, 已 trigger 的影刀任务不丢)
+//   - 单个 trigger 30 分钟超时, 跳下一个不卡死
+//   - 每个 trigger 完成走和单点同步同样的钉钉通知
+
+type RPABatchTriggerReq struct {
+	Platform string   `json:"platform"`
+	Dates    []string `json:"dates"`
+}
+
+type rpaBatchItem struct {
+	Date        string    `json:"date"`
+	Status      string    `json:"status"` // pending / running / finish / error / cancel / timeout
+	TriggerID   int64     `json:"trigger_id"`
+	StartedAt   time.Time `json:"-"`
+	FinishedAt  time.Time `json:"-"`
+	StartedStr  string    `json:"started_at,omitempty"`
+	FinishedStr string    `json:"finished_at,omitempty"`
+	ErrMsg      string    `json:"err_msg,omitempty"`
+}
+
+type rpaBatchState struct {
+	BatchID    int64           `json:"batch_id"`
+	Platform   string          `json:"platform"`
+	User       string          `json:"user"`
+	StartedAt  time.Time       `json:"-"`
+	StartedStr string          `json:"started_at"`
+	Items      []*rpaBatchItem `json:"items"`
+}
+
+var (
+	rpaBatchMu     sync.Mutex
+	rpaBatchStates = map[int64]*rpaBatchState{}
+)
+
+// BatchTriggerRPASync POST /api/admin/rpa/batch-trigger
+func (dh *DashboardHandler) BatchTriggerRPASync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	if dh.YingDao == nil || !dh.YingDao.Configured() {
+		writeError(w, 500, "影刀 RPA 未配置")
+		return
+	}
+	var req RPABatchTriggerReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Platform == "" || len(req.Dates) == 0 {
+		writeError(w, 400, "请传 {\"platform\":\"...\",\"dates\":[\"YYYY-MM-DD\",...]}")
+		return
+	}
+	// 校验 + 去重 + 排序 (升序按业务日期)
+	seen := map[string]bool{}
+	cleanDates := make([]string, 0, len(req.Dates))
+	for _, d := range req.Dates {
+		if _, err := time.Parse("2006-01-02", d); err != nil {
+			continue
+		}
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		cleanDates = append(cleanDates, d)
+	}
+	if len(cleanDates) == 0 {
+		writeError(w, 400, "dates 全部无效 (需 YYYY-MM-DD)")
+		return
+	}
+	sort.Strings(cleanDates)
+
+	user := getCurrentUserName(r)
+	batchID := time.Now().UnixNano() / 1e6
+	items := make([]*rpaBatchItem, 0, len(cleanDates))
+	for _, d := range cleanDates {
+		items = append(items, &rpaBatchItem{Date: d, Status: "pending"})
+	}
+	state := &rpaBatchState{
+		BatchID:    batchID,
+		Platform:   req.Platform,
+		User:       user,
+		StartedAt:  time.Now(),
+		StartedStr: time.Now().Format("2006-01-02 15:04:05"),
+		Items:      items,
+	}
+	rpaBatchMu.Lock()
+	rpaBatchStates[batchID] = state
+	rpaBatchMu.Unlock()
+
+	go dh.runBatchSyncQueue(state)
+
+	writeJSON(w, map[string]interface{}{
+		"batch_id": batchID,
+		"platform": req.Platform,
+		"total":    len(cleanDates),
+		"message":  fmt.Sprintf("已加入后台队列 %d 个日期, 串行执行, 完成发钉钉, 关浏览器不影响", len(cleanDates)),
+	})
+}
+
+// runBatchSyncQueue goroutine 串行处理一个 batch
+func (dh *DashboardHandler) runBatchSyncQueue(state *rpaBatchState) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("[rpa-batch] batch=%d panic: %v", state.BatchID, rec)
+		}
+		// 完成后保留 30 分钟方便查看, 然后清理 map 防泄漏
+		time.AfterFunc(30*time.Minute, func() {
+			rpaBatchMu.Lock()
+			delete(rpaBatchStates, state.BatchID)
+			rpaBatchMu.Unlock()
+		})
+	}()
+	log.Printf("[rpa-batch] batch=%d %s 共 %d 个 user=%s 开始", state.BatchID, state.Platform, len(state.Items), state.User)
+
+	for i, it := range state.Items {
+		rpaBatchMu.Lock()
+		it.Status = "running"
+		it.StartedAt = time.Now()
+		it.StartedStr = it.StartedAt.Format("2006-01-02 15:04:05")
+		rpaBatchMu.Unlock()
+		log.Printf("[rpa-batch] batch=%d (%d/%d) 触发 %s %s", state.BatchID, i+1, len(state.Items), state.Platform, it.Date)
+
+		triggerID, jobUuid, err := dh.internalTriggerRPA(state.Platform, it.Date, state.User)
+		if err != nil {
+			rpaBatchMu.Lock()
+			it.Status = "error"
+			it.ErrMsg = err.Error()
+			it.FinishedAt = time.Now()
+			it.FinishedStr = it.FinishedAt.Format("2006-01-02 15:04:05")
+			rpaBatchMu.Unlock()
+			log.Printf("[rpa-batch] batch=%d (%d/%d) %s 触发失败: %v", state.BatchID, i+1, len(state.Items), it.Date, err)
+			continue
+		}
+		rpaBatchMu.Lock()
+		it.TriggerID = triggerID
+		rpaBatchMu.Unlock()
+
+		// 轮询影刀直到 done 或 30min 超时
+		deadline := time.Now().Add(30 * time.Minute)
+		done := false
+		for !done {
+			if time.Now().After(deadline) {
+				rpaBatchMu.Lock()
+				it.Status = "timeout"
+				it.FinishedAt = time.Now()
+				it.FinishedStr = it.FinishedAt.Format("2006-01-02 15:04:05")
+				rpaBatchMu.Unlock()
+				log.Printf("[rpa-batch] batch=%d (%d/%d) %s 超时", state.BatchID, i+1, len(state.Items), it.Date)
+				break
+			}
+			time.Sleep(10 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			jobStatus, qerr := dh.YingDao.QueryJob(ctx, jobUuid)
+			cancel()
+			if qerr != nil {
+				continue // 网络抖动忽略, 继续轮询
+			}
+			switch jobStatus.Status {
+			case "finish", "error", "cancel", "fail":
+				newStatus := jobStatus.Status
+				if newStatus == "fail" {
+					newStatus = "error"
+				}
+				msg := jobStatus.Remark
+				if msg == "" {
+					msg = jobStatus.StatusName
+				}
+				_, _ = dh.DB.Exec(
+					`UPDATE rpa_trigger_log SET status=?, result_msg=?, finished_at=NOW() WHERE id=? AND status='running'`,
+					newStatus, msg, triggerID,
+				)
+				rpaBatchMu.Lock()
+				it.Status = newStatus
+				it.FinishedAt = time.Now()
+				it.FinishedStr = it.FinishedAt.Format("2006-01-02 15:04:05")
+				if newStatus != "finish" {
+					it.ErrMsg = msg
+				}
+				rpaBatchMu.Unlock()
+				log.Printf("[rpa-batch] batch=%d (%d/%d) %s done=%s", state.BatchID, i+1, len(state.Items), it.Date, newStatus)
+
+				// 同步成功后自动调 import-* 工具入库 (跑哥不用再点导入按钮)
+				if newStatus == "finish" {
+					dh.runAutoImportAfterSync(state.Platform, it.Date, state.BatchID, i+1, len(state.Items), it)
+				}
+
+				// 钉钉通知 (与单点同步走同一通道)
+				elapsed := int(time.Since(it.StartedAt).Seconds())
+				go dh.notifyRPADone(state.Platform, "", it.Date, newStatus, elapsed, msg)
+				done = true
+			}
+		}
+		time.Sleep(2 * time.Second) // 防止打满影刀
+	}
+	log.Printf("[rpa-batch] batch=%d 全部完成", state.BatchID)
+}
+
+// internalTriggerRPA 复用 TriggerRPASync 核心: 防冲突 + 查映射 + 调影刀 + 写日志
+// 返回 (trigger_id, job_uuid, err)
+func (dh *DashboardHandler) internalTriggerRPA(platform, runDate, user string) (int64, string, error) {
+	// 防冲突: 同 (platform, run_date, status=running) 已有 → 复用
+	var existingID int64
+	var existingJobUuid string
+	err := dh.DB.QueryRow(
+		`SELECT id, job_uuid FROM rpa_trigger_log WHERE platform=? AND run_date=? AND status='running' ORDER BY id DESC LIMIT 1`,
+		platform, runDate,
+	).Scan(&existingID, &existingJobUuid)
+	if err == nil && existingID > 0 {
+		return existingID, existingJobUuid, nil
+	}
+	// 查映射
+	var robotUuid, robotName, accountName string
+	var enabled int
+	err = dh.DB.QueryRow(
+		`SELECT robot_uuid, COALESCE(robot_name,''), account_name, enabled FROM rpa_platform_mapping WHERE platform=?`, platform,
+	).Scan(&robotUuid, &robotName, &accountName, &enabled)
+	if err != nil {
+		return 0, "", fmt.Errorf("平台 %q 未配置影刀映射", platform)
+	}
+	if enabled == 0 {
+		return 0, "", fmt.Errorf("平台 %q 影刀映射已禁用", platform)
+	}
+	// 调影刀
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	startResp, err := dh.YingDao.StartJob(ctx, yingdao.JobStartReq{
+		RobotUuid:   robotUuid,
+		AccountName: accountName,
+		Params:      []yingdao.JobParam{{Name: "run_data", Value: runDate, Type: "str"}},
+	})
+	if err != nil {
+		return 0, "", fmt.Errorf("启动影刀失败: %v", err)
+	}
+	// 写日志
+	res, err := dh.DB.Exec(
+		`INSERT INTO rpa_trigger_log (platform, robot_uuid, robot_name, job_uuid, trigger_user, run_date, status, started_at) VALUES (?, ?, ?, ?, ?, ?, 'running', NOW())`,
+		platform, robotUuid, robotName, startResp.JobUuid, user, runDate,
+	)
+	if err != nil {
+		return 0, "", fmt.Errorf("写日志失败: %v", err)
+	}
+	triggerID, _ := res.LastInsertId()
+	return triggerID, startResp.JobUuid, nil
+}
+
+// GetRPABatchQueue GET /api/admin/rpa/batch-queue
+func (dh *DashboardHandler) GetRPABatchQueue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	rpaBatchMu.Lock()
+	list := make([]*rpaBatchState, 0, len(rpaBatchStates))
+	for _, s := range rpaBatchStates {
+		list = append(list, s)
+	}
+	rpaBatchMu.Unlock()
+	sort.Slice(list, func(i, j int) bool { return list[i].BatchID > list[j].BatchID })
+
+	var running, pending, finish, errCnt, timeout int
+	for _, s := range list {
+		for _, it := range s.Items {
+			switch it.Status {
+			case "running":
+				running++
+			case "pending":
+				pending++
+			case "finish":
+				finish++
+			case "error", "cancel":
+				errCnt++
+			case "timeout":
+				timeout++
+			}
+		}
+	}
+	writeJSON(w, map[string]interface{}{
+		"batches": list,
+		"summary": map[string]int{
+			"running": running, "pending": pending, "finish": finish,
+			"error": errCnt, "timeout": timeout,
+		},
+	})
+}
+
+// runAutoImportAfterSync 影刀同步成功后自动跑 import-* exe 入库 (跑哥不用手动点导入)
+// 等 Z 盘 SMB 文件可见后再跑, 失败仅 log + 写到 batch state 的 ErrMsg 字段, 不影响下一个 trigger
+func (dh *DashboardHandler) runAutoImportAfterSync(platform, runDate string, batchID int64, idx, total int, it *rpaBatchItem) {
+	tools := PlatformImportTools[platform]
+	if len(tools) == 0 {
+		log.Printf("[rpa-batch] batch=%d (%d/%d) %s 平台 %q 无导入工具配置, 跳过自动导入", batchID, idx, total, runDate, platform)
+		return
+	}
+	// SMB 网盘文件可能有几秒可见延迟, 保险等 3 秒
+	time.Sleep(3 * time.Second)
+
+	// runSyncTool 接受 YYYYMMDD 格式
+	dateStr := strings.ReplaceAll(runDate, "-", "")
+	exeDir := filepath.Dir(getExePath())
+
+	var failures []string
+	var successes []string
+	for _, tool := range tools {
+		result := runSyncTool(exeDir, tool, dateStr)
+		if result.Status == "成功" {
+			successes = append(successes, tool)
+		} else {
+			failures = append(failures, fmt.Sprintf("%s: %s", tool, result.OutputDigest))
+		}
+		log.Printf("[rpa-batch] batch=%d (%d/%d) %s 自动导入 %s → %s", batchID, idx, total, runDate, tool, result.Status)
+	}
+
+	rpaBatchMu.Lock()
+	if len(failures) > 0 {
+		it.ErrMsg = fmt.Sprintf("自动导入: 成功 %d, 失败 %d (%s)", len(successes), len(failures), strings.Join(failures, "; "))
+	} else {
+		it.ErrMsg = fmt.Sprintf("已自动导入 %d 个工具", len(successes))
+	}
+	rpaBatchMu.Unlock()
 }

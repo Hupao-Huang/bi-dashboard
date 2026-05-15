@@ -624,35 +624,27 @@ const RPAMonitor: React.FC = () => {
     fetchActiveTasks();
   }, [fetchActiveTasks]);
 
-  // 批量同步: 循环调 trigger 接口, 不弹 Modal, 完成后 toast + 自动展开 Drawer
+  // 批量同步: 调后端 batch-trigger 接口入队, 立即返回. 后端 goroutine 串行执行,
+  // 跑哥可关浏览器, 不影响. 进度看右下角浮窗.
   const handleBatchSync = useCallback(async (platform: string, dates: string[]) => {
     if (dates.length === 0) return;
-    message.loading({ content: `正在批量触发 ${platform} ${dates.length} 个日期...`, key: 'batch-sync', duration: 0 });
-    let ok = 0, fail = 0;
-    for (const date of dates) {
-      try {
-        const res = await fetch(`${API_BASE}/api/admin/rpa/trigger`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platform, date }),
-        });
-        const j = await res.json();
-        if (j.code === 200) ok++; else fail++;
-      } catch {
-        fail++;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/rpa/batch-trigger`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, dates }),
+      });
+      const j = await res.json();
+      if (j.code === 200 && j.data?.batch_id) {
+        message.success(j.data.message || `已加入后台队列 ${dates.length} 个日期`);
+      } else {
+        message.error(j.msg || '批量入队失败');
       }
-      // 200ms 间隔, 避免压满 BI 后端
-      await new Promise(r => setTimeout(r, 200));
-    }
-    message.destroy('batch-sync');
-    if (fail === 0) {
-      message.success(`已触发 ${platform} ${ok} 个日期, 在后台排队跑, 跑完发钉钉`);
-    } else {
-      message.warning(`成功 ${ok} 个, 失败 ${fail} 个`);
+    } catch {
+      message.error('批量入队请求失败 (网络错误)');
     }
     fetchActiveTasks();
-    setTaskDrawerOpen(true); // 自动展开 Drawer 看进度
   }, [fetchActiveTasks]);
 
   // 从 Drawer 点某个 active task → 重新打开 Modal 看进度
@@ -784,7 +776,8 @@ const RPAMonitor: React.FC = () => {
             rowKey={(r: any) => `${r.platform}-${r.date}-${r.store}-${r.status}-${r.fileStatus}`}
             size="small"
             pagination={false}
-            scroll={{ y: 500 }}
+            scroll={{ x: 900, y: 500 }}
+            virtual
           />
         </div>
       ),
@@ -835,13 +828,18 @@ const RPAMonitor: React.FC = () => {
             )}
             {activeTasks.length > 0 && (
               <Tooltip title="点击查看后台正在跑的同步任务">
-                <Badge count={activeTasks.length} overflowCount={999}>
+                <Badge
+                  count={activeTasks.length}
+                  overflowCount={999}
+                  size="small"
+                  offset={[-4, 4]}
+                  style={{ marginRight: 12 }}
+                >
                   <Button
                     size="small"
                     type="primary"
                     icon={<SyncOutlined spin />}
                     onClick={() => setTaskDrawerOpen(true)}
-                    style={{ marginRight: 12 }}
                   >
                     正在同步
                   </Button>
@@ -883,6 +881,7 @@ const RPAMonitor: React.FC = () => {
             size="small"
             items={tabItems}
             style={{ marginTop: 4 }}
+            destroyOnHidden
           />
         )}
       </Card>

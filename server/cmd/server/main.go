@@ -392,6 +392,8 @@ func main() {
 
 	// 影刀 RPA 触发 (点平台 Tab "立即同步" 按钮)
 	mux.HandleFunc("/api/admin/rpa/trigger", adminRoles(h.TriggerRPASync))
+	mux.HandleFunc("/api/admin/rpa/batch-trigger", adminRoles(h.BatchTriggerRPASync))
+	mux.HandleFunc("/api/admin/rpa/batch-queue", adminRoles(h.GetRPABatchQueue))
 	mux.HandleFunc("/api/admin/rpa/job-status", adminRoles(h.GetRPAJobStatus))
 	mux.HandleFunc("/api/admin/rpa/active-tasks", adminRoles(h.GetRPAActiveTasks))
 	mux.HandleFunc("/api/admin/rpa/platform-mapping", adminRoles(h.GetRPAPlatformMapping))
