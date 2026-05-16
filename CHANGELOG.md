@@ -539,6 +539,44 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.69.0 (2026-05-16) — RPA 监控彻底修 T+1 业务日 lag 误报"未导入" (京东/拼多多等)
+
+### 🐛 问题现场 (跑哥 2026-05-16 12:59 报)
+
+京东 5/15 显示 "未导入" + "导入" 按钮; 跑哥点了"导入"再刷新, 还是 "未导入".
+
+### 🔬 RCA 锁定 (SQL + 复现工具铁证)
+
+1. 手动跑 `import-jd.exe 20260515 20260515` → 报告 `shop_daily: 2 条` 入库成功
+2. 但查 `op_jd_shop_daily` 最新仍是 5/14, **没有 5/15 行**
+3. 根因: **京东 RPA 是 T+1 节奏** — 5/16 早上采的 20260515 文件夹, 里面 Excel 业务日期 = 5/14, import 后入 stat_date=5/14 那一行 (`ON DUPLICATE KEY UPDATE` 覆盖, 不新增 5/15 行)
+4. **enrichDBStatus 拿"文件夹日期 5/15"严格匹配 op_*_daily.stat_date** → 永远查不到 → 显示"未导入"
+5. 这是**预存在的语义错位 bug**, 跑哥之前一直没察觉是因为 T+1 lag 正好"看起来对" (5/14 行实际是 5/15 文件夹的功劳)
+
+### 🛠️ 修法: 新表 `rpa_import_history` 二元判定
+
+不动 14 个 `import-*.exe` 任何代码, 只在 `sync.go` 3 个 spawn 入口处包 wrapper:
+
+- **新表** `rpa_import_history` (id/platform/folder_date/tool/status/rows_digest/triggered_by/started_at/finished_at + UK), 一行一个工具一次跑
+- **wrapper** `runSyncToolWithHistory(db, exeDir, tool, dateStr, platform, triggeredBy)` 内部调原 `runSyncTool`, 完成后 `INSERT ON DUPLICATE KEY UPDATE` 写 history
+- 3 个调用点改成 wrapper:
+  1. `runSync` webhook 通道 — `lookupPlatformByTool` 兜底 (tool:N platforms 取首个)
+  2. `ManualImport` 手动导入 — req.Platform 或兜底
+  3. `runAutoImportAfterSync` 影刀同步后自动入库 — 有 platform 参数
+- **enrichDBStatus** 加 OR 查询: `op_*_daily.stat_date` 集合 **OR** `rpa_import_history.folder_date` (status='success') → 任一来源有 = "已导入"
+
+### 🎯 效果
+
+- T+1 平台 (京东/拼多多/天猫等) 监控页"未导入"误报消除
+- 顺带得到一个 **"RPA 处理历史"审计能力** (任一文件夹什么时候被哪个工具处理过, 写了多少行, 谁触发的)
+- 旧数据 (没历史记录) 仍走 stat_date 旧逻辑作为 fallback, 平滑过渡
+
+### 📝 顺带
+
+- memory `feedback_rpa_monitor_t1_lag` 记录 RCA 全过程, 下次再碰不用重新查
+
+---
+
 ## v1.68.0 (2026-05-16) — 在线用户页面 + 影刀机器人下拉 + RPA"已导入"判定多表
 
 ### 🆕 在线用户页面 (新菜单 `/system/online`)
