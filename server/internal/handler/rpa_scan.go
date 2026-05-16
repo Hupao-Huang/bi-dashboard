@@ -443,6 +443,18 @@ func (h *DashboardHandler) enrichDBStatus(result *rpaScanResult) {
 			}
 			p.Dates = filtered
 		}
+		// 二元补充: rpa_import_history 里有 success = 该文件夹被 import 处理过 = 已导入
+		// 修 T+1 业务日 lag 误报"未导入": RPA 文件夹日期 ≠ Excel 业务日, 老 stat_date 严格匹配
+		// 在 T+1 平台 (京东等) 永远查不到. 见 feedback_rpa_monitor_t1_lag.
+		histRows, herr := h.DB.Query(`SELECT DISTINCT DATE_FORMAT(folder_date, '%Y-%m-%d') FROM rpa_import_history WHERE platform = ? AND status = 'success' AND folder_date >= '2026-01-01'`, p.Name)
+		if herr == nil {
+			for histRows.Next() {
+				var d string
+				histRows.Scan(&d)
+				importedDates[d] = true
+			}
+			histRows.Close()
+		}
 		for j := range p.Dates {
 			p.Dates[j].DBImported = importedDates[p.Dates[j].FormattedDate]
 		}
