@@ -24,23 +24,41 @@ interface YingDaoSubApp {
   robotName: string;
 }
 
+interface YingDaoClient {
+  robotClientUuid: string;
+  robotClientName: string;
+  status: string; // idle / running / offline
+  clientIp: string;
+  machineName: string;
+}
+
+// 状态显示映射 (跟影刀控制台机器人管理一致)
+const CLIENT_STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  idle:    { label: '空闲', color: 'green'  },
+  running: { label: '运行中', color: 'gold' },
+  offline: { label: '离线', color: 'default' },
+};
+
 const RPAPlatformMappingCard: React.FC = () => {
   const [mappings, setMappings] = useState<PlatformMapping[]>([]);
   const [yingdaoApps, setYingdaoApps] = useState<YingDaoSubApp[]>([]);
+  const [yingdaoClients, setYingdaoClients] = useState<YingDaoClient[]>([]);
   const [loading, setLoading] = useState(false);
   const [edited, setEdited] = useState<Record<string, Partial<PlatformMapping>>>({});
   const [savingPlat, setSavingPlat] = useState<string>('');
 
-  // 拉映射 + 拉影刀任务列表 (列表里"集团数据看板"展开拿子应用作为下拉 options)
+  // 拉映射 + 拉影刀任务列表 + 拉影刀机器人列表 (3 个并行)
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [mapRes, appsRes] = await Promise.all([
+      const [mapRes, appsRes, clientsRes] = await Promise.all([
         fetch(`${API_BASE}/api/admin/rpa/platform-mapping`, { credentials: 'include' }).then(r => r.json()),
         fetchYingDaoApps(),
+        fetchYingDaoClients(),
       ]);
       if (mapRes.code === 200) setMappings(mapRes.data || []);
       setYingdaoApps(appsRes);
+      setYingdaoClients(clientsRes);
     } finally {
       setLoading(false);
     }
@@ -111,13 +129,45 @@ const RPAPlatformMappingCard: React.FC = () => {
     {
       title: '机器人账号',
       key: 'account_name',
-      width: 130,
+      width: 280,
       render: (_: any, row: PlatformMapping) => {
         const value = edited[row.platform]?.account_name ?? row.account_name;
+        // 排序: 空闲优先, 运行中其次, 离线最后
+        const sortedClients = [...yingdaoClients].sort((a, b) => {
+          const order: Record<string, number> = { idle: 0, running: 1, offline: 2 };
+          return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+        });
         return (
-          <Input
-            value={value}
-            onChange={e => handleEdit(row.platform, 'account_name', e.target.value)}
+          <Select
+            value={value || undefined}
+            style={{ width: '100%' }}
+            showSearch
+            allowClear
+            optionFilterProp="label"
+            placeholder="选机器人账号"
+            options={sortedClients.map(c => {
+              const meta = CLIENT_STATUS_LABEL[c.status] || { label: c.status, color: 'default' };
+              return {
+                value: c.robotClientName,
+                // label 用于搜索匹配
+                label: `${c.robotClientName} ${meta.label} ${c.machineName}`,
+                // 自定义渲染
+                clientData: c,
+                statusMeta: meta,
+              };
+            })}
+            optionRender={(opt) => {
+              const c = (opt.data as any).clientData as YingDaoClient;
+              const meta = (opt.data as any).statusMeta as { label: string; color: string };
+              return (
+                <Space size={6}>
+                  <Tag color={meta.color} style={{ marginRight: 0, minWidth: 50, textAlign: 'center' }}>{meta.label}</Tag>
+                  <span>{c.robotClientName}</span>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{c.machineName}</Text>
+                </Space>
+              );
+            }}
+            onChange={v => handleEdit(row.platform, 'account_name', v || '')}
           />
         );
       },
@@ -189,14 +239,30 @@ const RPAPlatformMappingCard: React.FC = () => {
         </Space>
       }
       extra={
-        <Tooltip title="重新拉取影刀子应用下拉 (绕过 5 分钟缓存)">
-          <Button size="small" icon={<ReloadOutlined />} onClick={async () => {
-            await fetch(`${API_BASE}/api/admin/yingdao/sub-apps?refresh=1`, { credentials: 'include' });
-            fetchAll();
-          }}>
-            刷新影刀任务
-          </Button>
-        </Tooltip>
+        <Space size={8}>
+          {yingdaoClients.length > 0 && (
+            <Space size={4}>
+              {(['idle', 'running', 'offline'] as const).map(s => {
+                const cnt = yingdaoClients.filter(c => c.status === s).length;
+                const meta = CLIENT_STATUS_LABEL[s];
+                return cnt > 0 ? (
+                  <Tag key={s} color={meta.color}>{meta.label} {cnt}</Tag>
+                ) : null;
+              })}
+            </Space>
+          )}
+          <Tooltip title="重新拉取影刀任务+机器人 (绕过 5 分钟缓存)">
+            <Button size="small" icon={<ReloadOutlined />} onClick={async () => {
+              await Promise.all([
+                fetch(`${API_BASE}/api/admin/yingdao/sub-apps?refresh=1`, { credentials: 'include' }),
+                fetch(`${API_BASE}/api/admin/yingdao/clients?refresh=1`, { credentials: 'include' }),
+              ]);
+              fetchAll();
+            }}>
+              刷新
+            </Button>
+          </Tooltip>
+        </Space>
       }
       style={{ marginBottom: 16 }}
     >
@@ -226,6 +292,18 @@ async function fetchYingDaoApps(): Promise<YingDaoSubApp[]> {
     if (j.code !== 200) return [];
     const apps = (j.data || []) as Array<{ robotUuid: string; robotName: string }>;
     return apps.filter(a => a.robotUuid && a.robotName);
+  } catch {
+    return [];
+  }
+}
+
+// 拉影刀全量机器人列表 (含 idle/running/offline 实时状态)
+async function fetchYingDaoClients(): Promise<YingDaoClient[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/yingdao/clients`, { credentials: 'include' });
+    const j = await res.json();
+    if (j.code !== 200) return [];
+    return (j.data || []) as YingDaoClient[];
   } catch {
     return [];
   }
