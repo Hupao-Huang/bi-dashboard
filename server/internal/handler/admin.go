@@ -313,3 +313,83 @@ func (h *DashboardHandler) countOtherActiveSuperAdmins(excludeUserID int64) (int
 	).Scan(&cnt)
 	return cnt, err
 }
+
+// AdminOnlineUsers 在线用户列表
+//
+// 严格口径: user_sessions 中 last_active_at 在最近 N 分钟内 (默认 5 分钟, ?minutes=N 调整 1-60)
+// 一个用户可能多个 session (多设备/多浏览器), 这里按 user 去重, 取最新 session 的 ip + last_active.
+//
+// 返回: real_name / username / department / ip / last_active_at / last_active_seconds_ago / sessions_count
+func (h *DashboardHandler) AdminOnlineUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	minutes := 5
+	if v := r.URL.Query().Get("minutes"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 60 {
+			minutes = n
+		}
+	}
+	rows, ok := queryRowsOrWriteError(w, h.DB, `
+		SELECT u.id, u.username, IFNULL(u.real_name, '') AS real_name,
+		       IFNULL(u.department, '') AS department,
+		       IFNULL(u.dingtalk_real_name, '') AS dingtalk_real_name,
+		       MAX(s.last_active_at) AS last_active_at,
+		       (SELECT s2.ip FROM user_sessions s2
+		         WHERE s2.user_id = u.id AND s2.expires_at > NOW()
+		         ORDER BY s2.last_active_at DESC LIMIT 1) AS latest_ip,
+		       (SELECT s2.user_agent FROM user_sessions s2
+		         WHERE s2.user_id = u.id AND s2.expires_at > NOW()
+		         ORDER BY s2.last_active_at DESC LIMIT 1) AS latest_ua,
+		       COUNT(*) AS sessions_count,
+		       TIMESTAMPDIFF(SECOND, MAX(s.last_active_at), NOW()) AS seconds_ago
+		FROM user_sessions s
+		JOIN users u ON s.user_id = u.id
+		WHERE s.expires_at > NOW()
+		  AND s.last_active_at > NOW() - INTERVAL ? MINUTE
+		GROUP BY u.id, u.username, u.real_name, u.department, u.dingtalk_real_name
+		ORDER BY MAX(s.last_active_at) DESC`, minutes)
+	if !ok {
+		return
+	}
+	defer rows.Close()
+
+	type onlineRow struct {
+		ID                int64  `json:"id"`
+		Username          string `json:"username"`
+		RealName          string `json:"real_name"`
+		Department        string `json:"department"`
+		DingtalkRealName  string `json:"dingtalk_real_name"`
+		LastActiveAt      string `json:"last_active_at"`
+		IP                string `json:"ip"`
+		UserAgent         string `json:"user_agent"`
+		SessionsCount     int    `json:"sessions_count"`
+		SecondsAgo        int    `json:"seconds_ago"`
+	}
+	out := []onlineRow{}
+	for rows.Next() {
+		var u onlineRow
+		var lastActive sql.NullTime
+		var ip, ua sql.NullString
+		if err := rows.Scan(&u.ID, &u.Username, &u.RealName, &u.Department, &u.DingtalkRealName,
+			&lastActive, &ip, &ua, &u.SessionsCount, &u.SecondsAgo); err != nil {
+			continue
+		}
+		if lastActive.Valid {
+			u.LastActiveAt = lastActive.Time.Format("2006-01-02 15:04:05")
+		}
+		if ip.Valid {
+			u.IP = ip.String
+		}
+		if ua.Valid {
+			u.UserAgent = ua.String
+		}
+		out = append(out, u)
+	}
+	writeJSON(w, map[string]interface{}{
+		"minutes": minutes,
+		"count":   len(out),
+		"users":   out,
+	})
+}

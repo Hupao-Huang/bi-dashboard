@@ -60,6 +60,7 @@ const LoginPage = lazy(() => import('./pages/Login'));
 const ForbiddenPage = lazy(() => import('./pages/Forbidden'));
 const NotFoundPage = lazy(() => import('./pages/NotFound'));
 const UserAccessPage = lazy(() => import('./pages/system/UserAccess'));
+const OnlineUsersPage = lazy(() => import('./pages/system/OnlineUsers'));
 const RoleAccessPage = lazy(() => import('./pages/system/RoleAccess'));
 const FeedbackPage = lazy(() => import('./pages/system/Feedback'));
 const NoticesPage = lazy(() => import('./pages/system/Notices'));
@@ -183,6 +184,7 @@ const App: React.FC = () => (
               <Route path="/supply-chain/monthly-billing" element={guard('supply_chain.monthly_billing:view', <MonthlyBilling />)} />
               <Route path="/brand" element={guard('brand:view', <div style={{ textAlign: 'center', padding: 80, color: '#94a3b8' }}>品牌中心 - 待开发</div>)} />
               <Route path="/system/access" element={guard('user.manage', <UserAccessPage />)} />
+              <Route path="/system/online" element={guard('user.manage', <OnlineUsersPage />)} />
               <Route path="/system/roles" element={guard('role.manage', <RoleAccessPage />)} />
               <Route path="/system/ops" element={guard('role.manage', <OpsMonitorPage />)} />
               <Route path="/system/feedback" element={guard('feedback.manage', <FeedbackPage />)} />
