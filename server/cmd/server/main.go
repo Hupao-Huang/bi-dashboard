@@ -288,6 +288,7 @@ func main() {
 	mux.HandleFunc("/api/admin/users/batch", adminUsers(h.AdminUsersBatchImport))
 	mux.HandleFunc("/api/admin/users", adminUsers(h.AdminUsers))
 	mux.HandleFunc("/api/admin/users/", adminUsers(h.AdminUserByPath))
+	mux.HandleFunc("/api/admin/online-users", adminUsers(h.AdminOnlineUsers))
 	mux.HandleFunc("/api/admin/roles", adminRoles(h.AdminRoles))
 	mux.HandleFunc("/api/admin/roles/", adminRoles(h.AdminRoleByPath))
 	mux.HandleFunc("/api/audit/page-view", protected(h.AuditLogPageView))

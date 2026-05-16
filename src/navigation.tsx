@@ -206,6 +206,7 @@ export const menuDefinitions: MenuDefinition[] = [
     permission: 'user.manage',
     children: [
       { key: '/system/access', icon: <TeamOutlined />, label: '用户管理', permission: 'user.manage' },
+      { key: '/system/online', icon: <EyeOutlined />, label: '在线用户', permission: 'user.manage' },
       { key: '/system/roles', icon: <SafetyCertificateOutlined />, label: '角色管理', permission: 'role.manage' },
       { key: '/system/feedback', icon: <CommentOutlined />, label: '需求与反馈', permission: 'feedback.manage' },
       { key: '/system/notices', icon: <NotificationOutlined />, label: '公告管理', permission: 'notice.manage' },
