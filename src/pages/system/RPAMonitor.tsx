@@ -832,7 +832,6 @@ const RPAMonitor: React.FC = () => {
                   count={activeTasks.length}
                   overflowCount={999}
                   size="small"
-                  offset={[-4, 4]}
                   style={{ marginRight: 12 }}
                 >
                   <Button

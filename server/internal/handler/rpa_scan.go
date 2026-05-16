@@ -379,48 +379,91 @@ func clearRPAScanCache() {
 
 // ScanRPAFiles GET /api/admin/rpa-scan
 // 返回 RPA 文件完整性扫描结果（5分钟缓存）
-// 平台 → 用于检查导入状态的代表性表名
-var platformDBTable = map[string]string{
-	"天猫":   "op_tmall_shop_daily",
-	"天猫超市": "op_tmall_cs_shop_daily",
-	"京东":   "op_jd_shop_daily",
-	"京东自营": "op_jd_cs_workload_daily",
-	"拼多多":  "op_pdd_shop_daily",
-	"唯品会":  "op_vip_shop_daily",
-	"抖音":   "op_douyin_goods_daily",
-	"抖音分销": "op_douyin_dist_product_daily",
-	"快手":   "op_kuaishou_cs_assessment_daily",
-	"小红书":  "op_xhs_cs_analysis_daily",
-	"飞瓜":   "fg_creator_daily",
+// 平台 → 用于检查导入状态的代表性表 (任一表此日期有数据 = "已导入")
+// 天猫超市早期 RPA 没"店铺"sheet 但有广告/无界等 sheet, 只看 shop 会误判"未导入"
+//
+// 约定: 第一张表是"主表"(shop 类), 用它的 MIN(stat_date) 算业务起点 (earliestBiz),
+// 早于此的 RPA 文件夹日期不展示. 其他表只用于 OR 判断"已导入".
+// 不用 MIN-of-all 因为 campaign 等表常有 fallback 入库的"假"早期数据 (RPA 文件夹日期 fallback)
+var platformDBTables = map[string][]string{
+	"天猫": {"op_tmall_shop_daily"},
+	"天猫超市": {
+		"op_tmall_cs_shop_daily",
+		"op_tmall_cs_campaign_daily",
+		"op_tmall_cs_goods_daily",
+		"op_tmall_cs_wujie_scene_daily",
+		"op_tmall_cs_wujie_detail_daily",
+		"op_tmall_cs_smart_plan_daily",
+		"op_tmall_cs_taoke_daily",
+	},
+	"京东":   {"op_jd_shop_daily"},
+	"京东自营": {"op_jd_cs_workload_daily"},
+	"拼多多":  {"op_pdd_shop_daily"},
+	"唯品会":  {"op_vip_shop_daily"},
+	"抖音":   {"op_douyin_goods_daily"},
+	"抖音分销": {"op_douyin_dist_product_daily"},
+	"快手":   {"op_kuaishou_cs_assessment_daily"},
+	"小红书":  {"op_xhs_cs_analysis_daily"},
+	"飞瓜":   {"fg_creator_daily"},
 }
 
 func (h *DashboardHandler) enrichDBStatus(result *rpaScanResult) {
 	for i := range result.Platforms {
 		p := &result.Platforms[i]
-		tableName, ok := platformDBTable[p.Name]
+		tables, ok := platformDBTables[p.Name]
 		if !ok {
 			continue
 		}
-
-		// 一次查出该表所有有数据的日期
-		dateCol := "stat_date"
-		rows, err := h.DB.Query("SELECT DISTINCT DATE_FORMAT("+dateCol+",'%Y-%m-%d') FROM "+tableName+" WHERE "+dateCol+" >= '2026-01-01'")
-		if err != nil {
-			continue
-		}
+		// 任一表此日期有数据 = 已导入 (OR 取并集), 同时记录 earliest 业务日期 (取所有表 MIN 的最早)
 		importedDates := map[string]bool{}
-		for rows.Next() {
-			var d string
-			rows.Scan(&d)
-			importedDates[d] = true
+		var earliestBiz string
+		for _, tableName := range tables {
+			rows, err := h.DB.Query("SELECT DISTINCT DATE_FORMAT(stat_date,'%Y-%m-%d') FROM " + tableName + " WHERE stat_date >= '2026-01-01'")
+			if err != nil {
+				continue
+			}
+			for rows.Next() {
+				var d string
+				rows.Scan(&d)
+				importedDates[d] = true
+				if earliestBiz == "" || d < earliestBiz {
+					earliestBiz = d
+				}
+			}
+			rows.Close()
 		}
-		rows.Close()
-
+		// 过滤掉早于业务起点的日期 (RPA 第一天前的数据拉不到, 这些 RPA 文件夹的"日期"是
+		// 抓取日期, 不是业务日期, 展示出来误导跑哥. 见 feedback_multi_day_excel)
+		if earliestBiz != "" {
+			filtered := make([]rpaDateInfo, 0, len(p.Dates))
+			for _, dt := range p.Dates {
+				if dt.FormattedDate >= earliestBiz {
+					filtered = append(filtered, dt)
+				}
+			}
+			p.Dates = filtered
+		}
 		for j := range p.Dates {
-			// 转换日期格式 20260416 → 2026-04-16
-			formatted := p.Dates[j].FormattedDate
-			p.Dates[j].DBImported = importedDates[formatted]
+			p.Dates[j].DBImported = importedDates[p.Dates[j].FormattedDate]
 		}
+		// 重算平台完整率: 按 (店,天) 单元里 status='complete' 的比例
+		// 跟前端店铺级 badge 算法一致 (RPAMonitor.tsx storeCompleteness),
+		// 单店时平台率 == 店铺率, 不会出现 26% vs 95% 错位
+		totalCells, completeCells := 0, 0
+		for _, d := range p.Dates {
+			for _, s := range d.Stores {
+				totalCells++
+				if s.Status == "complete" {
+					completeCells++
+				}
+			}
+		}
+		if totalCells > 0 {
+			p.Completeness = float64(completeCells) / float64(totalCells)
+		} else {
+			p.Completeness = 0
+		}
+		p.Status = rpaStatus(p.Completeness)
 	}
 }
 

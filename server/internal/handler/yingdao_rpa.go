@@ -799,6 +799,10 @@ func (dh *DashboardHandler) runBatchSyncQueue(state *rpaBatchState) {
 	}()
 	log.Printf("[rpa-batch] batch=%d %s 共 %d 个 user=%s 开始", state.BatchID, state.Platform, len(state.Items), state.User)
 
+	// batch 内 platform 固定, 查一次 robot_name 复用 (用于钉钉通知"应用"字段, 修 line 837 硬编码 "" bug)
+	var batchRobotName string
+	_ = dh.DB.QueryRow(`SELECT COALESCE(robot_name,'') FROM rpa_platform_mapping WHERE platform=?`, state.Platform).Scan(&batchRobotName)
+
 	for i, it := range state.Items {
 		rpaBatchMu.Lock()
 		it.Status = "running"
@@ -873,7 +877,7 @@ func (dh *DashboardHandler) runBatchSyncQueue(state *rpaBatchState) {
 
 				// 钉钉通知 (与单点同步走同一通道)
 				elapsed := int(time.Since(it.StartedAt).Seconds())
-				go dh.notifyRPADone(state.Platform, "", it.Date, newStatus, elapsed, msg)
+				go dh.notifyRPADone(state.Platform, batchRobotName, it.Date, newStatus, elapsed, msg)
 				done = true
 			}
 		}
