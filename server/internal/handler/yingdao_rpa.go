@@ -36,6 +36,10 @@ var (
 	yingdaoSubAppsMu       sync.Mutex
 	yingdaoSubAppsCache    map[string][]yingdao.RobotInScheduleDetail // key=scheduleUuid
 	yingdaoSubAppsCachedAt map[string]time.Time
+
+	yingdaoClientsMu       sync.Mutex
+	yingdaoClientsCache    []yingdao.RobotClientListItem
+	yingdaoClientsCachedAt time.Time
 )
 
 // 默认 schedule: 集团数据看板 (跑哥唯一会用到的)
@@ -528,6 +532,41 @@ func (dh *DashboardHandler) GetYingDaoSubApps(w http.ResponseWriter, r *http.Req
 	yingdaoSubAppsCachedAt[scheduleUuid] = time.Now()
 	yingdaoSubAppsMu.Unlock()
 	writeJSON(w, detail.RobotList)
+}
+
+// ======== 8. GET /api/admin/yingdao/clients ========
+
+// GetYingDaoClients 拉影刀全量机器人列表 (前端 platform mapping 账号下拉用)
+// 返回: 账号名 + 状态 (idle/running/offline) + IP + 主机名
+// 5 min 缓存, 加 ?refresh=1 强刷
+func (dh *DashboardHandler) GetYingDaoClients(w http.ResponseWriter, r *http.Request) {
+	if dh.YingDao == nil || !dh.YingDao.Configured() {
+		writeError(w, 500, "影刀未配置")
+		return
+	}
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	yingdaoClientsMu.Lock()
+	if !refresh && yingdaoClientsCache != nil && time.Since(yingdaoClientsCachedAt) < yingdaoTasksCacheTTL {
+		cache := yingdaoClientsCache
+		yingdaoClientsMu.Unlock()
+		writeJSON(w, cache)
+		return
+	}
+	yingdaoClientsMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	clients, err := dh.YingDao.ListClients(ctx, 1, 100)
+	if err != nil {
+		writeServerError(w, 500, "拉影刀机器人列表失败", err)
+		return
+	}
+	yingdaoClientsMu.Lock()
+	yingdaoClientsCache = clients
+	yingdaoClientsCachedAt = time.Now()
+	yingdaoClientsMu.Unlock()
+	writeJSON(w, clients)
 }
 
 // ======== 后台状态巡检 (避免 trigger_log status 卡 running) ========

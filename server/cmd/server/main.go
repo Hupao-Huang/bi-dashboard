@@ -401,6 +401,7 @@ func main() {
 	mux.HandleFunc("/api/admin/rpa/platform-mapping/update", adminRoles(h.UpdateRPAPlatformMapping))
 	mux.HandleFunc("/api/admin/yingdao/tasks", adminRoles(h.GetYingDaoTasks))
 	mux.HandleFunc("/api/admin/yingdao/sub-apps", adminRoles(h.GetYingDaoSubApps))
+	mux.HandleFunc("/api/admin/yingdao/clients", adminRoles(h.GetYingDaoClients))
 
 	// 反馈
 	feedbackAdmin := func(next http.HandlerFunc) http.HandlerFunc {
