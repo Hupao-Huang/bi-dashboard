@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -191,7 +192,8 @@ func (h *DashboardHandler) runSync(date string) {
 	log.Printf("[sync-ops] 开始同步 %s", date)
 
 	for _, tool := range tools {
-		result := runSyncTool(exeDir, tool, date)
+		// webhook 全量同步: 用 lookupPlatformByTool 兜底标 platform (1:N 时取首个匹配)
+		result := runSyncToolWithHistory(h.DB, exeDir, tool, date, lookupPlatformByTool(tool), "webhook")
 		if result.Output != "" {
 			log.Printf("[sync-ops] %s 输出:\n%s", tool, result.Output)
 		}
@@ -269,6 +271,73 @@ func runSyncTool(exeDir, tool, date string) syncToolResult {
 		Output:       output,
 		OutputDigest: digest,
 	}
+}
+
+// lookupPlatformByTool 反查 PlatformImportTools, tool → 中文平台名.
+// 注意 1:N: import-customer.exe 同时归京东自营/快手/小红书, 这里取第一个匹配 (按 map 遍历顺序非确定).
+// 仅用于 webhook 全量同步通道兜底; ManualImport / auto-after-sync 都明确知道平台.
+func lookupPlatformByTool(tool string) string {
+	for platform, tools := range PlatformImportTools {
+		for _, t := range tools {
+			if t == tool {
+				return platform
+			}
+		}
+	}
+	return "unknown"
+}
+
+// runSyncToolWithHistory 包装 runSyncTool, 写入 rpa_import_history.
+// 修 T+1 业务日 lag 误报"未导入": enrichDBStatus 改用本表二元判定"文件夹是否被处理过",
+// 不再用 op_*_daily.stat_date 严格匹配 (RPA 文件夹日期 ≠ 业务日).
+//
+// dateStr: YYYYMMDD; platform: 中文 (e.g. "京东"); triggeredBy: manual / webhook / auto-after-sync.
+// db 为 nil 时退化为不写 history (调用方未升级时容错).
+func runSyncToolWithHistory(db *sql.DB, exeDir, tool, dateStr, platform, triggeredBy string) syncToolResult {
+	start := time.Now()
+	result := runSyncTool(exeDir, tool, dateStr)
+	finished := time.Now()
+
+	if db == nil {
+		return result
+	}
+
+	status := "failed"
+	switch result.Status {
+	case "成功":
+		status = "success"
+	case "超时":
+		status = "timeout"
+	}
+
+	// YYYYMMDD → YYYY-MM-DD (UK 用 DATE 列存)
+	folderDate := dateStr
+	if len(dateStr) == 8 {
+		folderDate = dateStr[:4] + "-" + dateStr[4:6] + "-" + dateStr[6:8]
+	}
+	if platform == "" {
+		platform = "unknown"
+	}
+
+	// rows_digest 截断到 255 字符 (列长度)
+	digest := result.OutputDigest
+	if len(digest) > 255 {
+		digest = digest[:255]
+	}
+
+	_, err := db.Exec(`
+		INSERT INTO rpa_import_history
+		  (platform, folder_date, tool, status, rows_digest, triggered_by, started_at, finished_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+		  status = VALUES(status),
+		  rows_digest = VALUES(rows_digest),
+		  finished_at = VALUES(finished_at)`,
+		platform, folderDate, tool, status, digest, triggeredBy, start, finished)
+	if err != nil {
+		log.Printf("[rpa-history] INSERT 失败 platform=%s date=%s tool=%s: %v", platform, folderDate, tool, err)
+	}
+	return result
 }
 
 func summarizeToolOutput(output string) string {
@@ -407,7 +476,12 @@ func (h *DashboardHandler) ManualImport(w http.ResponseWriter, r *http.Request) 
 			progress.Results[i].Status = "running"
 			importProgressMu.Unlock()
 
-			result := runSyncTool(exeDir, tool, req.Date)
+			// ManualImport: req.Platform 可能为空 (跑全部时), 用 lookupPlatformByTool 兜底
+			platform := req.Platform
+			if platform == "" {
+				platform = lookupPlatformByTool(tool)
+			}
+			result := runSyncToolWithHistory(h.DB, exeDir, tool, req.Date, platform, "manual")
 
 			importProgressMu.Lock()
 			progress.Results[i].Status = result.Status

@@ -992,7 +992,8 @@ func (dh *DashboardHandler) runAutoImportAfterSync(platform, runDate string, bat
 	var failures []string
 	var successes []string
 	for _, tool := range tools {
-		result := runSyncTool(exeDir, tool, dateStr)
+		// auto-after-sync: 影刀同步成功后自动入库, 写 rpa_import_history 让监控页二元判定"已处理"
+		result := runSyncToolWithHistory(dh.DB, exeDir, tool, dateStr, platform, "auto-after-sync")
 		if result.Status == "成功" {
 			successes = append(successes, tool)
 		} else {
