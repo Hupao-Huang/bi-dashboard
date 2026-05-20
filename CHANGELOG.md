@@ -539,6 +539,55 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.70.1 (2026-05-20) — 修钉钉 "同步任务失败" 误报 (撞锁跳过被错判 failed)
+
+### 🐛 跑哥报 (2026-05-20)
+
+钉钉收到告警:
+- 合思费控同步 [失败] 5/20 11:30:01
+- BI-SyncHesiFull [失败] 5/17 02:30:00 (exit 1)
+
+### 🔬 RCA 铁证 (sync-hesi.log 时序)
+
+**5/20 11:30 失败** (其实是误报):
+- 11:27:32 sync-hesi (hourly) 启动 PID 50328
+- **11:30:01** schtasks 再次触发 → 撞 PID 50328 的锁 → 跳过 → exit 1 → task_health 推钉钉
+- 11:45:01 又触发 → 成功 (Last Result=0)
+
+**5/17 02:30 失败** (同样误报):
+- 02:15:02 sync-hesi (hourly) 启动 PID 41204 (异常慢, 跑了 45 分钟)
+- **02:30:00** sync-hesi-full (周六全量) 触发 → 撞 PID 41204 的锁 → 跳过 → exit 1
+- 03:00:00 sync-hesi 触发 30 分钟超时强制退出, 释放锁
+
+### 🎯 根因
+
+`internal/importutil/lock.go:41` 锁存在时用 `log.Fatalf` (内部 os.Exit(1))
+→ schtasks 退出码 = 1
+→ `task_health.go` 判 LastTaskResult != 0/267011/267014 都算 failed
+→ 推钉钉给 admin
+
+但**撞锁跳过是正常的并发防撞策略**, 不是业务失败. sync-hesi 数据流一直健康
+(hesi_flow 近 24h 更新 265 行, 11:45/12:00 都跑成功).
+
+### 🛠️ 修法
+
+`lock.go` AcquireLock 撞锁逻辑改:
+- `log.Fatalf("任务正在运行中...")` (exit 1) → `log.Printf("[xxx] 撞锁跳过本次执行...") + os.Exit(0)` (exit 0)
+- 日志内容仍然写明白哪个 PID 占着, 跑哥在运维监控页面看 log tail 仍然能看到跳过历史
+- schtasks 视为 success, task_health 不再误报
+
+影响范围: 重 build **全部 25 个**用 AcquireLock 的 import-*/sync-* exe (按 memory `feedback_deploy_full_module` 同步整个模块, 不能只换 sync-hesi).
+
+### ✅ 实测
+
+```
+1. 写假 PID 锁 (PID=300)
+2. 跑 sync-hesi.exe → 输出 "撞锁跳过本次执行", exit code = 0 ✅
+3. 清锁
+```
+
+---
+
 ## v1.70.0 (2026-05-20) — 计划看板新增"单仓缺货率"KPI + 全仓口径说明
 
 ### 🐛 跑哥报 (2026-05-20)
