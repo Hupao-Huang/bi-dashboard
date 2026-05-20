@@ -539,6 +539,46 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.69.1 (2026-05-20) — 货品看板 KPI 卡用 TOP 15 算"全部" 修正 (6 部门同步)
+
+### 🐛 跑哥报 (2026-05-20)
+
+线下部门 → 货品看板 → 4 月一整月: 总销售额 17,525,587.25, **跟综合看板对不上**.
+
+### 🔬 RCA 铁证
+
+| 口径 | 4 月线下总销售额 |
+|------|-----------------|
+| 货品看板"总销售额" (TOP 15 sum) | 17,525,587.25 ← 跑哥看到的 |
+| 全部 4 月线下 (综合看板真值) | 21,556,219.59 |
+| 差额 | 4,030,632.34 (**18.7% 缺失**) |
+
+根因: `dashboard_department.go:205` 商品 SQL 末尾 `ORDER BY sales DESC LIMIT 15`, 前端 `ProductDashboard.tsx:144` `totalSales = goods.reduce(...)` 把"TOP 15 合计"当"全部"sum.
+
+### 🎯 影响范围
+
+4 个 KPI 卡都用 `goods` 数组算 (全错):
+- 总销售额 (sum) — 偏小约 18%
+- 总货品数 (sum qty) — 偏小
+- 综合客单价 (sum/sum) — 接近真值但分母也错
+- **商品种类(SKU)** — `goods.length` = **永远 15 种** ❗ 实际线下 4 月数百种
+
+6 个部门货品看板都受影响 (`/electronic-commerce/product-dashboard` / `/social/...` / `/offline/...` / `/distribution/...` / `/instant-retail/...` 共享同一个 `ProductDashboard` 组件 + `/api/department` 接口).
+
+### 🛠️ 修法
+
+不动 `LIMIT 15` (保留 TOP 15 表格/图表渲染性能), 后端独立 SUM 全部商品给 KPI 准确口径:
+
+- **后端** `dashboard_department.go`: 在 goods SQL 后加一行独立 SUM 全部商品 SQL, 返回 `totalSales` / `totalQty` / `totalSku` 三个字段
+- **前端** `components/ProductDashboard.tsx`: 4 个 KPI 卡用 `data.totalXxx` 字段替代 `goods.reduce` / `goods.length`
+
+不影响:
+- ❌ `brands LIMIT 10` (前端没 reduce brands 当 KPI 用, 只用于图表)
+- ❌ `StoreDashboard` (店铺 SQL 没 LIMIT, reduce 全部对的)
+- ❌ 综合看板 (用 GROUP BY department 直接 SUM, 没 LIMIT, 一直对的)
+
+---
+
 ## v1.69.0 (2026-05-16) — RPA 监控彻底修 T+1 业务日 lag 误报"未导入" (京东/拼多多等)
 
 ### 🐛 问题现场 (跑哥 2026-05-16 12:59 报)
