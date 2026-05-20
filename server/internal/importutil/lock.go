@@ -31,14 +31,18 @@ func processAlive(pid int) bool {
 
 // AcquireLock 获取文件锁，返回释放函数。
 // 锁文件内容是当前 PID. 如果锁存在但 PID 已死(孤儿锁), 自动清理后继续;
-// 如果 PID 仍活着, log.Fatalf 退出避免并发跑同一个 import 工具.
+// 如果 PID 仍活着, 这次跳过 exit 0 (避免并发跑同一个工具, 但 schtasks 不当 failure).
+//
+// v1.69.2 修: 之前用 log.Fatalf 隐式 exit 1, task_health 把 schtasks 退出码 1 判 failed
+// 推钉钉告警, 让跑哥误以为同步真的失败. 撞锁跳过是正常的防撞策略, 不是业务失败.
 func AcquireLock(name string) func() {
 	lockFile := filepath.Join(lockDir, name+".lock")
 	if data, err := os.ReadFile(lockFile); err == nil {
 		pidStr := strings.TrimSpace(string(data))
 		if pid, perr := strconv.Atoi(pidStr); perr == nil {
 			if processAlive(pid) {
-				log.Fatalf("任务 %s 正在运行中（锁文件 %s 已存在, PID %d 仍在运行），跳过本次执行", name, lockFile, pid)
+				log.Printf("[%s] 撞锁跳过本次执行 (锁 %s 被 PID %d 占用, 上一次还在跑)", name, lockFile, pid)
+				os.Exit(0)
 			}
 			log.Printf("[%s] 检测到孤儿锁 (PID %d 已退出), 自动清理后继续", name, pid)
 			os.Remove(lockFile)
