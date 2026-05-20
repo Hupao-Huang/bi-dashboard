@@ -154,6 +154,10 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	var salesGMV, stockCost, dailyCost, turnoverDays, agedStockValue float64
 	var highStockValue, totalStockValue, highStockRate, stockoutRate float64
 	var stockoutSKU, salesSKU int
+	// v1.69.2: 单仓缺货率 (按 SKU×仓 单元) — 跟 stockoutRate 的"全仓汇总"区分
+	// 跑哥 2026-05-20 报: 全仓 0% 把 63 个 (SKU×仓) 单仓缺货掩盖了, 调拨成本/时效是真实采购预警信号
+	var perWhStockoutUnits, perWhSalesUnits int
+	var perWhStockoutRate float64
 
 	// v1.02: 6 KPI 全部加 10 品类白名单过滤, 跟"品类库存健康度"口径统一
 	cateCond, cateArgs := planCategoryGoodsCond("")
@@ -204,6 +208,25 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 				WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond+flagExcludeCond+`
 				GROUP BY goods_no
 			) t`, stockoutArgs...).Scan(&stockoutSKU, &salesSKU); err != nil {
+			setQueryErr(err)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// v1.69.2: 单仓缺货率 — 不 GROUP BY goods_no, 直接按 (SKU, 仓库) 单元算
+		// 跟 stockoutRate "全仓汇总" 区分: 单仓缺货虽然其他仓有, 但调拨要时间+成本, 是采购预警
+		perWhFlagCond, perWhFlagArgs := planStockoutExcludeFlagsCond("")
+		perWhArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
+		perWhArgs = append(perWhArgs, warehouseArgs...)
+		perWhArgs = append(perWhArgs, cateArgs...)
+		perWhArgs = append(perWhArgs, perWhFlagArgs...)
+		if err := h.DB.QueryRow(`SELECT
+			IFNULL(SUM(CASE WHEN (current_qty - locked_qty) <= 0 AND month_qty > 0 THEN 1 ELSE 0 END), 0),
+			IFNULL(SUM(CASE WHEN month_qty > 0 THEN 1 ELSE 0 END), 0)
+			FROM stock_quantity_daily
+			WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond+perWhFlagCond, perWhArgs...).Scan(&perWhStockoutUnits, &perWhSalesUnits); err != nil {
 			setQueryErr(err)
 		}
 	}()
@@ -771,6 +794,9 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	if salesSKU > 0 {
 		stockoutRate = float64(stockoutSKU) / float64(salesSKU) * 100
 	}
+	if perWhSalesUnits > 0 {
+		perWhStockoutRate = float64(perWhStockoutUnits) / float64(perWhSalesUnits) * 100
+	}
 	if totalStockValue > 0 {
 		highStockRate = highStockValue / totalStockValue * 100
 	}
@@ -808,10 +834,13 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 				"stockCost":      stockCost,
 				"turnoverDays":   turnoverDays,
 				"highStockRate":  highStockRate,
-				"stockoutRate":   stockoutRate,
-				"stockoutSKU":    stockoutSKU,
-				"salesSKU":       salesSKU,
-				"agedStockValue": agedStockValue,
+				"stockoutRate":       stockoutRate,
+				"stockoutSKU":        stockoutSKU,
+				"salesSKU":           salesSKU,
+				"perWhStockoutRate":  perWhStockoutRate,
+				"perWhStockoutUnits": perWhStockoutUnits,
+				"perWhSalesUnits":    perWhSalesUnits,
+				"agedStockValue":     agedStockValue,
 			},
 			"monthlySales":   monthlySales,
 			"channels":       channels,
