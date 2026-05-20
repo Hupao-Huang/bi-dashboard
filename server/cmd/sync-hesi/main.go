@@ -25,7 +25,9 @@ import (
 const (
 	hesiAPIBase = "https://app.ekuaibao.com"
 	pageSize    = 100
-	attachBatch = 50
+	// v1.70.3: 50 → 200, 22,698 单据从 454 batch × 4s = 30min+ 降到 114 batch × 2s = 4min
+	// 合思 API flowIds 在请求体里, 没硬性 batch 上限 (实测 200 OK)
+	attachBatch = 200
 )
 
 var (
@@ -675,7 +677,7 @@ func syncAttachments(db *sql.DB, token string, flowIds []string) int {
 		if len(flowIds) > attachBatch {
 			log.Printf("  附件进度 %d/%d", end, len(flowIds))
 		}
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // v1.70.3: 300ms → 100ms (省 ~2 分钟)
 	}
 	return totalAttachments
 }
@@ -689,12 +691,13 @@ func main() {
 		defer logFile.Close()
 	}
 
-	// 整体超时保护：30 分钟未结束强制退出
+	// 整体超时保护：45 分钟未结束强制退出
 	// 防止合思 API 卡死/死循环导致 schtasks 显示 Running 数小时
 	// (2026-05-09 实测过 13 小时卡死, vbs 同步等待无法回收)
+	// v1.70.3: 30 → 45 分钟, full 实测 22K 单据+附件正常 ~10 分钟跑完, 留 35 分钟兜底
 	go func() {
-		time.Sleep(30 * time.Minute)
-		log.Fatalf("[sync-hesi] 超过 30 分钟未结束, 强制退出（防卡死）")
+		time.Sleep(45 * time.Minute)
+		log.Fatalf("[sync-hesi] 超过 45 分钟未结束, 强制退出（防卡死）")
 	}()
 
 	unlock := importutil.AcquireLock("sync-hesi")
