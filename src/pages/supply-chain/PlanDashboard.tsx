@@ -85,20 +85,29 @@ const PlanDashboard: React.FC = () => {
 
   const wanHint = (v: number) => v >= 10000 ? `≈ ${(v / 10000).toFixed(1)}万 · ` : '';
   // v1.02: KPI 卡数据来源说明 (业务白话, 跑哥要求)
+  // v1.70.4: 加 colSpan 字段 - 上 3 大 KPI (金额/天) 用 lg=8 占满首行 24 列;
+  //          下 4 小 KPI (比例/指标) 用 lg=6 占满次行 24 列. 跑哥 5/20 拍 0 留白布局.
   const kpiCards = [
     { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#1e40af', icon: <DollarOutlined />, desc: wanHint(kpi.salesGMV || 0) + '销售出库销售额', animated: true,
+      colSpan: { xs: 24, sm: 12, lg: 8 },
       tip: '本期 10 个核心调味品类、7 个成品仓的销售出库金额（按选中日期范围汇总）。' },
     { title: '库存成本', num: kpi.stockCost || 0, fmt: fmtYuan, color: '#06b6d4', icon: <DatabaseOutlined />, desc: wanHint(kpi.stockCost || 0) + '当前库存金额',
+      colSpan: { xs: 24, sm: 12, lg: 8 },
       tip: '当前 10 个核心调味品类、7 个成品仓的库存金额（每个 SKU 当前库存 × 成本价加总）。' },
     { title: '库存周转', num: kpi.turnoverDays || 0, fmt: fmtDay, color: '#f59e0b', icon: <SyncOutlined />, desc: '库存成本÷日均销售成本', animated: true,
+      colSpan: { xs: 24, sm: 24, lg: 8 },
       tip: '库存周转(天) = 库存成本 ÷ 日均销售成本。表示当前库存够卖多少天。' },
     { title: '高库存占比', num: kpi.highStockRate || 0, fmt: fmtPct, color: '#7c3aed', icon: <WarningOutlined />, desc: '周转>50天的库存占比',
+      colSpan: { xs: 12, sm: 12, lg: 6 },
       tip: '10 个核心调味品类、7 个成品仓的在售商品中，"全仓加起来周转 > 50 天"的商品库存金额占比。按 SKU 全仓视角判断，避免单仓数据片面。广宣品/礼盒/子公司自营产品不计入。' },
     { title: '缺货率', num: kpi.stockoutRate || 0, fmt: fmtPct, color: '#ef4444', icon: <StopOutlined />, desc: `${kpi.stockoutSKU || 0}/${kpi.salesSKU || 0} 核心SKU`,
+      colSpan: { xs: 12, sm: 12, lg: 6 },
       tip: '全仓视角: 10 个核心调味品类、7 个成品仓里"全仓加起来真没货且最近还在卖"的商品数 ÷ "在售商品数"。已剔除非卖品/已下架/下架中/接单产/新品-接单产标签。广宣品/礼盒/子公司自营产品不计入 (它们不归采购部门管)。注意: 这是"汇总到 SKU"口径, 单仓缺货不算 — 看单仓缺货请看右边"单仓缺货率"。' },
     { title: '单仓缺货率', num: kpi.perWhStockoutRate || 0, fmt: fmtPct, color: '#dc2626', icon: <StopOutlined />, desc: `${kpi.perWhStockoutUnits || 0}/${kpi.perWhSalesUnits || 0} SKU×仓`,
+      colSpan: { xs: 12, sm: 12, lg: 6 },
       tip: '单仓视角: 按 (商品, 仓库) 单元统计"该 SKU 在该仓真没货且最近还在卖"的单元数 ÷ "在售单元数"。跟"缺货率"(全仓汇总)区分: 单仓缺货虽然其他仓有货, 但调拨要时间+成本+影响客户时效, 是采购预警信号。10 个核心调味品类、7 个成品仓。' },
     { title: '库龄>90天', num: kpi.agedStockValue || 0, fmt: fmtWan, color: '#ea580c', icon: <WarningOutlined />, desc: '生产日期超90天的库存金额',
+      colSpan: { xs: 12, sm: 12, lg: 6 },
       tip: '生产日期超过 90 天的库存批次金额合计。10 个核心调味品类、7 个成品仓。' },
   ];
 
@@ -253,10 +262,10 @@ const PlanDashboard: React.FC = () => {
         数据来源：南京委外成品仓、天津委外仓、西安仓库成品、松鲜鲜&amp;大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共7个仓库）
       </div>
 
-      {/* 第1行：KPI 卡片 */}
+      {/* 第1行：KPI 卡片 (v1.70.4: 上 3 大 lg=8 + 下 4 小 lg=6, 0 留白) */}
       <Row gutter={[16, 16]}>
         {kpiCards.map((card, i) => (
-          <Col xs={12} sm={8} lg={4} key={i}>
+          <Col xs={card.colSpan.xs} sm={card.colSpan.sm} lg={card.colSpan.lg} key={i}>
             <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.color }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0 }}>
