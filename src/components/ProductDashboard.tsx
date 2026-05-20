@@ -141,14 +141,18 @@ const ProductDashboard: React.FC<Props> = ({ dept }) => {
     { title: '客单价', key: 'avgPrice', width: 100, render: (_: any, row: any) => row.qty > 0 ? `¥${(row.sales / row.qty).toFixed(2)}` : '-' },
   ];
 
-  const totalSales = goods.reduce((s: number, g: any) => s + (g.sales || 0), 0);
-  const totalQty = goods.reduce((s: number, g: any) => s + (g.qty || 0), 0);
+  // 货品维度总计: 用后端独立返回的全部商品 SUM (totalSales/totalQty/totalSku)
+  // 不能用 goods.reduce — goods 只是后端按 sales DESC 截的 TOP 15, reduce 出来是"TOP 15 合计"不是"全部"
+  // (2026-05-20 修, 老逻辑误差 ~18% 例: 线下 4 月 17.5M vs 实际 21.5M)
+  const totalSales = data.totalSales ?? 0;
+  const totalQty = data.totalQty ?? 0;
+  const totalSku = data.totalSku ?? 0;
   const avgOrderValue = totalQty > 0 ? totalSales / totalQty : 0;
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总货品数', value: totalQty, precision: 0, prefix: '', accentColor: '#10b981' },
     { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#7c3aed' },
-    { title: '商品种类(SKU)', value: goods.length, precision: 0, suffix: '种', accentColor: '#f59e0b' },
+    { title: '商品种类(SKU)', value: totalSku, precision: 0, suffix: '种', accentColor: '#f59e0b' },
   ];
 
   return (

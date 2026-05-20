@@ -230,6 +230,15 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// 3.1 商品维度总计 (KPI 卡用) — goods 数组只返回 TOP 15, 前端 reduce 会把"TOP 15 合计"当"全部"
+	// 误算总销售额/总货品数/SKU数, 这里独立 SUM 全部商品给 KPI 准确口径. 修 跑哥 2026-05-20 报的
+	// 线下 4 月总销售额 17,525,587.25 (TOP15) vs 综合看板 21,556,219.59 (全部) 差 18.7% bug
+	var totalSales, totalQty float64
+	var totalSku int
+	totalArgs := append([]interface{}{dept, start, end}, extraArgs...)
+	totalSQL := `SELECT IFNULL(ROUND(SUM(s.local_goods_amt), 2), 0), IFNULL(ROUND(SUM(s.goods_qty), 0), 0), COUNT(DISTINCT s.goods_no) FROM sales_goods_summary s WHERE s.department = ? AND s.goods_no IS NOT NULL AND s.stat_date BETWEEN ? AND ?` + strings.ReplaceAll(shopCond+platCond+scopeCond, "shop_name", "s.shop_name")
+	_ = h.DB.QueryRow(totalSQL, totalArgs...).Scan(&totalSales, &totalQty, &totalSku)
+
 	// 3.5 商品渠道分布（为TOP15每个商品查各渠道销售额）
 	// crossDept=1: 跨 4 部门聚合渠道分布（财务·产品利润页用于看商品在各部门/各渠道的全口径分布）
 	crossDept := r.URL.Query().Get("crossDept") == "1"
@@ -706,6 +715,9 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		"shops":             shops,
 		"shopTotalCount":    totalShopCount,
 		"goods":             goods,
+		"totalSales":        totalSales,
+		"totalQty":          totalQty,
+		"totalSku":          totalSku,
 		"goodsChannels":     goodsChannels,
 		"brands":            brands,
 		"grades":            grades,
