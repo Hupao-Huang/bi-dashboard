@@ -574,7 +574,7 @@ func syncFlows(db *sql.DB, token, formType, state string, maxCount int, startDat
 	if startDate != "" {
 		suffix = fmt.Sprintf(" startDate>=%s", startDate)
 	}
-	fmt.Printf("  %s(%s): %d 条(拉取%d)%s\n", formType, state, total, limit, suffix)
+	log.Printf("  %s(%s): %d 条(拉取%d)%s", formType, state, total, limit, suffix)
 
 	var flowIds []string
 	count := 0
@@ -638,7 +638,7 @@ func getFlowListWithState(token, formType, state string, start, count int, start
 
 func syncAttachments(db *sql.DB, token string, flowIds []string) int {
 	totalAttachments := 0
-	fmt.Printf("\n=== 同步附件元信息 (%d个单据) ===\n", len(flowIds))
+	log.Printf("=== 同步附件元信息 (%d个单据) ===", len(flowIds))
 
 	for i := 0; i < len(flowIds); i += attachBatch {
 		end := i + attachBatch
@@ -673,7 +673,7 @@ func syncAttachments(db *sql.DB, token string, flowIds []string) int {
 		}
 
 		if len(flowIds) > attachBatch {
-			fmt.Printf("  附件进度 %d/%d\n", end, len(flowIds))
+			log.Printf("  附件进度 %d/%d", end, len(flowIds))
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
@@ -735,10 +735,10 @@ func main() {
 
 	if mode == "full" {
 		// 全量模式：拉所有非草稿状态（无时间过滤，跑哥周末手动 --full 兜底）
-		fmt.Println("========== 全量同步 ==========")
+		log.Println("========== 全量同步 ==========")
 		allStates := []string{"approving", "paying", "pending", "PROCESSING", "paid", "archived", "rejected"}
 		for _, formType := range types {
-			fmt.Printf("\n=== %s ===\n", formType)
+			log.Printf("=== %s ===", formType)
 			for _, st := range allStates {
 				count, ids := syncFlows(db, token, formType, st, 0, "")
 				totalFlows += count
@@ -750,13 +750,13 @@ func main() {
 		// 1. 活跃单据全拉 (approving/paying/pending/PROCESSING) — 大概率 1k 内
 		// 2. 已完成只拉 paid/rejected 最近 7 天 (覆盖凭证回写 + 流转回退场景)
 		// 3. archived 不拉 — 永久归档不会变, 周末 --full 兜底
-		fmt.Println("========== 增量同步 (v1.62.x: archived 不拉, paid/rejected 7天内) ==========")
+		log.Println("========== 增量同步 (v1.62.x: archived 不拉, paid/rejected 7天内) ==========")
 		activeStates := []string{"approving", "paying", "pending", "PROCESSING"}
 		recentStates := []string{"paid", "rejected"}
 		sevenDaysAgo := time.Now().AddDate(0, 0, -7).Format("2006-01-02 15:04:05")
 
 		for _, formType := range types {
-			fmt.Printf("\n=== %s ===\n", formType)
+			log.Printf("=== %s ===", formType)
 			for _, st := range activeStates {
 				count, ids := syncFlows(db, token, formType, st, 0, "")
 				totalFlows += count
@@ -774,7 +774,7 @@ func main() {
 	totalAttachments := syncAttachments(db, token, allFlowIds)
 
 	// 同步发票主体信息（补充发票代码、号码、购销方等）
-	fmt.Printf("\n=== 同步发票主体信息 ===\n")
+	log.Printf("=== 同步发票主体信息 ===")
 	var invoiceIds []string
 	{
 		rows, _ := db.Query("SELECT DISTINCT invoice_id FROM hesi_flow_invoice WHERE invoice_id IS NOT NULL AND invoice_id != '' AND (invoice_number IS NULL OR invoice_number = '') LIMIT 10000")
@@ -787,7 +787,7 @@ func main() {
 			rows.Close()
 		}
 	}
-	fmt.Printf("需要补充发票信息: %d 条\n", len(invoiceIds))
+	log.Printf("需要补充发票信息: %d 条", len(invoiceIds))
 
 	// 遍历所有发票类型查询
 	invoiceTypes := []string{"invoice", "noTaxIncome", "taxi", "fixed", "train", "flightItinerary", "tolls", "machinePrint", "other", "passengerCar", "shopping", "medical", "overseasInvoice"}
@@ -829,19 +829,19 @@ func main() {
 			time.Sleep(300 * time.Millisecond)
 		}
 		if typeUpdated > 0 {
-			fmt.Printf("  %s: 更新 %d 条\n", invType, typeUpdated)
+			log.Printf("  %s: 更新 %d 条", invType, typeUpdated)
 		}
 		totalInvoiceUpdated += typeUpdated
 		remaining = notFound
 	}
-	fmt.Printf("发票主体信息更新: %d 条, 未匹配: %d 条\n", totalInvoiceUpdated, len(remaining))
+	log.Printf("发票主体信息更新: %d 条, 未匹配: %d 条", totalInvoiceUpdated, len(remaining))
 
 	// 删除草稿数据（如果之前全量导入过）
 	result, _ := db.Exec("DELETE FROM hesi_flow WHERE state='draft'")
 	if result != nil {
 		deleted, _ := result.RowsAffected()
 		if deleted > 0 {
-			fmt.Printf("\n已清理 %d 条草稿数据\n", deleted)
+			log.Printf("已清理 %d 条草稿数据", deleted)
 			// 清理关联数据
 			db.Exec("DELETE d FROM hesi_flow_detail d LEFT JOIN hesi_flow f ON d.flow_id=f.flow_id WHERE f.flow_id IS NULL")
 			db.Exec("DELETE i FROM hesi_flow_invoice i LEFT JOIN hesi_flow f ON i.flow_id=f.flow_id WHERE f.flow_id IS NULL")
@@ -850,7 +850,7 @@ func main() {
 	}
 
 	// v1.58.0: 对所有进行中状态的单据拉当前审批节点 + 审批人
-	fmt.Println("\n========== 拉取当前审批节点 + 审批人信息 ==========")
+	log.Println("========== 拉取当前审批节点 + 审批人信息 ==========")
 	activeRows, err := db.Query(`SELECT flow_id FROM hesi_flow WHERE active=1 AND state NOT IN ('paid','archived','rejected','draft')`)
 	if err != nil {
 		log.Printf("[approveStates] 查 active flow 失败: %v", err)
@@ -863,7 +863,7 @@ func main() {
 			}
 		}
 		activeRows.Close()
-		fmt.Printf("待拉取审批状态: %d 单\n", len(activeFlowIds))
+		log.Printf("待拉取审批状态: %d 单", len(activeFlowIds))
 		if len(activeFlowIds) > 0 {
 			states, err := fetchApproveStates(token, activeFlowIds)
 			if err != nil {
@@ -879,14 +879,14 @@ func main() {
 					}
 					updateCount++
 				}
-				fmt.Printf("审批状态更新: %d 条\n", updateCount)
+				log.Printf("审批状态更新: %d 条", updateCount)
 			}
 		}
 	}
 
-	fmt.Printf("\n========== 同步完成 (%s模式) ==========\n", mode)
-	fmt.Printf("单据: %d 条\n", totalFlows)
-	fmt.Printf("附件: %d 个\n", totalAttachments)
+	log.Printf("========== 同步完成 (%s模式) ==========", mode)
+	log.Printf("单据: %d 条", totalFlows)
+	log.Printf("附件: %d 个", totalAttachments)
 }
 
 func min(a, b int) int {
