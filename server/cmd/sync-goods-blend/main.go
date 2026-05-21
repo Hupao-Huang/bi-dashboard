@@ -95,7 +95,11 @@ func main() {
 		var wrapper struct {
 			Data json.RawMessage `json:"data"`
 		}
-		json.Unmarshal(resp.Result, &wrapper)
+		// v1.71.0: wrapper 解析失败 → 下游会 fallback, log 排查
+		if err := json.Unmarshal(resp.Result, &wrapper); err != nil {
+			log.Printf("[sync-goods-blend] page %d wrapper 解析失败: %v body=%.200s", pageNum, err, string(resp.Result))
+			break
+		}
 
 		// 尝试当作 string 解 (有些接口返回 escaped json string)
 		var dataBytes []byte

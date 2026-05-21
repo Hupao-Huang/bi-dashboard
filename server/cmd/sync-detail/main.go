@@ -141,7 +141,11 @@ func main() {
 		var wrapper struct {
 			Data json.RawMessage `json:"data"`
 		}
-		json.Unmarshal(resp.Result, &wrapper)
+		// v1.71.0: wrapper 解析失败 → 下游 Unmarshal 会兜底, log 排查
+		if err := json.Unmarshal(resp.Result, &wrapper); err != nil {
+			log.Printf("[sync-detail] 批次%d wrapper 解析失败, 跳过: %v", i/batchSize, err)
+			continue
+		}
 
 		var result struct {
 			Trades []DetailTrade `json:"trades"`

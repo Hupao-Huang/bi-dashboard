@@ -479,14 +479,17 @@ func main() {
 								if !ok {
 									continue
 								}
-								db.Exec(fmt.Sprintf(`INSERT IGNORE INTO trade_package_%s
+								// v1.71.0: INSERT IGNORE 包裹失败 → 丢一行, log 排查
+								if _, err := db.Exec(fmt.Sprintf(`INSERT IGNORE INTO trade_package_%s
 									(trade_id, trade_no, logistic_no, logistic_name, logistic_code,
 									 warehouse_name, sell_count, is_gift, is_plat_gift, barcode,
 									 source_trade_no, buyer_memo, seller_memo)
 									VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, tableMonth),
 									tradeId, tradeNo, gn(p, "LogisticNo"), gn(p, "LogisticName"), gn(p, "LogisticCode"),
 									gn(p, "WarehouseName"), gn(p, "SellCount"), gn(p, "IsGift"), gn(p, "IsPlatGift"),
-									gn(p, "Barcode"), gn(p, "SourceTradeNo"), gn(p, "BuyerMemo"), gn(p, "SellerMemo"))
+									gn(p, "Barcode"), gn(p, "SourceTradeNo"), gn(p, "BuyerMemo"), gn(p, "SellerMemo")); err != nil {
+									log.Printf("[sync-daily-trades] INSERT trade_package trade=%s logistic=%v: %v", tradeId, gn(p, "LogisticNo"), err)
+								}
 							}
 						}
 					}

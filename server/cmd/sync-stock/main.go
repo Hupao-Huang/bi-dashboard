@@ -181,7 +181,10 @@ func saveDetailSnapshot(db *sql.DB) {
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", tableName).Scan(&count)
 	if count == 0 {
-		db.Exec(fmt.Sprintf("CREATE TABLE %s LIKE stock_snapshot_template", tableName))
+		// v1.71.0: CREATE TABLE 失败必须 Fatal 阻断 — 否则后续 INSERT 全挂
+		if _, err := db.Exec(fmt.Sprintf("CREATE TABLE %s LIKE stock_snapshot_template", tableName)); err != nil {
+			log.Fatalf("[sync-stock] CREATE TABLE %s 失败, 后续 INSERT 会全失败, 退出: %v", tableName, err)
+		}
 		log.Printf("自动创建快照表: %s", tableName)
 	}
 
