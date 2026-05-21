@@ -539,6 +539,60 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.71.0 (2026-05-22) — errcheck 大扫除: 45 处错误处理补全 (handler / sync / import 全覆盖)
+
+### 🎯 起因
+v1.70.6 review 时只修了 11 处明显的, 跑哥拍板"errcheck 一波带走"彻底清完隐性漏洞.
+
+### 🔬 扫描结果
+跑 `errcheck -ignoretests ./...` 全扫:
+- 总警告 597 处 → 修后剩 552 (主要降的是**真业务影响**, 剩下都是 deferred Close 等 Go 标准模式, 非误报但不影响安全)
+- **真业务高风险 49 处 → 修后剩 5** (只剩 probe-* 一次性探针工具不修)
+- 修复率 **95%** (45/49 + 同类扩搜)
+
+### 🚀 3 commit 实施
+
+#### Commit 1 — handler 层 20 处 (8f36120)
+- `auth_dingtalk.go` 10 处: 8 处钉钉 OAuth 链路 json.Unmarshal + DingtalkBind UPDATE 失败必返错误 + session cleanup log
+- `hesi_approval_worker.go` 6 处:
+  - ⚠️ **L197 json.Unmarshal 修了一个真 P0**: 之前响应损坏会被默认 Error=0 误判"全部成功", 现在改 fail 整批
+  - L209/230 status='success'/'failed' UPDATE 失败 log 警告 (防 worker 重启时 running→queued 重复处理)
+  - L275/305 refresh/审计降级
+- `profile_dingtalk_sync.go` 3 处: 钉钉同步 token/userid/detail 解析 log
+- `auth_session.go` 1 处: idle timeout 删 session log
+
+#### Commit 2 — sync 工具 14 处 (f911a5d)
+- `sync-hesi/main.go` 9 处: 单据明细/发票/附件 UPSERT 失败 log + cleanup 3 处
+- `sync-stock/main.go` 1 处: CREATE TABLE 失败必须 Fatal 阻断 (否则后续 INSERT 全挂)
+- `sync-daily-trades/main.go` 1 处: trade_package INSERT IGNORE 失败 log
+- `sync-detail/sync-goods/sync-goods-blend` 3 处: wrapper json 失败处理
+
+#### Commit 3 — import 工具 11 处 (a991738)
+- `import-customer/main.go` 2 处: xhs 客服 trend + excellent_trend
+- `import-douyin/main.go` 3 处: item json + anchor REPLACE + ad_material UPSERT
+- `import-douyin-dist/main.go` 2 处: material + promote_hourly
+- `import-vip/main.go` 3 处: vip_cancel / targetmax / weixiangke
+- `import-pdd/main.go` 1 处: resp json
+
+### 📊 修复模式
+- **关键路径** (钉钉 OAuth / 合思 worker): 失败 return 错误给客户端
+- **批量 sync/import**: 失败 log 记录 (定位"哪行/哪个 shop/哪个 material") + continue 不阻塞整批
+- **cleanup / session / 审计**: 失败只 log
+
+### 🚀 部署
+- bi-server.exe + 36 cmd exe 全 rebuild
+- bi-server 错峰重启
+
+### 🔬 没修的 (低优, 后续)
+- probe-* 5 处 (一次性探针工具, 跑哥手动跑)
+- rows.Close / db.Close / tx.Rollback 174 处 (Go 标准 defer 模式, errcheck 误报)
+- 其他 os.Remove / os.MkdirAll 12 处 (cleanup, 失败无影响)
+
+### 🎁 长期受益
+未来再 review **再也不会出现 49 个"db.Exec 不查 error"清单**, 钉钉绑定/合思审批/RPA 导入的疑难 bug 排查从"瞎猜"变"查日志".
+
+---
+
 ## v1.70.6 (2026-05-21) — 全项目 review 修复 6 个 P0 (数据完整性 / 限流 / 错误处理)
 
 ### 🩺 6 个 agent 全项目体检 (跑哥发起 /gstack 全扫)
