@@ -2,7 +2,7 @@
 // 顶部 3 类卡片网格（主要原料/包材/大宗），每张卡片含品种名 + 当前价 + 涨跌 + 迷你折线图
 // 下方涨跌幅排行榜
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Col, Row, Spin, Tabs, Tag, Tooltip, Typography, Empty } from 'antd';
+import { Card, Col, Row, Spin, Tabs, Tag, Tooltip, Typography, Empty, message } from 'antd';
 import { CaretDownOutlined, CaretUpOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
@@ -83,6 +83,9 @@ const FuturesOverview: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/futures/quotes`, { credentials: 'include' });
       const j = await res.json();
       setQuotes(j.data || []);
+    } catch (err) {
+      // v1.72.0: 网络错误用户能看到提示, 不再"空列表当作没数据"
+      message.error(`原料行情加载失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }

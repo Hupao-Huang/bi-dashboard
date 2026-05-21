@@ -693,7 +693,8 @@ const ImportPreviewView: React.FC<{ preview: any }> = ({ preview }) => {
           message={`检测到 ${warnings.length} 项异常，请仔细核对`}
           description={
             <div style={{ maxHeight: 120, overflow: 'auto', fontSize: 12 }}>
-              {warnings.map((w, i) => <div key={i} style={{ padding: '2px 0' }}>• {w}</div>)}
+              {/* v1.72.0: key 用内容+i 而非纯 i, 防 warnings 数组变化时 React diff 错位 */}
+              {warnings.map((w, i) => <div key={`${w}-${i}`} style={{ padding: '2px 0' }}>• {w}</div>)}
             </div>
           }
         />
@@ -709,7 +710,8 @@ const ImportPreviewView: React.FC<{ preview: any }> = ({ preview }) => {
           description={
             <div style={{ maxHeight: 120, overflow: 'auto', fontSize: 12 }}>
               {unmapped.map((u: any, i: number) => (
-                <div key={i} style={{ padding: '2px 0' }}>
+                /* v1.72.0: key 用 sheet+subject+i, 防 unmapped 重排时 React diff 错位 */
+                <div key={`${u.sheet}-${u.subject}-${i}`} style={{ padding: '2px 0' }}>
                   <Tag color="orange">{u.sheet}</Tag>
                   <Tag>{u.department}</Tag>
                   父：{u.parent || '-'}，科目：<Text strong>{u.subject}</Text>

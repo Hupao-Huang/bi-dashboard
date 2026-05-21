@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Row, Col, Table, Statistic, Tag, Modal, Alert, Tabs, Empty } from 'antd';
+import { Card, Row, Col, Table, Statistic, Tag, Modal, Alert, Tabs, Empty, message } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageLoading from '../../components/PageLoading';
@@ -90,7 +90,13 @@ const SpecialChannelAllot: React.FC = () => {
           setSummary(j.data?.summary || []);
           setOrders(j.data?.orders || []);
           setMissing(j.data?.missing || []);
+        } else {
+          message.error(j.msg || '加载失败');
         }
+      })
+      .catch(err => {
+        // v1.72.0: 网络错误用户能看到提示, 不再"永远转圈"
+        message.error(`加载失败: ${err instanceof Error ? err.message : String(err)}`);
       })
       .finally(() => setLoading(false));
   }, [startDate, endDate]);
@@ -111,7 +117,13 @@ const SpecialChannelAllot: React.FC = () => {
       .then(j => {
         if (j.code === 200) {
           setDetails(j.data?.list || []);
+        } else {
+          message.error(j.msg || '加载详情失败');
         }
+      })
+      .catch(err => {
+        // v1.72.0: catch 提示
+        message.error(`加载详情失败: ${err instanceof Error ? err.message : String(err)}`);
       })
       .finally(() => setDetailLoading(false));
   };

@@ -511,7 +511,14 @@ func (h *DashboardHandler) StartCleanupRoutines() {
 
 		loginMu.Lock()
 		for ip, attempt := range loginAttempts {
+			// 已锁定且超过 30 分钟: 解锁删除 (原有逻辑)
 			if !attempt.lockedAt.IsZero() && now.Sub(attempt.lockedAt) > 30*time.Minute {
+				delete(loginAttempts, ip)
+				continue
+			}
+			// v1.72.0 新增: 未锁定但超过 1 小时未活动: 删除防 map 撑爆
+			// 攻击者扫 100 万 IP 各失败 1 次的场景, 之前没锁定的项永远不被清
+			if attempt.lockedAt.IsZero() && !attempt.lastTouched.IsZero() && now.Sub(attempt.lastTouched) > 1*time.Hour {
 				delete(loginAttempts, ip)
 			}
 		}

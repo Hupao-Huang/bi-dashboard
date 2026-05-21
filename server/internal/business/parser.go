@@ -30,6 +30,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -265,6 +266,11 @@ func parseSheetName(s string) (string, string, bool) {
 	// 大区 sheet → 线下
 	if isOfflineRegion(t) {
 		return "线下", strings.TrimSpace(t), true
+	}
+	// v1.72.0: 未匹配 sheet 加 log 提示, 防加新大区时静默跳过 (memory feedback_dept_enum_grep)
+	// 业务上不应该有"未匹配 sheet"的合法情况, 出现一定是: (a) sheet 名变了 (b) 加了新大区忘改代码
+	if t != "" {
+		log.Printf("[business.parser] ⚠️ 未匹配 sheet=%q, 可能是新大区/新部门/sheet 名变了, 请确认是否漏改 isOfflineRegion 或 SheetDeptMap", t)
 	}
 	return "", "", false
 }

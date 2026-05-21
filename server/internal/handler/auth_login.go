@@ -15,8 +15,9 @@ import (
 )
 
 type loginAttempt struct {
-	count    int
-	lockedAt time.Time
+	count       int
+	lockedAt    time.Time
+	lastTouched time.Time // v1.72.0: 最后一次失败的时间, cleanup 扫超期未活动项防 map 撑爆
 }
 
 var (
@@ -51,6 +52,7 @@ func recordLoginFailure(ip string) int {
 		loginAttempts[ip] = attempt
 	}
 	attempt.count++
+	attempt.lastTouched = time.Now() // v1.72.0: 更新最后活动时间
 	if attempt.count >= maxLoginAttempts {
 		attempt.lockedAt = time.Now()
 		return 0
