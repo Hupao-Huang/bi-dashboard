@@ -314,7 +314,8 @@ func importDistMaterial(db *sql.DB, path, sqlDate, accountName string) int {
 			continue
 		}
 
-		db.Exec(`REPLACE INTO op_douyin_dist_material_daily (
+		// v1.71.0: REPLACE 失败 log + continue
+		_, errIns := db.Exec(`REPLACE INTO op_douyin_dist_material_daily (
 			stat_date, account_name, material_id, material_name,
 			impressions, clicks, click_rate, conv_rate,
 			cost, order_count, pay_amount, roi, order_cost,
@@ -328,6 +329,10 @@ func importDistMaterial(db *sql.DB, path, sqlDate, accountName string) int {
 			getF("净成交ROI"), getF("净成交金额"), getI("净成交订单数"),
 			getF("净成交金额结算率")/100, getF("1小时内退款率")/100,
 		)
+		if errIns != nil {
+			log.Printf("[import-douyin-dist] REPLACE material 失败 date=%s account=%s material=%s: %v", rowDate, accountName, materialID, errIns)
+			continue
+		}
 		count++
 	}
 	return count
@@ -376,7 +381,8 @@ func importDistPromote(db *sql.DB, path, sqlDate, accountName string) int {
 		}
 
 		m := row.Metrics
-		db.Exec(`REPLACE INTO op_douyin_dist_promote_hourly (
+		// v1.71.0: REPLACE 失败 log
+		if _, err := db.Exec(`REPLACE INTO op_douyin_dist_promote_hourly (
 			stat_date, account_name, stat_hour,
 			cost, settle_amount, settle_count, roi, refund_rate
 		) VALUES (?,?,?,?,?,?,?,?)`,
@@ -386,7 +392,9 @@ func importDistPromote(db *sql.DB, path, sqlDate, accountName string) int {
 			int(m["total_order_settle_count_for_roi2_1h"].Value),
 			m["total_prepay_and_pay_settle_roi2_1h"].Value,
 			m["total_refund_order_gmv_for_roi2_1h_rate"].Value/100,
-		)
+		); err != nil {
+			log.Printf("[import-douyin-dist] REPLACE promote_hourly 失败 date=%s account=%s hour=%s: %v", statDate, accountName, hour, err)
+		}
 		count++
 	}
 	return count

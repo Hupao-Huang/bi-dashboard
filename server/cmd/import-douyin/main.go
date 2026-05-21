@@ -317,7 +317,11 @@ func importChannelDaily(db *sql.DB, path, sqlDate, shopName string) int {
 	count := 0
 	for _, item := range raw.Data {
 		var row map[string]interface{}
-		json.Unmarshal(item, &row)
+		// v1.71.0: 单 item 解析失败 → row 为 nil, 下游 ci 解构会 continue, log 即可
+		if err := json.Unmarshal(item, &row); err != nil {
+			log.Printf("[import-douyin] item 解析失败, 跳过: %v", err)
+			continue
+		}
 		ci, ok := row["cell_info"].(map[string]interface{})
 		if !ok {
 			continue
@@ -572,7 +576,8 @@ func importAnchorDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			continue
 		}
 
-		db.Exec(`REPLACE INTO op_douyin_anchor_daily (
+		// v1.71.0: REPLACE 失败 log + continue (用 if 包裹会破坏 count 计数, 改用单独变量)
+		_, errIns := db.Exec(`REPLACE INTO op_douyin_anchor_daily (
 			stat_date, shop_name, account, anchor_name,
 			duration, pay_amount, pay_per_hour, max_online, avg_online, avg_item_price,
 			exposure_watch_rate, retention_rate, interact_rate,
@@ -587,6 +592,10 @@ func importAnchorDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			getF("转化能力 单UV价值(元)"), getI("成交人数"),
 			get("策略人群TOP3"), get("性别"), get("年龄段TOP3"), get("城市等级TOP3"), get("地域分布TOP3"),
 		)
+		if errIns != nil {
+			log.Printf("[import-douyin] REPLACE anchor_daily 失败 shop=%s anchor=%s: %v", shopName, anchorName, errIns)
+			continue
+		}
 		count++
 	}
 	return count
@@ -640,7 +649,8 @@ func importAdMaterialDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			continue
 		}
 
-		db.Exec(`INSERT INTO op_douyin_ad_material_daily (
+		// v1.71.0: UPSERT 失败 log
+		if _, err := db.Exec(`INSERT INTO op_douyin_ad_material_daily (
 			stat_date, shop_name, material_name, material_id,
 			material_eval, material_duration, material_source,
 			net_roi, net_amount, net_order_count, refund_1h_rate,
@@ -653,7 +663,9 @@ func importAdMaterialDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			getF("净成交ROI"), getF("净成交金额"), getI("净成交订单数"), getF("1小时内退款率")/100,
 			getI("整体展现次数"), getI("整体点击次数"), getF("整体点击率")/100, getF("整体转化率")/100,
 			getF("整体消耗"), getF("整体成交金额"), getF("整体支付ROI"), getF("整体千次展现费用"),
-		)
+		); err != nil {
+			log.Printf("[import-douyin] UPSERT ad_material 失败 shop=%s material=%s: %v", shopName, materialName, err)
+		}
 		count++
 	}
 	return count

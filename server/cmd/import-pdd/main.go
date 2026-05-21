@@ -856,7 +856,10 @@ func importVideo(db *sql.DB, fpath, date, shop string) (int, error) {
 			StartPt                        string          `json:"startPt"`
 		} `json:"result"`
 	}
-	json.Unmarshal(data, &resp)
+	// v1.71.0: 解析失败下游用零值, log 排查
+	if err := json.Unmarshal(data, &resp); err != nil {
+		log.Printf("[import-pdd] resp 解析失败: %v body=%.200s", err, string(data))
+	}
 	r := resp.Result
 
 	// 优先用 json 里的 startPt（业务日期），否则用 date（文件名日期）作为 fallback

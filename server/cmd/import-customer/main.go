@@ -650,7 +650,8 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 		if dtmVal == "" {
 			continue
 		}
-		db.Exec(`INSERT INTO op_xhs_cs_trend_daily
+		// v1.71.0: UPSERT 失败 log + continue, 不阻塞整批
+		if _, err := db.Exec(`INSERT INTO op_xhs_cs_trend_daily
 			(stat_date, report_date, shop_name, case_count, avg_reply_duration, reply_case_count, reply_case_ratio,
 			 reply_in_3min_case_ratio, first_reply_45s_ratio, evaluate_case_count, positive_case_count, negative_case_count,
 			 evaluate_case_ratio, negative_case_ratio, positive_case_ratio,
@@ -676,7 +677,9 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 			nestedValue(row, "inquiryPayPkgCnt"), nestedValue(row, "inquiryPayGmv"),
 			nestedValue(row, "inquiryPayCaseRatio"), nestedValue(row, "inquiryPayGmvRatio"),
 			nestedValue(row, "removeNaCaseCnt"),
-		)
+		); err != nil {
+			log.Printf("[import-customer] UPSERT xhs_cs_trend 失败 dtm=%s shop=%s: %v", dtmVal, shop, err)
+		}
 	}
 
 	// 导入行业优秀趋势数据
@@ -685,7 +688,8 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 		if dtmVal == "" {
 			continue
 		}
-		db.Exec(`INSERT INTO op_xhs_cs_excellent_trend_daily
+		// v1.71.0: UPSERT 失败 log + continue
+		_, errExc := db.Exec(`INSERT INTO op_xhs_cs_excellent_trend_daily
 			(stat_date, report_date, shop_name, case_count, avg_reply_duration, reply_case_ratio,
 			 reply_in_3min_case_ratio, first_reply_45s_ratio, evaluate_case_count, positive_case_count, negative_case_count,
 			 evaluate_case_ratio, negative_case_ratio, positive_case_ratio,
@@ -710,6 +714,9 @@ func importXHSAnalysis(db *sql.DB, path, date, shop string) (int, error) {
 			nestedValue(row, "inquiryPayPkgCnt"), nestedValue(row, "inquiryPayGmv"),
 			nestedValue(row, "inquiryPayCaseRatio"), nestedValue(row, "inquiryPayGmvRatio"),
 		)
+		if errExc != nil {
+			log.Printf("[import-customer] UPSERT xhs_cs_excellent 失败 dtm=%s shop=%s: %v", dtmVal, shop, errExc)
+		}
 	}
 
 	return 1, nil
