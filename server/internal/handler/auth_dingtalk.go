@@ -170,7 +170,12 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 		if userStatus == "pending" {
 			remark := strings.TrimSpace(req.Remark)
 			if remark != "" {
-				h.DB.Exec(`UPDATE users SET remark = ? WHERE id = ?`, remark, userID)
+				// v1.70.6: 备注写库失败必须告知用户, 否则用户以为申请了管理员看不到 remark
+				if _, err := h.DB.Exec(`UPDATE users SET remark = ? WHERE id = ?`, remark, userID); err != nil {
+					log.Printf("[dingtalk-login] 写 remark 失败 user_id=%d: %v", userID, err)
+					writeServerError(w, 500, "提交申请失败, 请重试或联系管理员", err)
+					return
+				}
 			}
 			writeJSON(w, map[string]interface{}{"pending": true, "message": "注册申请已提交，请等待管理员审批开通"})
 			return
@@ -192,8 +197,12 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 			`SELECT id, status FROM users WHERE (phone = ? OR username = ?) AND dingtalk_userid = ''`, mobile, mobile,
 		).Scan(&userID, &userStatus)
 		if err == nil {
-			// 匹配到 → 自动绑定
-			h.DB.Exec(`UPDATE users SET dingtalk_userid = ? WHERE id = ?`, dtID, userID)
+			// v1.70.6: 自动绑定写库失败必须告知, 否则用户下次扫码又被认成新人重复绑
+			if _, exErr := h.DB.Exec(`UPDATE users SET dingtalk_userid = ? WHERE id = ?`, dtID, userID); exErr != nil {
+				log.Printf("[dingtalk-login] 自动绑定失败 user_id=%d dtID=%s: %v", userID, dtID, exErr)
+				writeServerError(w, 500, "钉钉账号自动绑定失败, 请联系管理员", exErr)
+				return
+			}
 			if userStatus != "active" {
 				writeError(w, http.StatusForbidden, "账号已被禁用")
 				return
@@ -334,7 +343,10 @@ func (h *DashboardHandler) createSessionAndRespond(w http.ResponseWriter, r *htt
 		writeError(w, http.StatusInternalServerError, "创建会话失败")
 		return
 	}
-	h.DB.Exec(`UPDATE users SET last_login_at = NOW() WHERE id = ?`, userID)
+	// v1.70.6: 最后登录时间是审计辅助字段, 失败只记日志不阻塞登录
+	if _, err := h.DB.Exec(`UPDATE users SET last_login_at = NOW() WHERE id = ?`, userID); err != nil {
+		log.Printf("[session] 更新 last_login_at 失败 user_id=%d: %v", userID, err)
+	}
 
 	// 先加载 payload, 才能拿到 username/real_name 喂给 audit
 	// 之前 audit 用空串导致钉钉扫码登录的审计记录"用户"列空白(虎跑等用户登录看不到)
@@ -371,7 +383,12 @@ func (h *DashboardHandler) DingtalkBind(w http.ResponseWriter, r *http.Request) 
 
 	// 解绑
 	if req.Action == "unbind" {
-		h.DB.Exec(`UPDATE users SET dingtalk_userid = '' WHERE id = ?`, payload.User.ID)
+		// v1.70.6: 解绑失败必须告知, 否则用户以为解了实际还绑着
+		if _, err := h.DB.Exec(`UPDATE users SET dingtalk_userid = '' WHERE id = ?`, payload.User.ID); err != nil {
+			log.Printf("[dingtalk-bind] 解绑失败 user_id=%d: %v", payload.User.ID, err)
+			writeServerError(w, 500, "解绑失败, 请重试", err)
+			return
+		}
 		writeJSON(w, map[string]string{"message": "已解绑钉钉"})
 		return
 	}

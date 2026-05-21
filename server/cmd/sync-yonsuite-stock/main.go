@@ -57,7 +57,8 @@ func main() {
 			}
 			log.Printf("page %d 第 %d 次失败: %v", page, attempt, lastErr)
 			if attempt < maxRetries {
-				time.Sleep(time.Duration(attempt) * 2 * time.Second)
+				// v1.70.6: 加 1.1s baseline, 防触发 YS 反爬 IP 被封 1 小时
+				time.Sleep(time.Duration(attempt)*2*time.Second + 1100*time.Millisecond)
 			}
 		}
 		if lastErr != nil {

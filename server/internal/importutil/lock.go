@@ -51,8 +51,13 @@ func AcquireLock(name string) func() {
 			os.Remove(lockFile)
 		}
 	}
-	os.WriteFile(lockFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644)
+	// v1.70.6: 锁文件写入失败必须停 — 否则下次跑会发现没锁文件再跑一遍, 双开同步把表搞乱
+	if err := os.WriteFile(lockFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+		log.Fatalf("[%s] 锁文件写入失败, 拒绝继续 (防双开): %v", name, err)
+	}
 	return func() {
-		os.Remove(lockFile)
+		if err := os.Remove(lockFile); err != nil && !os.IsNotExist(err) {
+			log.Printf("[%s] 锁文件释放失败 (下次跑会当孤儿锁清理): %v", name, err)
+		}
 	}
 }
