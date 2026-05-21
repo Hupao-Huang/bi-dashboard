@@ -124,6 +124,8 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 
 	// 如果筛选发票状态，需要JOIN明细表
 	hasInvoiceFilter := invoiceStatus != ""
+	// v1.70.5: 借款待还款 KPI 卡点击, JOIN 借款包表过滤 state=REPAID + active=1
+	loanRepaid := q.Get("loanRepaid") == "1"
 	fromClause := "hesi_flow f"
 	selectFields := "DISTINCT f.flow_id, f.code, f.title, f.form_type, f.state, f.owner_id, f.department_id, f.submitter_id, f.pay_money, f.expense_money, f.loan_money, f.create_time, f.update_time, f.submit_date, f.pay_date, f.flow_end_time, f.voucher_no, f.voucher_status, JSON_UNQUOTE(JSON_EXTRACT(f.raw_json, '$.preApprovedNodeName')) AS pre_approved_node, JSON_UNQUOTE(JSON_EXTRACT(f.raw_json, '$.preNodeApprovedTime')) AS pre_approved_time, f.current_stage_name, f.current_approver_name, f.current_approver_code, f.specification_id"
 
@@ -131,6 +133,10 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 		fromClause += " JOIN hesi_flow_detail d ON f.flow_id = d.flow_id"
 		where += " AND d.invoice_status=?"
 		args = append(args, invoiceStatus)
+	}
+	if loanRepaid {
+		fromClause += " JOIN hesi_loan_info li ON f.flow_id = li.flow_id"
+		where += " AND li.active=1 AND li.state='REPAID'"
 	}
 
 	// 总数
@@ -520,9 +526,11 @@ func (h *DashboardHandler) GetHesiStats(w http.ResponseWriter, r *http.Request) 
 	if writeDatabaseError(w, h.DB.QueryRow("SELECT COUNT(*) FROM hesi_flow WHERE active=1 AND form_type='custom'").Scan(&totalCustom)) {
 		return
 	}
-	if writeDatabaseError(w, h.DB.QueryRow(`SELECT COUNT(DISTINCT f.flow_id) FROM hesi_flow f
-		JOIN hesi_flow_detail d ON f.flow_id=d.flow_id
-		WHERE f.active=1 AND f.state='paid' AND d.invoice_status='noExist'`).Scan(&paidNoInvoice)) {
+	// v1.70.5: 改为查合思借款包待还款数 (跟合思后台对齐)
+	// 旧 SQL 按 invoice_status='noExist' 错把内部往来/差旅核销等无票流程都算进来 (1742 笔), 跟合思后台 219 差太多
+	// 预付款核销机制: 出纳付款 → 生成借款包(loanInfo) → 报销单关联核销借款包 → 借款包 state PAID → 单据 archived
+	// 借款包 state='REPAID' = 待还款 (含员工借款+预付款), 跟合思后台数字一致
+	if writeDatabaseError(w, h.DB.QueryRow(`SELECT COUNT(*) FROM hesi_loan_info WHERE active=1 AND state='REPAID'`).Scan(&paidNoInvoice)) {
 		return
 	}
 	if writeDatabaseError(w, h.DB.QueryRow("SELECT COUNT(*) FROM hesi_flow WHERE active=1 AND state='approving'").Scan(&approving)) {

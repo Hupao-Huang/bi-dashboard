@@ -682,6 +682,161 @@ func syncAttachments(db *sql.DB, token string, flowIds []string) int {
 	return totalAttachments
 }
 
+// v1.70.5: 借款包(预付款核销追踪)
+// 合思预付款单(form_type=loan)出纳付款后会生成借款包(loanInfo),
+// 借款包 remain 归零 → 单据 archived. 此函数拉借款包余额数据存 hesi_loan_info 表
+// 接口文档: https://docs.ekuaibao.com/docs/open-api/flows/get-loanInfo-ByFlowId
+// !!! 注意 URL 路径 $flowId 里的 $ 是字面字符不是模板变量, 必须保留 $ !!!
+
+type LoanInfo struct {
+	Id            string
+	FlowId        string
+	Total         float64
+	Reserved      float64
+	Remain        float64
+	Repayment     float64
+	State         string
+	OwnerId       string
+	CorporationId string
+	LoanDate      int64
+	RepaymentDate int64
+	Active        bool
+	RawJSON       string
+}
+
+func loanInfoToFloat(v interface{}) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case string:
+		f, _ := strconv.ParseFloat(x, 64)
+		return f
+	}
+	return 0
+}
+
+func fetchLoanInfo(token, flowId string) (*LoanInfo, error) {
+	// URL 必须带字面 $ 前缀, 去掉会 404
+	url := fmt.Sprintf("%s/api/openapi/v1/loans/getLoanInfoByFlowId/$%s?accessToken=%s",
+		hesiAPIBase, flowId, token)
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == 400 {
+		// 文档定义的 400: 该单据没有生成借款包, 跳过算正常
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet := string(data)
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, snippet)
+	}
+	var parsed struct {
+		Value struct {
+			Id            string      `json:"id"`
+			FlowId        string      `json:"flowId"`
+			Total         interface{} `json:"total"`
+			Reserved      interface{} `json:"reserved"`
+			Remain        interface{} `json:"remain"`
+			Repayment     interface{} `json:"repayment"`
+			State         string      `json:"state"`
+			OwnerId       string      `json:"ownerId"`
+			CorporationId string      `json:"corporationId"`
+			LoanDate      int64       `json:"loanDate"`
+			RepaymentDate int64       `json:"repaymentDate"`
+			Active        bool        `json:"active"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, fmt.Errorf("解析失败: %w", err)
+	}
+	v := parsed.Value
+	if v.Id == "" {
+		return nil, nil
+	}
+	return &LoanInfo{
+		Id: v.Id, FlowId: v.FlowId,
+		Total: loanInfoToFloat(v.Total), Reserved: loanInfoToFloat(v.Reserved),
+		Remain: loanInfoToFloat(v.Remain), Repayment: loanInfoToFloat(v.Repayment),
+		State: v.State, OwnerId: v.OwnerId, CorporationId: v.CorporationId,
+		LoanDate: v.LoanDate, RepaymentDate: v.RepaymentDate, Active: v.Active,
+		RawJSON: string(data),
+	}, nil
+}
+
+func saveLoanInfo(db *sql.DB, li *LoanInfo) error {
+	active := 0
+	if li.Active {
+		active = 1
+	}
+	_, err := db.Exec(`REPLACE INTO hesi_loan_info
+		(loan_info_id, flow_id, total, reserved, remain, repayment, state,
+		 owner_id, corporation_id, loan_date, repayment_date, active, raw_json)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		li.Id, li.FlowId, li.Total, li.Reserved, li.Remain, li.Repayment, li.State,
+		nullStr(li.OwnerId), nullStr(li.CorporationId),
+		li.LoanDate, li.RepaymentDate, active, li.RawJSON)
+	return err
+}
+
+// syncLoanInfos 拉 form_type=loan 的单据对应的借款包
+// 增量模式: 只拉 paid/paying/archived (借款包活跃状态)
+// 全量模式: 拉所有 loan 单 (含 approving/rejected 等)
+func syncLoanInfos(db *sql.DB, token string, fullMode bool) (int, int) {
+	var q string
+	if fullMode {
+		q = `SELECT flow_id FROM hesi_flow WHERE active=1 AND form_type='loan'`
+	} else {
+		// 增量: paid/paying/archived 才有借款包数据;
+		// archived 的虽然 PAID(已还清) 不会再变, 但首次同步也要拉一次确认 remain=0
+		q = `SELECT flow_id FROM hesi_flow WHERE active=1 AND form_type='loan' AND state IN ('paid','paying','archived')`
+	}
+	rows, err := db.Query(q)
+	if err != nil {
+		log.Printf("[loanInfo] 查 loan 单失败: %v", err)
+		return 0, 0
+	}
+	var flowIds []string
+	for rows.Next() {
+		var fid string
+		if err := rows.Scan(&fid); err == nil {
+			flowIds = append(flowIds, fid)
+		}
+	}
+	rows.Close()
+
+	log.Printf("待同步借款包: %d 单", len(flowIds))
+	ok, skip, fail := 0, 0, 0
+	for i, fid := range flowIds {
+		li, err := fetchLoanInfo(token, fid)
+		if err != nil {
+			log.Printf("[loanInfo] fetch %s 失败: %v", fid, err)
+			fail++
+			continue
+		}
+		if li == nil {
+			skip++
+			continue
+		}
+		if err := saveLoanInfo(db, li); err != nil {
+			log.Printf("[loanInfo] save %s 失败: %v", fid, err)
+			fail++
+			continue
+		}
+		ok++
+		if (i+1)%100 == 0 {
+			log.Printf("  借款包进度 %d/%d", i+1, len(flowIds))
+		}
+	}
+	log.Printf("借款包同步完成: 成功 %d, 跳过(无借款包) %d, 失败 %d", ok, skip, fail)
+	return ok, skip
+}
+
 func main() {
 	// v1.57.1: 日志双写 — 既写固定 sync-hesi.log 又走 stdout
 	// 这样 schtasks 通过 vbs 触发(写 sync-hesi.log) 跟 bi-server 触发(读 stdout 进 manual-*.log) 都能拿到日志
@@ -721,8 +876,9 @@ func main() {
 		log.Fatalf("获取授权失败: %v", err)
 	}
 
-	// 解析参数: --mode full|incremental (默认incremental)
+	// 解析参数: --mode full|incremental (默认incremental), --loan-only 跳过单据/附件只同步借款包
 	mode := "incremental"
+	loanOnly := false
 	for i, arg := range os.Args[1:] {
 		if arg == "--mode" && i+1 < len(os.Args)-1 {
 			mode = os.Args[i+2]
@@ -730,6 +886,17 @@ func main() {
 		if arg == "--full" {
 			mode = "full"
 		}
+		if arg == "--loan-only" {
+			loanOnly = true
+		}
+	}
+
+	// v1.70.5: --loan-only 只跑借款包同步 (回填/补漏用), 跳过单据/附件/发票
+	if loanOnly {
+		log.Println("========== --loan-only 模式: 仅同步借款包 ==========")
+		loanOk, loanSkip := syncLoanInfos(db, token, mode == "full")
+		log.Printf("借款包: %d 条 (无借款包 %d)", loanOk, loanSkip)
+		return
 	}
 
 	types := []string{"expense", "loan", "requisition", "custom"}
@@ -887,9 +1054,14 @@ func main() {
 		}
 	}
 
+	// v1.70.5: 同步借款包 (预付款核销追踪)
+	log.Println("========== 同步借款包信息 (预付款核销追踪) ==========")
+	loanOk, loanSkip := syncLoanInfos(db, token, mode == "full")
+
 	log.Printf("========== 同步完成 (%s模式) ==========", mode)
 	log.Printf("单据: %d 条", totalFlows)
 	log.Printf("附件: %d 个", totalAttachments)
+	log.Printf("借款包: %d 条 (无借款包 %d)", loanOk, loanSkip)
 }
 
 func min(a, b int) int {
