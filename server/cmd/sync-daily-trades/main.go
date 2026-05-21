@@ -201,7 +201,11 @@ func main() {
 					Data     json.RawMessage `json:"data"`
 					ScrollId string          `json:"scrollId"`
 				}
-				json.Unmarshal(resp.Result, &wrapper)
+				// v1.70.6: 加 err 检查, 防吉客云上游格式抖动静默丢页
+				if err := json.Unmarshal(resp.Result, &wrapper); err != nil {
+					log.Printf("[%s %02d时 page=%d] wrapper 解析失败, 跳过本小时: %v body=%.200s", dayStr, hour, pageNum, err, string(resp.Result))
+					break
+				}
 
 				var dataBytes []byte
 				var dataStr string

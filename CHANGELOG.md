@@ -539,6 +539,54 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.70.6 (2026-05-21) — 全项目 review 修复 6 个 P0 (数据完整性 / 限流 / 错误处理)
+
+### 🩺 6 个 agent 全项目体检 (跑哥发起 /gstack 全扫)
+
+| 模块 | 扫到 P0 | 实修 | 误报 |
+|------|--------|------|------|
+| handler 层 | 6 | 5 | 0 |
+| sync/import 工具 | 4 | 2 + 同类扩 3 | 1 (sync-allocate 已有 tx) |
+| 前端 pages | 0 | 0 | - |
+| schema/安全 | 4 | 1 | - |
+| internal/ 子包 | 3 | 2 | - |
+| cmd 杂项 + 前端非 pages | 4 | 0 | 1 (Chart.tsx 用 echarts-for-react 库自带 dispose) |
+
+实际修了 **6 个真 P0 + 同类扩搜出 3 个**, 误报 2 个 (跳过).
+
+### 🔒 数据完整性 (3 处)
+- `importutil/parser.go` ParseFloat/ParseInt 失败加 log.Printf 警告, 返 0 行为不变 (51 个 RPA 导入点全兼容)
+  - 区分"业务真 0" vs "数据污染", 之前两者完全无法分辨
+- `finance/parser.go:632` 跳行前加 log (sheet/部门/科目/月份/行列/原值/清洗值) — 财务对账"找不到原因"从此可定位
+- `cmd/sync-daily-trades/main.go:204` 吉客云销售单 wrapper json.Unmarshal 加 err 检查, 上游格式抖动不再静默丢页
+
+### 🛡️ 系统可靠性 (2 处)
+- `importutil/lock.go` 锁文件写入失败从 silent ignore 改 log.Fatalf 中止, 防双开同步把表搞乱
+- `auth_seed.go` addCols 补 3 列定义 (dingtalk_real_name / hesi_staff_id / hesi_real_name) — 新部署兜底, 生产无影响 (列已存在 1060 自动跳)
+
+### ⏱️ YS 用友限流修复 (4 处 — 同类扩搜)
+扫 `time\.Sleep\(time\.Duration\(attempt` pattern 抓出 4 个 YS sync 全有同样 bug:
+- sync-yonsuite-purchase / subcontract / stock / materialout 重试退避加 1.1s baseline
+- 旧: 2/4/6s 退避 (快速重试触发 YS 反爬, IP 封 1 小时整链停)
+- 新: 2/4/6s + 1.1s 兜底, 兼容 YS 1.1s 限流规则
+
+### 📢 用户身份链路加错误提示 (5 处)
+之前 `db.Exec(...)` 不查 error → 用户以为操作成功实际写库失败:
+- `auth_dingtalk.go` 4 处: 钉钉登录写 remark / 自动绑定 / 解绑 / 最后登录时间
+- `hesi_approval_worker.go:127` 标 status=running — 失败前停, 防止下游合思 API 调用 + DB 未标记 → 重启后重复提交
+
+### 🚀 部署
+- bi-server.exe + 36 个 cmd exe 全 rebuild (importutil/lock.go 变更, 按 `feedback_deploy_full_module` 全模块同步)
+- bi-server 22:51 重启一次, 23:01 二次重启
+- 智能错峰 (22:53-23:01 区间, 无活跃用户)
+
+### 🔬 没修的 (按报告归类, 排 v1.71.0+)
+- 23 个 P1: 前端 7 处 fetch 不 catch / handler 3 处 rows.Err() / 吉客云 FlexFloat 解析 / 业务硬编码大区 / 登录失败计数器内存泄漏 等
+- 10 个 P2: dashboard.go 4010 行拆分 / CORS 白名单移 config / audit_logs 归档策略
+- **下个 v1.71.0 计划: errcheck 一波带走** (用 golangci-lint 扫所有 db.Exec/json.Unmarshal 不查 error, 估计 30+ 处)
+
+---
+
 ## v1.70.5 (2026-05-21) — 合思 "款付票未到" KPI 口径修正 (1742 → 219, 跟合思后台对齐)
 
 ### 🐛 跑哥报 (业务反馈)

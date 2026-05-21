@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -631,6 +632,10 @@ func parseSheet(f *excelize.File, sheetName, dept string, year int, dict map[str
 			}
 			amt, err := strconv.ParseFloat(cleanNumStr(valStr), 64)
 			if err != nil {
+				// v1.70.6: 真格式异常(非空非"-"非已知 sentinel 但 ParseFloat 挂)记日志, 不再静默丢行
+				// 让财务对账时能在 sync-finance.log 看到"哪个 sheet/部门/科目/月份/单元格"被丢
+				log.Printf("[finance.parser] 数值解析失败丢行: sheet=%q dept=%q subject=%q month=%d row=%d col=%d val=%q clean=%q err=%v",
+					sheetName, dept, subject, info.month, ri+1, ci+1, valStr, cleanNumStr(valStr), err)
 				continue
 			}
 

@@ -540,6 +540,10 @@ func EnsureAuthSchemaAndSeed(db *sql.DB) error {
 		`ALTER TABLE users ADD COLUMN employee_id VARCHAR(50) DEFAULT '' COMMENT '工号'`,
 		`ALTER TABLE users ADD COLUMN dingtalk_userid VARCHAR(64) DEFAULT '' COMMENT '钉钉用户ID'`,
 		`ALTER TABLE users ADD COLUMN remark TEXT COMMENT '注册备注(权限申请说明)'`,
+		// v1.70.6: 补齐生产已手工 ALTER 但 seed 漏写的三列, 防新部署缺列
+		`ALTER TABLE users ADD COLUMN dingtalk_real_name VARCHAR(50) DEFAULT NULL COMMENT '钉钉接口拉取的真实姓名'`,
+		`ALTER TABLE users ADD COLUMN hesi_staff_id VARCHAR(80) DEFAULT NULL COMMENT '合思员工ID(精确匹配待审批)'`,
+		`ALTER TABLE users ADD COLUMN hesi_real_name VARCHAR(50) DEFAULT NULL COMMENT '合思真实姓名(fallback匹配)'`,
 	}
 	for _, alter := range addCols {
 		if _, err := db.Exec(alter); err != nil && !strings.Contains(err.Error(), "1060") {

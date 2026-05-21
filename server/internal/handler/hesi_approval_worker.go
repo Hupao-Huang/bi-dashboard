@@ -124,7 +124,11 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 		ids[i] = it.ID
 	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
-	h.DB.Exec(`UPDATE hesi_approval_queue SET status='running', started_at=NOW() WHERE id IN (`+placeholders+`)`, ids...)
+	// v1.70.6: status=running 写库失败必须中止, 否则下游合思 API 调用会执行但 DB 没标记, 重启后可能重复提交
+	if _, err := h.DB.Exec(`UPDATE hesi_approval_queue SET status='running', started_at=NOW() WHERE id IN (`+placeholders+`)`, ids...); err != nil {
+		log.Printf("[hesi-worker] 标 running 失败, 跳过批 approver=%s: %v", batch[0].ApproveID, err)
+		return
+	}
 
 	log.Printf("[hesi-worker] 处理批 approveId=%s action=%s 单数=%d", approver, action, len(batch))
 
