@@ -229,13 +229,16 @@ func importCancelAmount(db *sql.DB, fpath, shop string) {
 			continue
 		}
 		statDate := item.Dt[:4] + "-" + item.Dt[4:6] + "-" + item.Dt[6:8]
-		db.Exec(`REPLACE INTO op_vip_cancel
+		// v1.71.0: REPLACE 失败 log
+		if _, err := db.Exec(`REPLACE INTO op_vip_cancel
 			(stat_date, shop_name, goods_acture_amt, cancel_goods_amt, cancel_goods_amt_rate,
 			 goods_acture_num, cancel_item_num, cancel_item_num_rate)
 			VALUES (?,?,?,?,?,?,?,?)`,
 			statDate, shop, item.GoodsActureAmt, item.CancelGoodsAmt, item.CancelGoodsAmtRate,
 			item.GoodsActureNum, item.CancelItemNum, item.CancelItemNumRate,
-		)
+		); err != nil {
+			log.Printf("[import-vip] REPLACE op_vip_cancel 失败 date=%s shop=%s: %v", statDate, shop, err)
+		}
 	}
 }
 
@@ -269,7 +272,8 @@ func importTargetMax(db *sql.DB, fpath, date, shop string) {
 	}
 	getI := func(k string) int { return int(getF(k)) }
 	rawJson, _ := json.Marshal(s)
-	db.Exec(`REPLACE INTO op_vip_targetmax
+	// v1.71.0: REPLACE 失败 log
+	if _, err := db.Exec(`REPLACE INTO op_vip_targetmax
 		(stat_date, shop_name, impression_count, click_count, cost, click_rate, cost_per_click, cost_per_mille,
 		 uv, new_uv, old_uv, buy_uv, sales_amount, goods_actureamt, roi,
 		 customer, new_customer, old_customer, order_cnt, buyer_cnt, raw_json)
@@ -280,7 +284,9 @@ func importTargetMax(db *sql.DB, fpath, date, shop string) {
 		getF("salesAmount"), getF("goodsActureamt"), getF("roi"),
 		getI("customer"), getI("newCustomer"), getI("oldCustomer"),
 		getI("orderCnt"), getI("buyerCnt"), string(rawJson),
-	)
+	); err != nil {
+		log.Printf("[import-vip] REPLACE op_vip_targetmax 失败 date=%s shop=%s: %v", date, shop, err)
+	}
 }
 
 // importWeixiangke 唯品会-唯享客推广（含多天数据）
@@ -318,7 +324,8 @@ func importWeixiangke(db *sql.DB, fpath, shop string) {
 			continue
 		}
 		d := item.GoodsStatisticsTimeDetail
-		db.Exec(`REPLACE INTO op_vip_weixiangke
+		// v1.71.0: REPLACE 失败 log
+		if _, err := db.Exec(`REPLACE INTO op_vip_weixiangke
 			(stat_date, shop_name, add_user_count, brand_new_user_count, brand_repurchase_count, bring_user_count,
 			 conversion_rate, order_count, order_user_count, promotion_amount, roi, sales_amount,
 			 sales_amount_merchant, serve_amount)
@@ -328,7 +335,9 @@ func importWeixiangke(db *sql.DB, fpath, shop string) {
 			importutil.ParseFloat(d.ConversionRate), importutil.ParseInt(d.OrderCount), importutil.ParseInt(d.OrderUserCount),
 			importutil.ParseFloat(d.PromotionAmount), importutil.ParseFloat(d.Roi), importutil.ParseFloat(d.SalesAmount),
 			importutil.ParseFloat(d.SalesAmountMerchant), importutil.ParseFloat(d.ServeAmount),
-		)
+		); err != nil {
+			log.Printf("[import-vip] REPLACE op_vip_weixiangke 失败 date=%s shop=%s: %v", item.DataTime, shop, err)
+		}
 	}
 }
 
