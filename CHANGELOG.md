@@ -539,6 +539,27 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.71.1 (2026-05-22) — P1 数据完整性 hotfix (财务核对漏行 + 吉客云解析返 0 告警)
+
+### 🎯 起因
+v1.71.0 errcheck 后 P1 剩 6 类 23 处. 数据完整性 2 处 (财务核对漏行 + 销售明细金额变 0) 紧急修.
+
+### 🔬 修复 2 处
+- `admin_trade_audit.go` 3 处 rows.Err() 检查: 销售单核对中途断连不再静默漏行, 直接 500 告警
+- `jackyun/trade.go` FlexFloat/FlexInt 解析失败加 log: 吉客云返回格式异常时不再"假 0", 日志可定位
+
+### 🚀 部署
+- bi-server.exe + 16 个 jackyun caller cmd 全 rebuild (按 feedback_deploy_full_module)
+- 错峰重启 bi-server
+
+### 📋 剩余 P1 (排 v1.72.0)
+- 前端 7 处 fetch 不 catch (用户看到永远转圈)
+- sync-daily-summary 清零无事务 / YS webhook 清缓存不重试
+- business/parser.go 大区名硬编码
+- auth.go loginAttempts 内存泄漏 (内网 35 人风险≈0, 倾向跳过)
+
+---
+
 ## v1.71.0 (2026-05-22) — errcheck 大扫除: 45 处错误处理补全 (handler / sync / import 全覆盖)
 
 ### 🎯 起因

@@ -85,6 +85,12 @@ func (h *DashboardHandler) AdminTradeAudit(w http.ResponseWriter, r *http.Reques
 			resp.TotalTradeCount += c
 		}
 	}
+	// v1.71.1: rows.Err() 检查 — 中途断连 rows.Next() 返 false 不是因为迭代完, 数据不全要告警
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		writeError(w, http.StatusInternalServerError, "销售单数中途断连, 数据不全: "+err.Error())
+		return
+	}
 	rows.Close()
 
 	// 明细行数: trade_goods JOIN trade
@@ -103,6 +109,12 @@ func (h *DashboardHandler) AdminTradeAudit(w http.ResponseWriter, r *http.Reques
 				goodsMap[d] = c
 				resp.TotalGoodsCount += c
 			}
+		}
+		// v1.71.1: rows.Err() 检查 — 明细数据漏行直接告警
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			writeError(w, http.StatusInternalServerError, "明细数中途断连, 数据不全: "+err.Error())
+			return
 		}
 		rows.Close()
 	}
@@ -123,6 +135,12 @@ func (h *DashboardHandler) AdminTradeAudit(w http.ResponseWriter, r *http.Reques
 				pkgMap[d] = c
 				resp.TotalPackageCnt += c
 			}
+		}
+		// v1.71.1: rows.Err() 检查
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			writeError(w, http.StatusInternalServerError, "包裹数中途断连, 数据不全: "+err.Error())
+			return
 		}
 		rows.Close()
 	}
