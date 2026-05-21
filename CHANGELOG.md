@@ -539,6 +539,40 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.72.0 (2026-05-22) — P1 全清: 前端容错 + 大区告警 + YS 重试 + 登录内存 GC
+
+### 🎯 起因
+v1.71.1 PATCH 修了 2 处数据完整性, P1 剩 6 类未清. 跑哥拍板"全清", v1.72.0 一波带走.
+
+### 🔬 修复 6 处 (其中 verify 出 3 处 agent 误报跳过)
+
+#### 前端用户体验 (3 处)
+- `ecommerce/SpecialChannelAllot.tsx` 2 处 fetch 加 `.catch + message.error`: 网络错误用户不再"永远转圈"
+- `futures/index.tsx` 1 处 try/catch 加 `message.error`: 原料行情加载失败有提示
+- `finance/Report.tsx` 2 处列表 key 用内容+index 而非纯 index: 防 warnings/unmapped 数组变化时 React diff 错位
+
+#### 后端可靠性 (3 处)
+- `business/parser.go` 未匹配 sheet 加 ⚠️ log 告警: 加新大区时静默跳过不再无声 (memory feedback_dept_enum_grep)
+- `yonsuite/webhook.go` ClearBIServerCache 加 3 次重试 + 2s 退避: bi-server 短暂繁忙不再让 UI 看 30min 旧数据
+- `auth_login.go` + `auth_dingtalk.go` loginAttempts 加 lastTouched 字段 + cleanup 扫超 1h 未活动: 防 DDoS map 撑爆
+
+### ❌ verify 出的 agent 误报 (跳过, 不修)
+- `PurchasePlan.tsx` L96-111 — **已有 `.catch`**, 不是 bug
+- `MarketingDashboard.tsx` L26-43 — **已有 2 处 `.catch`**, 不是 bug
+- `sync-daily-summary` 清零无事务 — 单 UPDATE MySQL 自动原子, 不需事务
+
+### 🚀 部署
+- bi-server.exe + 5 cmd exe rebuild (1 business + 4 yonsuite caller)
+- 前端 npm run build (3 个 .tsx 改动)
+- 错峰 07:23 重启 bi-server
+
+### 📋 v1.72.0 后 P1 剩 0 处, 进入 P2 阶段
+- dashboard.go 4010 行 / RPAMonitor.tsx 1001 行拆分 (P2 长期)
+- CORS 白名单移 config.json (P2)
+- audit_logs 归档策略 (P2)
+
+---
+
 ## v1.71.1 (2026-05-22) — P1 数据完整性 hotfix (财务核对漏行 + 吉客云解析返 0 告警)
 
 ### 🎯 起因
