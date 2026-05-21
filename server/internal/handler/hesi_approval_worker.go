@@ -194,7 +194,11 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 			ErrorMsg string `json:"errorMsg"`
 		} `json:"value"`
 	}
-	json.Unmarshal(respData, &parsed)
+	// v1.71.0: 解析失败必须当整批失败处理 — 否则 Error=0 默认值会被误判成"全部成功", 引发幽灵审批
+	if err := json.Unmarshal(respData, &parsed); err != nil {
+		h.failBatch(batch, fmt.Sprintf("合思响应非 JSON 无法判断结果: %v response=%.500s", err, string(respData)))
+		return
+	}
 	resultJSON := string(respData)
 	if len(resultJSON) > 500 {
 		resultJSON = resultJSON[:500] + "..."
@@ -206,8 +210,11 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 		h.failBatch(batch, fmt.Sprintf("合思响应 error=%d errorMsg=%s response=%s", parsed.Value.Error, parsed.Value.ErrorMsg, resultJSON))
 		return
 	}
-	h.DB.Exec(`UPDATE hesi_approval_queue SET status='success', result=?, finished_at=NOW() WHERE id IN (`+placeholders+`)`,
-		append([]interface{}{resultJSON}, ids...)...)
+	// v1.71.0: 标 success 失败 → 重启时 running→queued 重复处理. log 关键
+	if _, err := h.DB.Exec(`UPDATE hesi_approval_queue SET status='success', result=?, finished_at=NOW() WHERE id IN (`+placeholders+`)`,
+		append([]interface{}{resultJSON}, ids...)...); err != nil {
+		log.Printf("[hesi-worker] ⚠️ 标 success 写库失败! 重启时会重复处理 approver=%s ids=%v err=%v", approver, ids, err)
+	}
 	log.Printf("[hesi-worker] 批成功 单数=%d total=%d success=%d residue=%d",
 		len(batch), parsed.Value.Total, parsed.Value.Success, parsed.Value.Residue)
 
@@ -227,7 +234,10 @@ func (h *DashboardHandler) failBatch(batch []approvalQueueItem, errMsg string) {
 	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
 	args := append([]interface{}{errMsg}, ids...)
-	h.DB.Exec(`UPDATE hesi_approval_queue SET status='failed', error_msg=?, finished_at=NOW() WHERE id IN (`+placeholders+`)`, args...)
+	// v1.71.0: 标 failed 失败 → 重启时 running→queued 重复处理. log 关键
+	if _, err := h.DB.Exec(`UPDATE hesi_approval_queue SET status='failed', error_msg=?, finished_at=NOW() WHERE id IN (`+placeholders+`)`, args...); err != nil {
+		log.Printf("[hesi-worker] ⚠️ 标 failed 写库失败! 重启时会重复处理 ids=%v err=%v", ids, err)
+	}
 	log.Printf("[hesi-worker] 批失败 单数=%d 错误=%s", len(batch), errMsg)
 }
 
@@ -251,7 +261,10 @@ func (h *DashboardHandler) refreshFlowAfterApproval(flowID, action, token string
 			} `json:"operators"`
 		} `json:"items"`
 	}
-	if json.Unmarshal(data, &rs) != nil || len(rs.Items) == 0 {
+	if err := json.Unmarshal(data, &rs); err != nil || len(rs.Items) == 0 {
+		if err != nil {
+			log.Printf("[hesi-worker] refreshFlow 解析失败 flow=%s: %v", flowID, err)
+		}
 		return
 	}
 	it := rs.Items[0]
@@ -272,10 +285,13 @@ func (h *DashboardHandler) refreshFlowAfterApproval(flowID, action, token string
 			newState = "rejected"
 		}
 	}
-	h.DB.Exec(
+	// v1.71.0: 刷新 hesi_flow 失败 → BI 看板状态陈旧, 下次 sync-hesi 会修正, 只 log
+	if _, err := h.DB.Exec(
 		`UPDATE hesi_flow SET state=?, current_stage_name=?, current_approver_id=?, current_approver_name=?, current_approver_code=? WHERE flow_id=?`,
 		newState, nullableStr(it.StageName), nullableStr(opID), nullableStr(opName), nullableStr(opCode), flowID,
-	)
+	); err != nil {
+		log.Printf("[hesi-worker] refreshFlow UPDATE 失败 flow=%s: %v (BI 状态陈旧, 等下次 sync-hesi)", flowID, err)
+	}
 }
 
 // notifyApprovalDone 钉钉通知操作人
@@ -284,7 +300,11 @@ func (h *DashboardHandler) notifyApprovalDone(item approvalQueueItem, action str
 		return
 	}
 	var unionID sql.NullString
-	h.DB.QueryRow(`SELECT dingtalk_userid FROM users WHERE id=?`, item.UserID).Scan(&unionID)
+	// v1.71.0: 查 unionID 失败 → 钉钉通知降级跳过, 不影响审批主流程
+	if err := h.DB.QueryRow(`SELECT dingtalk_userid FROM users WHERE id=?`, item.UserID).Scan(&unionID); err != nil && err != sql.ErrNoRows {
+		log.Printf("[hesi-worker] 查 unionID 失败 user_id=%d: %v (跳过钉钉通知)", item.UserID, err)
+		return
+	}
 	if !unionID.Valid || unionID.String == "" {
 		return
 	}
@@ -302,10 +322,13 @@ func (h *DashboardHandler) writeAuditLogForApproval(item approvalQueueItem, acti
 	if action == "reject" {
 		label = "驳回"
 	}
-	h.DB.Exec(`
+	// v1.71.0: 审计日志写入失败 → 缺一条审计记录, 不影响主流程, log 即可
+	if _, err := h.DB.Exec(`
 		INSERT INTO audit_logs (user_id, username, real_name, action, resource, detail, ip, user_agent)
 		VALUES (?, ?, ?, 'hesi_approve', ?, ?, '', 'worker')`,
 		item.UserID, item.Username, item.RealName, item.FlowID,
 		fmt.Sprintf("%s 合思单据 %s [%s] (备注: %s)", label, item.FlowCode, item.FlowTitle, item.Comment),
-	)
+	); err != nil {
+		log.Printf("[hesi-worker] 写审计日志失败 user_id=%d flow=%s: %v", item.UserID, item.FlowID, err)
+	}
 }

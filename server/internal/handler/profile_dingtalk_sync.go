@@ -32,7 +32,10 @@ func (h *DashboardHandler) fetchDingtalkRealName(unionId string) (name, mobile s
 	var corpToken struct {
 		AccessToken string `json:"accessToken"`
 	}
-	json.Unmarshal(tokenBytes, &corpToken)
+	// v1.71.0: 加 err 检查 (下游 if 已兜底)
+	if err := json.Unmarshal(tokenBytes, &corpToken); err != nil {
+		log.Printf("[ding-sync] corp token 解析失败: %v body=%s", err, string(tokenBytes))
+	}
 	if corpToken.AccessToken == "" {
 		log.Printf("[ding-sync] corp token empty: %s", string(tokenBytes))
 		return
@@ -51,7 +54,9 @@ func (h *DashboardHandler) fetchDingtalkRealName(unionId string) (name, mobile s
 			UserId string `json:"userid"`
 		} `json:"result"`
 	}
-	json.Unmarshal(unionBytes, &unionData)
+	if err := json.Unmarshal(unionBytes, &unionData); err != nil {
+		log.Printf("[ding-sync] getbyunionid 解析失败: %v body=%s", err, string(unionBytes))
+	}
 	if unionData.Result.UserId == "" {
 		log.Printf("[ding-sync] getbyunionid empty userid: %s", string(unionBytes))
 		return
@@ -71,7 +76,9 @@ func (h *DashboardHandler) fetchDingtalkRealName(unionId string) (name, mobile s
 			Mobile string `json:"mobile"`
 		} `json:"result"`
 	}
-	json.Unmarshal(detailBytes, &detailData)
+	if err := json.Unmarshal(detailBytes, &detailData); err != nil {
+		log.Printf("[ding-sync] user/get 解析失败: %v body=%s", err, string(detailBytes))
+	}
 	return strings.TrimSpace(detailData.Result.Name), strings.TrimSpace(detailData.Result.Mobile)
 }
 

@@ -101,7 +101,10 @@ func (h *DashboardHandler) authPayloadFromRequest(r *http.Request) (*authPayload
 	}
 
 	if !payload.IsSuperAdmin && time.Since(lastActiveAt) > idleTimeout {
-		h.DB.Exec(`DELETE FROM user_sessions WHERE token_hash = ?`, tokenHash)
+		// v1.71.0: idle timeout 删 session, 失败下次 cleanup 会清, 只 log
+		if _, err := h.DB.Exec(`DELETE FROM user_sessions WHERE token_hash = ?`, tokenHash); err != nil {
+			log.Printf("[session] idle timeout 删 session 失败: %v", err)
+		}
 		return nil, errors.New("session idle timeout")
 	}
 

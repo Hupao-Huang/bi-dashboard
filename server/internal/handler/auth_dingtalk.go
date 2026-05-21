@@ -123,7 +123,10 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 	var tokenData struct {
 		AccessToken string `json:"accessToken"`
 	}
-	json.Unmarshal(tokenRespBody, &tokenData)
+	// v1.71.0: 解析失败用零值 → AccessToken 为空 → 下游 if 兜底, 加 log 利于排查
+	if err := json.Unmarshal(tokenRespBody, &tokenData); err != nil {
+		log.Printf("[dingtalk-login] token 响应解析失败: %v body=%s", err, string(tokenRespBody))
+	}
 	if tokenData.AccessToken == "" {
 		log.Printf("dingtalk token error: %s", string(tokenRespBody))
 		writeError(w, http.StatusBadRequest, "钉钉授权失败，请重试")
@@ -147,7 +150,10 @@ func (h *DashboardHandler) DingtalkLogin(w http.ResponseWriter, r *http.Request)
 		OpenId  string `json:"openId"`
 		Mobile  string `json:"mobile"`
 	}
-	json.Unmarshal(meRespBody, &dtUser)
+	// v1.71.0: 解析失败下游 if 兜底, 加 log
+	if err := json.Unmarshal(meRespBody, &dtUser); err != nil {
+		log.Printf("[dingtalk-login] me 响应解析失败: %v body=%s", err, string(meRespBody))
+	}
 	if dtUser.UnionId == "" && dtUser.OpenId == "" {
 		log.Printf("dingtalk user error: %s", string(meRespBody))
 		writeError(w, http.StatusBadRequest, "获取钉钉身份失败")
@@ -245,7 +251,10 @@ func (h *DashboardHandler) getDingtalkDepartment(unionId string) string {
 	var corpToken struct {
 		AccessToken string `json:"accessToken"`
 	}
-	json.Unmarshal(tokenRespBody, &corpToken)
+	// v1.71.0: 加 err 检查利于上游排查 (下游 if 已兜底)
+	if err := json.Unmarshal(tokenRespBody, &corpToken); err != nil {
+		log.Printf("[dingtalk-dept] corpToken 解析失败: %v body=%s", err, string(tokenRespBody))
+	}
 	if corpToken.AccessToken == "" {
 		log.Printf("dingtalk corp token empty: %s", string(tokenRespBody))
 		return ""
@@ -268,7 +277,9 @@ func (h *DashboardHandler) getDingtalkDepartment(unionId string) string {
 			UserId string `json:"userid"`
 		} `json:"result"`
 	}
-	json.Unmarshal(unionRespBody, &unionData)
+	if err := json.Unmarshal(unionRespBody, &unionData); err != nil {
+		log.Printf("[dingtalk-dept] getbyunionid 解析失败: %v body=%s", err, string(unionRespBody))
+	}
 	if unionData.Result.UserId == "" {
 		log.Printf("dingtalk getbyunionid empty: %s", string(unionRespBody))
 		return ""
@@ -291,7 +302,9 @@ func (h *DashboardHandler) getDingtalkDepartment(unionId string) string {
 			DeptIdList []int64 `json:"dept_id_list"`
 		} `json:"result"`
 	}
-	json.Unmarshal(detailRespBody, &detailData)
+	if err := json.Unmarshal(detailRespBody, &detailData); err != nil {
+		log.Printf("[dingtalk-dept] user/get 解析失败: %v body=%s", err, string(detailRespBody))
+	}
 	if len(detailData.Result.DeptIdList) == 0 {
 		log.Printf("dingtalk user detail no dept: %s", string(detailRespBody))
 		return ""
@@ -315,7 +328,9 @@ func (h *DashboardHandler) getDingtalkDepartment(unionId string) string {
 				Name string `json:"name"`
 			} `json:"result"`
 		}
-		json.Unmarshal(deptRespBody, &deptData)
+		if err := json.Unmarshal(deptRespBody, &deptData); err != nil {
+			log.Printf("[dingtalk-dept] department/get 解析失败: %v body=%s", err, string(deptRespBody))
+		}
 		if deptData.Result.Name != "" {
 			deptNames = append(deptNames, deptData.Result.Name)
 		}
@@ -416,7 +431,10 @@ func (h *DashboardHandler) DingtalkBind(w http.ResponseWriter, r *http.Request) 
 	var tokenData struct {
 		AccessToken string `json:"accessToken"`
 	}
-	json.Unmarshal(tokenRespBody, &tokenData)
+	// v1.71.0: 加 err 检查 (下游 if 已兜底)
+	if err := json.Unmarshal(tokenRespBody, &tokenData); err != nil {
+		log.Printf("[dingtalk-bind] token 解析失败: %v body=%s", err, string(tokenRespBody))
+	}
 	if tokenData.AccessToken == "" {
 		writeError(w, http.StatusBadRequest, "钉钉授权失败")
 		return
@@ -438,7 +456,9 @@ func (h *DashboardHandler) DingtalkBind(w http.ResponseWriter, r *http.Request) 
 		OpenId  string `json:"openId"`
 		Mobile  string `json:"mobile"`
 	}
-	json.Unmarshal(meBody, &dtUser)
+	if err := json.Unmarshal(meBody, &dtUser); err != nil {
+		log.Printf("[dingtalk-bind] me 解析失败: %v body=%s", err, string(meBody))
+	}
 	dtID := dtUser.UnionId
 	if dtID == "" {
 		dtID = dtUser.OpenId
@@ -467,7 +487,12 @@ func (h *DashboardHandler) DingtalkBind(w http.ResponseWriter, r *http.Request) 
 		args = append(args, strings.TrimSpace(dtUser.Mobile))
 	}
 	args = append(args, payload.User.ID)
-	h.DB.Exec(`UPDATE users SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
+	// v1.71.0: 绑定 UPDATE 失败必须告诉用户, 不能"假绑定成功"
+	if _, err := h.DB.Exec(`UPDATE users SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...); err != nil {
+		log.Printf("[dingtalk-bind] UPDATE 失败 user_id=%d: %v", payload.User.ID, err)
+		writeServerError(w, 500, "钉钉绑定写库失败, 请重试", err)
+		return
+	}
 	writeJSON(w, map[string]string{"message": "钉钉绑定成功", "nick": dtUser.Nick, "mobile": dtUser.Mobile})
 }
 
@@ -501,6 +526,9 @@ func (h *DashboardHandler) StartCleanupRoutines() {
 			return true
 		})
 
-		h.DB.Exec("DELETE FROM user_sessions WHERE expires_at < ?", now)
+		// v1.71.0: cleanup 任务, 失败只记日志不阻塞
+		if _, err := h.DB.Exec("DELETE FROM user_sessions WHERE expires_at < ?", now); err != nil {
+			log.Printf("[cleanup] 清理过期 session 失败: %v", err)
+		}
 	}
 }
