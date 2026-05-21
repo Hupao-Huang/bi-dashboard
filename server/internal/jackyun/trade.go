@@ -3,6 +3,7 @@ package jackyun
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 )
@@ -51,6 +52,9 @@ func (f *FlexFloat) UnmarshalJSON(data []byte) error {
 			return nil
 		}
 	}
+	// v1.71.1: 上游格式异常 (既不是 float 也不是合法 string 数字), 默认 0 但 log 警告
+	// 区分"业务真 0" vs "数据污染", 销售明细金额/数量被静默吞成 0 时能从日志查到
+	log.Printf("[jackyun.FlexFloat] 格式异常返0: %.200s", string(data))
 	*f = 0
 	return nil
 }
@@ -78,6 +82,8 @@ func (f *FlexInt) UnmarshalJSON(data []byte) error {
 			return nil
 		}
 	}
+	// v1.71.1: 同 FlexFloat, 格式异常加 log
+	log.Printf("[jackyun.FlexInt] 格式异常返0: %.200s", string(data))
 	*f = 0
 	return nil
 }
