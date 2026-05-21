@@ -55,7 +55,10 @@ func main() {
 		var wrapper struct {
 			Data json.RawMessage `json:"data"`
 		}
-		json.Unmarshal(resp.Result, &wrapper)
+		// v1.71.0: wrapper 解析失败 → 下游 Unmarshal 会 Fatal, log 排查
+		if err := json.Unmarshal(resp.Result, &wrapper); err != nil {
+			log.Fatalf("[sync-goods] wrapper 解析失败: %v body=%.200s", err, string(resp.Result))
+		}
 
 		var dataWrapper struct {
 			Goods []map[string]interface{} `json:"goods"`

@@ -468,18 +468,22 @@ func saveDetails(db *sql.DB, flowId string, form map[string]interface{}) error {
 					taxAmt := getMoney(invMap, "taxAmount")
 					approveAmt := getMoney(invMap, "approveAmount")
 
-					db.Exec(`INSERT INTO hesi_flow_invoice
+					// v1.71.0: UPSERT 发票关联失败 → 丢一条, log 即可
+					if _, err := db.Exec(`INSERT INTO hesi_flow_invoice
 						(flow_id, detail_id, invoice_id, tax_amount, approve_amount)
 						VALUES (?,?,?,?,?)
 						ON DUPLICATE KEY UPDATE
 						tax_amount=VALUES(tax_amount), approve_amount=VALUES(approve_amount)`,
-						flowId, nullStr(detailId), nullStr(invoiceId), taxAmt, approveAmt)
+						flowId, nullStr(detailId), nullStr(invoiceId), taxAmt, approveAmt); err != nil {
+						log.Printf("[sync-hesi] UPSERT invoice 失败 flow=%s detail=%s invoice=%s: %v", flowId, detailId, invoiceId, err)
+					}
 				}
 			}
 		}
 
 		rawDetail, _ := json.Marshal(det)
-		db.Exec(`INSERT INTO hesi_flow_detail
+		// v1.71.0: UPSERT 明细失败 → 丢一行, log + 计数(暂用 log)
+		if _, err := db.Exec(`INSERT INTO hesi_flow_detail
 			(flow_id, detail_id, detail_no, fee_type_id, specification_id,
 			 amount, fee_date, invoice_count, invoice_status, consumption_reasons, raw_json)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?)
@@ -488,7 +492,9 @@ func saveDetails(db *sql.DB, flowId string, form map[string]interface{}) error {
 			invoice_count=VALUES(invoice_count), invoice_status=VALUES(invoice_status),
 			consumption_reasons=VALUES(consumption_reasons), raw_json=VALUES(raw_json)`,
 			flowId, nullStr(detailId), detailNo, nullStr(feeTypeId), nullStr(specId),
-			amount, nullInt64(feeDate), invoiceCount, invoiceStatus, nullStr(reasons), string(rawDetail))
+			amount, nullInt64(feeDate), invoiceCount, invoiceStatus, nullStr(reasons), string(rawDetail)); err != nil {
+			log.Printf("[sync-hesi] UPSERT detail 失败 flow=%s detail=%s: %v", flowId, detailId, err)
+		}
 	}
 	return nil
 }
@@ -502,7 +508,10 @@ func saveAttachments(db *sql.DB, items []map[string]interface{}) {
 		}
 
 		// 先删旧附件记录
-		db.Exec("DELETE FROM hesi_flow_attachment WHERE flow_id=?", flowId)
+		// v1.71.0: DELETE 失败 → 旧附件残留 + 新一批 INSERT IGNORE 跳过, log 排查
+		if _, err := db.Exec("DELETE FROM hesi_flow_attachment WHERE flow_id=?", flowId); err != nil {
+			log.Printf("[sync-hesi] DELETE old attachments 失败 flow=%s: %v", flowId, err)
+		}
 
 		for _, att := range attList {
 			attMap, ok := att.(map[string]interface{})
@@ -519,10 +528,13 @@ func saveAttachments(db *sql.DB, items []map[string]interface{}) {
 					if !ok {
 						continue
 					}
-					db.Exec(`INSERT IGNORE INTO hesi_flow_attachment
+					// v1.71.0: INSERT 附件失败 → 丢一个附件链接, log 排查
+					if _, err := db.Exec(`INSERT IGNORE INTO hesi_flow_attachment
 						(flow_id, attachment_type, file_id, file_name, is_invoice, free_id)
 						VALUES (?,?,?,?,0,?)`,
-						flowId, attType, nullStr(getStr(urlMap, "fileId")), nullStr(getStr(urlMap, "fileName")), nullStr(freeId))
+						flowId, attType, nullStr(getStr(urlMap, "fileId")), nullStr(getStr(urlMap, "fileName")), nullStr(freeId)); err != nil {
+						log.Printf("[sync-hesi] INSERT attachment 失败 flow=%s file=%s: %v", flowId, getStr(urlMap, "fileId"), err)
+					}
 				}
 			}
 
@@ -533,11 +545,13 @@ func saveAttachments(db *sql.DB, items []map[string]interface{}) {
 					if !ok {
 						continue
 					}
-					db.Exec(`INSERT IGNORE INTO hesi_flow_attachment
+					if _, err := db.Exec(`INSERT IGNORE INTO hesi_flow_attachment
 						(flow_id, attachment_type, file_id, file_name, is_invoice, invoice_number, invoice_code, free_id)
 						VALUES (?,?,?,?,1,?,?,?)`,
 						flowId, attType, nullStr(getStr(urlMap, "fileId")), nullStr(getStr(urlMap, "fileName")),
-						nullStr(getStr(urlMap, "invoiceNumber")), nullStr(getStr(urlMap, "invoiceCode")), nullStr(freeId))
+						nullStr(getStr(urlMap, "invoiceNumber")), nullStr(getStr(urlMap, "invoiceCode")), nullStr(freeId)); err != nil {
+						log.Printf("[sync-hesi] INSERT invoice attachment 失败 flow=%s file=%s: %v", flowId, getStr(urlMap, "fileId"), err)
+					}
 				}
 			}
 
@@ -548,10 +562,12 @@ func saveAttachments(db *sql.DB, items []map[string]interface{}) {
 					if !ok {
 						continue
 					}
-					db.Exec(`INSERT IGNORE INTO hesi_flow_attachment
+					if _, err := db.Exec(`INSERT IGNORE INTO hesi_flow_attachment
 						(flow_id, attachment_type, file_id, file_name, is_invoice, free_id)
 						VALUES (?,?,?,?,0,?)`,
-						flowId, attType, nullStr(getStr(urlMap, "key")), nullStr(getStr(urlMap, "key")), nullStr(freeId))
+						flowId, attType, nullStr(getStr(urlMap, "key")), nullStr(getStr(urlMap, "key")), nullStr(freeId)); err != nil {
+						log.Printf("[sync-hesi] INSERT receipt 失败 flow=%s key=%s: %v", flowId, getStr(urlMap, "key"), err)
+					}
 				}
 			}
 		}
@@ -1012,10 +1028,16 @@ func main() {
 		deleted, _ := result.RowsAffected()
 		if deleted > 0 {
 			log.Printf("已清理 %d 条草稿数据", deleted)
-			// 清理关联数据
-			db.Exec("DELETE d FROM hesi_flow_detail d LEFT JOIN hesi_flow f ON d.flow_id=f.flow_id WHERE f.flow_id IS NULL")
-			db.Exec("DELETE i FROM hesi_flow_invoice i LEFT JOIN hesi_flow f ON i.flow_id=f.flow_id WHERE f.flow_id IS NULL")
-			db.Exec("DELETE a FROM hesi_flow_attachment a LEFT JOIN hesi_flow f ON a.flow_id=f.flow_id WHERE f.flow_id IS NULL")
+			// 清理关联数据 (v1.71.0: 失败下次重跑能补, log 即可)
+			if _, err := db.Exec("DELETE d FROM hesi_flow_detail d LEFT JOIN hesi_flow f ON d.flow_id=f.flow_id WHERE f.flow_id IS NULL"); err != nil {
+				log.Printf("[sync-hesi] cleanup detail 孤儿失败: %v", err)
+			}
+			if _, err := db.Exec("DELETE i FROM hesi_flow_invoice i LEFT JOIN hesi_flow f ON i.flow_id=f.flow_id WHERE f.flow_id IS NULL"); err != nil {
+				log.Printf("[sync-hesi] cleanup invoice 孤儿失败: %v", err)
+			}
+			if _, err := db.Exec("DELETE a FROM hesi_flow_attachment a LEFT JOIN hesi_flow f ON a.flow_id=f.flow_id WHERE f.flow_id IS NULL"); err != nil {
+				log.Printf("[sync-hesi] cleanup attachment 孤儿失败: %v", err)
+			}
 		}
 	}
 
