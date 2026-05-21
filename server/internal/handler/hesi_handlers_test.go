@@ -136,8 +136,8 @@ func TestGetHesiStatsHappyPath(t *testing.T) {
 	// 5. totalCustom
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM hesi_flow WHERE active=1 AND form_type='custom'`).
 		WillReturnRows(sqlmock.NewRows([]string{"cnt"}).AddRow(50))
-	// 6. paidNoInvoice (JOIN)
-	mock.ExpectQuery(`SELECT COUNT\(DISTINCT f\.flow_id\) FROM hesi_flow f\s+JOIN hesi_flow_detail d.*invoice_status='noExist'`).
+	// 6. paidNoInvoice (v1.70.5: 改为查 hesi_loan_info state=REPAID + active=1)
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM hesi_loan_info WHERE active=1 AND state='REPAID'`).
 		WillReturnRows(sqlmock.NewRows([]string{"cnt"}).AddRow(20))
 	// 7. approving
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM hesi_flow WHERE active=1 AND state='approving'`).

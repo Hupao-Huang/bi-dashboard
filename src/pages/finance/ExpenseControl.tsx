@@ -92,6 +92,7 @@ const ExpenseControl: React.FC = () => {
   const [formType, setFormType] = useState<string | undefined>(undefined);
   const [state, setState] = useState<string | undefined>('active'); // v1.62.x 默认隐藏已结束
   const [invoiceStatus, setInvoiceStatus] = useState<string | undefined>(undefined);
+  const [loanRepaid, setLoanRepaid] = useState<boolean>(false); // v1.70.5: 借款待还款 KPI 卡筛选
   const [keyword, setKeyword] = useState('');
   const [keywordInput, setKeywordInput] = useState(''); // v1.58.3: 输入框 draft, 点查询才提交到 keyword
   const [approver, setApprover] = useState(''); // v1.58.2: 当前审批人 LIKE 搜
@@ -132,6 +133,7 @@ const ExpenseControl: React.FC = () => {
       if (formType) params.set('formType', formType);
       if (state) params.set('state', state);
       if (invoiceStatus) params.set('invoiceStatus', invoiceStatus);
+      if (loanRepaid) params.set('loanRepaid', '1');
       if (keyword) params.set('keyword', keyword);
       if (approver) params.set('approver', approver);
       if (specificationId) params.set('specificationId', specificationId);
@@ -149,7 +151,7 @@ const ExpenseControl: React.FC = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [page, pageSize, formType, state, invoiceStatus, keyword, approver, specificationId, dateRange]);
+  }, [page, pageSize, formType, state, invoiceStatus, loanRepaid, keyword, approver, specificationId, dateRange]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchFlows(false); }, [fetchFlows]);
@@ -295,10 +297,11 @@ const ExpenseControl: React.FC = () => {
   }, [fetchFlows, page, keywordInput, approverInput, keyword, approver]);
 
   const resetFilters = useCallback(() => {
-    const noFilter = !formType && state === 'active' && !invoiceStatus && !keyword && !approver && !specificationId && !dateRange;
+    const noFilter = !formType && state === 'active' && !invoiceStatus && !loanRepaid && !keyword && !approver && !specificationId && !dateRange;
     setFormType(undefined);
     setState('active'); // v1.62.x 重置回默认"未结束"
     setInvoiceStatus(undefined);
+    setLoanRepaid(false);
     setKeyword('');
     setKeywordInput('');
     setApprover('');
@@ -332,16 +335,17 @@ const ExpenseControl: React.FC = () => {
     return dayjs(ts).format('YYYY-MM-DD HH:mm');
   };
 
-  const quickFilter = (f: string, s: string, inv: string) => {
+  const quickFilter = (f: string, s: string, inv: string, loanRepaidFlag: boolean = false) => {
     setFormType(f || undefined);
     setState(s || undefined);
     setInvoiceStatus(inv || undefined);
+    setLoanRepaid(loanRepaidFlag);
     setPage(1);
   };
   const statCards = [
     { title: '单据总数', value: stats?.totalFlows || 0, prefix: <FileTextOutlined />, accentColor: '#1e40af', onClick: () => quickFilter('', '', '') },
     { title: '报销单', value: stats?.totalExpense || 0, prefix: <DollarOutlined />, accentColor: '#10b981', onClick: () => quickFilter('expense', '', '') },
-    { title: '款付票未到', value: stats?.paidNoInvoice || 0, prefix: <WarningOutlined />, accentColor: '#ef4444', onClick: () => quickFilter('', 'paid', 'noExist') },
+    { title: '借款待还款', value: stats?.paidNoInvoice || 0, prefix: <WarningOutlined />, accentColor: '#ef4444', onClick: () => quickFilter('', '', '', true) },
     { title: '审批中', value: stats?.approving || 0, prefix: <ClockCircleOutlined />, accentColor: '#06b6d4', onClick: () => quickFilter('', 'approving', '') },
     { title: '待支付', value: stats?.paying || 0, prefix: <ClockCircleOutlined />, accentColor: '#faad14', onClick: () => quickFilter('', 'paying', '') },
     { title: '发票文件', value: stats?.totalInvoiceFiles || 0, prefix: <FileImageOutlined />, accentColor: '#7c3aed' },
@@ -394,7 +398,15 @@ const ExpenseControl: React.FC = () => {
     {
       title: '当前审批', width: 160,
       render: (_, record) => {
-        // v1.58.0: 优先显示真实审批人 (合思 approveStates 接口)
+        // v1.70.5: 终态单据 (已支付/已归档/被拒) 一律显示 "已结束"
+        // 避免 sync 没追上时显示过期的"出纳支付/姚晓倩" 等误导信息
+        if (record.state === 'paid' || record.state === 'archived' || record.state === 'rejected') {
+          const tip = record.preApprovedNode
+            ? `已结束 (上一步: ${record.preApprovedNode})`
+            : '已结束';
+          return <Tooltip title={tip}><span style={{color:'#999'}}>已结束</span></Tooltip>;
+        }
+        // v1.58.0: 进行中单据, 优先显示真实审批人 (合思 approveStates 接口)
         if (record.currentApproverName && record.currentStageName) {
           return (
             <Tooltip title={`节点: ${record.currentStageName}  审批人: ${record.currentApproverName}${record.currentApproverCode ? ' (' + record.currentApproverCode + ')' : ''}`}>
@@ -402,12 +414,6 @@ const ExpenseControl: React.FC = () => {
               <div style={{fontSize:11, color:'#666'}}>{record.currentStageName}</div>
             </Tooltip>
           );
-        }
-        // fallback: 已结束单据 (合思接口不返审批人) → 显示上一步
-        if (record.state === 'paid' || record.state === 'archived' || record.state === 'rejected') {
-          return record.preApprovedNode
-            ? <Tooltip title={`已结束 (上一步: ${record.preApprovedNode})`}><span style={{color:'#999'}}>已结束</span></Tooltip>
-            : <span style={{color:'#999'}}>-</span>;
         }
         // 进行中但还没拉到审批状态 — 显示上一步节点 (v1.57.2 老逻辑)
         if (record.preApprovedNode) {
