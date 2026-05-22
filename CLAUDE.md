@@ -63,12 +63,16 @@ mysql -h127.0.0.1 -uroot -p<pwd> bi_dashboard
 
 ### 后端 (`server/`)
 - **入口**: `cmd/server/main.go`（276 行，编译产物 = `bi-server.exe`，部署到 `server/` 根目录）
-- **Handler 层 `internal/handler/`** (~17k 行 / 25 文件)：
-  - `dashboard.go` (4010 行，最大文件) — 综合看板/部门看板核心 API
-  - `supply_chain.go` (1297) — 采购计划/库存预警
-  - `finance_report.go` (1177) / `business_report.go` (794) — 财务+预决算
-  - `warehouse_flow.go` (563) — 快递仓储分析（v0.60 起含物化表双轨路由）
-  - `auth.go` / `admin.go` — 用户/角色/钉钉 OAuth/审计
+- **Handler 层 `internal/handler/`** (~37k 行含测试 / 125 文件, 2026-05-22 校准)：
+  - **dashboard 系列已拆完** (v0.96): `dashboard.go` (65 行 入口) + `dashboard_overview.go` (416) + `dashboard_department.go` (733) + `dashboard_cache.go` (131) + `dashboard_helpers.go` (167) + `dashboard_sproducts.go` (229)
+  - **当前 top 5 大文件**:
+    - `yingdao_rpa.go` (1012) — 影刀 RPA 触发/状态/批量队列 (v1.66 加, 主题单一)
+    - `task_monitor.go` (973) — schtasks 监控 + 手动跑任务 (主题略混杂, 可拆)
+    - `offline_sales_forecast.go` (929) — 销量预测算法 + 回测
+    - `supply_chain_dashboard.go` (865) — 采购计划/库存预警
+    - `business_report.go` (772) — 业务预决算
+  - 其他高频: `marketing_cost.go` (720) / `auth_seed.go` (680) / `hesi.go` (643) / `distribution_customer.go` (640) / `finance_report_query.go` (504)
+  - `auth.go` / `auth_login.go` / `auth_dingtalk.go` / `auth_session.go` — 用户/角色/钉钉 OAuth/审计 (v1.71.0+1.72.0 加强 errcheck + cleanup)
   - `sync.go` / `task_monitor.go` — 同步触发/进度
 - **业务子模块**: `internal/jackyun/` (吉客云 SDK) / `internal/yonsuite/` (YS 用友) / `internal/finance/` (财务解析) / `internal/business/` (业务规则) / `internal/importutil/` (Excel 导入工具)
 - **数据库结构**:
