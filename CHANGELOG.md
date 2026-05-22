@@ -539,6 +539,59 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.72.1 (2026-05-22) — AI 智能助手 W1+W2 (内部 dev, 待 Beta)
+
+### 🎯 起因
+领导提需求: 在 BI 看板加 AI 智能助手, 用人话问数 (看数 / 排行 / 趋势 3 类场景), 准确率 90%.
+
+设计文档 `docs/ai-assistant-design.md` 草案 v0.1 (508 行) 已 commit.
+跑哥拍板: Hybrid 路线 (90% 走预定义路由调现有 133 接口 + 10% Text-to-SQL fallback), 用 Z.AI GLM-4.7, 管理层视角无权限隔离, 不设预算上限.
+
+### 🏗️ W1 后端骨架 (commit `b2331a0`)
+- `internal/ai_assistant/client.go`: Z.AI OpenAI 兼容 chat client (timeout / JSON mode / 错误降级)
+- `internal/ai_assistant/service.go`: 主流程 classifyIntent → route → formatAnswer (LLM 2 次调用)
+- `internal/handler/ai_assistant.go`: POST `/api/ai-assistant/ask` (走 RequireAuth)
+- `internal/config/config.go`: 加 AIAssistantConfig 结构
+- `config.json`: 加 ai_assistant 块 (复用 hermes Z.AI key)
+- `cmd/server/main.go`: 初始化 Service + 注册路由
+
+### 🏗️ W2 持久化 + 前端浮窗 (commit `c8b41ed`)
+- 数据库 3 张表: `ai_chat_session` / `ai_chat_message` / `ai_chat_feedback` (含 UK + 索引)
+- 后端 3 个新接口: GET `/sessions` GET `/messages` POST `/feedback` (严格权限隔离, 防越权)
+- 前端 `src/components/AIChatWidget.tsx` 浮窗组件:
+  - 右下角 56px 圆形按钮 + 380x560 对话框
+  - 历史会话 localStorage 持久化 sessionId, 打开拉服务端历史
+  - 答案附 sourceAPI / 置信度 / 耗时 / token (业务能核对, 90% 准确率底线)
+  - 👍/👎 反馈 (UPSERT 防重复)
+  - 新会话按钮, Enter 发, Shift+Enter 换行
+- `src/layouts/MainLayout.tsx` 全局挂载
+
+### 🐛 已知限制 (待 W3+Beta 解决)
+- ⛔ **Z.AI 账户欠费 (1113)**, 实际未跑通 LLM 调用. 跑哥充值中
+- 仅支持 "看数" 类问题 (W2 后续扩 30 接口 / W3 加 Text-to-SQL fallback)
+- 仅路由 `department` 1 个内部接口 (走 SQL 直查 sales_goods_summary)
+- 无 Text-to-SQL fallback
+- 无业务术语字典/Few-shot prompt (W3)
+- 种子用户名单跑哥跟领导对齐中
+
+### 📚 文档
+- `docs/ai-assistant-design.md` (508 行 MVP 设计) — Hybrid 架构/3 类场景/安全/Sprint Plan/14 个决策
+- `CLAUDE.md` 修 handler 大文件清单 (dashboard.go 4010 已过时 → top 5 实际数字)
+- memory 全量 audit (112 文件): project 6 个更新基线 + 3 归档 + 1 状态注释; CLAUDE.md 修
+
+### 🚀 部署
+- bi-server PID 57504 (10:12:46 启动 v1.72.1)
+- 前端 npm run build 完成
+- 数据库 migration `v1.73.0-ai-chat-tables.sql` 已应用
+
+### 🔬 下一步 (跑哥)
+1. 充值 Z.AI 让 LLM 跑通
+2. 跟领导对齐种子用户名单 + 3 类典型问题
+3. W3 Sprint: Text-to-SQL fallback + 业务术语字典 + 30 接口路由
+4. Beta 5 人测 1 周 → 准确率 90% 达标 → GA v1.73.0
+
+---
+
 ## v1.72.0 (2026-05-22) — P1 全清: 前端容错 + 大区告警 + YS 重试 + 登录内存 GC
 
 ### 🎯 起因
