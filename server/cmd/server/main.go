@@ -325,6 +325,8 @@ func main() {
 	// 同步脚本完成后会调 ClearCacheByPrefix 主动清除（详见 supply_chain.go / stock.go）
 	// 历史背景：曾命名 cache5m 但 TTL 为 60min，现统一为 cache24h（v0.56.7）
 	cache24h := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(24*time.Hour, fn) }
+	// v1.73.2: hesi 数据 sync-hesi schtasks 每 15min 一次, cache TTL 必须同频, 否则用户看 24h 旧数据
+	cache15m := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(15*time.Minute, fn) }
 
 	mux.HandleFunc("/api/overview", pageAnyProtected(cache24h(h.GetOverview),
 		"overview:view", "finance.overview:view", "finance.monthly_profit:view",
@@ -513,8 +515,9 @@ func main() {
 	// 同步工具实时日志 (sync-daily-trades 等独立 exe 写固定文件, 这里直接读末尾返回前端)
 	mux.HandleFunc("/api/admin/sync-tools/log", corsHandler(h.RequirePermission("role.manage", h.AdminSyncToolLog)))
 
-	// 合思费控 (v1.73.1 perf: stats/specifications 加 cache24h 修 2.5s 卡顿; flows 因带分页/过滤参数 cache 命中低不加)
-	mux.HandleFunc("/api/hesi/stats", pageProtected("finance.expense:view", cache24h(h.GetHesiStats)))
+	// 合思费控 (v1.73.2 hotfix: sync-hesi 每 15min 跑一次, stats 必须 cache15m 跟同频, 否则用户看 24h 旧数据)
+	// specifications 是费用类型/规格定义, 几乎不变, 保留 24h
+	mux.HandleFunc("/api/hesi/stats", pageProtected("finance.expense:view", cache15m(h.GetHesiStats)))
 	mux.HandleFunc("/api/hesi/flows", pageProtected("finance.expense:view", h.GetHesiFlows))
 	mux.HandleFunc("/api/hesi/flow-detail", pageProtected("finance.expense:view", h.GetHesiFlowDetail))
 	mux.HandleFunc("/api/hesi/specifications", pageProtected("finance.expense:view", cache24h(h.GetHesiSpecifications)))

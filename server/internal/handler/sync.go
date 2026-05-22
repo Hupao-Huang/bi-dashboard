@@ -130,8 +130,10 @@ func (h *DashboardHandler) SyncOps(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ClearCache webhook接口：清空所有接口缓存（同步脚本完成后调用）
+// ClearCache webhook接口：清空接口缓存（同步脚本完成后调用）
 // POST /api/webhook/clear-cache
+// 可选 query 参数 ?prefix=xxx 只清指定 prefix (如 sync-hesi 完只清 api|/api/hesi/)
+// 不传 prefix 清全部 (向后兼容)
 func (h *DashboardHandler) ClearCache(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		writeError(w, 405, "method not allowed")
@@ -142,9 +144,16 @@ func (h *DashboardHandler) ClearCache(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "unauthorized")
 		return
 	}
-	n := ClearOverviewCache()
-	log.Printf("[clear-cache] 已清空 %d 条缓存", n)
-	writeJSON(w, map[string]interface{}{"cleared": n})
+	prefix := r.URL.Query().Get("prefix")
+	var n int
+	if prefix != "" {
+		n = ClearCacheByPrefix(prefix)
+		log.Printf("[clear-cache] prefix=%q 已清 %d 条缓存", prefix, n)
+	} else {
+		n = ClearOverviewCache()
+		log.Printf("[clear-cache] 全部清空 %d 条缓存", n)
+	}
+	writeJSON(w, map[string]interface{}{"cleared": n, "prefix": prefix})
 }
 
 // SyncStatus 查询同步状态

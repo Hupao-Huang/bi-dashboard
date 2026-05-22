@@ -539,6 +539,34 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.73.2 (2026-05-22) — hotfix: hesi cache TTL 跟 sync 同频
+
+### 🐛 跑哥发现真问题
+v1.73.1 给 hesi/stats 加了 cache24h, 但实测 **BI-SyncHesi schtasks 每 15 分钟跑一次**.
+结果用户 95% 时间看到 24h 旧数据, 严重影响财务实时性. 跑哥眼尖问"15分钟更新一次, 24h cache 还更新吗?" 救场.
+
+### 🔧 双管齐下
+1. **TTL 调整**: hesi/stats `cache24h → cache15m` (跟 sync-hesi schtasks 同频, 最多延迟 15min)
+2. **主动失效**: sync-hesi 完成后调 `POST /api/webhook/clear-cache?prefix=api|/api/hesi/`, 数据立刻新鲜 (不用等 15min cache 过期)
+
+### 🛠️ 改造
+- `internal/handler/sync.go` `ClearCache` endpoint 加 `?prefix=` 参数支持, 不传默认清全部 (向后兼容)
+- `cmd/sync-hesi/main.go` 同步完成调 webhook, 失败只 log 不阻塞 sync
+- `cmd/server/main.go` 加 `cache15m` 辅助函数, hesi/stats 改用
+
+### 📋 数据新鲜度对照表
+| 接口 | sync 频率 | cache TTL | 主动失效 | 用户感知延迟 |
+|------|---------|----------|---------|-------------|
+| hesi/stats | 15min | 15min | ✅ sync 完即清 | < 1s |
+| hesi/specifications | 不变 | 24h | - | 0 (规格定义几乎不变) |
+| hesi/flows | 15min | 无 cache | - | 0 (实时查 DB, 600ms) |
+
+### 🚀 部署
+- bi-server PID 44788 (21:30 启动 v1.73.2)
+- sync-hesi.exe 已重 build 部署到 server/ 根, 下次 schtasks 21:45 自动用新版
+
+---
+
 ## v1.73.1 (2026-05-22) — 性能体检 + hesi cache 修复
 
 ### 🎯 起因
