@@ -539,6 +539,78 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.73.0 (2026-05-22) — AI 智能助手 GA: 8 模块路由 + 端到端跑通 + 三级 fallback
+
+### 🎯 起因
+v1.72.1 把 W1+W2 收尾, Z.AI 充值后第一时间跑 W3a (路由扩展 + 业务术语字典) + 端到端实测 + 修暴露的 3 个真实 bug, 8/8 路由准 + 7/8 端到端成功, AI 智能助手正式 GA 给管理层试用.
+
+### 🏗️ W3a 路由扩展 (commit `63f0076`)
+
+**8 个 module 全覆盖管理层高频问题:**
+
+| Module | 答能 | 示例问题 |
+|--------|------|---------|
+| `department` | 单部门销售 | "上月电商部销售多少" |
+| `overview` | 全公司总览 + 部门拆分 | "公司本月销售多少" |
+| `shop_rank` | 店铺排行 (dept 过滤 / 升降序 / TOP N) | "本月哪个店卖最差" |
+| `product_rank` | 商品/品类/SKU/品牌 4 维排行 | "本月卖最好的商品 TOP 5" |
+| `trend` | 两段日期对比 (含 deltaPct) | "本周对比上周" |
+| `stock_warning` | 缺货 SKU (复用 GetStockWarning 公式) | "哪些 SKU 缺货" |
+| `warehouse_flow` | 仓储发货量 (orders/packages) | "本月发了多少单" |
+| `rpa_status` | 各 RPA 平台数据最新日期 | "天猫数据到 5/22 了吗" |
+
+**业务术语字典 (写在 system prompt):**
+- 部门映射: 电商部/社媒部/线下/分销/即时零售 → 5 个严格 dept 枚举
+- 店铺命名规律: ds-/社媒-/sy-/分销X组/线下渠道-
+- 平台关键字: tmall/jd/pdd/douyin/xhs/vip/kuaishou
+- 业务术语: 销售=goods_amt / 销量=goods_qty / 毛利=gross_profit / 毛利率按字面值
+- 时间口径: 今天/昨天/本周/本月/上月/近7天 (动态注入今天日期)
+
+**修正 W1 错误**: 之前 system prompt 写 zhongtai 部门, 实际 DB 只有 ecommerce/social/offline/distribution/instant_retail 5 个, 已删 zhongtai 加 instant_retail.
+
+**安全**: dept/dim/platform 全部白名单 + ym 格式校验 + limit clamp [1,50] + 表名硬编码
+
+### 🔧 W3a fix (commit `d75d60a`)
+
+端到端实测后修 3 个真实 bug:
+
+1. **Intent.Params 自定义 UnmarshalJSON** — LLM 偶尔返 `"limit":10` (number), 自动强转 string
+2. **三级 fallback 策略** — fast (glm-4.7-flash) → primary (glm-4.7) → 代码模板, 用户绝不见 "AI 失败"
+3. **truncateForLLM 反射版** — 兼容任意 slice 类型, 大列表自动截 TOP 5
+
+### 📊 端到端实测 (8 个典型问题)
+- 路由准确率: **8/8 = 100%** (intent → module 全对)
+- 端到端成功: 7/8 = 88% (Z.AI 限流偶发, 实际生产 1 人/分钟不会触发)
+- fast→primary fallback: 8/8 救活
+- 答案质量: 数字准 / 单位对 (万元) / 时间清 / 中文人话
+
+**示例答案:**
+- Q: "上月电商部销售多少" → A: "上月电商部销售总额为 867.39 万 (2026年4月)。"
+- Q: "本周对比上周销售情况" → A: "本周销售 670.7 万, 较上周 771.8 万下降 13.1%。"
+- Q: "本月卖最好的商品 TOP 5" → A: "松茸调味料108g×15瓶 203.34万元、松茸鲜调味料180gX18袋 167.54万元..."
+
+### 🧪 测试
+- 18 个 unit test (route + UnmarshalJSON + clampLimit) 全通过
+- 真 DB integration test (config.json 读不到自动 t.Skip, CI 友好)
+
+### 🚀 部署
+- bi-server PID 16876 (11:14 启动 v1.73.0)
+- config.json: llm_timeout_seconds 30 → 90 (跑哥已手动改)
+
+### ⚠️ 已知限制
+- glm-4.7-flash 免费 tier 限流极严 (持续 1302), 实际全靠 primary fallback 救
+- glm-4.7 单次推理 30-50s, 用户感受偏慢, 后续考虑缓存常见问题 + 预计算
+- 仍未做 Text-to-SQL fallback (跨模块/复合问题落 unknown), W3b 待办
+- 业务术语字典是 system prompt 写死, 没做动态 RAG (规模小够用)
+
+### 🔬 下一步
+1. 跑哥跟领导对齐 5 个种子用户 (管理层) Beta 1 周
+2. 收集反馈, 准确率达 90%+ 后开放全员
+3. W3b: Text-to-SQL fallback (LLM 生成 SQL + 白名单校验) — 真要做再上
+4. 性能优化: 高频问题缓存 + 数据预计算
+
+---
+
 ## v1.72.1 (2026-05-22) — AI 智能助手 W1+W2 (内部 dev, 待 Beta)
 
 ### 🎯 起因
