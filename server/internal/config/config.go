@@ -8,15 +8,16 @@ import (
 )
 
 type Config struct {
-	Server       ServerConfig   `json:"server"`
-	Database     DatabaseConfig `json:"database"`
-	JackYun      JackYunConfig  `json:"jackyun"`
-	JackYunTrade JackYunConfig  `json:"jackyun_trade"`
-	DingTalk     DingTalkConfig `json:"dingtalk"`
-	Hesi         HesiConfig     `json:"hesi"`
-	YonSuite     YonSuiteConfig `json:"yonsuite"`
-	Webhook      WebhookConfig  `json:"webhook"`
-	YingDao      YingDaoConfig  `json:"yingdao"`
+	Server       ServerConfig        `json:"server"`
+	Database     DatabaseConfig      `json:"database"`
+	JackYun      JackYunConfig       `json:"jackyun"`
+	JackYunTrade JackYunConfig       `json:"jackyun_trade"`
+	DingTalk     DingTalkConfig      `json:"dingtalk"`
+	Hesi         HesiConfig          `json:"hesi"`
+	YonSuite     YonSuiteConfig      `json:"yonsuite"`
+	Webhook      WebhookConfig       `json:"webhook"`
+	YingDao      YingDaoConfig       `json:"yingdao"`
+	AIAssistant  AIAssistantConfig   `json:"ai_assistant"`
 }
 
 type ServerConfig struct {
@@ -83,6 +84,21 @@ type YingDaoConfig struct {
 	AuthURL         string `json:"auth_url"`
 	BizURL          string `json:"biz_url"`
 	DefaultAccount  string `json:"default_account"`
+}
+
+// AIAssistantConfig BI 智能助手配置 (v1.73.0 起)
+// Provider 当前支持 "zai" (智谱 Z.AI, OpenAI 兼容协议)
+// ModelPrimary 主模型 (推荐 glm-4.7 或 glm-5.1), ModelFallback 备模型 (高频简单问题走 flash 免费版省钱)
+// EnabledForUsers 灰度白名单, 空数组 = 全部登录用户都能用; 填具体 user_id 数组只放给指定人
+type AIAssistantConfig struct {
+	Enabled          bool    `json:"enabled"`
+	LLMProvider      string  `json:"llm_provider"`
+	LLMBaseURL       string  `json:"llm_base_url"`
+	LLMAPIKey        string  `json:"llm_api_key"`
+	LLMModelPrimary  string  `json:"llm_model_primary"`
+	LLMModelFallback string  `json:"llm_model_fallback"`
+	LLMTimeoutSecs   int     `json:"llm_timeout_seconds"`
+	EnabledForUsers  []int64 `json:"enabled_for_users"`
 }
 
 func Load(path string) (*Config, error) {

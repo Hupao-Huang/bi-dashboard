@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"bi-dashboard/internal/ai_assistant"
 	"bi-dashboard/internal/config"
 	"bi-dashboard/internal/dingtalk"
 	"bi-dashboard/internal/handler"
@@ -154,6 +155,21 @@ func main() {
 		log.Println("YingDao RPA client disabled (未配置 yingdao.access_key_id/access_key_secret)")
 	}
 
+	// v1.73.0 W1 demo: BI 智能助手
+	var aiSvc *ai_assistant.Service
+	if cfg.AIAssistant.Enabled && cfg.AIAssistant.LLMAPIKey != "" {
+		llmClient := ai_assistant.NewLLMClient(
+			cfg.AIAssistant.LLMBaseURL,
+			cfg.AIAssistant.LLMAPIKey,
+			cfg.AIAssistant.LLMModelPrimary,
+			cfg.AIAssistant.LLMTimeoutSecs,
+		)
+		aiSvc = &ai_assistant.Service{DB: db, Client: llmClient}
+		log.Printf("AI Assistant ready (provider=%s model=%s)", cfg.AIAssistant.LLMProvider, cfg.AIAssistant.LLMModelPrimary)
+	} else {
+		log.Println("AI Assistant disabled (config.ai_assistant.enabled=false 或未配 llm_api_key)")
+	}
+
 	h := &handler.DashboardHandler{
 		DB:               db,
 		DingToken:        cfg.DingTalk.WebhookToken,
@@ -166,6 +182,7 @@ func main() {
 		WebhookSecret:    cfg.Webhook.Secret,
 		Notifier:         notifier,
 		YingDao:          yingdaoClient,
+		AIAssistant:      aiSvc,
 	}
 
 	// 启动定时任务健康巡检 (失败/卡死自动钉钉告警 admin)
@@ -399,6 +416,9 @@ func main() {
 	mux.HandleFunc("/api/admin/rpa/active-tasks", adminRoles(h.GetRPAActiveTasks))
 	mux.HandleFunc("/api/admin/rpa/platform-mapping", adminRoles(h.GetRPAPlatformMapping))
 	mux.HandleFunc("/api/admin/rpa/platform-mapping/update", adminRoles(h.UpdateRPAPlatformMapping))
+	// v1.73.0 W1 demo: BI 智能助手 (POST /api/ai-assistant/ask)
+	mux.HandleFunc("/api/ai-assistant/ask", corsHandler(h.RequireAuth(h.AIAssistantAsk)))
+
 	mux.HandleFunc("/api/admin/yingdao/tasks", adminRoles(h.GetYingDaoTasks))
 	mux.HandleFunc("/api/admin/yingdao/sub-apps", adminRoles(h.GetYingDaoSubApps))
 	mux.HandleFunc("/api/admin/yingdao/clients", adminRoles(h.GetYingDaoClients))
