@@ -97,6 +97,38 @@ func TestFlexFloatFromInvalidStringDefaultsZero(t *testing.T) {
 	}
 }
 
+// v1.71.2 新增: 兼容百分比字符串 (按字面值存)
+func TestFlexFloatFromPercentString(t *testing.T) {
+	cases := []struct {
+		input string
+		want  float64
+	}{
+		{`"55.30%"`, 55.30},
+		{`"100%"`, 100},
+		{`"-100%"`, -100},
+		{`"-1076.36%"`, -1076.36},
+		{`"0%"`, 0},
+	}
+	for _, c := range cases {
+		var f FlexFloat
+		if err := json.Unmarshal([]byte(c.input), &f); err != nil {
+			t.Errorf("input=%s unexpected err: %v", c.input, err)
+		}
+		if f.Float64() != c.want {
+			t.Errorf("input=%s got %v want %v", c.input, f.Float64(), c.want)
+		}
+	}
+}
+
+// v1.71.2 兼容损坏的百分号 (% 后还有内容应失败回退 0)
+func TestFlexFloatFromBrokenPercentDefaultsZero(t *testing.T) {
+	var f FlexFloat
+	json.Unmarshal([]byte(`"%abc"`), &f)
+	if f.Float64() != 0 {
+		t.Errorf("%%abc 应 → 0, got %v", f.Float64())
+	}
+}
+
 // === FlexInt ===
 
 func TestFlexIntFromNumber(t *testing.T) {
@@ -124,6 +156,28 @@ func TestFlexIntFromEmptyString(t *testing.T) {
 	json.Unmarshal([]byte(`""`), &f)
 	if f.Int() != 0 {
 		t.Errorf("空 string → 0, got %d", f.Int())
+	}
+}
+
+// v1.71.2 新增: 兼容百分比 (按字面值)
+func TestFlexIntFromPercentString(t *testing.T) {
+	cases := []struct {
+		input string
+		want  int
+	}{
+		{`"55%"`, 55},
+		{`"100%"`, 100},
+		{`"-100%"`, -100},
+		{`"0%"`, 0},
+	}
+	for _, c := range cases {
+		var f FlexInt
+		if err := json.Unmarshal([]byte(c.input), &f); err != nil {
+			t.Errorf("input=%s unexpected err: %v", c.input, err)
+		}
+		if f.Int() != c.want {
+			t.Errorf("input=%s got %d want %d", c.input, f.Int(), c.want)
+		}
 	}
 }
 
