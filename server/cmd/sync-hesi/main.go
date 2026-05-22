@@ -1084,6 +1084,33 @@ func main() {
 	log.Printf("单据: %d 条", totalFlows)
 	log.Printf("附件: %d 个", totalAttachments)
 	log.Printf("借款包: %d 条 (无借款包 %d)", loanOk, loanSkip)
+
+	// v1.73.2: sync 完通知 bi-server 清 hesi cache, 让用户立刻看到新数据 (15min cache 兜底, 这里追求立即)
+	clearHesiCache(cfg.Webhook.Secret)
+}
+
+// clearHesiCache 通过 webhook 让 bi-server 清掉 /api/hesi/ 前缀的 cache
+// 失败只 log, 不影响 sync 成功 (有 15min cache TTL 兜底)
+func clearHesiCache(secret string) {
+	if secret == "" {
+		log.Println("[clear-cache] webhook.secret 未配, 跳过")
+		return
+	}
+	url := "http://127.0.0.1:8080/api/webhook/clear-cache?prefix=api%7C/api/hesi/"
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		log.Printf("[clear-cache] 建请求失败: %v", err)
+		return
+	}
+	req.Header.Set("X-Webhook-Secret", secret)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("[clear-cache] 调 bi-server 失败 (服务可能未启): %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[clear-cache] bi-server 响应: %d %s", resp.StatusCode, string(body))
 }
 
 func min(a, b int) int {
