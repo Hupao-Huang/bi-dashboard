@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -13,10 +14,20 @@ import (
 // Service AI 智能助手主服务
 // W1 demo: 仅 department 模块走 SQL
 // W3a (v1.73.0): 扩 8 modules (department/overview/shop_rank/product_rank/trend/stock_warning/warehouse_flow/rpa_status)
+// W3a fix: classify 用 ClientPrimary (准), format 用 ClientFast (快)
 // W3b 待办: Text-to-SQL fallback (LLM 生成 SQL + 白名单 + 注入防护)
 type Service struct {
-	DB     *sql.DB
-	Client *LLMClient
+	DB         *sql.DB
+	Client     *LLMClient // 兼容旧字段 = ClientPrimary
+	ClientFast *LLMClient // 用于 formatAnswer; nil 时回退 Client
+}
+
+// FastClient 返回 fast client, 没配置时回退 primary
+func (s *Service) FastClient() *LLMClient {
+	if s.ClientFast != nil {
+		return s.ClientFast
+	}
+	return s.Client
 }
 
 // Intent 意图识别结果 (LLM 输出)
@@ -26,6 +37,45 @@ type Intent struct {
 	Params     map[string]string `json:"params"`     // dept/start/end/shop/platform/sku/limit/...
 	Confidence float64           `json:"confidence"` // 0.0-1.0
 	Reasoning  string            `json:"reasoning"`  // LLM 给的判断理由
+}
+
+// UnmarshalJSON 容错: LLM 偶尔会把 params 里的 limit/order 返成 number/bool
+// 自动强转 string, 避免端到端 fail
+func (i *Intent) UnmarshalJSON(data []byte) error {
+	type rawIntent struct {
+		Type       string                     `json:"type"`
+		Module     string                     `json:"module"`
+		Params     map[string]json.RawMessage `json:"params"`
+		Confidence float64                    `json:"confidence"`
+		Reasoning  string                     `json:"reasoning"`
+	}
+	var r rawIntent
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	i.Type = r.Type
+	i.Module = r.Module
+	i.Confidence = r.Confidence
+	i.Reasoning = r.Reasoning
+	i.Params = make(map[string]string, len(r.Params))
+	for k, v := range r.Params {
+		raw := strings.TrimSpace(string(v))
+		if raw == "null" || raw == "" {
+			i.Params[k] = ""
+			continue
+		}
+		// 字符串原样剥引号
+		if len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"' {
+			var s string
+			if err := json.Unmarshal(v, &s); err == nil {
+				i.Params[k] = s
+				continue
+			}
+		}
+		// number / bool / 其他 → 直接 fmt.Sprint
+		i.Params[k] = strings.Trim(raw, `"`)
+	}
+	return nil
 }
 
 // AskResult 给 handler 的最终回答
@@ -95,10 +145,21 @@ func (s *Service) askInternal(ctx context.Context, question string, start time.T
 		}, nil
 	}
 
-	// Step 3: LLM 二次组织成人话 (LLM Call 2)
-	answer, formatTokens, formatErr := s.formatAnswer(ctx, question, rawData)
+	// Step 3: LLM 二次组织成人话 (LLM Call 2, 三级 fallback)
+	// rawData 大时截断喂 LLM, 防超时 (stock_warning TOP 20 / rpa_status 11 张表)
+	truncated := truncateForLLM(rawData)
+	answer, formatTokens, formatErr := s.formatAnswer(ctx, question, truncated)
+	warning := ""
 	if formatErr != nil {
-		return nil, fmt.Errorf("生成回答失败: %w", formatErr)
+		log.Printf("[ai-assistant] formatAnswer (fast) 失败, fallback primary: %v", formatErr)
+		// fallback 到 primary 再试
+		answer, formatTokens, formatErr = s.formatAnswerPrimary(ctx, question, truncated)
+		if formatErr != nil {
+			log.Printf("[ai-assistant] formatAnswer (primary) 也失败, 用模板兜底: %v", formatErr)
+			// 模板兜底 — LLM 全挂时不让用户看到错误, 给原始数字
+			answer = renderTemplateAnswer(intent.Module, truncated)
+			warning = "AI 包装失败, 给的原始数据"
+		}
 	}
 
 	return &AskResult{
@@ -109,6 +170,7 @@ func (s *Service) askInternal(ctx context.Context, question string, start time.T
 		RawData:      rawData,
 		Confidence:   intent.Confidence,
 		DurationMs:   time.Since(start).Milliseconds(),
+		Warning:      warning,
 		Intent:       intent,
 		LLMTokens:    classifyTokens + formatTokens,
 	}, nil
@@ -299,6 +361,26 @@ func (s *Service) classifyIntent(ctx context.Context, question string) (*Intent,
 	return &intent, tokens, nil
 }
 
+// truncateForLLM 大列表截断到前 5 条, 避免 LLM 处理百行明细超时
+// 用反射, 兼容 []item / []map[string]any / []string 等任意 slice
+func truncateForLLM(raw interface{}) interface{} {
+	m, ok := raw.(map[string]interface{})
+	if !ok {
+		return raw
+	}
+	const maxRows = 5
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		out[k] = v
+		rv := reflect.ValueOf(v)
+		if rv.Kind() == reflect.Slice && rv.Len() > maxRows {
+			out[k] = rv.Slice(0, maxRows).Interface()
+			out[k+"_truncatedTotal"] = rv.Len()
+		}
+	}
+	return out
+}
+
 // formatAnswer 把数据包装成人话 (LLM Call 2)
 func (s *Service) formatAnswer(ctx context.Context, question string, rawData interface{}) (string, int, error) {
 	dataJSON, _ := json.Marshal(rawData)
@@ -320,11 +402,83 @@ func (s *Service) formatAnswer(ctx context.Context, question string, rawData int
 		{Role: "user", Content: userMsg},
 	}
 
+	// formatAnswer 用 fast client (glm-4.7-flash), 不需复杂推理, 主求快
+	content, tokens, err := s.FastClient().Chat(ctx, messages, false)
+	if err != nil {
+		return "", 0, err
+	}
+	return strings.TrimSpace(content), tokens, nil
+}
+
+// formatAnswerPrimary 强制走 primary 模型 (用于 fast 限流/timeout 后 fallback)
+func (s *Service) formatAnswerPrimary(ctx context.Context, question string, rawData interface{}) (string, int, error) {
+	dataJSON, _ := json.Marshal(rawData)
+	systemPrompt := `你是松鲜鲜 BI 看板的回答生成器. 用 1-2 句中文回答数据问题, 必含关键数字 (元/万单位), 时间放括号. 不写"以下是查询结果", 不用 markdown.`
+	userMsg := fmt.Sprintf("用户原问题: %s\n\n查到的数据:\n%s\n\n请用 1-2 句话回答用户.", question, string(dataJSON))
+	messages := []ChatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userMsg},
+	}
 	content, tokens, err := s.Client.Chat(ctx, messages, false)
 	if err != nil {
 		return "", 0, err
 	}
 	return strings.TrimSpace(content), tokens, nil
+}
+
+// renderTemplateAnswer LLM 全挂时, 用代码模板生成兜底回答 (硬编码各 module 关键字段)
+func renderTemplateAnswer(module string, raw interface{}) string {
+	m, ok := raw.(map[string]interface{})
+	if !ok {
+		return "查到了数据, 但 AI 包装失败. 请刷新重试."
+	}
+	getF := func(key string) float64 {
+		if v, ok := m[key].(float64); ok {
+			return v
+		}
+		return 0
+	}
+	getS := func(key string) string {
+		if v, ok := m[key].(string); ok {
+			return v
+		}
+		return ""
+	}
+	fmtW := func(amt float64) string {
+		if amt > 10000 {
+			return fmt.Sprintf("%.1f 万元", amt/10000)
+		}
+		return fmt.Sprintf("%.0f 元", amt)
+	}
+
+	switch module {
+	case "department":
+		return fmt.Sprintf("%s 部门 (%s 至 %s) 销售额 %s, 涉及 %d 家店.",
+			getS("dept"), getS("start"), getS("end"),
+			fmtW(getF("totalAmount")), int(getF("shopCount")))
+	case "overview":
+		return fmt.Sprintf("全公司 (%s 至 %s) 销售额 %s, 涉及 %d 家店.",
+			getS("start"), getS("end"),
+			fmtW(getF("totalAmount")), int(getF("shopCount")))
+	case "shop_rank":
+		return fmt.Sprintf("店铺排行 (%s 至 %s, 排序 %s) 已查到, 详见数据明细.",
+			getS("start"), getS("end"), getS("order"))
+	case "product_rank":
+		return fmt.Sprintf("商品排行 (维度 %s, %s 至 %s) 已查到, 详见数据明细.",
+			getS("dim"), getS("start"), getS("end"))
+	case "trend":
+		return fmt.Sprintf("本期销售 %s, 上期 %s, 变化 %.1f%%.",
+			fmtW(getF("thisAmount")), fmtW(getF("prevAmount")), getF("deltaAmountPct"))
+	case "stock_warning":
+		return fmt.Sprintf("当前缺货 SKU 共 %d 个, TOP 已列出.", int(getF("stockoutCount")))
+	case "warehouse_flow":
+		return fmt.Sprintf("%s 共发 %.0f 单 / %.0f 个包裹.",
+			getS("ym"), getF("orders"), getF("packages"))
+	case "rpa_status":
+		return "RPA 各平台数据状态已查到, 详见明细."
+	default:
+		return "查到了数据, 但 AI 包装暂时不可用, 请刷新重试."
+	}
 }
 
 // =================== Route 分发 ===================

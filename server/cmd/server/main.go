@@ -155,17 +155,26 @@ func main() {
 		log.Println("YingDao RPA client disabled (未配置 yingdao.access_key_id/access_key_secret)")
 	}
 
-	// v1.73.0 W1 demo: BI 智能助手
+	// v1.73.0 BI 智能助手: classify 用 primary (准), format 用 fast (快)
 	var aiSvc *ai_assistant.Service
 	if cfg.AIAssistant.Enabled && cfg.AIAssistant.LLMAPIKey != "" {
-		llmClient := ai_assistant.NewLLMClient(
+		primaryClient := ai_assistant.NewLLMClient(
 			cfg.AIAssistant.LLMBaseURL,
 			cfg.AIAssistant.LLMAPIKey,
 			cfg.AIAssistant.LLMModelPrimary,
 			cfg.AIAssistant.LLMTimeoutSecs,
 		)
-		aiSvc = &ai_assistant.Service{DB: db, Client: llmClient}
-		log.Printf("AI Assistant ready (provider=%s model=%s)", cfg.AIAssistant.LLMProvider, cfg.AIAssistant.LLMModelPrimary)
+		var fastClient *ai_assistant.LLMClient
+		if cfg.AIAssistant.LLMModelFallback != "" {
+			fastClient = ai_assistant.NewLLMClient(
+				cfg.AIAssistant.LLMBaseURL,
+				cfg.AIAssistant.LLMAPIKey,
+				cfg.AIAssistant.LLMModelFallback,
+				cfg.AIAssistant.LLMTimeoutSecs,
+			)
+		}
+		aiSvc = &ai_assistant.Service{DB: db, Client: primaryClient, ClientFast: fastClient}
+		log.Printf("AI Assistant ready (provider=%s primary=%s fast=%s)", cfg.AIAssistant.LLMProvider, cfg.AIAssistant.LLMModelPrimary, cfg.AIAssistant.LLMModelFallback)
 	} else {
 		log.Println("AI Assistant disabled (config.ai_assistant.enabled=false 或未配 llm_api_key)")
 	}

@@ -412,6 +412,38 @@ func TestRoute_UnknownModule(t *testing.T) {
 	}
 }
 
+func TestIntent_UnmarshalJSON_NumberParams(t *testing.T) {
+	// LLM 偶尔会输出 "limit":10 (number) 而非 "10" (string), 自定义 UnmarshalJSON 应当强转
+	raw := []byte(`{"type":"rank","module":"shop_rank","params":{"limit":10,"order":"asc","start":"2026-05-01"},"confidence":0.9}`)
+	var intent Intent
+	if err := json.Unmarshal(raw, &intent); err != nil {
+		t.Fatalf("自定义 UnmarshalJSON 应当容 number, 实际: %v", err)
+	}
+	if intent.Params["limit"] != "10" {
+		t.Errorf("limit 应转 string \"10\", 实际 %q", intent.Params["limit"])
+	}
+	if intent.Params["order"] != "asc" {
+		t.Errorf("order 应保持 \"asc\", 实际 %q", intent.Params["order"])
+	}
+	if intent.Params["start"] != "2026-05-01" {
+		t.Errorf("start 应保持原字符串, 实际 %q", intent.Params["start"])
+	}
+}
+
+func TestIntent_UnmarshalJSON_BoolNull(t *testing.T) {
+	raw := []byte(`{"type":"see","module":"x","params":{"flag":true,"ignore":null,"empty":""},"confidence":0.5}`)
+	var intent Intent
+	if err := json.Unmarshal(raw, &intent); err != nil {
+		t.Fatalf("自定义 UnmarshalJSON fail: %v", err)
+	}
+	if intent.Params["flag"] != "true" {
+		t.Errorf("bool 应转 \"true\", 实际 %q", intent.Params["flag"])
+	}
+	if intent.Params["ignore"] != "" {
+		t.Errorf("null 应转 \"\", 实际 %q", intent.Params["ignore"])
+	}
+}
+
 func TestClampLimit(t *testing.T) {
 	cases := []struct {
 		raw  string
