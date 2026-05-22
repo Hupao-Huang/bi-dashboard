@@ -539,6 +539,33 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.73.1 (2026-05-22) — 性能体检 + hesi cache 修复
+
+### 🎯 起因
+跑哥要求 playwright 实测全 56 页打开速度. 测出 5 个慢页 (>3s), 其中 4 个已 cache24h 只是 cache miss 首次慢, 1 个 (合思费控) **完全没缓存** 是真 bug.
+
+### 🐛 P0-3 修复: 合思费控 stats 接口加 cache24h
+- `/api/hesi/stats` 修前: 每次 2.5s
+- `/api/hesi/stats` 修后: 首次 2.1s (填 cache), 后续 **12ms** (175x 提速)
+- `/api/hesi/specifications` 同步加 cache24h (无参数, 全员共享)
+- `/api/hesi/flows` 不加 (带分页/过滤参数, cache 命中低, 浪费内存)
+
+### 📊 全 56 页性能体检结果
+- ✅ 33 页秒开 (< 200ms, 含 cache 命中)
+- ✅ 12 页正常 (200ms-1s)
+- ⚠️ 3 页偏慢 (1-2s): customer-analysis / system/ops / supply-chain/purchase-plan
+- 🚨 5 页慢 (>3s, 但都已 cache24h, 仅首次访问慢):
+  - trade-audit 3.9s / sales-forecast 3.8s / plan-dashboard 3.7s / product-profit 3.4s
+- ⚪ 6 页空数据 (待跑哥确认设计如此还是真缺)
+
+### 🔬 整体健康度: B+ (75/100)
+80% 页秒开, 但 5 个核心页 >3s 首次. 跑哥决策不做 warmup (5-10 人/天 × 1 次/3s = 微痛), 后续物化表方案待 P1.
+
+### 🚀 部署
+- bi-server PID 31728 (13:21 启动 v1.73.1)
+
+---
+
 ## v1.73.0 (2026-05-22) — AI 智能助手 GA: 8 模块路由 + 端到端跑通 + 三级 fallback
 
 ### 🎯 起因

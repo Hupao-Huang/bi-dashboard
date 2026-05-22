@@ -513,11 +513,11 @@ func main() {
 	// 同步工具实时日志 (sync-daily-trades 等独立 exe 写固定文件, 这里直接读末尾返回前端)
 	mux.HandleFunc("/api/admin/sync-tools/log", corsHandler(h.RequirePermission("role.manage", h.AdminSyncToolLog)))
 
-	// 合思费控
-	mux.HandleFunc("/api/hesi/stats", pageProtected("finance.expense:view", h.GetHesiStats))
+	// 合思费控 (v1.73.1 perf: stats/specifications 加 cache24h 修 2.5s 卡顿; flows 因带分页/过滤参数 cache 命中低不加)
+	mux.HandleFunc("/api/hesi/stats", pageProtected("finance.expense:view", cache24h(h.GetHesiStats)))
 	mux.HandleFunc("/api/hesi/flows", pageProtected("finance.expense:view", h.GetHesiFlows))
 	mux.HandleFunc("/api/hesi/flow-detail", pageProtected("finance.expense:view", h.GetHesiFlowDetail))
-	mux.HandleFunc("/api/hesi/specifications", pageProtected("finance.expense:view", h.GetHesiSpecifications))
+	mux.HandleFunc("/api/hesi/specifications", pageProtected("finance.expense:view", cache24h(h.GetHesiSpecifications)))
 	mux.HandleFunc("/api/hesi/attachment-urls", pageProtected("finance.expense:view", h.GetHesiAttachmentURLs))
 	mux.HandleFunc("/api/hesi/last-sync", pageProtected("finance.expense:view", h.GetHesiLastSync))
 
