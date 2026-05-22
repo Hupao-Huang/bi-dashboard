@@ -198,6 +198,7 @@ const App: React.FC = () => (
               <Route path="/system/rpa-mapping" element={<Navigate to="/system/rpa" replace />} />
               <Route path="/system/rpa-monitor" element={<Navigate to="/system/rpa" replace />} />
               <Route path="/system/audit-log" element={<Navigate to="/system/ops" replace />} />
+              <Route path="/system/profile" element={<Navigate to="/profile/info" replace />} />
               <Route path="/profile" element={<Navigate to="/profile/info" replace />} />
               <Route path="/profile/info" element={<ProfilePage />} />
               <Route path="/profile/hesi-bot" element={<HesiBotPage />} />
