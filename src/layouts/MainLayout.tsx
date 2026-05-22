@@ -3,12 +3,10 @@ import { Avatar, Button, Drawer, Dropdown, Form, Grid, Input, Layout, Menu, Moda
 import {
   CommentOutlined,
   DownOutlined,
-  KeyOutlined,
   MenuFoldOutlined,
   MenuOutlined,
   MenuUnfoldOutlined,
   RocketOutlined,
-  UserOutlined,
   LogoutOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -164,12 +162,8 @@ const MainLayout: React.FC = () => {
     }
   };
 
+  // v1.73.3: 简化为只留"退出登录" (账号/角色 顶部已显示, 个人中心/修改密码 个人信息页已有)
   const userMenuItems = [
-    { key: 'account', label: <span style={{ color: '#64748b' }}>账号：@{username}</span>, disabled: true },
-    { key: 'role', label: <span style={{ color: '#64748b' }}>角色：{roleLabel}</span>, disabled: true },
-    { type: 'divider' as const },
-    { key: 'profile', label: '个人中心', icon: <UserOutlined /> },
-    { key: 'change-password', label: '修改密码', icon: <KeyOutlined /> },
     { key: 'logout', label: '退出登录', icon: <LogoutOutlined /> },
   ];
 
@@ -251,8 +245,6 @@ const MainLayout: React.FC = () => {
           menu={{
             items: userMenuItems,
             onClick: async ({ key }) => {
-              if (key === 'profile') { navigate('/profile'); return; }
-              if (key === 'change-password') { setPasswordOpen(true); return; }
               if (key !== 'logout') return;
               await logout();
               navigate('/login', { replace: true });
