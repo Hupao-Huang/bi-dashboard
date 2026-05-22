@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -51,6 +52,16 @@ func (f *FlexFloat) UnmarshalJSON(data []byte) error {
 			*f = FlexFloat(n)
 			return nil
 		}
+		// v1.71.2: 兼容百分比字符串 "55.30%" / "-100%" 等, 按字面值存 (跑哥 2026-05-22 决策)
+		// 吉客云 sales_summary.go 的 GrossProfitRate / TaxGrossProfitRate 等百分率字段返这种格式
+		// 字段类型 DECIMAL(8,4) 完全能装 -1076.36 这种负退款率
+		if strings.HasSuffix(s, "%") {
+			trimmed := strings.TrimSuffix(s, "%")
+			if n, err := strconv.ParseFloat(trimmed, 64); err == nil {
+				*f = FlexFloat(n)
+				return nil
+			}
+		}
 	}
 	// v1.71.1: 上游格式异常 (既不是 float 也不是合法 string 数字), 默认 0 但 log 警告
 	// 区分"业务真 0" vs "数据污染", 销售明细金额/数量被静默吞成 0 时能从日志查到
@@ -80,6 +91,14 @@ func (f *FlexInt) UnmarshalJSON(data []byte) error {
 		if err == nil {
 			*f = FlexInt(n)
 			return nil
+		}
+		// v1.71.2: 兼容 "55%" 之类的百分比字符串 (按字面值存), 与 FlexFloat 一致
+		if strings.HasSuffix(s, "%") {
+			trimmed := strings.TrimSuffix(s, "%")
+			if n, err := strconv.Atoi(trimmed); err == nil {
+				*f = FlexInt(n)
+				return nil
+			}
 		}
 	}
 	// v1.71.1: 同 FlexFloat, 格式异常加 log
