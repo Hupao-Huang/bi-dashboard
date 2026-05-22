@@ -416,8 +416,11 @@ func main() {
 	mux.HandleFunc("/api/admin/rpa/active-tasks", adminRoles(h.GetRPAActiveTasks))
 	mux.HandleFunc("/api/admin/rpa/platform-mapping", adminRoles(h.GetRPAPlatformMapping))
 	mux.HandleFunc("/api/admin/rpa/platform-mapping/update", adminRoles(h.UpdateRPAPlatformMapping))
-	// v1.73.0 W1 demo: BI 智能助手 (POST /api/ai-assistant/ask)
+	// v1.73.0 W1+W2: BI 智能助手 (ask + sessions + messages + feedback)
 	mux.HandleFunc("/api/ai-assistant/ask", corsHandler(h.RequireAuth(h.AIAssistantAsk)))
+	mux.HandleFunc("/api/ai-assistant/sessions", corsHandler(h.RequireAuth(h.AIAssistantSessions)))
+	mux.HandleFunc("/api/ai-assistant/messages", corsHandler(h.RequireAuth(h.AIAssistantMessages)))
+	mux.HandleFunc("/api/ai-assistant/feedback", corsHandler(h.RequireAuth(h.AIAssistantFeedback)))
 
 	mux.HandleFunc("/api/admin/yingdao/tasks", adminRoles(h.GetYingDaoTasks))
 	mux.HandleFunc("/api/admin/yingdao/sub-apps", adminRoles(h.GetYingDaoSubApps))

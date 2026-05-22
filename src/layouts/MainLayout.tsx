@@ -18,6 +18,7 @@ import { API_BASE } from '../config';
 import AIToolboxDrawer from '../components/AIToolboxDrawer';
 import FeedbackModal from '../components/FeedbackModal';
 import RPABatchQueueWidget from '../pages/system/RPABatchQueueWidget';
+import AIChatWidget from '../components/AIChatWidget';
 import NoticeBell from '../components/Noticebell';
 import Watermark from '../components/Watermark';
 import { usePendingCounts } from '../hooks/usePendingCounts';
@@ -433,6 +434,7 @@ const MainLayout: React.FC = () => {
       <AIToolboxDrawer open={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} />
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} defaultType={feedbackType} />
       <RPABatchQueueWidget />
+      <AIChatWidget />
       <Watermark text={`松鲜鲜工作台 · ${displayName}`} subtext={new Date().toLocaleDateString('zh-CN')} />
       <Modal
         title={noPassword ? '设置登录密码' : forceChange ? '首次登录，请修改密码' : '修改密码'}

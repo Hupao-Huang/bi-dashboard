@@ -29,6 +29,8 @@ type Intent struct {
 
 // AskResult 给 handler 的最终回答
 type AskResult struct {
+	SessionID    int64                  `json:"sessionId"`
+	MessageID    int64                  `json:"messageId"`
 	Answer       string                 `json:"answer"`
 	SourceType   string                 `json:"sourceType"` // "api" / "sql" / "unknown"
 	SourceAPI    string                 `json:"sourceAPI,omitempty"`
@@ -39,12 +41,27 @@ type AskResult struct {
 	Warning      string                 `json:"warning,omitempty"`
 	Intent       *Intent                `json:"intent,omitempty"`
 	LLMTokens    int                    `json:"llmTokens"`
+	LLMModel     string                 `json:"llmModel"`
 }
 
-// Ask 主入口: 用户问题 → 答案
-func (s *Service) Ask(ctx context.Context, question string) (*AskResult, error) {
-	start := time.Now()
+// Ask 主入口: 用户问题 → 答案 (含持久化)
+// userID: 提问用户 (必填, 入库用)
+// sessionID: nil = 新会话自动建; 非 nil = 续会话
+func (s *Service) Ask(ctx context.Context, userID int64, sessionID *int64, question string) (*AskResult, error) {
+	result, err := s.askInternal(ctx, question, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	result.LLMModel = s.Client.Model
+	// 入库 — 失败只 log, 不阻塞主流程 (AI 答案能给用户即可, 持久化是辅助)
+	if perr := s.persistAsk(ctx, userID, sessionID, question, result); perr != nil {
+		log.Printf("[ai-assistant] persist failed: %v", perr)
+	}
+	return result, nil
+}
 
+// askInternal 原 W1 demo 主流程 (不含入库)
+func (s *Service) askInternal(ctx context.Context, question string, start time.Time) (*AskResult, error) {
 	// Step 1: 意图识别 (LLM Call 1)
 	intent, classifyTokens, err := s.classifyIntent(ctx, question)
 	if err != nil {
@@ -95,6 +112,72 @@ func (s *Service) Ask(ctx context.Context, question string) (*AskResult, error) 
 		Intent:       intent,
 		LLMTokens:    classifyTokens + formatTokens,
 	}, nil
+}
+
+// persistAsk 把一次问答入库: 创建/复用 session + 插 user message + 插 assistant message
+// 回写 SessionID 和 MessageID 到 result, 失败 return error 上层 log
+func (s *Service) persistAsk(ctx context.Context, userID int64, sessionID *int64, question string, result *AskResult) error {
+	// Step 1: 找/建 session
+	var sid int64
+	if sessionID != nil && *sessionID > 0 {
+		// verify session 属于本 user (防越权), 顺手 touch updated_at
+		var ownerID int64
+		if err := s.DB.QueryRowContext(ctx, "SELECT user_id FROM ai_chat_session WHERE id=?", *sessionID).Scan(&ownerID); err != nil {
+			return fmt.Errorf("查 session %d 失败: %w", *sessionID, err)
+		}
+		if ownerID != userID {
+			return fmt.Errorf("session %d 不属于 user %d (越权)", *sessionID, userID)
+		}
+		sid = *sessionID
+		if _, err := s.DB.ExecContext(ctx, "UPDATE ai_chat_session SET updated_at=NOW() WHERE id=?", sid); err != nil {
+			return fmt.Errorf("touch session 失败: %w", err)
+		}
+	} else {
+		// 新建 session, 标题截 100 字
+		title := question
+		if len([]rune(title)) > 100 {
+			title = string([]rune(title)[:100])
+		}
+		res, err := s.DB.ExecContext(ctx, "INSERT INTO ai_chat_session (user_id, title) VALUES (?, ?)", userID, title)
+		if err != nil {
+			return fmt.Errorf("建 session 失败: %w", err)
+		}
+		sid, _ = res.LastInsertId()
+	}
+	result.SessionID = sid
+
+	// Step 2: 插 user message
+	if _, err := s.DB.ExecContext(ctx,
+		"INSERT INTO ai_chat_message (session_id, role, question) VALUES (?, 'user', ?)",
+		sid, question); err != nil {
+		return fmt.Errorf("插 user message 失败: %w", err)
+	}
+
+	// Step 3: 插 assistant message (含 intent / source / 数据等)
+	intentJSON := ""
+	if result.Intent != nil {
+		if b, err := json.Marshal(result.Intent); err == nil {
+			intentJSON = string(b)
+		}
+	}
+	rawJSON := ""
+	if result.RawData != nil {
+		if b, err := json.Marshal(result.RawData); err == nil {
+			rawJSON = string(b)
+		}
+	}
+	res, err := s.DB.ExecContext(ctx,
+		`INSERT INTO ai_chat_message
+		(session_id, role, answer, intent_json, source_type, source_api, raw_data, confidence, llm_model, llm_tokens, duration_ms, warning)
+		VALUES (?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sid, result.Answer, intentJSON, result.SourceType, result.SourceAPI, rawJSON,
+		result.Confidence, result.LLMModel, result.LLMTokens, result.DurationMs, result.Warning)
+	if err != nil {
+		return fmt.Errorf("插 assistant message 失败: %w", err)
+	}
+	mid, _ := res.LastInsertId()
+	result.MessageID = mid
+	return nil
 }
 
 // classifyIntent 意图识别 (LLM Call 1, 强制 JSON 输出)
