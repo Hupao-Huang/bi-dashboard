@@ -539,6 +539,38 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.74.5 (2026-05-26) — 费控管理"费用明细"展示扩容: 看合思 API 完整原始字段
+
+**业务背景**: 跑哥反馈费控管理 → 单据详情 → 费用明细 Tab 内容太少 (原 5 列: 序号/金额/消费时间/发票/消费原因). 合思 API 实际返回字段远多于此 (币种/单位/差旅出发地目的地/付款截图/出差补贴金额分类等), `raw_json` 字段已全存在 `hesi_flow_detail` 表 (5/9 起一直存), 但前端没用.
+
+### 改动
+- 后端 `hesi.go` GetHesiFlowDetail: detail 响应加 `rawJson` (json.RawMessage passthrough, IFNULL 兜底) + `specificationId` 字段
+- 前端 `ExpenseControl.tsx` 费用明细 Tab:
+  - 主表加 2 列: **费用类型** (合思 ID Tag + Tooltip) + **本明细附件数**
+  - 发票列升级: 显示张数 (例 "3 张" 不再只 "有/无")
+  - 消费时间列增强: 差旅类支持 `feeDatePeriod` (起 ~ 止) fallback
+  - **加展开行** (左侧 ▶): Descriptions 平铺 `raw_json.feeTypeForm` 所有字段
+    - 自动 transform: 金额对象 → "¥X 元", 城市 JSON → "省/市/区" 解析 label, 时间戳 → YYYY-MM-DD, 附件数组 → 文件名列表, 自定义 `u_xxx` 字段 → 提取中文 label, 嵌套对象 → 短 JSON 可复制, 纯合思 ID → Tag + Tooltip "未匹配字典"
+  - 跳过重复字段 (主表已有 amount/feeDate/invoice/consumptionReasons + 发票 Tab 已专题 invoiceForm)
+
+### 字段全集 (5 个 fee_type sample)
+| 费用类型 | 新展示字段 (展开行) |
+|---|---|
+| 差旅交通 | 出发地 / 目的地 / 出发车站 / 到达车站 / 行车记录附件 |
+| 出差补贴 | 天数 / 出差补贴金额 / 市内补贴金额 / 餐费补贴金额 |
+| 私车公用 | 申请报销金额 / 私车公用金额 |
+| 通用报销 | 付款截图 (附件) / 平台类型 / 可抵扣发票张数 / 预算费用 |
+
+### 不动
+- 业务算法/口径无改动 (纯展示扩容, 不算 CLAUDE.md 业务红线, 跳过 /codex 二审)
+- DB schema 不变
+- 老数据 (5/9 之前 sync 入库) `raw_json` 可能为空, 展开行提示"老数据未存原始字段"
+
+### 影响
+- 后端: `hesi.go` +6 行 (SQL + Scan + struct), 0 业务逻辑改动, bi-server.exe 重 build 重启 (PID 22796 → 29308)
+- 前端: `ExpenseControl.tsx` +100 行 (helpers + Table expandable + 加列)
+- 用户: 硬刷 (Ctrl+F5) 即可看到新展开行
+
 ## v1.74.4 (2026-05-26) — 财务/部门"产品利润"页 KPI 总数修复 + 电商调拨口径对齐
 
 **业务背景**: 跑哥 5/25 晚发现财务·产品利润页选电商部门显示 ¥513 万, 跟综合看板 mini 卡对不上 (差 ¥670+ 万). RCA 双根因:
