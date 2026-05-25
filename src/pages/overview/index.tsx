@@ -114,7 +114,10 @@ const OverviewPage: React.FC = () => {
     const trendSales = trendSalesRaw;
     const trendQty = trendDatesRaw.map((date) => deptTrendMap.get(date)?.qty || 0);
     // v1.74.3 跑哥 UX: 调拨数据单独 (allotSales/allotQty), 用黄色堆叠柱跟销售柱同位置展示
-    const trendAllot = trendDatesRaw.map((date) => deptTrendMap.get(date)?.allotSales || 0);
+    // belt-and-suspenders: 强制只在 ecommerce 部 tab 才计算 (防 backend 出错给其它 dept 设 allotSales)
+    const trendAllot = activeDept === 'ecommerce'
+      ? trendDatesRaw.map((date) => deptTrendMap.get(date)?.allotSales || 0)
+      : trendDatesRaw.map(() => 0);
     const trendAvgPrice = trendQty.map((qty, index) => (qty > 0 ? +(trendSales[index] / qty).toFixed(2) : 0));
 
     return {
