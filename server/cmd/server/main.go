@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -173,8 +174,22 @@ func main() {
 				cfg.AIAssistant.LLMTimeoutSecs,
 			)
 		}
-		aiSvc = &ai_assistant.Service{DB: db, Client: primaryClient, ClientFast: fastClient}
-		log.Printf("AI Assistant ready (provider=%s primary=%s fast=%s)", cfg.AIAssistant.LLMProvider, cfg.AIAssistant.LLMModelPrimary, cfg.AIAssistant.LLMModelFallback)
+		aiSvc = &ai_assistant.Service{
+			DB:               db,
+			Client:           primaryClient,
+			ClientFast:       fastClient,
+			CacheEnabled:     cfg.AIAssistant.CacheEnabled,
+			CacheTTL:         time.Duration(cfg.AIAssistant.CacheTTLSeconds) * time.Second,
+			WarmCacheEnabled: cfg.AIAssistant.WarmCacheEnabled,
+			WarmCacheHour:    cfg.AIAssistant.WarmCacheHour,
+			WarmCacheMinute:  cfg.AIAssistant.WarmCacheMinute,
+		}
+		log.Printf("AI Assistant ready (provider=%s primary=%s fast=%s cache=%v ttl=%ds warm=%v@%02d:%02d)",
+			cfg.AIAssistant.LLMProvider, cfg.AIAssistant.LLMModelPrimary, cfg.AIAssistant.LLMModelFallback,
+			cfg.AIAssistant.CacheEnabled, cfg.AIAssistant.CacheTTLSeconds,
+			cfg.AIAssistant.WarmCacheEnabled, cfg.AIAssistant.WarmCacheHour, cfg.AIAssistant.WarmCacheMinute)
+		// v1.74.0 P2: warm cache goroutine (跟 bi-server 进程同生命周期)
+		go aiSvc.RunWarmCacheLoop(context.Background())
 	} else {
 		log.Println("AI Assistant disabled (config.ai_assistant.enabled=false 或未配 llm_api_key)")
 	}

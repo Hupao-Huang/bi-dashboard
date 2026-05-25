@@ -539,6 +539,26 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.74.0 (2026-05-25) — AI 智能助手提速: 答案 cache 让重复问题 < 50ms
+
+**背景**: 5/22 GA 后 3 天 0 个真实用户使用. 怀疑 40 秒等待是劝退头号嫌疑.
+**核心**: 把重复问题压到 < 50ms (实测 2500-4700 倍加速), 半夜预计算 16 道标准题让早起用户首次问也秒回.
+
+- **P0 答案 cache** — 完整 AskResult 缓存, 跳过 2 次 LLM 调用
+  - Key: `SHA256(question normalize + today)` (跨日自动失效, 不命中昨天答案)
+  - TTL: 1 小时 (远小于按天 sync 频率, 符合 cache-sync 同频规矩)
+  - 反污染: unknown / warning 兜底答案不进 cache
+  - 浅拷贝返回, 每次请求 DurationMs / FromCache / SessionID 都正确
+  - 实测重复问题: 第 1 次 42 秒 (LLM full) → 第 2 次 17ms ⚡ → 第 3 次 9ms ⚡
+- **P2 半夜预计算 warm cache** — bi-server 内部 goroutine, 不走 schtasks 独立进程
+  - 16 道标准题 (8 模块 × 2 题, 涵盖管理层高频问法)
+  - 每天 00:30 自动触发, 题间 5s 错峰避 LLM 限流, 约 12 分钟灌满
+  - 用户 08:00 第一次问 "公司本月销售多少" 直接命中 → 50ms 内
+- 新增配置 (`config.json` `ai_assistant` 段): `cache_enabled` / `cache_ttl_seconds` / `warm_cache_enabled` / `warm_cache_hour` / `warm_cache_minute`
+- 新增方法: `Service.WarmAsk` / `Service.WarmCache` / `Service.RunWarmCacheLoop` / `Service.CacheStats` / `Service.CacheClear`
+- 测试: `cache_test.go` 14 个单元测试 (Normalize / Key / Hit / Expire / Stats / Clear / Clone / WarmTime) 全过
+- **顺手治本**: `start-silent.vbs` 检测 Z 盘已挂则跳过 `net use` — 修复 5/25 开机自启卡死 24 分钟的根因
+
 ## v1.73.2 (2026-05-22) — hotfix: hesi cache TTL 跟 sync 同频
 
 ### 🐛 跑哥发现真问题
