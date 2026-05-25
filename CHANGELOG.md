@@ -539,6 +539,17 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.74.1 (2026-05-25) — hotfix: 财务报表导入预览端点炸了 (MySQL 9.x 兼容性)
+
+**业务影响**: 跑哥点 "下一步：预览变更" 报 "计算变更预览失败", 财务无法导入. 紧急修复.
+
+- **根因**: `parser.go:806` SQL `COUNT(*) AS rows` 用了保留字. MySQL 5.x/8.0 早期能跑, 升 MySQL 9.6 后 parser 直接拒.
+- **修复**: `AS rows` → `AS rec_count` (摆脱保留字, 未来升级不怕)
+- **顺手**: bi-server 启动加 stdout/stderr 重定向到 `logs/bi-server.log` (我之前手动 Start-Process 没做的, 排查 bug 时 log 全丢)
+- 实测: mysql_bi 跑新 SQL OK + bi-server PID=33468 v1.74.1 健康 + 跑哥前端 Widget 仍在轮询
+- 同类扫: `AS rows` / 其它 MySQL 8.0+ 保留字 (groups/rank/over 等) 全 0 — 没别的炸点
+- **顺手 audit**: 跑 probe 实测 4 月 Excel 的 1-3 月单元格行为, 确认 incremental 模式不会丢业务数据 (8 部门真空 / 国际零售 2/3 月仅 1 行占位 0)
+
 ## v1.74.0 (2026-05-25) — AI 智能助手提速: 答案 cache 让重复问题 < 50ms
 
 **背景**: 5/22 GA 后 3 天 0 个真实用户使用. 怀疑 40 秒等待是劝退头号嫌疑.
