@@ -132,6 +132,11 @@ func buildPlatformCond(dept, platform string) (string, []interface{}) {
 	if platform == "" || platform == "all" {
 		return "", nil
 	}
+	// v1.74.3 拓范 T6i (跑哥 5/25): "allot" 调拨专区 tab 走特殊路径
+	// 所有 sales_goods_summary SQL 返 0 行, helper 在 caller 处加 2 调拨 entry
+	if platform == "allot" {
+		return " AND 1=0", nil
+	}
 	if !isPlatformAllowedForDept(dept, platform) {
 		return " AND 1=0", nil
 	}
