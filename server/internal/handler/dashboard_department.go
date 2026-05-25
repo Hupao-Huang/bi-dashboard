@@ -205,13 +205,13 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 					if !ok {
 						continue
 					}
-					// 全 0 (无销售单无调拨) 跳过
-					if allot.salesExcluded == 0 && allot.allotAmt == 0 {
+					// 调拨口径作 sales, 该时间段无调拨数据 → 不加 ¥0 entry (避免空白行干扰视觉)
+					if allot.allotAmt == 0 {
 						continue
 					}
 					shops = append(shops, ShopData{
 						ShopName: shopName,
-						Sales:    allot.allotAmt, // 调拨口径作 sales
+						Sales:    allot.allotAmt,
 						Qty:      allot.allotQty,
 						Profit:   0, // 调拨数据无 profit 概念
 					})
