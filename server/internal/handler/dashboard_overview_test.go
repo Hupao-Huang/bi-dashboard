@@ -248,18 +248,18 @@ func TestLoadEcommerceAllotAdjustment_HappyPath(t *testing.T) {
 	}
 	defer db.Close()
 
-	// query 1: 2 渠道销售单口径 SUM
+	// query 1: 2 渠道销售单口径 (sales + qty)
 	mock.ExpectQuery(regexp.QuoteMeta("FROM sales_goods_summary")).
 		WithArgs("2026-04-01", "2026-04-30", "1819610592561398400", "1819610591915475584").
-		WillReturnRows(sqlmock.NewRows([]string{"sales"}).AddRow(5130000.0))
+		WillReturnRows(sqlmock.NewRows([]string{"sales", "qty"}).AddRow(5130000.0, 800.0))
 
-	// query 2: 2 渠道调拨 excel_amount SUM
+	// query 2: 2 渠道调拨口径 (amt + sku_count)
 	mock.ExpectQuery(regexp.QuoteMeta("FROM allocate_orders o")).
 		WithArgs("2026-04-01", "2026-04-30").
-		WillReturnRows(sqlmock.NewRows([]string{"amt"}).AddRow(7320000.0))
+		WillReturnRows(sqlmock.NewRows([]string{"amt", "sku_count"}).AddRow(7320000.0, 1200.0))
 
 	h := &DashboardHandler{DB: db}
-	salesExcluded, allotAmt, err := h.loadEcommerceAllotAdjustment(
+	salesExcluded, allotAmt, qtyExcluded, allotQty, err := h.loadEcommerceAllotAdjustment(
 		context.Background(), "2026-04-01", "2026-04-30", "", nil)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -269,6 +269,12 @@ func TestLoadEcommerceAllotAdjustment_HappyPath(t *testing.T) {
 	}
 	if allotAmt != 7320000.0 {
 		t.Errorf("allotAmt=%v, want 7320000", allotAmt)
+	}
+	if qtyExcluded != 800.0 {
+		t.Errorf("qtyExcluded=%v, want 800", qtyExcluded)
+	}
+	if allotQty != 1200.0 {
+		t.Errorf("allotQty=%v, want 1200", allotQty)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
@@ -283,7 +289,7 @@ func TestLoadEcommerceAllotAdjustment_Query1Error(t *testing.T) {
 		WillReturnError(errors.New("connection lost"))
 
 	h := &DashboardHandler{DB: db}
-	_, _, err := h.loadEcommerceAllotAdjustment(
+	_, _, _, _, err := h.loadEcommerceAllotAdjustment(
 		context.Background(), "2026-04-01", "2026-04-30", "", nil)
 	if err == nil {
 		t.Fatal("expected err for query 1 failure, got nil")
@@ -296,13 +302,13 @@ func TestLoadEcommerceAllotAdjustment_Query2Error(t *testing.T) {
 
 	// query 1 成功
 	mock.ExpectQuery(regexp.QuoteMeta("FROM sales_goods_summary")).
-		WillReturnRows(sqlmock.NewRows([]string{"sales"}).AddRow(0.0))
+		WillReturnRows(sqlmock.NewRows([]string{"sales", "qty"}).AddRow(0.0, 0.0))
 	// query 2 失败
 	mock.ExpectQuery(regexp.QuoteMeta("FROM allocate_orders o")).
 		WillReturnError(errors.New("table missing"))
 
 	h := &DashboardHandler{DB: db}
-	_, _, err := h.loadEcommerceAllotAdjustment(
+	_, _, _, _, err := h.loadEcommerceAllotAdjustment(
 		context.Background(), "2026-04-01", "2026-04-30", "", nil)
 	if err == nil {
 		t.Fatal("expected err for query 2 failure, got nil")
@@ -311,12 +317,13 @@ func TestLoadEcommerceAllotAdjustment_Query2Error(t *testing.T) {
 
 func TestApplyEcommerceAllotAdjustment_HappyPath(t *testing.T) {
 	deptList := []DeptSummary{
-		{Department: "ecommerce", Sales: 7094000.0, Qty: 1000},
+		{Department: "ecommerce", Sales: 7094000.0, Qty: 5000},
 		{Department: "social", Sales: 500000.0, Qty: 100},
 	}
-	applyEcommerceAllotAdjustment(deptList, 5130000.0, 7320000.0)
+	// salesExcluded=5130000, allotAmt=7320000, qtyExcluded=800, allotQty=1200
+	applyEcommerceAllotAdjustment(deptList, 5130000.0, 7320000.0, 800.0, 1200.0)
 
-	// ecommerce dept 应该被修改
+	// ecommerce dept sales/amt 应该被修改
 	wantSalesAmt := 7094000.0 - 5130000.0
 	if deptList[0].SalesAmt != wantSalesAmt {
 		t.Errorf("ecommerce.SalesAmt = %v, want %v", deptList[0].SalesAmt, wantSalesAmt)
@@ -329,9 +336,18 @@ func TestApplyEcommerceAllotAdjustment_HappyPath(t *testing.T) {
 		t.Errorf("ecommerce.Sales = %v, want %v (新总和)", deptList[0].Sales, wantSales)
 	}
 
+	// ecommerce dept qty 同步处理 = 5000 - 800 + 1200 = 5400
+	wantQty := 5000.0 - 800.0 + 1200.0
+	if deptList[0].Qty != wantQty {
+		t.Errorf("ecommerce.Qty = %v, want %v", deptList[0].Qty, wantQty)
+	}
+
 	// social dept 不应该被修改
 	if deptList[1].Sales != 500000.0 {
 		t.Errorf("social.Sales 不应该变, 实际 %v", deptList[1].Sales)
+	}
+	if deptList[1].Qty != 100.0 {
+		t.Errorf("social.Qty 不应该变, 实际 %v", deptList[1].Qty)
 	}
 	if deptList[1].SalesAmt != 0 || deptList[1].AllotAmt != 0 {
 		t.Errorf("social 不应该有 SalesAmt/AllotAmt 设置, 实际 SalesAmt=%v AllotAmt=%v",
@@ -342,9 +358,10 @@ func TestApplyEcommerceAllotAdjustment_HappyPath(t *testing.T) {
 func TestApplyEcommerceAllotAdjustment_NegativeSalesClampedToZero(t *testing.T) {
 	// 极端边界: 销售单口径 > 实际 sales (理论不应发生, 防御性测试)
 	deptList := []DeptSummary{
-		{Department: "ecommerce", Sales: 1000000.0},
+		{Department: "ecommerce", Sales: 1000000.0, Qty: 500},
 	}
-	applyEcommerceAllotAdjustment(deptList, 5000000.0, 7000000.0)
+	// salesExcluded > Sales + qtyExcluded > Qty
+	applyEcommerceAllotAdjustment(deptList, 5000000.0, 7000000.0, 2000.0, 1500.0)
 
 	if deptList[0].SalesAmt != 0 {
 		t.Errorf("SalesAmt 应该被钳到 0, 实际 %v", deptList[0].SalesAmt)
@@ -352,17 +369,82 @@ func TestApplyEcommerceAllotAdjustment_NegativeSalesClampedToZero(t *testing.T) 
 	if deptList[0].Sales != 7000000.0 {
 		t.Errorf("Sales = 0 + AllotAmt = %v, want 7000000", deptList[0].Sales)
 	}
+	// Qty = 500 - 2000 + 1500 = 0 (钳到 0 因为内部 newQty = -1500 + 1500 = 0, 实际计算 = 500-2000+1500 = 0)
+	if deptList[0].Qty != 0 {
+		t.Errorf("Qty 应该是 0 (500 - 2000 + 1500), 实际 %v", deptList[0].Qty)
+	}
 }
 
 func TestApplyEcommerceAllotAdjustment_NoEcommerceDept(t *testing.T) {
 	// 边界: deptList 不含 ecommerce
 	deptList := []DeptSummary{
-		{Department: "social", Sales: 500000.0},
+		{Department: "social", Sales: 500000.0, Qty: 100},
 	}
-	applyEcommerceAllotAdjustment(deptList, 100.0, 200.0)
+	applyEcommerceAllotAdjustment(deptList, 100.0, 200.0, 10.0, 20.0)
 
 	if deptList[0].Sales != 500000.0 {
 		t.Errorf("无 ecommerce 时不应修改其它部门, 实际 social.Sales=%v", deptList[0].Sales)
+	}
+	if deptList[0].Qty != 100.0 {
+		t.Errorf("无 ecommerce 时不应修改其它部门 qty, 实际 social.Qty=%v", deptList[0].Qty)
+	}
+}
+
+func TestApplyEcommerceDailyAllot_HappyPath(t *testing.T) {
+	// 3 天: 5/1 5/2 5/3, ecommerce + social 各 3 天 (6 个点)
+	trend := []TrendPoint{
+		{Date: "2026-05-01", Department: "ecommerce", Sales: 100000.0, Qty: 100},
+		{Date: "2026-05-01", Department: "social", Sales: 50000.0, Qty: 50},
+		{Date: "2026-05-02", Department: "ecommerce", Sales: 200000.0, Qty: 200},
+		{Date: "2026-05-02", Department: "social", Sales: 80000.0, Qty: 80},
+		{Date: "2026-05-03", Department: "ecommerce", Sales: 150000.0, Qty: 150},
+		{Date: "2026-05-03", Department: "social", Sales: 60000.0, Qty: 60},
+	}
+	// dailyAllot: 5/1 有数据, 5/2 只有调拨, 5/3 无数据
+	dailyAllot := map[string]ecomDailyAllot{
+		"2026-05-01": {salesExcluded: 30000.0, allotAmt: 50000.0, qtyExcluded: 30, allotQty: 40},
+		"2026-05-02": {salesExcluded: 0, allotAmt: 80000.0, qtyExcluded: 0, allotQty: 60},
+	}
+	applyEcommerceDailyAllot(trend, dailyAllot)
+
+	// 5/1 ecommerce: 100000 - 30000 + 50000 = 120000; qty 100-30+40 = 110
+	if trend[0].Sales != 120000.0 {
+		t.Errorf("5/1 ecommerce.Sales = %v, want 120000", trend[0].Sales)
+	}
+	if trend[0].Qty != 110.0 {
+		t.Errorf("5/1 ecommerce.Qty = %v, want 110", trend[0].Qty)
+	}
+	// 5/1 social 不应该变
+	if trend[1].Sales != 50000.0 {
+		t.Errorf("5/1 social.Sales 不应该变, 实际 %v", trend[1].Sales)
+	}
+	// 5/2 ecommerce: 200000 - 0 + 80000 = 280000; qty 200-0+60 = 260
+	if trend[2].Sales != 280000.0 {
+		t.Errorf("5/2 ecommerce.Sales = %v, want 280000", trend[2].Sales)
+	}
+	// 5/3 ecommerce 无 dailyAllot, 保持原数字
+	if trend[4].Sales != 150000.0 {
+		t.Errorf("5/3 ecommerce.Sales 无 dailyAllot 应保持, 实际 %v", trend[4].Sales)
+	}
+}
+
+func TestApplyEcommerceDailyAllot_NegativeClamped(t *testing.T) {
+	// 边界: salesExcluded > sales (理论不应发生)
+	trend := []TrendPoint{
+		{Date: "2026-05-01", Department: "ecommerce", Sales: 10000.0, Qty: 10},
+	}
+	dailyAllot := map[string]ecomDailyAllot{
+		"2026-05-01": {salesExcluded: 50000.0, allotAmt: 5000.0, qtyExcluded: 100, allotQty: 5},
+	}
+	applyEcommerceDailyAllot(trend, dailyAllot)
+
+	// sales = 10000 - 50000 + 5000 = -35000 → 钳 0
+	if trend[0].Sales != 0 {
+		t.Errorf("Sales 应钳 0, 实际 %v", trend[0].Sales)
+	}
+	// qty = 10 - 100 + 5 = -85 → 钳 0
+	if trend[0].Qty != 0 {
+		t.Errorf("Qty 应钳 0, 实际 %v", trend[0].Qty)
 	}
 }
 

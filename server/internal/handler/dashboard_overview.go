@@ -90,14 +90,14 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// v1.74.3: 电商部门 KPI 合并 2 调拨渠道金额 (排除销售单口径 + 加调拨口径)
+	// v1.74.3: 电商部门 KPI 合并 2 调拨渠道金额 + 数量 (排除销售单口径 + 加调拨口径)
 	// 设计文档 docs/specs/2026-05-25-overview-ecommerce-allot-merge-design.md
 	// helper 失败 → log + 不阻塞主流程, 用原口径 (回落到 v1.74.2 之前行为)
-	if salesExcluded, allotAmt, allotErr := h.loadEcommerceAllotAdjustment(
+	if salesExcluded, allotAmt, qtyExcluded, allotQty, allotErr := h.loadEcommerceAllotAdjustment(
 		r.Context(), start, end, scopeCond, scopeArgs); allotErr != nil {
 		log.Printf("[overview] 调拨口径加载失败, 用原口径: %v", allotErr)
 	} else {
-		applyEcommerceAllotAdjustment(deptList, salesExcluded, allotAmt)
+		applyEcommerceAllotAdjustment(deptList, salesExcluded, allotAmt, qtyExcluded, allotQty)
 	}
 
 	// 2. 每日销售趋势（含未映射部门，归入other）
@@ -117,12 +117,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	defer trendRows.Close()
 
-	type TrendPoint struct {
-		Date       string  `json:"date"`
-		Department string  `json:"department"`
-		Sales      float64 `json:"sales"`
-		Qty        float64 `json:"qty"`
-	}
+	// TrendPoint 已提到包级别 (v1.74.3 拓范), 便于 applyEcommerceDailyAllot 引用
 	var trend []TrendPoint
 	for trendRows.Next() {
 		var t TrendPoint
@@ -133,6 +128,15 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	if writeDatabaseError(w, trendRows.Err()) {
 		return
+	}
+
+	// v1.74.3 拓范: 趋势图 ecommerce 部门按新口径 (排除 2 渠道销售单 + 加调拨)
+	// 兜底: 失败 → log + 不阻塞主流程, 趋势图用原口径
+	if dailyAllot, dailyErr := h.loadEcommerceDailyAllot(
+		r.Context(), trendStart, trendEnd, scopeCond, scopeArgs); dailyErr != nil {
+		log.Printf("[overview] 日级调拨加载失败, 趋势图用原口径: %v", dailyErr)
+	} else {
+		applyEcommerceDailyAllot(trend, dailyAllot)
 	}
 
 	// 3. 商品销售排行 TOP15
@@ -432,58 +436,180 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, response)
 }
 
-// loadEcommerceAllotAdjustment v1.74.3: 加载电商部 2 调拨渠道的双口径金额
+// loadEcommerceAllotAdjustment v1.74.3: 加载电商部 2 调拨渠道的双口径金额 + 数量
 // 业务背景: ds-京东-清心湖自营 / ds-天猫超市-寄售 这 2 渠道业务上不算销售单, 按调拨入库统计.
 // 综合看板长期用销售单口径 → 跟业务对账不一致. 本 helper 单独查 2 渠道双口径.
 //
-// 返回:
-//   salesExcluded: 这 2 渠道在 sales_goods_summary 的销售单口径 SUM (要从 dept.sales 减掉)
-//   allotAmt: 这 2 渠道在 allocate_details 的 excel_amount SUM (要加到 dept.sales)
+// 返回 4 个值 + err:
+//   salesExcluded: 这 2 渠道在 sales_goods_summary 的销售单口径 sales (要从 dept.sales 减掉)
+//   allotAmt: 这 2 渠道在 allocate_details 的 excel_amount (要加到 dept.sales)
+//   qtyExcluded: 这 2 渠道在 sales_goods_summary 的销售单口径 qty (要从 dept.qty 减掉)
+//   allotQty: 这 2 渠道在 allocate_details 的 sku_count (要加到 dept.qty)
 //   err: 任一 query 失败返 err, 调用方决定 fallback 还是 fail
 func (h *DashboardHandler) loadEcommerceAllotAdjustment(
 	ctx context.Context,
 	start, end string,
 	scopeCond string, scopeArgs []interface{},
-) (salesExcluded, allotAmt float64, err error) {
+) (salesExcluded, allotAmt, qtyExcluded, allotQty float64, err error) {
 	// 固定 2 渠道 ID (跟 special_channel.go 一致, channel_id 即 shop_id)
 	const jdShopID = "1819610592561398400"   // ds-京东-清心湖自营
 	const tmcsShopID = "1819610591915475584" // ds-天猫超市-寄售
 
-	// query 1: 这 2 渠道销售单口径 (要从 dept.sales 减)
+	// query 1: 这 2 渠道销售单口径 (sales + qty)
 	salesArgs := append([]interface{}{start, end, jdShopID, tmcsShopID}, scopeArgs...)
 	err = h.DB.QueryRowContext(ctx, `
-		SELECT IFNULL(SUM(IFNULL(local_goods_amt, goods_amt)), 0)
+		SELECT IFNULL(SUM(IFNULL(local_goods_amt, goods_amt)), 0),
+		       IFNULL(SUM(goods_qty), 0)
 		FROM sales_goods_summary
 		WHERE stat_date BETWEEN ? AND ?
-		  AND shop_id IN (?, ?)`+scopeCond, salesArgs...).Scan(&salesExcluded)
+		  AND shop_id IN (?, ?)`+scopeCond, salesArgs...).Scan(&salesExcluded, &qtyExcluded)
 	if err != nil {
-		return 0, 0, fmt.Errorf("查 2 渠道销售单口径失败: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("查 2 渠道销售单口径失败: %w", err)
 	}
 
-	// query 2: 这 2 渠道调拨口径 (要加进 dept.sales)
+	// query 2: 这 2 渠道调拨口径 (sales + qty)
 	// channel_key 在 allocate_orders 是 '京东' / '猫超' (跟 special_channel.go 一致)
+	// allocate_details.sku_count 是调拨数量, 跟 sales_goods_summary.goods_qty 同维度 (件数)
 	err = h.DB.QueryRowContext(ctx, `
-		SELECT IFNULL(SUM(d.excel_amount), 0)
+		SELECT IFNULL(SUM(d.excel_amount), 0),
+		       IFNULL(SUM(d.sku_count), 0)
 		FROM allocate_orders o
 		JOIN allocate_details d ON d.allocate_no = o.allocate_no
 		WHERE o.stat_date BETWEEN ? AND ?
-		  AND o.channel_key IN ('京东', '猫超')`, start, end).Scan(&allotAmt)
+		  AND o.channel_key IN ('京东', '猫超')`, start, end).Scan(&allotAmt, &allotQty)
 	if err != nil {
-		return 0, 0, fmt.Errorf("查 2 渠道调拨口径失败: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("查 2 渠道调拨口径失败: %w", err)
 	}
 
-	return salesExcluded, allotAmt, nil
+	return salesExcluded, allotAmt, qtyExcluded, allotQty, nil
 }
 
-// applyEcommerceAllotAdjustment v1.74.3: 把 2 调拨渠道的口径换到 dept.Sales
+// ecomDailyAllot v1.74.3 拓范: 单日 2 调拨渠道的双口径 (用于趋势图)
+type ecomDailyAllot struct {
+	salesExcluded float64 // 该日这 2 渠道 sales_goods_summary 销售单口径 sales
+	allotAmt      float64 // 该日这 2 渠道 allocate_details 调拨 excel_amount
+	qtyExcluded   float64 // 该日这 2 渠道 sales_goods_summary 销售单口径 qty
+	allotQty      float64 // 该日这 2 渠道 allocate_details sku_count
+}
+
+// loadEcommerceDailyAllot v1.74.3 拓范: 按日聚合 2 调拨渠道的双口径
+// 用于趋势图: 每日 ecommerce 数据 = (原 sales 减销售单口径) + (加调拨口径)
+//
+// 返回 map[YYYY-MM-DD] = {salesExcluded, allotAmt, qtyExcluded, allotQty}
+// 只含有数据的日子 (无数据的日子不在 map 里, 调用方按需 default zero)
+func (h *DashboardHandler) loadEcommerceDailyAllot(
+	ctx context.Context,
+	start, end string,
+	scopeCond string, scopeArgs []interface{},
+) (map[string]ecomDailyAllot, error) {
+	const jdShopID = "1819610592561398400"
+	const tmcsShopID = "1819610591915475584"
+
+	out := make(map[string]ecomDailyAllot)
+
+	// query 1: 日级销售单口径
+	salesArgs := append([]interface{}{start, end, jdShopID, tmcsShopID}, scopeArgs...)
+	rows, err := h.DB.QueryContext(ctx, `
+		SELECT DATE_FORMAT(stat_date, '%Y-%m-%d') AS d,
+		       IFNULL(SUM(IFNULL(local_goods_amt, goods_amt)), 0),
+		       IFNULL(SUM(goods_qty), 0)
+		FROM sales_goods_summary
+		WHERE stat_date BETWEEN ? AND ?
+		  AND shop_id IN (?, ?)`+scopeCond+`
+		GROUP BY stat_date`, salesArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("查日级销售单口径失败: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		var s, q float64
+		if err := rows.Scan(&d, &s, &q); err != nil {
+			return nil, err
+		}
+		out[d] = ecomDailyAllot{salesExcluded: s, qtyExcluded: q}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// query 2: 日级调拨口径
+	allotRows, err := h.DB.QueryContext(ctx, `
+		SELECT DATE_FORMAT(o.stat_date, '%Y-%m-%d') AS d,
+		       IFNULL(SUM(d.excel_amount), 0),
+		       IFNULL(SUM(d.sku_count), 0)
+		FROM allocate_orders o
+		JOIN allocate_details d ON d.allocate_no = o.allocate_no
+		WHERE o.stat_date BETWEEN ? AND ?
+		  AND o.channel_key IN ('京东', '猫超')
+		GROUP BY o.stat_date`, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("查日级调拨口径失败: %w", err)
+	}
+	defer allotRows.Close()
+	for allotRows.Next() {
+		var d string
+		var a, q float64
+		if err := allotRows.Scan(&d, &a, &q); err != nil {
+			return nil, err
+		}
+		entry := out[d]
+		entry.allotAmt = a
+		entry.allotQty = q
+		out[d] = entry
+	}
+	if err := allotRows.Err(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// applyEcommerceDailyAllot v1.74.3 拓范: 把 dailyAllot 应用到趋势数据
+// 修改 trend 数组里所有 ecommerce 部门的点: sales = trend.sales - salesExcluded + allotAmt
+//                                          qty   = trend.qty   - qtyExcluded   + allotQty
+// 提取为独立函数便于单测.
+func applyEcommerceDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDailyAllot) {
+	for i := range trend {
+		if trend[i].Department != "ecommerce" {
+			continue
+		}
+		d, ok := dailyAllot[trend[i].Date]
+		if !ok {
+			continue // 该日无 2 渠道数据 (既没销售单又没调拨), 保持原 trend
+		}
+		newSales := trend[i].Sales - d.salesExcluded + d.allotAmt
+		if newSales < 0 {
+			newSales = 0
+		}
+		trend[i].Sales = newSales
+
+		newQty := trend[i].Qty - d.qtyExcluded + d.allotQty
+		if newQty < 0 {
+			newQty = 0
+		}
+		trend[i].Qty = newQty
+	}
+}
+
+// TrendPoint v1.74.3 拓范: 提到包级别便于 applyEcommerceDailyAllot 引用
+type TrendPoint struct {
+	Date       string  `json:"date"`
+	Department string  `json:"department"`
+	Sales      float64 `json:"sales"`
+	Qty        float64 `json:"qty"`
+}
+
+// applyEcommerceAllotAdjustment v1.74.3: 把 2 调拨渠道的口径换到 dept.Sales + dept.Qty
 // 找到 ecommerce dept, 计算:
 //   SalesAmt = Sales - salesExcluded (其它电商渠道销售口径)
 //   AllotAmt = allotAmt              (这 2 调拨渠道)
 //   Sales    = SalesAmt + AllotAmt   (新总和, 给顶部 totalSales / 右上角 tag 用)
-// 兜底: SalesAmt < 0 钳到 0 (理论不应发生, 防数据异常)
+//   Qty      = Qty - qtyExcluded + allotQty  (同步处理货品数, 客单价自动跟着)
+// 兜底: SalesAmt/Qty < 0 钳到 0 (理论不应发生, 防数据异常)
 //
 // 提取为独立函数便于单测 (不依赖 DB).
-func applyEcommerceAllotAdjustment(deptList []DeptSummary, salesExcluded, allotAmt float64) {
+func applyEcommerceAllotAdjustment(deptList []DeptSummary, salesExcluded, allotAmt, qtyExcluded, allotQty float64) {
 	for i, d := range deptList {
 		if d.Department != "ecommerce" {
 			continue
@@ -495,6 +621,13 @@ func applyEcommerceAllotAdjustment(deptList []DeptSummary, salesExcluded, allotA
 		deptList[i].SalesAmt = salesAmt
 		deptList[i].AllotAmt = allotAmt
 		deptList[i].Sales = salesAmt + allotAmt
+
+		// v1.74.3 拓范: qty 同步处理 (排除销售单 qty + 加调拨 sku_count)
+		newQty := d.Qty - qtyExcluded + allotQty
+		if newQty < 0 {
+			newQty = 0
+		}
+		deptList[i].Qty = newQty
 		break
 	}
 }
