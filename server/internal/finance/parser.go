@@ -803,7 +803,7 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 	rows, err := db.Query(`
 		SELECT department, month,
 			SUM(CASE WHEN subject_code='REV_TOTAL' THEN amount ELSE 0 END) AS rev,
-			COUNT(*) AS rows
+			COUNT(*) AS rec_count
 		FROM finance_report
 		WHERE year = ?
 		GROUP BY department, month`, result.Year)
