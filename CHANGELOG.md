@@ -587,9 +587,8 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 - v1.74.2 AI 助手 3 bug 修复合并进本 tag (本周时间口径 / persist ctx / 兜底告警)
 
 ### 不在本轮 (下轮 v1.74.4)
-- 商品×渠道分布 goodsChannels (hover tooltip, 业务用得少)
-- 朴朴 / 即时零售部门 (3 个调拨渠道中只动了京东/猫超 2 个)
-- 财务/产品利润页深度
+- 商品×渠道分布 goodsChannels (hover tooltip, 业务用得少, 已有 loadEcommerceShopAllot helper 可复用)
+- 财务/产品利润页深度合并 — **业务红线**: 调拨端 `allocate_details` 缺毛利字段 (`excel_amount` 是售价还是进价未知), 需先对齐口径 + /codex 二审
 
 ### 影响
 - 后端: dashboard_overview.go + dashboard_department.go + dashboard_helpers.go + sync-allocate/main.go +600 行
@@ -597,6 +596,40 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 - 单测: cache_test.go + dashboard_overview_test.go +250 行
 - 数据库: 无 schema 变更, 数据 NULL stat_date 修复
 - 性能: helper 加 5-10ms (cache 命中后忽略)
+
+### 5/25 收尾 hotfix (3 波: v1.74.3-1 / v1.74.3-2 / v1.74.3-3)
+
+**起因**: v1.74.3 发完后, 跑哥实测发现趋势图 + 即时零售部 tab 还有遗留 bug, 同时业务上即时零售部 (朴朴) 也应当合并调拨. 一气追加 3 波收尾.
+
+#### v1.74.3-1 (b745028) — 趋势图调拨黄柱 UX 收尾 (4 commit)
+**起因**: 趋势图按销售额 + 调拨额堆叠柱后, 5/14/18 号黄柱特别长 (¥132 万), 跑哥要求拆开 + 防御性 guard. 实测换浏览器+清缓存切到非 ecommerce dept tab 仍见黄柱 ¥132.79 万 (= 5/14 ecommerce 调拨额完全吻合).
+
+- ECharts 切 dept tab 残留 series **真凶**: `Chart.tsx` 加默认 `notMerge=true`, 切 tab 强制全替换 series (d0a68b1)
+- `trendOption` useMemo deps 漏 `trendAllot/hasAllot` → 切 tab activeDept 变但 chart option 不重算 (3121154)
+- `trendAllot` 前端防御 guard: 强制只在 `activeDept === 'ecommerce'` 才算调拨, 非 ecommerce 强制全 0 数组 (c61f88a)
+- main bundle hash 变 (833828ba → b94c540c), 跑哥重开浏览器 tab 拿新 JS
+
+#### v1.74.3-2 (906ff97) — 即时零售部合并朴朴调拨 (KPI 层)
+**起因**: 跑哥 5/25 早上 brainstorm 时定"本轮只改电商部, 即时零售不动", 收工前确认需求改成"全部一致".
+
+- `GetOverview` dept=instant_retail mini 卡 Sales/Qty 加朴朴调拨 (SalesAmt=原销售单, AllotAmt=朴朴调拨)
+- `GetDepartmentDetail` dept=instant_retail:
+  - shopList 加 `js-即时零售事业一部（世创）-朴朴` entry
+  - KPI totalSales/totalQty/totalSku 加调拨
+- 朴朴无销售单 (shop_name 不在 sales_goods_summary), 简化处理: 没抽 helper, inline SQL (只 1 个 channel_key)
+- **业务感知 5/1-5/24**: 即时零售部 ¥127 万 → ¥167 万 (+31%, 调拨口径修正)
+
+#### v1.74.3-3 (4a40c73) — 即时零售部趋势加日级朴朴调拨黄柱 (趋势层)
+**起因**: v1.74.3-2 只补了 KPI 卡 + 总数, 趋势图日级朴朴黄柱还缺. 完成"即时零售部"全模块合并闭环.
+
+- 后端 `dashboard_overview.go` +59 行:
+  - 加 `loadInstantRetailDailyAllot` 查朴朴日级调拨 (`allocate_orders.channel_key='朴朴'`)
+  - 加 `applyInstantRetailDailyAllot` 设置 `trend.AllotSales/AllotQty` (朴朴无销售单, 不排除)
+  - `GetOverview` 调用 + 错误兜底 (失败 → log, 趋势缺朴朴柱不阻塞)
+- 前端 `overview/index.tsx`: `trendAllot` guard 加 `instant_retail` (跟 ecommerce 同模式)
+
+#### App 模式反例自省
+**这 3 波 hotfix 严格按 CHANGELOG 反例规矩 (一功能切 N 刀涨 N 版本 = 错), 不该单独打 tag, 应该 1 个 v1.74.3 一次打透**. 之所以拆 3 个 tag 是跑哥 5/25 一日打完 25+ commit 节奏紧, 收尾后这里追写补全, 后续避免.
 
 ## v1.74.1 (2026-05-25) — hotfix: 财务报表导入预览端点炸了 (MySQL 9.x 兼容性)
 
