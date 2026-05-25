@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -83,7 +84,13 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	// v1.04: 电商部门剔除走特殊渠道调拨对账的渠道 (跑哥要求)
 	// 拼到 scopeCond 上, 所有 17 处 sales_goods_summary SQL 自动生效
 	// 用 strings.ReplaceAll(_, "shop_name", "s.shop_name") 的 SQL 也同步替换别名
+	//
+	// v1.74.3 拓范 T6h: 电商部页"店铺数据概览"合并 2 调拨渠道
+	// 保留 pureScopeCond (无电商部排除条件) 给 helper 调用 — helper 内 SQL 用 shop_id IN 锁定 2 渠道
+	// 不能让 helper SQL 再加 shop_name NOT IN 冲突 (否则数据 0)
+	pureScopeCond := scopeCond
 	scopeCond += extraDeptCond(dept, false)
+	_ = pureScopeCond // 仅 dept=ecommerce 时用, 防 unused warning
 
 	// 1. 每日趋势（短范围自动扩展）
 	trendStart, trendEnd := getTrendDateRange(start, end)
@@ -170,6 +177,35 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// v1.74.3 拓范 T6h: 电商部 "店铺数据概览" 合并 2 调拨渠道 (跑哥 5/25 追加)
+	// shopListSQL 因 ecommerceExcludeAllotCond 排除了 2 渠道, 这里用 helper 加回 2 entry (调拨口径)
+	// 兜底: helper 失败 → log + shop list 保持 v1.04 排除行为
+	addedAllotShops := 0
+	if dept == "ecommerce" {
+		if shopAllot, allotErr := h.loadEcommerceShopAllot(
+			r.Context(), start, end, pureScopeCond, scopeArgs); allotErr != nil {
+			log.Printf("[dept-detail] ecommerce shop 调拨加载失败, 沿用 v1.04 排除口径: %v", allotErr)
+		} else {
+			for shopName, allot := range shopAllot {
+				// 全 0 (无销售单无调拨) 跳过
+				if allot.salesExcluded == 0 && allot.allotAmt == 0 {
+					continue
+				}
+				shops = append(shops, ShopData{
+					ShopName: shopName,
+					Sales:    allot.allotAmt, // 调拨口径作 sales (ecommerceExcludeAllotCond 已排除销售单)
+					Qty:      allot.allotQty,
+					Profit:   0, // 调拨数据无 profit 概念
+				})
+				addedAllotShops++
+			}
+			// 重新按 sales DESC 排 (新加的 2 entry 可能在中间位置)
+			sort.SliceStable(shops, func(i, j int) bool {
+				return shops[i].Sales > shops[j].Sales
+			})
+		}
+	}
+
 	// 2.5 店铺总数（独立于 LIMIT 20 排行榜，给前端"全部 N 家"用真实总数）
 	var totalShopCount int
 	totalShopArgs := append([]interface{}{dept, start, end}, platArgs...)
@@ -188,6 +224,8 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	if totalShopCount == 0 {
 		totalShopCount = len(shops)
 	}
+	// v1.74.3 拓范 T6h: 加进来的调拨 shop 也算入总数
+	totalShopCount += addedAllotShops
 
 	// 3. 商品排行
 	goodsArgs := append([]interface{}{dept, start, end}, extraArgs...)
