@@ -224,6 +224,8 @@ const OverviewPage: React.FC = () => {
     trendDatesRaw,
     trendQty,
     trendSales,
+    trendAllot, // v1.74.3-1 fix: useMemo deps 漏掉 → 切 tab 时不重算导致 ecommerce 黄柱错配到 instant_retail
+    hasAllot,
   ]);
 
   const avgPriceAvg =
