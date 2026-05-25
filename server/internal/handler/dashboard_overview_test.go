@@ -448,5 +448,74 @@ func TestApplyEcommerceDailyAllot_NegativeClamped(t *testing.T) {
 	}
 }
 
+func TestApplyEcommerceShopAllot_InTop(t *testing.T) {
+	// 2 调拨 shop 都在 TOP 内
+	topShops := []ShopRank{
+		{ShopName: "ds-京东-清心湖自营", Department: "ecommerce", Sales: 2980000.0, Qty: 100},
+		{ShopName: "ds-天猫超市-寄售", Department: "ecommerce", Sales: 2150000.0, Qty: 80},
+		{ShopName: "ds-某其它店", Department: "ecommerce", Sales: 5000000.0, Qty: 200},
+	}
+	shopAllot := map[string]shopAllotData{
+		"ds-京东-清心湖自营": {salesExcluded: 2980000.0, allotAmt: 5210000.0, qtyExcluded: 100, allotQty: 150},
+		"ds-天猫超市-寄售":  {salesExcluded: 2150000.0, allotAmt: 2110000.0, qtyExcluded: 80, allotQty: 70},
+	}
+	result := applyEcommerceShopAllot(topShops, shopAllot, 15)
+
+	// 排序后顺序: 某其它店 ¥500 万 > 京东 ¥521 万? No - 京东更大. 让我重算.
+	// 京东: 2980000 - 2980000 + 5210000 = 5210000
+	// 猫超: 2150000 - 2150000 + 2110000 = 2110000
+	// 其它: 5000000 不变
+	// 排序: 京东 (¥521) > 其它 (¥500) > 猫超 (¥211)
+	if len(result) != 3 {
+		t.Fatalf("len = %d, want 3", len(result))
+	}
+	if result[0].ShopName != "ds-京东-清心湖自营" || result[0].Sales != 5210000.0 {
+		t.Errorf("排第 1 应为京东 ¥521, 实际 %s ¥%v", result[0].ShopName, result[0].Sales)
+	}
+	if result[1].ShopName != "ds-某其它店" {
+		t.Errorf("排第 2 应为其它店, 实际 %s", result[1].ShopName)
+	}
+	if result[2].ShopName != "ds-天猫超市-寄售" || result[2].Sales != 2110000.0 {
+		t.Errorf("排第 3 应为猫超 ¥211, 实际 %s ¥%v", result[2].ShopName, result[2].Sales)
+	}
+}
+
+func TestApplyEcommerceShopAllot_NotInTop(t *testing.T) {
+	// 2 调拨 shop 不在 TOP (销售单口径数据小排在外面), 但调拨数据让它进 TOP
+	topShops := []ShopRank{
+		{ShopName: "ds-某其它店", Department: "ecommerce", Sales: 1000000.0, Qty: 50},
+	}
+	shopAllot := map[string]shopAllotData{
+		"ds-京东-清心湖自营": {salesExcluded: 0, allotAmt: 5210000.0, qtyExcluded: 0, allotQty: 150},
+		"ds-天猫超市-寄售":  {salesExcluded: 0, allotAmt: 2110000.0, qtyExcluded: 0, allotQty: 70},
+	}
+	result := applyEcommerceShopAllot(topShops, shopAllot, 15)
+
+	// 加进 2 个 entry + 排序: 京东 (¥521) > 猫超 (¥211) > 其它 (¥100)
+	if len(result) != 3 {
+		t.Fatalf("len = %d, want 3 (加 2 个调拨 shop)", len(result))
+	}
+	if result[0].ShopName != "ds-京东-清心湖自营" {
+		t.Errorf("排第 1 应为京东, 实际 %s", result[0].ShopName)
+	}
+}
+
+func TestApplyEcommerceShopAllot_NoData(t *testing.T) {
+	// 边界: shopAllot 全是 0 (无销售单无调拨)
+	topShops := []ShopRank{
+		{ShopName: "ds-某其它店", Department: "ecommerce", Sales: 1000000.0, Qty: 50},
+	}
+	shopAllot := map[string]shopAllotData{
+		"ds-京东-清心湖自营": {salesExcluded: 0, allotAmt: 0, qtyExcluded: 0, allotQty: 0},
+		"ds-天猫超市-寄售":  {salesExcluded: 0, allotAmt: 0, qtyExcluded: 0, allotQty: 0},
+	}
+	result := applyEcommerceShopAllot(topShops, shopAllot, 15)
+
+	// 不应该加 entry
+	if len(result) != 1 {
+		t.Errorf("len = %d, want 1 (无数据时不加 entry)", len(result))
+	}
+}
+
 // 抹去 json package 未用 lint warning (依赖现有 happypath 测试使用)
 var _ = json.Marshal
