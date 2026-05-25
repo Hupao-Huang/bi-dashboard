@@ -120,14 +120,17 @@ const ProductProfit: React.FC<Props> = ({ dept  }) => {
     { title: '客单价', key: 'avgPrice', width: 100, render: (_: any, row: any) => row.qty > 0 ? `¥${(row.sales / row.qty).toFixed(2)}` : '-' },
   ];
 
-  const totalSales = goods.reduce((s: number, g: any) => s + (g.sales || 0), 0);
-  const totalQty = goods.reduce((s: number, g: any) => s + (g.qty || 0), 0);
+  // v1.74.4: 用 backend 返回的 totalSales/totalQty/totalSku (含 v1.74.3 ecommerce 调拨合并 + 全部 SKU 准确)
+  // 旧 goods.reduce 是 TOP15 合计被当全部 sum (5/20 ProductDashboard 同款 bug, feedback_frontend_reduce_with_limit)
+  const totalSales = (data.totalSales as number) ?? goods.reduce((s: number, g: any) => s + (g.sales || 0), 0);
+  const totalQty = (data.totalQty as number) ?? goods.reduce((s: number, g: any) => s + (g.qty || 0), 0);
+  const totalSku = (data.totalSku as number) ?? goods.length;
   const avgOrderValue = totalQty > 0 ? totalSales / totalQty : 0;
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总销量', value: totalQty, suffix: '件', accentColor: '#10b981' },
     { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#1e40af' },
-    { title: 'SKU种类数', value: goods.length, suffix: '种', accentColor: '#7c3aed' },
+    { title: 'SKU种类数', value: totalSku, suffix: '种', accentColor: '#7c3aed' },
   ];
 
   return (

@@ -539,6 +539,31 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.74.4 (2026-05-26) — 财务/部门"产品利润"页 KPI 总数修复 + 电商调拨口径对齐
+
+**业务背景**: 跑哥 5/25 晚发现财务·产品利润页选电商部门显示 ¥513 万, 跟综合看板 mini 卡对不上 (差 ¥670+ 万). RCA 双根因:
+1. **5/20 ProductDashboard 同款 reduce TOP15 bug 在产品利润页一直没扫到** (memory `feedback_frontend_reduce_with_limit`): 前端 `goods.reduce` 把 backend `LIMIT 15` 的 TOP15 SKU 合计当成"全部 SKU 总销售". 各部门数都偏小 (电商 39% / 线下 19% / 社媒 12% / 分销 43%)
+2. **电商部门没合 v1.74.3 调拨口径**: 财务页是 v1.74.3 "未在本轮"列表第 3 项, 销售单口径剔除 2 调拨店, 没把调拨业务加回
+
+**修复方案 (极简 - backend 0 改动)**:
+- 前端 `FinanceProductProfit.tsx`: KPI 改用 `data.totalSales ?? goods.reduce(...)` (复用 backend v1.74.3 已合并好的字段), SKU 种类数同理. 毛利保留 reduce (调拨业务无毛利字段, 维持销售单口径). 顶部加 antd Alert 告知用户口径.
+- 前端 `ProductProfit.tsx`: 4 个部门页 (电商/社媒/线下/分销) 的 `/dept/product-profit` 路由同款修复 (使用同一组件)
+- Owner mindset scan: `goods.reduce` 全 grep, 确认 `StoreSProductsSection.tsx` (主推 S 产品段) 因 backend SQL 没 LIMIT 是合理 reduce 不修, 其他 `daily/depts/monthly/pageData/channels` reduce 都是合理范围内不动
+
+### 业务感知 4 月样本数 (修复前 → 修复后, 单位万)
+| 部门 | 修前 TOP15 reduce | 修后 全部 SKU 含调拨 | 偏差 | 原因 |
+|---|---|---|---|---|
+| 电商 | ¥316 万 | **¥1184 万** | **+275%** | TOP15 漏 (¥316→¥518) + v1.74.3 调拨合并 (+¥667) |
+| 线下 | ¥1753 万 | ¥2156 万 | +23% | TOP15 漏 (印证 5/20 跑哥发现的 18.7% 同款) |
+| 社媒 | ¥754 万 | ¥860 万 | +14% | TOP15 漏 |
+| 分销 | ¥274 万 | ¥479 万 | +74% | TOP15 漏 (TOP15 集中度低 → 漏 43%) |
+
+### 影响
+- 前端: `FinanceProductProfit.tsx` +12 行 (KPI 字段 + Alert), `ProductProfit.tsx` +6 行 (KPI 字段)
+- 后端: 0 改动 (v1.74.3 已 ready totalSales/totalQty/totalSku 含调拨合并)
+- 毛利暂未含调拨业务: allocate_details 缺毛利字段 (`excel_amount` 售/进价未定), 跑哥决策"财务板块后续大调整一起重算"
+- 综合毛利率会因分母变大相应降低, 属正常 (Alert 已告知)
+
 ## v1.74.3 (2026-05-25) — 综合看板/电商部页/货品看板全模块合并 2 调拨渠道 (业务口径修正)
 
 **业务背景**: ds-京东-清心湖自营 / ds-天猫超市-寄售 业务上不算销售单, 按调拨入库统计 (v0.62 已上线对账页). 但综合看板/部门页/货品看板长期用销售单口径, 跟业务对账不一致. 跑哥 5/25 拓范, 一日打完全模块合并 (18 commit).
