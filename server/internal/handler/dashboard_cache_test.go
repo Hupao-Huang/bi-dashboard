@@ -125,14 +125,5 @@ func fmtKey(prefix string, i int) string {
 	return prefix + "-" + itoa(i)
 }
 
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	digits := []byte{}
-	for i > 0 {
-		digits = append([]byte{byte('0' + i%10)}, digits...)
-		i /= 10
-	}
-	return string(digits)
-}
+// itoa removed v1.74.3: 跟 hesi_audit_rules.go:122 重复定义导致 go test 编译失败 (pre-existing bug).
+// 改用 hesi_audit_rules.go 的 itoa (package handler 内可访问).
