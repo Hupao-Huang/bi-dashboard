@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Row, Col, Card, Statistic, Table, Tooltip } from 'antd';
+import { Row, Col, Card, Statistic, Table } from 'antd';
 import {
   ShoppingCartOutlined,
   GlobalOutlined,
@@ -532,14 +532,8 @@ const OverviewPage: React.FC = () => {
                     {cfg.icon}
                   </div>
                   <span style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}>{cfg.label}</span>
-                  {dept.department === 'ecommerce' && (
-                    <Tooltip title="电商部门 KPI 不含特殊渠道调拨金额（京东自营/天猫超市寄售），按销售单统计">
-                      <span style={{ fontSize: 10, color: '#94a3b8', background: '#f1f5f9', borderRadius: 3, padding: '0 4px', lineHeight: '14px', cursor: 'help' }}>
-                        不含调拨
-                      </span>
-                    </Tooltip>
-                  )}
                 </div>
+                {/* v1.74.3: 电商部 (allotAmt > 0) 显示 3 行拆解 (销售/调拨/总额), 其它部门保持原渲染 */}
                 <div
                   style={{
                     color: '#1e293b',
@@ -554,6 +548,22 @@ const OverviewPage: React.FC = () => {
                 {formatWanHint(dept.sales || 0) && (
                   <div style={{ fontSize: 13, color: '#64748b', marginTop: 2, fontVariantNumeric: 'tabular-nums', fontWeight: 400 }}>
                     {formatWanHint(dept.sales || 0).replace('约', '≈ ')}
+                  </div>
+                )}
+                {(dept as any).allotAmt > 0 && (
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b' }}>
+                      <span>销售额</span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>¥{(((dept as any).salesAmt || 0) / 10000).toFixed(2)} 万</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b' }}>
+                      <span>调拨额</span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>¥{(((dept as any).allotAmt || 0) / 10000).toFixed(2)} 万</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b' }}>
+                      <span>总额</span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>¥{((dept.sales || 0) / 10000).toFixed(2)} 万</span>
+                    </div>
                   </div>
                 )}
                 <div
