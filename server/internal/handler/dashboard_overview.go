@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -240,12 +241,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	defer shopRows.Close()
 
-	type ShopRank struct {
-		ShopName   string  `json:"shopName"`
-		Department string  `json:"department"`
-		Sales      float64 `json:"sales"`
-		Qty        float64 `json:"qty"`
-	}
+	// ShopRank 已提到包级别 (v1.74.3 拓范), 便于 applyEcommerceShopAllot 引用
 	var topShops []ShopRank
 	for shopRows.Next() {
 		var s ShopRank
@@ -256,6 +252,15 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	if writeDatabaseError(w, shopRows.Err()) {
 		return
+	}
+
+	// v1.74.3 拓范: 店铺 TOP15 合并 2 调拨渠道
+	// 兜底: 失败 → log + 保留原 topShops (含 2 渠道销售单数据, 跟 KPI 头部对不上但不阻塞)
+	if shopAllot, shopErr := h.loadEcommerceShopAllot(
+		r.Context(), start, end, scopeCond, scopeArgs); shopErr != nil {
+		log.Printf("[overview] shop 调拨加载失败, 店铺排行用原口径: %v", shopErr)
+	} else {
+		topShops = applyEcommerceShopAllot(topShops, shopAllot, 15)
 	}
 
 	// 4.5 店铺销售明细 (Top15 店铺各 Top 5 SKU + Top 5 分类, 给 hover tooltip 用)
@@ -598,6 +603,168 @@ type TrendPoint struct {
 	Department string  `json:"department"`
 	Sales      float64 `json:"sales"`
 	Qty        float64 `json:"qty"`
+}
+
+// ShopRank v1.74.3 拓范: 提到包级别便于 applyEcommerceShopAllot 引用
+type ShopRank struct {
+	ShopName   string  `json:"shopName"`
+	Department string  `json:"department"`
+	Sales      float64 `json:"sales"`
+	Qty        float64 `json:"qty"`
+}
+
+// shopAllotData v1.74.3 拓范: 单个调拨 shop 的双口径
+type shopAllotData struct {
+	salesExcluded float64 // 该 shop 在 sales_goods_summary 销售单 sales
+	allotAmt      float64 // 该 shop 对应调拨数据 excel_amount
+	qtyExcluded   float64
+	allotQty      float64
+}
+
+// 固定 2 调拨渠道映射 (跟 special_channel.go 一致, 多处复用)
+const (
+	jdShopID    = "1819610592561398400"
+	tmcsShopID  = "1819610591915475584"
+	jdShopName  = "ds-京东-清心湖自营"
+	tmcsShopNm  = "ds-天猫超市-寄售"
+	jdChanKey   = "京东"
+	tmcsChanKey = "猫超"
+)
+
+// loadEcommerceShopAllot v1.74.3 拓范: 加载 2 调拨渠道按 shop 分的双口径
+// 返回 map[shopName]shopAllotData
+func (h *DashboardHandler) loadEcommerceShopAllot(
+	ctx context.Context,
+	start, end string,
+	scopeCond string, scopeArgs []interface{},
+) (map[string]shopAllotData, error) {
+	out := map[string]shopAllotData{
+		jdShopName: {},
+		tmcsShopNm: {},
+	}
+
+	// query 1: 销售单口径 按 shop_id GROUP BY
+	salesArgs := append([]interface{}{start, end, jdShopID, tmcsShopID}, scopeArgs...)
+	rows, err := h.DB.QueryContext(ctx, `
+		SELECT shop_id,
+		       IFNULL(SUM(IFNULL(local_goods_amt, goods_amt)), 0),
+		       IFNULL(SUM(goods_qty), 0)
+		FROM sales_goods_summary
+		WHERE stat_date BETWEEN ? AND ?
+		  AND shop_id IN (?, ?)`+scopeCond+`
+		GROUP BY shop_id`, salesArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("查 shop 级销售单口径失败: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var shopID string
+		var s, q float64
+		if err := rows.Scan(&shopID, &s, &q); err != nil {
+			return nil, err
+		}
+		key := jdShopName
+		if shopID == tmcsShopID {
+			key = tmcsShopNm
+		}
+		entry := out[key]
+		entry.salesExcluded = s
+		entry.qtyExcluded = q
+		out[key] = entry
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// query 2: 调拨口径 按 channel_key GROUP BY
+	allotRows, err := h.DB.QueryContext(ctx, `
+		SELECT o.channel_key,
+		       IFNULL(SUM(d.excel_amount), 0),
+		       IFNULL(SUM(d.sku_count), 0)
+		FROM allocate_orders o
+		JOIN allocate_details d ON d.allocate_no = o.allocate_no
+		WHERE o.stat_date BETWEEN ? AND ?
+		  AND o.channel_key IN (?, ?)
+		GROUP BY o.channel_key`, start, end, jdChanKey, tmcsChanKey)
+	if err != nil {
+		return nil, fmt.Errorf("查 shop 级调拨口径失败: %w", err)
+	}
+	defer allotRows.Close()
+	for allotRows.Next() {
+		var key string
+		var a, q float64
+		if err := allotRows.Scan(&key, &a, &q); err != nil {
+			return nil, err
+		}
+		shopName := jdShopName
+		if key == tmcsChanKey {
+			shopName = tmcsShopNm
+		}
+		entry := out[shopName]
+		entry.allotAmt = a
+		entry.allotQty = q
+		out[shopName] = entry
+	}
+	if err := allotRows.Err(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// applyEcommerceShopAllot v1.74.3 拓范: 把 shop-level 双口径应用到 TOP shops 列表
+// 对每个 2 调拨渠道 shop:
+//   - 如果在 topShops 内: sales = sales - salesExcluded + allotAmt; qty 同理
+//   - 如果不在 (因销售单数据小排在 TOP 外): 新加 entry (sales = allotAmt, qty = allotQty)
+// 然后重新按 sales DESC 排, 截 topN (LIMIT 15)
+//
+// 提取为独立函数便于单测.
+func applyEcommerceShopAllot(topShops []ShopRank, shopAllot map[string]shopAllotData, limit int) []ShopRank {
+	// 用 map 加速查找
+	idx := make(map[string]int)
+	for i, s := range topShops {
+		idx[s.ShopName] = i
+	}
+
+	for shopName, allot := range shopAllot {
+		// 如果该 shop 销售口径 + 调拨口径都是 0, 跳过 (没数据)
+		if allot.salesExcluded == 0 && allot.allotAmt == 0 {
+			continue
+		}
+		if i, ok := idx[shopName]; ok {
+			// 已在 TOP, 替换数字
+			newSales := topShops[i].Sales - allot.salesExcluded + allot.allotAmt
+			if newSales < 0 {
+				newSales = 0
+			}
+			topShops[i].Sales = newSales
+
+			newQty := topShops[i].Qty - allot.qtyExcluded + allot.allotQty
+			if newQty < 0 {
+				newQty = 0
+			}
+			topShops[i].Qty = newQty
+		} else {
+			// 不在 TOP (销售单数据小排名外), 新加 entry
+			topShops = append(topShops, ShopRank{
+				ShopName:   shopName,
+				Department: "ecommerce",
+				Sales:      allot.allotAmt,
+				Qty:        allot.allotQty,
+			})
+		}
+	}
+
+	// 重新按 sales DESC 排
+	sort.SliceStable(topShops, func(i, j int) bool {
+		return topShops[i].Sales > topShops[j].Sales
+	})
+
+	// 截 TOP N
+	if limit > 0 && len(topShops) > limit {
+		topShops = topShops[:limit]
+	}
+	return topShops
 }
 
 // applyEcommerceAllotAdjustment v1.74.3: 把 2 调拨渠道的口径换到 dept.Sales + dept.Qty
