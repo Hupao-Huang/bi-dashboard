@@ -103,6 +103,7 @@ func main() {
 	startStr := flag.String("start", "", "开始日期 yyyy-MM-dd (默认 7 天前)")
 	endStr := flag.String("end", "", "结束日期 yyyy-MM-dd (默认今天)")
 	days := flag.Int("days", 7, "默认拉最近 N 天")
+	refreshPending := flag.Bool("refresh-pending", false, "刷未完成单模式: 从 DB 最早未完成单 audit_date 起拉到今天 (status!=20 OR in_status!=3)")
 	flag.Parse()
 
 	end := time.Now()
@@ -131,6 +132,22 @@ func main() {
 		log.Fatal("连数据库失败:", err)
 	}
 	defer db.Close()
+
+	// v1.74.3 拓范 (跑哥 5/25 决策): -refresh-pending 模式
+	// 默认 7 天滚动窗口无法捕捉"老单完成 (in_status 1→3)"状态变化 → 调拨金额低算
+	// 该模式从 DB 查最早未完成单 audit_date, 扩展拉取范围, 让所有未完成单都被覆盖更新
+	if *refreshPending {
+		var earliest sql.NullTime
+		queryErr := db.QueryRow(`SELECT MIN(audit_date) FROM allocate_orders WHERE status != 20 OR in_status != 3`).Scan(&earliest)
+		if queryErr == nil && earliest.Valid {
+			start = earliest.Time
+			end = time.Now()
+			fmt.Printf("🔄 refresh-pending 模式: 从最早未完成单 audit_date 起 %s ~ %s\n",
+				start.Format("2006-01-02"), end.Format("2006-01-02"))
+		} else {
+			fmt.Printf("🔄 refresh-pending 模式: 无未完成单 (或 audit_date 全 NULL), 退化为常规 %d 天拉取\n", *days)
+		}
+	}
 
 	// 加载 Excel 价格表
 	priceLookup, err := loadPrices(db)
