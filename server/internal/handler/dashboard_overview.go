@@ -46,6 +46,8 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		Profit     float64 `json:"profit"`
 		Cost       float64 `json:"cost"`
 		SkuCount   int     `json:"skuCount"`
+		SalesAmt   float64 `json:"salesAmt,omitempty"` // v1.74.3: 电商部排除 2 调拨渠道后的销售口径
+		AllotAmt   float64 `json:"allotAmt,omitempty"` // v1.74.3: 电商部 2 调拨渠道的调拨口径
 	}
 	deptMap := map[string]DeptSummary{}
 	for deptRows.Next() {
