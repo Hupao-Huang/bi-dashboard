@@ -571,8 +571,12 @@ func (h *DashboardHandler) loadEcommerceDailyAllot(
 }
 
 // applyEcommerceDailyAllot v1.74.3 拓范: 把 dailyAllot 应用到趋势数据
-// 修改 trend 数组里所有 ecommerce 部门的点: sales = trend.sales - salesExcluded + allotAmt
-//                                          qty   = trend.qty   - qtyExcluded   + allotQty
+// v1.74.3 跑哥 5/25 UX: 不再 merge 到 sales, 单独输出 AllotSales/AllotQty 字段
+//   sales      = trend.sales - salesExcluded     (= 其它电商渠道销售单)
+//   allotSales = allotAmt                        (= 2 调拨渠道, 前端用黄色堆叠柱)
+//   qty/allotQty 同理
+// 总高 (sales + allotSales) = 旧合并版的 sales, 跟综合看板 mini 卡总额一致
+//
 // 提取为独立函数便于单测.
 func applyEcommerceDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDailyAllot) {
 	for i := range trend {
@@ -583,26 +587,33 @@ func applyEcommerceDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDail
 		if !ok {
 			continue // 该日无 2 渠道数据 (既没销售单又没调拨), 保持原 trend
 		}
-		newSales := trend[i].Sales - d.salesExcluded + d.allotAmt
+		// 排除 2 渠道销售单
+		newSales := trend[i].Sales - d.salesExcluded
 		if newSales < 0 {
 			newSales = 0
 		}
 		trend[i].Sales = newSales
+		// 调拨单独字段, 前端拼堆叠柱
+		trend[i].AllotSales = d.allotAmt
 
-		newQty := trend[i].Qty - d.qtyExcluded + d.allotQty
+		newQty := trend[i].Qty - d.qtyExcluded
 		if newQty < 0 {
 			newQty = 0
 		}
 		trend[i].Qty = newQty
+		trend[i].AllotQty = d.allotQty
 	}
 }
 
 // TrendPoint v1.74.3 拓范: 提到包级别便于 applyEcommerceDailyAllot 引用
+// v1.74.3 跑哥 5/25 UX: 加 AllotSales/AllotQty 让前端堆叠柱区分销售单 vs 调拨 (黄色)
 type TrendPoint struct {
 	Date       string  `json:"date"`
 	Department string  `json:"department"`
-	Sales      float64 `json:"sales"`
+	Sales      float64 `json:"sales"`                // ecommerce 部门 = 已排除 2 调拨渠道销售单 (= 其它电商渠道销售单)
 	Qty        float64 `json:"qty"`
+	AllotSales float64 `json:"allotSales,omitempty"` // ecommerce 部门 = 2 调拨渠道当日调拨金额 (前端用黄色堆叠柱显示)
+	AllotQty   float64 `json:"allotQty,omitempty"`
 }
 
 // ShopRank v1.74.3 拓范: 提到包级别便于 applyEcommerceShopAllot 引用

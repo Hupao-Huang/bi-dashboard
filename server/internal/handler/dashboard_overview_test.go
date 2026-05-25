@@ -391,7 +391,7 @@ func TestApplyEcommerceAllotAdjustment_NoEcommerceDept(t *testing.T) {
 }
 
 func TestApplyEcommerceDailyAllot_HappyPath(t *testing.T) {
-	// 3 天: 5/1 5/2 5/3, ecommerce + social 各 3 天 (6 个点)
+	// v1.74.3 UX 更新: 调拨单独 AllotSales 字段, 不 merge 到 Sales
 	trend := []TrendPoint{
 		{Date: "2026-05-01", Department: "ecommerce", Sales: 100000.0, Qty: 100},
 		{Date: "2026-05-01", Department: "social", Sales: 50000.0, Qty: 50},
@@ -400,31 +400,36 @@ func TestApplyEcommerceDailyAllot_HappyPath(t *testing.T) {
 		{Date: "2026-05-03", Department: "ecommerce", Sales: 150000.0, Qty: 150},
 		{Date: "2026-05-03", Department: "social", Sales: 60000.0, Qty: 60},
 	}
-	// dailyAllot: 5/1 有数据, 5/2 只有调拨, 5/3 无数据
 	dailyAllot := map[string]ecomDailyAllot{
 		"2026-05-01": {salesExcluded: 30000.0, allotAmt: 50000.0, qtyExcluded: 30, allotQty: 40},
 		"2026-05-02": {salesExcluded: 0, allotAmt: 80000.0, qtyExcluded: 0, allotQty: 60},
 	}
 	applyEcommerceDailyAllot(trend, dailyAllot)
 
-	// 5/1 ecommerce: 100000 - 30000 + 50000 = 120000; qty 100-30+40 = 110
-	if trend[0].Sales != 120000.0 {
-		t.Errorf("5/1 ecommerce.Sales = %v, want 120000", trend[0].Sales)
+	// 5/1 ecommerce: sales 排除 30000 = 70000; allotSales = 50000; 总高 = 120000
+	if trend[0].Sales != 70000.0 {
+		t.Errorf("5/1 ecommerce.Sales = %v, want 70000 (排除销售单)", trend[0].Sales)
 	}
-	if trend[0].Qty != 110.0 {
-		t.Errorf("5/1 ecommerce.Qty = %v, want 110", trend[0].Qty)
+	if trend[0].AllotSales != 50000.0 {
+		t.Errorf("5/1 ecommerce.AllotSales = %v, want 50000 (调拨)", trend[0].AllotSales)
+	}
+	if trend[0].Qty != 70.0 {
+		t.Errorf("5/1 ecommerce.Qty = %v, want 70 (100-30)", trend[0].Qty)
+	}
+	if trend[0].AllotQty != 40.0 {
+		t.Errorf("5/1 ecommerce.AllotQty = %v, want 40", trend[0].AllotQty)
 	}
 	// 5/1 social 不应该变
-	if trend[1].Sales != 50000.0 {
-		t.Errorf("5/1 social.Sales 不应该变, 实际 %v", trend[1].Sales)
+	if trend[1].Sales != 50000.0 || trend[1].AllotSales != 0 {
+		t.Errorf("5/1 social.Sales=%v AllotSales=%v 不应变", trend[1].Sales, trend[1].AllotSales)
 	}
-	// 5/2 ecommerce: 200000 - 0 + 80000 = 280000; qty 200-0+60 = 260
-	if trend[2].Sales != 280000.0 {
-		t.Errorf("5/2 ecommerce.Sales = %v, want 280000", trend[2].Sales)
+	// 5/2 ecommerce: sales 200000-0=200000; allotSales=80000; 总高 280000
+	if trend[2].Sales != 200000.0 || trend[2].AllotSales != 80000.0 {
+		t.Errorf("5/2 ecommerce.Sales=%v AllotSales=%v, want 200000 / 80000", trend[2].Sales, trend[2].AllotSales)
 	}
-	// 5/3 ecommerce 无 dailyAllot, 保持原数字
-	if trend[4].Sales != 150000.0 {
-		t.Errorf("5/3 ecommerce.Sales 无 dailyAllot 应保持, 实际 %v", trend[4].Sales)
+	// 5/3 ecommerce 无 dailyAllot, 保持原数字 (AllotSales=0)
+	if trend[4].Sales != 150000.0 || trend[4].AllotSales != 0 {
+		t.Errorf("5/3 ecommerce 无 dailyAllot 应保持, Sales=%v AllotSales=%v", trend[4].Sales, trend[4].AllotSales)
 	}
 }
 
@@ -438,13 +443,19 @@ func TestApplyEcommerceDailyAllot_NegativeClamped(t *testing.T) {
 	}
 	applyEcommerceDailyAllot(trend, dailyAllot)
 
-	// sales = 10000 - 50000 + 5000 = -35000 → 钳 0
+	// sales = 10000 - 50000 = -40000 → 钳 0; allotSales = 5000 单独
 	if trend[0].Sales != 0 {
 		t.Errorf("Sales 应钳 0, 实际 %v", trend[0].Sales)
 	}
-	// qty = 10 - 100 + 5 = -85 → 钳 0
+	if trend[0].AllotSales != 5000.0 {
+		t.Errorf("AllotSales 应是 5000, 实际 %v", trend[0].AllotSales)
+	}
+	// qty = 10 - 100 = -90 → 钳 0; allotQty = 5 单独
 	if trend[0].Qty != 0 {
 		t.Errorf("Qty 应钳 0, 实际 %v", trend[0].Qty)
+	}
+	if trend[0].AllotQty != 5.0 {
+		t.Errorf("AllotQty 应是 5, 实际 %v", trend[0].AllotQty)
 	}
 }
 

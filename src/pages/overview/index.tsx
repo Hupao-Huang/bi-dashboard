@@ -113,6 +113,8 @@ const OverviewPage: React.FC = () => {
     const trendSalesRaw = trendDatesRaw.map((date) => deptTrendMap.get(date)?.sales || 0);
     const trendSales = trendSalesRaw;
     const trendQty = trendDatesRaw.map((date) => deptTrendMap.get(date)?.qty || 0);
+    // v1.74.3 跑哥 UX: 调拨数据单独 (allotSales/allotQty), 用黄色堆叠柱跟销售柱同位置展示
+    const trendAllot = trendDatesRaw.map((date) => deptTrendMap.get(date)?.allotSales || 0);
     const trendAvgPrice = trendQty.map((qty, index) => (qty > 0 ? +(trendSales[index] / qty).toFixed(2) : 0));
 
     return {
@@ -122,6 +124,7 @@ const OverviewPage: React.FC = () => {
       trendDates,
       trendDatesRaw,
       trendSales,
+      trendAllot,
       trendQty,
       trendAvgPrice,
     };
@@ -133,15 +136,18 @@ const OverviewPage: React.FC = () => {
     trendDates,
     trendDatesRaw,
     trendSales,
+    trendAllot,
     trendQty,
     trendAvgPrice,
   } = trendComputed;
   const isLongRange = trendDatesRaw.length >= 60;
   const activeCfg = deptConfig[activeDept] || deptConfig.ecommerce;
+  const hasAllot = trendAllot.some((v: number) => v > 0); // v1.74.3: 仅 ecommerce 且该时段有调拨才显示黄色柱
 
   const baseOpt = useMemo(() => getBaseOption(), []);
   const splits = 5;
-  const maxSales = Math.max(...trendSales, 1);
+  // v1.74.3 跑哥 UX: 堆叠时 maxSales 用 销售+调拨 总高
+  const maxSales = Math.max(...trendSales.map((s: number, i: number) => s + (trendAllot[i] || 0)), 1);
   const maxQty = Math.max(...trendQty, 1);
   const salesInterval = getNiceAxisInterval(maxSales, splits);
   const qtyInterval = getNiceAxisInterval(maxQty, splits);
@@ -149,7 +155,7 @@ const OverviewPage: React.FC = () => {
   const trendOption = useMemo(() => ({
     ...baseOpt,
     animation: !isLongRange,
-    legend: { ...baseOpt.legend, data: ['销售额', '货品数'], top: 4 },
+    legend: { ...baseOpt.legend, data: hasAllot ? ['销售额', '调拨额', '货品数'] : ['销售额', '货品数'], top: 4 },
     grid: { left: 60, right: 60, top: 48, bottom: 32 },
     xAxis: { ...baseOpt.xAxis, type: 'category' as const, data: trendDates, axisTick: { alignWithLabel: true } },
     yAxis: [
@@ -176,6 +182,7 @@ const OverviewPage: React.FC = () => {
       {
         name: '销售额',
         type: 'bar',
+        ...(hasAllot ? { stack: 'sales-stack' } : {}),
         data: isShortRange
           ? trendDatesRaw.map((date: string, i: number) => ({
               value: trendSales[i],
@@ -185,6 +192,15 @@ const OverviewPage: React.FC = () => {
         ...(isShortRange ? {} : barItemStyle(activeCfg.color)),
         barWidth: 14,
       },
+      // v1.74.3 跑哥 UX: 调拨黄色堆叠柱 (仅 ecommerce 且该时段有调拨)
+      ...(hasAllot ? [{
+        name: '调拨额',
+        type: 'bar',
+        stack: 'sales-stack',
+        data: trendAllot,
+        itemStyle: { color: '#facc15' }, // 黄色
+        barWidth: 14,
+      }] : []),
       {
         name: '货品数',
         type: 'line',
