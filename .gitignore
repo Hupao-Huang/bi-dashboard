@@ -30,9 +30,11 @@ yarn-error.log*
 server/*.exe
 server/*.exe~
 server/*.exe.bak-*
+server/*.exe.old-*
 server/*.exe.new
 server/cmd/**/*.exe
 server/start-silent.vbs.bak
+server/*.vbs.bak-*
 server/*.log
 server/*.log.old
 server/archive/

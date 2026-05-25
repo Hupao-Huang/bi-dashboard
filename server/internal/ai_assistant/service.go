@@ -8,6 +8,7 @@ import (
 	"log"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,18 @@ type Service struct {
 	DB         *sql.DB
 	Client     *LLMClient // 兼容旧字段 = ClientPrimary
 	ClientFast *LLMClient // 用于 formatAnswer; nil 时回退 Client
+
+	// v1.74.0 P0: 完整问答结果缓存 (40s → < 50ms, 重复问题)
+	CacheEnabled bool          // 总开关, false = 全部跳过 cache 路径
+	CacheTTL     time.Duration // 单条 TTL, 0 = 同 disable
+	cache        sync.Map      // string (cacheKey) -> *cacheEntry
+	cacheHits    int64         // atomic 命中计数
+	cacheMisses  int64         // atomic 未命中计数
+
+	// v1.74.0 P2: 预计算 warm cache 调度
+	WarmCacheEnabled bool // 总开关, true = bi-server 内部 goroutine 每天定时灌
+	WarmCacheHour    int  // 0-23, 默认 0
+	WarmCacheMinute  int  // 0-59, 默认 30
 }
 
 // FastClient 返回 fast client, 没配置时回退 primary
@@ -93,17 +106,37 @@ type AskResult struct {
 	Intent       *Intent           `json:"intent,omitempty"`
 	LLMTokens    int               `json:"llmTokens"`
 	LLMModel     string            `json:"llmModel"`
+	FromCache    bool              `json:"fromCache,omitempty"` // v1.74.0: true = cache 命中, 跳过 LLM
 }
 
-// Ask 主入口: 用户问题 → 答案 (含持久化)
+// Ask 主入口: 用户问题 → 答案 (含持久化 + v1.74.0 P0 cache)
 // userID: 提问用户 (必填, 入库用)
 // sessionID: nil = 新会话自动建; 非 nil = 续会话
 func (s *Service) Ask(ctx context.Context, userID int64, sessionID *int64, question string) (*AskResult, error) {
-	result, err := s.askInternal(ctx, question, time.Now())
+	start := time.Now()
+
+	// v1.74.0 P0: cache check (重复问题秒回, 跳过 2 次 LLM 调用)
+	key := s.cacheKey(question)
+	if cached := s.cacheGet(key); cached != nil {
+		result := cloneResult(cached)
+		result.DurationMs = time.Since(start).Milliseconds()
+		result.FromCache = true
+		// 本次提问也要 persist (统计/审计用), 但 cache 复用上一个的核心字段
+		if perr := s.persistAsk(ctx, userID, sessionID, question, result); perr != nil {
+			log.Printf("[ai-assistant] persist (cache hit) failed: %v", perr)
+		}
+		return result, nil
+	}
+
+	result, err := s.askInternal(ctx, question, start)
 	if err != nil {
 		return nil, err
 	}
 	result.LLMModel = s.Client.Model
+
+	// 灌 cache (cacheSet 内部会拒绝 unknown/warning 答案)
+	s.cacheSet(key, result)
+
 	if perr := s.persistAsk(ctx, userID, sessionID, question, result); perr != nil {
 		log.Printf("[ai-assistant] persist failed: %v", perr)
 	}

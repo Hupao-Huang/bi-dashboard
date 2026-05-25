@@ -99,6 +99,15 @@ type AIAssistantConfig struct {
 	LLMModelFallback string  `json:"llm_model_fallback"`
 	LLMTimeoutSecs   int     `json:"llm_timeout_seconds"`
 	EnabledForUsers  []int64 `json:"enabled_for_users"`
+
+	// v1.74.0 P0: 答案 cache (重复问题秒回, 跳过 2 次 LLM 调用)
+	CacheEnabled    bool `json:"cache_enabled"`     // 总开关, 默认 true
+	CacheTTLSeconds int  `json:"cache_ttl_seconds"` // 单条 TTL 秒, 默认 3600 = 1h
+
+	// v1.74.0 P2: 预计算 warm cache (半夜灌满标准题)
+	WarmCacheEnabled bool `json:"warm_cache_enabled"` // 总开关, 默认 true
+	WarmCacheHour    int  `json:"warm_cache_hour"`    // 0-23, 默认 0
+	WarmCacheMinute  int  `json:"warm_cache_minute"`  // 0-59, 默认 30
 }
 
 func Load(path string) (*Config, error) {
