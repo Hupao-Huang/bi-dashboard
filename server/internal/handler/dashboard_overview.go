@@ -101,6 +101,26 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		applyEcommerceAllotAdjustment(deptList, salesExcluded, allotAmt, qtyExcluded, allotQty)
 	}
 
+	// v1.74.3-2 (跑哥 5/25 收工前追加): 即时零售部门合并朴朴调拨
+	// 朴朴没销售单 (shop_name 不在 sales_goods_summary, fact 5/1-5/24 = 0 单), 简化: 只加调拨, 不排除
+	var puAllotAmt, puAllotQty float64
+	_ = h.DB.QueryRowContext(r.Context(), `SELECT IFNULL(SUM(d.excel_amount), 0), IFNULL(SUM(d.sku_count), 0)
+		FROM allocate_orders o
+		JOIN allocate_details d ON d.allocate_no = o.allocate_no
+		WHERE o.channel_key = '朴朴' AND o.stat_date BETWEEN ? AND ?`, start, end).Scan(&puAllotAmt, &puAllotQty)
+	if puAllotAmt > 0 {
+		for i, d := range deptList {
+			if d.Department != "instant_retail" {
+				continue
+			}
+			deptList[i].SalesAmt = d.Sales // 原全部销售单 (即时零售其它店, 朴朴不在销售单)
+			deptList[i].AllotAmt = puAllotAmt
+			deptList[i].Sales = d.Sales + puAllotAmt
+			deptList[i].Qty = d.Qty + puAllotQty
+			break
+		}
+	}
+
 	// 2. 每日销售趋势（含未映射部门，归入other）
 	trendArgs := append([]interface{}{trendStart, trendEnd}, scopeArgs...)
 	trendRows, ok := queryRowsOrWriteError(w, h.DB, `

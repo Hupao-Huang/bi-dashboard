@@ -238,6 +238,29 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	// v1.74.3-2 (跑哥 5/25 收工前追加): 即时零售部 朴朴调拨合并
+	// 朴朴没销售单 (shop_name 不在 sales_goods_summary), 直接加 entry
+	if dept == "instant_retail" {
+		const puShopName = "js-即时零售事业一部（世创）-朴朴"
+		var puAmt, puQty float64
+		_ = h.DB.QueryRowContext(r.Context(), `SELECT IFNULL(SUM(d.excel_amount), 0), IFNULL(SUM(d.sku_count), 0)
+			FROM allocate_orders o
+			JOIN allocate_details d ON d.allocate_no = o.allocate_no
+			WHERE o.channel_key = '朴朴' AND o.stat_date BETWEEN ? AND ?`, start, end).Scan(&puAmt, &puQty)
+		if puAmt > 0 {
+			shops = append(shops, ShopData{
+				ShopName: puShopName,
+				Sales:    puAmt,
+				Qty:      puQty,
+				Profit:   0,
+			})
+			sort.SliceStable(shops, func(i, j int) bool {
+				return shops[i].Sales > shops[j].Sales
+			})
+			addedAllotShops++
+		}
+	}
+
 	// 2.5 店铺总数（独立于 LIMIT 20 排行榜，给前端"全部 N 家"用真实总数）
 	var totalShopCount int
 	totalShopArgs := append([]interface{}{dept, start, end}, platArgs...)
@@ -370,6 +393,21 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		}
 		// totalSku: 加 helper 中 distinct goods_no 数 (allotGoods 已经 GROUP BY goods_no)
 		totalSku += len(allotGoods)
+	}
+
+	// v1.74.3-2: instant_retail 朴朴调拨 KPI 加
+	if dept == "instant_retail" {
+		var puAmt, puQty float64
+		var puSku int
+		_ = h.DB.QueryRowContext(r.Context(), `SELECT IFNULL(SUM(d.excel_amount), 0),
+			IFNULL(SUM(d.sku_count), 0),
+			COUNT(DISTINCT d.goods_no)
+			FROM allocate_orders o
+			JOIN allocate_details d ON d.allocate_no = o.allocate_no
+			WHERE o.channel_key = '朴朴' AND o.stat_date BETWEEN ? AND ?`, start, end).Scan(&puAmt, &puQty, &puSku)
+		totalSales += puAmt
+		totalQty += puQty
+		totalSku += puSku
 	}
 
 	// 3.5 商品渠道分布（为TOP15每个商品查各渠道销售额）
