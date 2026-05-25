@@ -182,42 +182,53 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	// 兜底: helper 失败 → log + shop list 保持 v1.04 排除行为
 	// 5/25 修 bug: 按 platform tab 过滤, 京东 tab 不能加猫超 entry
 	addedAllotShops := 0
+	hasAllotData := false // v1.74.3 拓范: 用来判断是否显示"调拨专区" tab
 	if dept == "ecommerce" {
-		// platform → 允许加的 shopName 集合
+		// v1.74.3 拓范 (跑哥 5/25): 调拨专区独立 tab
+		// - platform=""        全部 tab → 含 2 调拨 (跟综合看板总额一致)
+		// - platform="allot"   调拨专区 tab → 仅 2 调拨店 (其它 SQL 因 AND 1=0 返 0)
+		// - platform="jd"      京东 tab → 不含调拨店 (干净, 跟 v1.04 一致)
+		// - platform="tmall_cs" 天猫超市 tab → 不含调拨店
+		// - 其它 → 不含
 		var allowedShops []string
 		switch platform {
-		case "": // 全部 tab
+		case "":
 			allowedShops = []string{jdShopName, tmcsShopNm}
-		case "jd":
-			allowedShops = []string{jdShopName}
-		case "tmall_cs":
-			allowedShops = []string{tmcsShopNm}
-			// 其它 platform (tmall/pdd/vip/kuaishou) → 不加调拨 shop
+		case "allot":
+			allowedShops = []string{jdShopName, tmcsShopNm}
 		}
 
-		if len(allowedShops) > 0 {
-			if shopAllot, allotErr := h.loadEcommerceShopAllot(
-				r.Context(), start, end, pureScopeCond, scopeArgs); allotErr != nil {
-				log.Printf("[dept-detail] ecommerce shop 调拨加载失败, 沿用 v1.04 排除口径: %v", allotErr)
-			} else {
-				for _, shopName := range allowedShops {
-					allot, ok := shopAllot[shopName]
-					if !ok {
-						continue
-					}
-					// 调拨口径作 sales, 该时间段无调拨数据 → 不加 ¥0 entry (避免空白行干扰视觉)
-					if allot.allotAmt == 0 {
-						continue
-					}
-					shops = append(shops, ShopData{
-						ShopName: shopName,
-						Sales:    allot.allotAmt,
-						Qty:      allot.allotQty,
-						Profit:   0, // 调拨数据无 profit 概念
-					})
-					addedAllotShops++
+		// 先 check 是否有 2 渠道调拨数据 (用于决定 allot tab 是否显示)
+		// 即使当前 platform 不需要加 entry, 也要 check (用于 platforms 列表)
+		if shopAllot, allotErr := h.loadEcommerceShopAllot(
+			r.Context(), start, end, pureScopeCond, scopeArgs); allotErr != nil {
+			log.Printf("[dept-detail] ecommerce shop 调拨加载失败, 沿用 v1.04 排除口径: %v", allotErr)
+		} else {
+			// 任一渠道 allotAmt > 0 即认为有调拨数据 (该时间段)
+			for _, a := range shopAllot {
+				if a.allotAmt > 0 {
+					hasAllotData = true
+					break
 				}
-				// 重新按 sales DESC 排
+			}
+			// 按 allowedShops 加 entry
+			for _, shopName := range allowedShops {
+				allot, ok := shopAllot[shopName]
+				if !ok {
+					continue
+				}
+				if allot.allotAmt == 0 {
+					continue
+				}
+				shops = append(shops, ShopData{
+					ShopName: shopName,
+					Sales:    allot.allotAmt,
+					Qty:      allot.allotQty,
+					Profit:   0,
+				})
+				addedAllotShops++
+			}
+			if addedAllotShops > 0 {
 				sort.SliceStable(shops, func(i, j int) bool {
 					return shops[i].Sales > shops[j].Sales
 				})
@@ -603,6 +614,11 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		if hasData {
 			platforms = append(platforms, pt)
 		}
+	}
+
+	// v1.74.3 拓范 (跑哥 5/25): 调拨专区 tab — 仅 ecommerce + 该时段有调拨数据时显示
+	if dept == "ecommerce" && hasAllotData {
+		platforms = append(platforms, PlatTab{"allot", "调拨专区"})
 	}
 
 	// 6. 平台销售额分布
