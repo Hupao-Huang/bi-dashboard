@@ -217,7 +217,9 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				if !ok {
 					continue
 				}
-				if allot.allotAmt == 0 {
+				// 非调拨专区 tab: allotAmt=0 跳过 ¥0 entry (避免空白行干扰)
+				// 调拨专区 tab: 始终显示 2 entry, 即使 ¥0 (跑哥 5/25 决策: tab 定位是"看 2 家调拨店状态")
+				if platform != "allot" && allot.allotAmt == 0 {
 					continue
 				}
 				shops = append(shops, ShopData{
