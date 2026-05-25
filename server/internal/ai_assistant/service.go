@@ -121,10 +121,8 @@ func (s *Service) Ask(ctx context.Context, userID int64, sessionID *int64, quest
 		result := cloneResult(cached)
 		result.DurationMs = time.Since(start).Milliseconds()
 		result.FromCache = true
-		// 本次提问也要 persist (统计/审计用), 但 cache 复用上一个的核心字段
-		if perr := s.persistAsk(ctx, userID, sessionID, question, result); perr != nil {
-			log.Printf("[ai-assistant] persist (cache hit) failed: %v", perr)
-		}
+		// v1.74.2 修 Bug2: persist 用独立 ctx, 不绑 LLM 用过的 60s ctx
+		s.persistAsync(userID, sessionID, question, result)
 		return result, nil
 	}
 
@@ -137,10 +135,19 @@ func (s *Service) Ask(ctx context.Context, userID int64, sessionID *int64, quest
 	// 灌 cache (cacheSet 内部会拒绝 unknown/warning 答案)
 	s.cacheSet(key, result)
 
-	if perr := s.persistAsk(ctx, userID, sessionID, question, result); perr != nil {
-		log.Printf("[ai-assistant] persist failed: %v", perr)
-	}
+	// v1.74.2 修 Bug2: persist 用独立 ctx, 避免 LLM 撑满 60s 后 DB INSERT 失败
+	s.persistAsync(userID, sessionID, question, result)
 	return result, nil
+}
+
+// persistAsync 用独立 ctx 持久化 (5s timeout)
+// 关键: 不绑外层 LLM 用过的 ctx, 否则 LLM 跑满 60s 后 INSERT ctx deadline exceeded → DB 漏行
+func (s *Service) persistAsync(userID int64, sessionID *int64, question string, result *AskResult) {
+	persistCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.persistAsk(persistCtx, userID, sessionID, question, result); err != nil {
+		log.Printf("[ai-assistant] persist failed: %v", err)
+	}
 }
 
 // askInternal 主流程
@@ -271,20 +278,31 @@ func (s *Service) persistAsk(ctx context.Context, userID int64, sessionID *int64
 
 // classifyIntent 意图识别 (LLM Call 1, 强制 JSON 输出)
 func (s *Service) classifyIntent(ctx context.Context, question string) (*Intent, int, error) {
-	today := time.Now().Format("2006-01-02")
-	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-	weekStart := time.Now().AddDate(0, 0, -int(time.Now().Weekday()-1)).Format("2006-01-02")
-	last7Start := time.Now().AddDate(0, 0, -6).Format("2006-01-02")
-	monthStart := time.Now().Format("2006-01") + "-01"
-	lastMonthStart := time.Now().AddDate(0, -1, 0).Format("2006-01") + "-01"
-	lastMonthEnd := time.Now().AddDate(0, 0, -time.Now().Day()).Format("2006-01-02")
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	// v1.74.2 修 Bug1: 本周必须算到周日 (完整 7 天), 而不是 weekStart=today
+	// 周日 Weekday()=0 在中国习惯下应视为本周最后一天 → 偏移 6 天回到周一
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	weekStartT := now.AddDate(0, 0, -(weekday - 1))
+	weekStart := weekStartT.Format("2006-01-02")
+	weekEnd := weekStartT.AddDate(0, 0, 6).Format("2006-01-02")
+	lastWeekStart := weekStartT.AddDate(0, 0, -7).Format("2006-01-02")
+	lastWeekEnd := weekStartT.AddDate(0, 0, -1).Format("2006-01-02")
+	last7Start := now.AddDate(0, 0, -6).Format("2006-01-02")
+	monthStart := now.Format("2006-01") + "-01"
+	lastMonthStart := now.AddDate(0, -1, 0).Format("2006-01") + "-01"
+	lastMonthEnd := now.AddDate(0, 0, -now.Day()).Format("2006-01-02")
 
 	systemPrompt := fmt.Sprintf(`你是松鲜鲜 BI 看板的意图分类器. 用户问数据相关问题, 你输出 JSON 描述意图.
 
 【时间口径 (今天%s)】
 - 今天=%s, 昨天=%s
-- 本周=%s 至 %s
-- 上周=本周-7天 (按周一到周日算)
+- 本周=%s 至 %s (本周一到本周日, 完整 7 天; 今天若在本周内, 未来日期数据为 0 属正常)
+- 上周=%s 至 %s (上周一到上周日, 完整 7 天)
 - 本月=%s 至 %s
 - 上月=%s 至 %s
 - 近 7 天=%s 至 %s
@@ -372,7 +390,8 @@ func (s *Service) classifyIntent(ctx context.Context, question string) (*Intent,
 - 时间没说默认 (see/rank): "本月", (trend): 必须用户明说两段
 - limit 没说默认: rank=10, stock_warning=20`,
 		today, today, yesterday,
-		weekStart, today,
+		weekStart, weekEnd,
+		lastWeekStart, lastWeekEnd,
 		monthStart, today,
 		lastMonthStart, lastMonthEnd,
 		last7Start, today)
@@ -460,7 +479,14 @@ func (s *Service) formatAnswerPrimary(ctx context.Context, question string, rawD
 }
 
 // renderTemplateAnswer LLM 全挂时, 用代码模板生成兜底回答 (硬编码各 module 关键字段)
+// v1.74.2 修 Bug3: wrapper 模式让所有 case return 自动带告警前缀, 明确告知用户"这不是 AI 完整解读"
+const fallbackPrefix = "⚠️ AI 解读暂繁忙, 这是机器原始数字 (请稍后重试看完整解读): "
+
 func renderTemplateAnswer(module string, raw interface{}) string {
+	return fallbackPrefix + renderTemplateInner(module, raw)
+}
+
+func renderTemplateInner(module string, raw interface{}) string {
 	m, ok := raw.(map[string]interface{})
 	if !ok {
 		return "查到了数据, 但 AI 包装失败. 请刷新重试."
