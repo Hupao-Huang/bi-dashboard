@@ -160,6 +160,15 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		applyEcommerceDailyAllot(trend, dailyAllot)
 	}
 
+	// v1.74.3-3 拓范: 趋势图即时零售部门加日级朴朴调拨
+	// 兜底: 失败 → log + 不阻塞, 即时零售趋势 = 仅销售单 (朴朴不在销售单, 缺失会"显瘦")
+	if puDailyAllot, puErr := h.loadInstantRetailDailyAllot(
+		r.Context(), trendStart, trendEnd); puErr != nil {
+		log.Printf("[overview] 朴朴日级调拨加载失败, 即时零售趋势缺朴朴黄柱: %v", puErr)
+	} else {
+		applyInstantRetailDailyAllot(trend, puDailyAllot)
+	}
+
 	// 3. 商品销售排行 TOP15
 	goodsArgs := append([]interface{}{start, end}, scopeArgs...)
 	goodsRows, ok := queryRowsOrWriteError(w, h.DB, `
@@ -588,6 +597,56 @@ func (h *DashboardHandler) loadEcommerceDailyAllot(
 	}
 
 	return out, nil
+}
+
+// loadInstantRetailDailyAllot v1.74.3-3 拓范: 即时零售部门日级朴朴调拨
+// 朴朴在 allocate_orders.channel_key='朴朴', 没销售单 (不在 sales_goods_summary)
+// 只查 allotAmt/allotQty, salesExcluded/qtyExcluded 留 0
+func (h *DashboardHandler) loadInstantRetailDailyAllot(
+	ctx context.Context, start, end string,
+) (map[string]ecomDailyAllot, error) {
+	out := make(map[string]ecomDailyAllot)
+	rows, err := h.DB.QueryContext(ctx, `
+		SELECT DATE_FORMAT(o.stat_date, '%Y-%m-%d') AS d,
+		       IFNULL(SUM(d.excel_amount), 0),
+		       IFNULL(SUM(d.sku_count), 0)
+		FROM allocate_orders o
+		JOIN allocate_details d ON d.allocate_no = o.allocate_no
+		WHERE o.stat_date BETWEEN ? AND ?
+		  AND o.channel_key = '朴朴'
+		GROUP BY o.stat_date`, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("查朴朴日级调拨失败: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		var a, q float64
+		if err := rows.Scan(&d, &a, &q); err != nil {
+			return nil, err
+		}
+		out[d] = ecomDailyAllot{allotAmt: a, allotQty: q}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// applyInstantRetailDailyAllot v1.74.3-3: 即时零售部门趋势加日级朴朴调拨
+// 朴朴没销售单, 不需要排除, 只加 AllotSales/AllotQty 让前端拼黄色堆叠柱
+func applyInstantRetailDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDailyAllot) {
+	for i := range trend {
+		if trend[i].Department != "instant_retail" {
+			continue
+		}
+		d, ok := dailyAllot[trend[i].Date]
+		if !ok {
+			continue
+		}
+		trend[i].AllotSales = d.allotAmt
+		trend[i].AllotQty = d.allotQty
+	}
 }
 
 // applyEcommerceDailyAllot v1.74.3 拓范: 把 dailyAllot 应用到趋势数据
