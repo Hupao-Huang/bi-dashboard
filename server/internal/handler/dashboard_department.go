@@ -254,10 +254,12 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	}
 	_ = h.DB.QueryRow(totalShopSQL, totalShopArgs...).Scan(&totalShopCount)
 	if totalShopCount == 0 {
+		// SQL 返 0 (e.g. AND 1=0): fallback 用 len(shops), 已含 addedAllotShops 加进去的 entry
 		totalShopCount = len(shops)
+	} else {
+		// SQL 正常返数, 它因 ecommerceExcludeAllotCond 不含 2 调拨店, 这里加上
+		totalShopCount += addedAllotShops
 	}
-	// v1.74.3 拓范 T6h: 加进来的调拨 shop 也算入总数
-	totalShopCount += addedAllotShops
 
 	// 3. 商品排行
 	goodsArgs := append([]interface{}{dept, start, end}, extraArgs...)
