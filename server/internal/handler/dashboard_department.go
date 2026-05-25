@@ -302,6 +302,56 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// v1.74.3 拓范 T6j (跑哥 5/25): 货品看板合并 2 调拨渠道 SKU
+	// 加载调拨 SKU 详情 (LEFT JOIN goods 拿 brand/cate/grade) → 后续多 section 复用
+	var allotGoods []GoodsAllotItem
+	if dept == "ecommerce" && (platform == "" || platform == "allot") {
+		if items, err := h.loadEcommerceGoodsAllotDetail(r.Context(), start, end); err != nil {
+			log.Printf("[dept-detail] ecommerce goods 调拨加载失败: %v", err)
+		} else {
+			allotGoods = items
+		}
+	}
+
+	// 合并调拨 SKU 进 topGoods (按 goods_no merge + 加和 sales/qty/profit)
+	if len(allotGoods) > 0 {
+		idx := make(map[string]int)
+		for i, g := range goods {
+			idx[g.GoodsNo] = i
+		}
+		for _, a := range allotGoods {
+			if a.Sales == 0 && a.Qty == 0 {
+				continue
+			}
+			if i, ok := idx[a.GoodsNo]; ok {
+				// SKU 已在 topGoods (其它电商渠道也卖) → 加和
+				goods[i].Sales += a.Sales
+				goods[i].Qty += a.Qty
+				// profit 不加 (调拨无 profit, 保留原销售单 profit)
+			} else {
+				// SKU 不在 topGoods (仅这 2 调拨渠道卖) → append entry
+				goods = append(goods, GoodsData{
+					GoodsNo:  a.GoodsNo,
+					Name:     a.GoodsName,
+					Brand:    a.BrandName,
+					Category: a.CateName,
+					Sales:    a.Sales,
+					Qty:      a.Qty,
+					Profit:   0, // 调拨无 profit
+					Grade:    a.Grade,
+				})
+				idx[a.GoodsNo] = len(goods) - 1
+			}
+		}
+		// 重新按 sales DESC 排 + LIMIT 15
+		sort.SliceStable(goods, func(i, j int) bool {
+			return goods[i].Sales > goods[j].Sales
+		})
+		if len(goods) > 15 {
+			goods = goods[:15]
+		}
+	}
+
 	// 3.1 商品维度总计 (KPI 卡用) — goods 数组只返回 TOP 15, 前端 reduce 会把"TOP 15 合计"当"全部"
 	// 误算总销售额/总货品数/SKU数, 这里独立 SUM 全部商品给 KPI 准确口径. 修 跑哥 2026-05-20 报的
 	// 线下 4 月总销售额 17,525,587.25 (TOP15) vs 综合看板 21,556,219.59 (全部) 差 18.7% bug
@@ -310,6 +360,17 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	totalArgs := append([]interface{}{dept, start, end}, extraArgs...)
 	totalSQL := `SELECT IFNULL(ROUND(SUM(s.local_goods_amt), 2), 0), IFNULL(ROUND(SUM(s.goods_qty), 0), 0), COUNT(DISTINCT s.goods_no) FROM sales_goods_summary s WHERE s.department = ? AND s.goods_no IS NOT NULL AND s.stat_date BETWEEN ? AND ?` + strings.ReplaceAll(shopCond+platCond+scopeCond, "shop_name", "s.shop_name")
 	_ = h.DB.QueryRow(totalSQL, totalArgs...).Scan(&totalSales, &totalQty, &totalSku)
+
+	// v1.74.3 拓范 T6j: KPI 加调拨数据 (totalSales/totalQty/totalSku)
+	// allotGoods 是 helper 数据 (5/1-5/24 样本 33 SKU), 加和到 KPI 让 ProductDashboard 总数对齐 StorePreview
+	if len(allotGoods) > 0 {
+		for _, a := range allotGoods {
+			totalSales += a.Sales
+			totalQty += a.Qty
+		}
+		// totalSku: 加 helper 中 distinct goods_no 数 (allotGoods 已经 GROUP BY goods_no)
+		totalSku += len(allotGoods)
+	}
 
 	// 3.5 商品渠道分布（为TOP15每个商品查各渠道销售额）
 	// crossDept=1: 跨 4 部门聚合渠道分布（财务·产品利润页用于看商品在各部门/各渠道的全口径分布）
@@ -416,6 +477,38 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// v1.74.3 拓范 T6j: 品牌分布合并调拨 (按 brand_name 聚合 allotGoods)
+	if len(allotGoods) > 0 {
+		brandIdx := make(map[string]int)
+		for i, b := range brands {
+			brandIdx[b.Brand] = i
+		}
+		brandAllotSum := make(map[string]float64)
+		for _, a := range allotGoods {
+			bk := a.BrandName
+			if bk == "" {
+				bk = "未知"
+			}
+			brandAllotSum[bk] += a.Sales
+		}
+		for brand, sales := range brandAllotSum {
+			if sales == 0 {
+				continue
+			}
+			if i, ok := brandIdx[brand]; ok {
+				brands[i].Sales += sales
+			} else {
+				brands = append(brands, BrandData{Brand: brand, Sales: sales})
+			}
+		}
+		sort.SliceStable(brands, func(i, j int) bool {
+			return brands[i].Sales > brands[j].Sales
+		})
+		if len(brands) > 10 {
+			brands = brands[:10]
+		}
+	}
+
 	// 4.5 产品定位分布
 	type GradeData struct {
 		Grade string  `json:"grade"`
@@ -444,6 +537,33 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	}
 	if writeDatabaseError(w, gradeRows.Err()) {
 		return
+	}
+
+	// v1.74.3 拓范 T6j: Grade 分布合并调拨 (按 goods_field7 聚合 allotGoods)
+	if len(allotGoods) > 0 {
+		gradeIdx := make(map[string]int)
+		for i, gd := range grades {
+			gradeIdx[gd.Grade] = i
+		}
+		gradeAllotSum := make(map[string]float64)
+		for _, a := range allotGoods {
+			gk := a.Grade
+			if gk == "" {
+				gk = "未设置"
+			}
+			gradeAllotSum[gk] += a.Sales
+		}
+		for grade, sales := range gradeAllotSum {
+			if sales == 0 {
+				continue
+			}
+			if i, ok := gradeIdx[grade]; ok {
+				grades[i].Sales += sales
+			} else {
+				grades = append(grades, GradeData{Grade: grade, Sales: sales})
+			}
+		}
+		// 按 S/A/B/C/D 顺序保留 (没 sort 因为 grade 有特定顺序)
 	}
 
 	// 4.6 产品定位×平台销售分布（电商+社媒部门，平台维度通过 sales_channel.online_plat_name）
@@ -680,6 +800,30 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	if writeDatabaseError(w, platSalesRows.Err()) {
 		return
 	}
+
+	// v1.74.3 拓范 T6j: platformSales 加 2 调拨渠道 (京东自营→京东, 猫超→天猫超市)
+	if dept == "ecommerce" && (platform == "" || platform == "allot") {
+		for _, ck := range []struct{ key, label string }{
+			{jdChanKey, "京东"},
+			{tmcsChanKey, "天猫超市"},
+		} {
+			var s, q float64
+			_ = h.DB.QueryRow(`SELECT IFNULL(SUM(d.excel_amount), 0), IFNULL(SUM(d.sku_count), 0)
+				FROM allocate_orders o
+				JOIN allocate_details d ON d.allocate_no = o.allocate_no
+				WHERE o.channel_key = ? AND o.stat_date BETWEEN ? AND ?`, ck.key, start, end).Scan(&s, &q)
+			if s == 0 && q == 0 {
+				continue
+			}
+			if ps, ok := platSalesMap[ck.label]; ok {
+				ps.Sales += s
+				ps.Qty += q
+			} else {
+				platSalesMap[ck.label] = &PlatSales{Platform: ck.label, Sales: s, Qty: q}
+			}
+		}
+	}
+
 	for _, ps := range platSalesMap {
 		platformSales = append(platformSales, *ps)
 	}

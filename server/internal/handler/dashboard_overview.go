@@ -712,6 +712,57 @@ func (h *DashboardHandler) loadEcommerceShopAllot(
 	return out, nil
 }
 
+// GoodsAllotItem v1.74.3 拓范 T6h+T6j (跑哥 5/25): 单个调拨 SKU 详情 (用于货品看板 5 section 复用)
+type GoodsAllotItem struct {
+	GoodsNo   string
+	GoodsName string
+	BrandName string
+	CateName  string
+	Grade     string // goods.goods_field7
+	Sales     float64
+	Qty       float64
+}
+
+// loadEcommerceGoodsAllotDetail v1.74.3 拓范: 加载 2 调拨渠道的全部 SKU 详情 (按 goods_no 聚合)
+// LEFT JOIN goods 拿 brand/cate/grade 字段, 让货品看板各 section 复用 (商品 TOP / 品牌 / Grade / 商品×渠道 / 平台销售)
+// 数据规模: 5/1-5/24 样本 33 SKU / 150 行, 一次 query 拉完
+func (h *DashboardHandler) loadEcommerceGoodsAllotDetail(
+	ctx context.Context,
+	start, end string,
+) ([]GoodsAllotItem, error) {
+	rows, err := h.DB.QueryContext(ctx, `
+		SELECT d.goods_no, d.goods_name,
+		       IFNULL(g.brand_name, '') AS brand_name,
+		       IFNULL(g.cate_name, '') AS cate_name,
+		       IFNULL(g.goods_field7, '') AS grade,
+		       IFNULL(SUM(d.excel_amount), 0) AS sales,
+		       IFNULL(SUM(d.sku_count), 0) AS qty
+		FROM allocate_orders o
+		JOIN allocate_details d ON d.allocate_no = o.allocate_no
+		LEFT JOIN (SELECT DISTINCT goods_no, brand_name, cate_name, goods_field7 FROM goods) g ON g.goods_no = d.goods_no
+		WHERE o.channel_key IN (?, ?)
+		  AND o.stat_date BETWEEN ? AND ?
+		GROUP BY d.goods_no, d.goods_name, g.brand_name, g.cate_name, g.goods_field7
+	`, jdChanKey, tmcsChanKey, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("查 goods 调拨详情失败: %w", err)
+	}
+	defer rows.Close()
+
+	var out []GoodsAllotItem
+	for rows.Next() {
+		var it GoodsAllotItem
+		if err := rows.Scan(&it.GoodsNo, &it.GoodsName, &it.BrandName, &it.CateName, &it.Grade, &it.Sales, &it.Qty); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // applyEcommerceShopAllot v1.74.3 拓范: 把 shop-level 双口径应用到 TOP shops 列表
 // 对每个 2 调拨渠道 shop:
 //   - 如果在 topShops 内: sales = sales - salesExcluded + allotAmt; qty 同理
