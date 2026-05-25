@@ -82,6 +82,102 @@ interface StatsData {
   typeDistribution: { formType: string; count: number }[];
 }
 
+// v1.74.5: 费用明细展开行 - 把合思 API 原始字段 (raw_json.feeTypeForm) 全部展示
+// 不同费用类型字段不一样: 差旅有出发到达城市, 报销有付款截图, 出差补贴有天数+分类金额
+const HESI_DETAIL_HIDDEN_KEYS = new Set([
+  // 主表已展示, 不重复
+  'feeTypeId', 'detailId', 'detailNo', 'specificationId',
+  'amount', 'feeDate', 'invoice', 'consumptionReasons',
+  // 发票/附件 Tab 已专题展示, 这里只在数组层 short summary
+  'invoiceForm',
+]);
+const HESI_FIELD_LABELS: Record<string, string> = {
+  feeDatePeriod: '消费日期段',
+  attachments: '本明细附件',
+  city: '城市',
+  fromCity: '出发地',
+  toCity: '目的地',
+  linkDetailEntities: '关联明细',
+};
+
+function labelOfHesiField(key: string): string {
+  if (key.startsWith('u_')) {
+    const rest = key.slice(2);
+    // u_ID_中文 模式: 取第一个 _ 后段, 如有中文用后段, 否则原样
+    const m = rest.match(/^[A-Za-z0-9]+_(.+)$/);
+    if (m && /[一-龥]/.test(m[1])) return m[1];
+    return rest;
+  }
+  return HESI_FIELD_LABELS[key] || key;
+}
+
+function renderHesiValue(key: string, v: any): React.ReactNode {
+  if (v === null || v === undefined || v === '') return '-';
+  // 合思金额对象 (有 standard + standardSymbol)
+  if (typeof v === 'object' && !Array.isArray(v) && 'standard' in v) {
+    const sym = v.standardSymbol || '¥';
+    const unit = v.standardUnit || '';
+    return `${sym}${v.standard}${unit ? ' ' + unit : ''}`;
+  }
+  // 日期段 {start, end}
+  if (typeof v === 'object' && !Array.isArray(v) && 'start' in v && 'end' in v) {
+    return `${dayjs(v.start).format('YYYY-MM-DD')} ~ ${dayjs(v.end).format('YYYY-MM-DD')}`;
+  }
+  // 城市类: JSON 字符串 [{key, label}] / {key, label}
+  if (typeof v === 'string' && (v.startsWith('[{') || v.startsWith('{')) && v.includes('label')) {
+    try {
+      const parsed = JSON.parse(v);
+      if (Array.isArray(parsed)) return parsed.map((x: any) => x.label).filter(Boolean).join(' / ') || v;
+      if (parsed.label) return parsed.label;
+    } catch { /* 不是合法 JSON 就原样返 */ }
+  }
+  // 时间戳: key 含 Date/Time + value > 1e12
+  if (typeof v === 'number' && v > 1e12 && /Date|Time/i.test(key)) {
+    return dayjs(v).format('YYYY-MM-DD');
+  }
+  // 数组
+  if (Array.isArray(v)) {
+    if (v.length === 0) return '-';
+    // 附件/文件类 (有 fileName/fileId)
+    if (typeof v[0] === 'object' && (v[0].fileName || v[0].fileId)) {
+      return (
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          {v.map((f: any, i: number) => <li key={i}>{f.fileName || f.fileId}</li>)}
+        </ul>
+      );
+    }
+    return <Typography.Text type="secondary">{v.length} 项</Typography.Text>;
+  }
+  // 其他嵌套对象 → 短 JSON (可复制)
+  if (typeof v === 'object') {
+    const s = JSON.stringify(v);
+    return <Typography.Text type="secondary" copyable={{ text: s }}>{s.length > 80 ? s.slice(0, 80) + '...' : s}</Typography.Text>;
+  }
+  // 纯合思 ID (ID01 开头, 用户不友好, 加 Tag 提示是字典 ID)
+  if (typeof v === 'string' && /^ID0[0-9A-Za-z]{8,}$/.test(v)) {
+    return <Tooltip title="合思字典 ID, 未匹配本地字典"><Tag color="default">{v}</Tag></Tooltip>;
+  }
+  return String(v);
+}
+
+function renderHesiDetailExpand(record: any): React.ReactNode {
+  const raw = record.rawJson;
+  if (!raw) return <Typography.Text type="secondary">老数据未存原始字段</Typography.Text>;
+  const form = raw.feeTypeForm || raw;
+  if (!form || typeof form !== 'object') return <Typography.Text type="secondary">无更多信息</Typography.Text>;
+  const entries = Object.entries(form).filter(([k]) => !HESI_DETAIL_HIDDEN_KEYS.has(k));
+  if (entries.length === 0) return <Typography.Text type="secondary">无更多明细字段</Typography.Text>;
+  return (
+    <Descriptions size="small" column={2} bordered>
+      {entries.map(([k, v]) => (
+        <Descriptions.Item key={k} label={labelOfHesiField(k)}>
+          {renderHesiValue(k, v)}
+        </Descriptions.Item>
+      ))}
+    </Descriptions>
+  );
+}
+
 const ExpenseControl: React.FC = () => {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [flows, setFlows] = useState<FlowItem[]>([]);
@@ -706,6 +802,14 @@ const ExpenseControl: React.FC = () => {
                   dataSource={detailData.details || []}
                   rowKey={(r: any) => r.detailId || `${r.detailNo}-${r.amount}-${r.feeDate}`}
                   pagination={false}
+                  expandable={{
+                    expandedRowRender: renderHesiDetailExpand,
+                    rowExpandable: (r: any) => {
+                      const form = r.rawJson?.feeTypeForm || r.rawJson;
+                      if (!form || typeof form !== 'object') return false;
+                      return Object.keys(form).some((k) => !HESI_DETAIL_HIDDEN_KEYS.has(k));
+                    },
+                  }}
                   columns={[
                     { title: '序号', dataIndex: 'detailNo', width: 60 },
                     {
@@ -713,14 +817,36 @@ const ExpenseControl: React.FC = () => {
                       render: (v: number) => v ? `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
                     },
                     {
-                      title: '消费时间', dataIndex: 'feeDate', width: 120,
-                      render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD') : '-',
+                      title: '消费时间', dataIndex: 'feeDate', width: 140,
+                      render: (v: number, row: any) => {
+                        if (v) return dayjs(v).format('YYYY-MM-DD');
+                        // 差旅出差补贴类: feeDate 空, 用 feeDatePeriod
+                        const p = row.rawJson?.feeTypeForm?.feeDatePeriod;
+                        if (p?.start && p?.end) return `${dayjs(p.start).format('MM-DD')} ~ ${dayjs(p.end).format('MM-DD')}`;
+                        return '-';
+                      },
                     },
                     {
-                      title: '发票', dataIndex: 'invoiceStatus', width: 80,
-                      render: (v: string) => v === 'exist'
-                        ? <Tag icon={<CheckCircleOutlined />} color="success">有</Tag>
-                        : <Tag icon={<WarningOutlined />} color="error">无</Tag>,
+                      title: '费用类型', dataIndex: 'feeTypeId', width: 170,
+                      render: (v: string) => v
+                        ? <Tooltip title={`合思费用类型 ID: ${v}`}><Tag color="cyan">{v.length > 14 ? v.slice(0, 14) + '...' : v}</Tag></Tooltip>
+                        : '-',
+                    },
+                    {
+                      title: '发票', dataIndex: 'invoiceStatus', width: 100,
+                      render: (v: string, row: any) => {
+                        const cnt = row.invoiceCount || 0;
+                        return v === 'exist'
+                          ? <Tag icon={<CheckCircleOutlined />} color="success">{cnt > 0 ? `${cnt} 张` : '有'}</Tag>
+                          : <Tag icon={<WarningOutlined />} color="error">无</Tag>;
+                      },
+                    },
+                    {
+                      title: '附件', width: 80, align: 'center',
+                      render: (_: any, row: any) => {
+                        const att = row.rawJson?.feeTypeForm?.attachments || [];
+                        return att.length > 0 ? <Tag color="blue">{att.length}</Tag> : <Typography.Text type="secondary">-</Typography.Text>;
+                      },
                     },
                     { title: '消费原因', dataIndex: 'consumptionReasons', ellipsis: true },
                   ]}

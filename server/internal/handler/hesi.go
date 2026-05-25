@@ -335,18 +335,25 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	}
 
 	// 明细
+	// v1.74.5: 加返 specificationId + rawJson, 让前端展开行显示合思 API 原始字段
+	// (币种/自定义字段/差旅城市/补贴明细等 — 不同费用类型字段不一样)
 	type DetailItem struct {
-		DetailId      *string  `json:"detailId"`
-		DetailNo      *int     `json:"detailNo"`
-		FeeTypeId     *string  `json:"feeTypeId"`
-		Amount        *float64 `json:"amount"`
-		FeeDate       *int64   `json:"feeDate"`
-		InvoiceCount  int      `json:"invoiceCount"`
-		InvoiceStatus string   `json:"invoiceStatus"`
-		Reasons       *string  `json:"consumptionReasons"`
+		DetailId        *string         `json:"detailId"`
+		DetailNo        *int            `json:"detailNo"`
+		FeeTypeId       *string         `json:"feeTypeId"`
+		Amount          *float64        `json:"amount"`
+		FeeDate         *int64          `json:"feeDate"`
+		InvoiceCount    int             `json:"invoiceCount"`
+		InvoiceStatus   string          `json:"invoiceStatus"`
+		Reasons         *string         `json:"consumptionReasons"`
+		SpecificationId *string         `json:"specificationId"`
+		RawJson         json.RawMessage `json:"rawJson,omitempty"`
 	}
 	var details []DetailItem
-	drows, err := h.DB.Query("SELECT detail_id, detail_no, fee_type_id, amount, fee_date, invoice_count, invoice_status, consumption_reasons FROM hesi_flow_detail WHERE flow_id=? ORDER BY detail_no", flowId)
+	drows, err := h.DB.Query(`SELECT detail_id, detail_no, fee_type_id, amount, fee_date,
+		invoice_count, invoice_status, consumption_reasons, specification_id,
+		IFNULL(raw_json, '{}') AS raw_json
+		FROM hesi_flow_detail WHERE flow_id=? ORDER BY detail_no`, flowId)
 	if writeDatabaseError(w, err) {
 		return
 	}
@@ -354,7 +361,8 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		defer drows.Close()
 		for drows.Next() {
 			var d DetailItem
-			if writeDatabaseError(w, drows.Scan(&d.DetailId, &d.DetailNo, &d.FeeTypeId, &d.Amount, &d.FeeDate, &d.InvoiceCount, &d.InvoiceStatus, &d.Reasons)) {
+			if writeDatabaseError(w, drows.Scan(&d.DetailId, &d.DetailNo, &d.FeeTypeId, &d.Amount, &d.FeeDate,
+				&d.InvoiceCount, &d.InvoiceStatus, &d.Reasons, &d.SpecificationId, &d.RawJson)) {
 				return
 			}
 			details = append(details, d)
