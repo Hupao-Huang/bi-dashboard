@@ -1,9 +1,23 @@
 package handler
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strings"
 )
+
+// DeptSummary 综合看板各部门汇总 (v1.74.3 提到包级别, 让 applyEcommerceAllotAdjustment 能引用)
+type DeptSummary struct {
+	Department string  `json:"department"`
+	Sales      float64 `json:"sales"`
+	Qty        float64 `json:"qty"`
+	Profit     float64 `json:"profit"`
+	Cost       float64 `json:"cost"`
+	SkuCount   int     `json:"skuCount"`
+	SalesAmt   float64 `json:"salesAmt,omitempty"` // v1.74.3: 电商部排除 2 调拨渠道后的销售口径
+	AllotAmt   float64 `json:"allotAmt,omitempty"` // v1.74.3: 电商部 2 调拨渠道的调拨口径
+}
 
 // GetOverview 综合看板
 func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
@@ -39,16 +53,6 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	defer deptRows.Close()
 
-	type DeptSummary struct {
-		Department string  `json:"department"`
-		Sales      float64 `json:"sales"`
-		Qty        float64 `json:"qty"`
-		Profit     float64 `json:"profit"`
-		Cost       float64 `json:"cost"`
-		SkuCount   int     `json:"skuCount"`
-		SalesAmt   float64 `json:"salesAmt,omitempty"` // v1.74.3: 电商部排除 2 调拨渠道后的销售口径
-		AllotAmt   float64 `json:"allotAmt,omitempty"` // v1.74.3: 电商部 2 调拨渠道的调拨口径
-	}
 	deptMap := map[string]DeptSummary{}
 	for deptRows.Next() {
 		var d DeptSummary
@@ -416,3 +420,71 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	setOverviewCache(cacheKey, response)
 	writeJSON(w, response)
 }
+
+// loadEcommerceAllotAdjustment v1.74.3: 加载电商部 2 调拨渠道的双口径金额
+// 业务背景: ds-京东-清心湖自营 / ds-天猫超市-寄售 这 2 渠道业务上不算销售单, 按调拨入库统计.
+// 综合看板长期用销售单口径 → 跟业务对账不一致. 本 helper 单独查 2 渠道双口径.
+//
+// 返回:
+//   salesExcluded: 这 2 渠道在 sales_goods_summary 的销售单口径 SUM (要从 dept.sales 减掉)
+//   allotAmt: 这 2 渠道在 allocate_details 的 excel_amount SUM (要加到 dept.sales)
+//   err: 任一 query 失败返 err, 调用方决定 fallback 还是 fail
+func (h *DashboardHandler) loadEcommerceAllotAdjustment(
+	ctx context.Context,
+	start, end string,
+	scopeCond string, scopeArgs []interface{},
+) (salesExcluded, allotAmt float64, err error) {
+	// 固定 2 渠道 ID (跟 special_channel.go 一致, channel_id 即 shop_id)
+	const jdShopID = "1819610592561398400"   // ds-京东-清心湖自营
+	const tmcsShopID = "1819610591915475584" // ds-天猫超市-寄售
+
+	// query 1: 这 2 渠道销售单口径 (要从 dept.sales 减)
+	salesArgs := append([]interface{}{start, end, jdShopID, tmcsShopID}, scopeArgs...)
+	err = h.DB.QueryRowContext(ctx, `
+		SELECT IFNULL(SUM(IFNULL(local_goods_amt, goods_amt)), 0)
+		FROM sales_goods_summary
+		WHERE stat_date BETWEEN ? AND ?
+		  AND shop_id IN (?, ?)`+scopeCond, salesArgs...).Scan(&salesExcluded)
+	if err != nil {
+		return 0, 0, fmt.Errorf("查 2 渠道销售单口径失败: %w", err)
+	}
+
+	// query 2: 这 2 渠道调拨口径 (要加进 dept.sales)
+	// channel_key 在 allocate_orders 是 '京东' / '猫超' (跟 special_channel.go 一致)
+	err = h.DB.QueryRowContext(ctx, `
+		SELECT IFNULL(SUM(d.excel_amount), 0)
+		FROM allocate_orders o
+		JOIN allocate_details d ON d.allocate_no = o.allocate_no
+		WHERE o.stat_date BETWEEN ? AND ?
+		  AND o.channel_key IN ('京东', '猫超')`, start, end).Scan(&allotAmt)
+	if err != nil {
+		return 0, 0, fmt.Errorf("查 2 渠道调拨口径失败: %w", err)
+	}
+
+	return salesExcluded, allotAmt, nil
+}
+
+// applyEcommerceAllotAdjustment v1.74.3: 把 2 调拨渠道的口径换到 dept.Sales
+// 找到 ecommerce dept, 计算:
+//   SalesAmt = Sales - salesExcluded (其它电商渠道销售口径)
+//   AllotAmt = allotAmt              (这 2 调拨渠道)
+//   Sales    = SalesAmt + AllotAmt   (新总和, 给顶部 totalSales / 右上角 tag 用)
+// 兜底: SalesAmt < 0 钳到 0 (理论不应发生, 防数据异常)
+//
+// 提取为独立函数便于单测 (不依赖 DB).
+func applyEcommerceAllotAdjustment(deptList []DeptSummary, salesExcluded, allotAmt float64) {
+	for i, d := range deptList {
+		if d.Department != "ecommerce" {
+			continue
+		}
+		salesAmt := d.Sales - salesExcluded
+		if salesAmt < 0 {
+			salesAmt = 0
+		}
+		deptList[i].SalesAmt = salesAmt
+		deptList[i].AllotAmt = allotAmt
+		deptList[i].Sales = salesAmt + allotAmt
+		break
+	}
+}
+
