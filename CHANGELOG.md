@@ -539,6 +539,65 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.74.3 (2026-05-25) — 综合看板/电商部页/货品看板全模块合并 2 调拨渠道 (业务口径修正)
+
+**业务背景**: ds-京东-清心湖自营 / ds-天猫超市-寄售 业务上不算销售单, 按调拨入库统计 (v0.62 已上线对账页). 但综合看板/部门页/货品看板长期用销售单口径, 跟业务对账不一致. 跑哥 5/25 拓范, 一日打完全模块合并 (18 commit).
+
+**业务感知**: 4-5 月样本数据从 ¥513 万 (销售单口径) 涨到 ¥730+ 万 (调拨口径), +42%
+
+### 综合看板 (/overview)
+- KPI 头部主卡 (总销售/总货品数/客单价): 自动跟 dept.Sales/Qty 新口径
+- 电商部 mini 卡: 主字 = 销售+调拨总和, 1 行小字"销售 ¥X · 调拨 ¥Y", 跟其它部门等高布局
+- 每日趋势图: ecommerce 折线按日合并 2 渠道调拨
+- 店铺排行 TOP15: 调拨 shop 替换销售口径 + 重新排序
+- 删 "不含调拨" Tooltip (业务对账已对齐)
+
+### 电商部页 (/ecommerce)
+- 店铺数据预览 (StorePreview): shopList + KPI 总销售 + 总店铺数 含调拨
+- 店铺看板 (StoreDashboard) 加 "调拨专区" 独立 tab:
+  - 京东 / 天猫超市 tab: 干净不含调拨店
+  - 调拨专区 tab: 始终显示 2 调拨店 (即使 ¥0, 告知用户调拨业务状态)
+  - 全部 tab: 含 2 调拨店 (跟综合看板一致)
+- 货品看板 (ProductDashboard) 5 section 合并:
+  - 商品 TOP15: by goods_no merge + 加和
+  - KPI 总销售/总货品/总 SKU
+  - 品牌分布: by brand_name 合并 + LIMIT 10
+  - Grade 分布: by goods_field7 (S/A/B/C/D 顺序)
+  - 平台销售: 京东 + 天猫超市 各加调拨金额
+
+### sync-allocate ETL 治本 (跑哥 DB202604290001 发现)
+- 长期 bug: 默认 7 天滚动 + stat_date 仅 in_status=3 时设 → 老单状态老化 + NULL stat_date 漏算
+- 一次性手动 -start=2026-04-01 -end=2026-05-25 拉新, 2145 单 / 18095 行明细更新
+- NULL stat_date 101→71 (剩下是真未入库)
+- 新增 sync-allocate `-refresh-pending` flag: 从 DB 最早未完成单 audit_date 起扩范围拉新
+- 新 schtask **BI-SyncAllocateRefresh** 每天 03:00 自动跑
+
+### 技术 helper (复用)
+- loadEcommerceAllotAdjustment: 2 渠道总 sales/qty 双口径
+- loadEcommerceDailyAllot: 按日 day-level 双口径
+- loadEcommerceShopAllot: 按 shop_name 双口径
+- loadEcommerceGoodsAllotDetail: 按 goods_no SKU 详情 (LEFT JOIN goods 拿 brand/cate/grade)
+- applyAllot* 子函数: 内存合并逻辑, 便于单测
+- 14 个 sqlmock + 子函数单测全过
+
+### 顺手
+- DeptSummary / TrendPoint / ShopRank 提到包级别 (helper 引用)
+- dashboard_cache_test.go itoa 跟 hesi_audit_rules.go itoa 重复 (pre-existing fix)
+- bi-server 启动加 stdout/stderr 重定向到 logs/bi-server.log
+- v1.74.2 AI 助手 3 bug 修复合并进本 tag (本周时间口径 / persist ctx / 兜底告警)
+
+### 不在本轮 (下轮 v1.74.4)
+- 商品×渠道分布 goodsChannels (hover tooltip, 业务用得少)
+- 朴朴 / 即时零售部门 (3 个调拨渠道中只动了京东/猫超 2 个)
+- 财务/产品利润页深度
+
+### 影响
+- 后端: dashboard_overview.go + dashboard_department.go + dashboard_helpers.go + sync-allocate/main.go +600 行
+- 前端: src/pages/overview/index.tsx +30 行
+- 单测: cache_test.go + dashboard_overview_test.go +250 行
+- 数据库: 无 schema 变更, 数据 NULL stat_date 修复
+- 性能: helper 加 5-10ms (cache 命中后忽略)
+
 ## v1.74.1 (2026-05-25) — hotfix: 财务报表导入预览端点炸了 (MySQL 9.x 兼容性)
 
 **业务影响**: 跑哥点 "下一步：预览变更" 报 "计算变更预览失败", 财务无法导入. 紧急修复.
