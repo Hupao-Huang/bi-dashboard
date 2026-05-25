@@ -180,29 +180,48 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	// v1.74.3 拓范 T6h: 电商部 "店铺数据概览" 合并 2 调拨渠道 (跑哥 5/25 追加)
 	// shopListSQL 因 ecommerceExcludeAllotCond 排除了 2 渠道, 这里用 helper 加回 2 entry (调拨口径)
 	// 兜底: helper 失败 → log + shop list 保持 v1.04 排除行为
+	// 5/25 修 bug: 按 platform tab 过滤, 京东 tab 不能加猫超 entry
 	addedAllotShops := 0
 	if dept == "ecommerce" {
-		if shopAllot, allotErr := h.loadEcommerceShopAllot(
-			r.Context(), start, end, pureScopeCond, scopeArgs); allotErr != nil {
-			log.Printf("[dept-detail] ecommerce shop 调拨加载失败, 沿用 v1.04 排除口径: %v", allotErr)
-		} else {
-			for shopName, allot := range shopAllot {
-				// 全 0 (无销售单无调拨) 跳过
-				if allot.salesExcluded == 0 && allot.allotAmt == 0 {
-					continue
+		// platform → 允许加的 shopName 集合
+		var allowedShops []string
+		switch platform {
+		case "": // 全部 tab
+			allowedShops = []string{jdShopName, tmcsShopNm}
+		case "jd":
+			allowedShops = []string{jdShopName}
+		case "tmall_cs":
+			allowedShops = []string{tmcsShopNm}
+			// 其它 platform (tmall/pdd/vip/kuaishou) → 不加调拨 shop
+		}
+
+		if len(allowedShops) > 0 {
+			if shopAllot, allotErr := h.loadEcommerceShopAllot(
+				r.Context(), start, end, pureScopeCond, scopeArgs); allotErr != nil {
+				log.Printf("[dept-detail] ecommerce shop 调拨加载失败, 沿用 v1.04 排除口径: %v", allotErr)
+			} else {
+				for _, shopName := range allowedShops {
+					allot, ok := shopAllot[shopName]
+					if !ok {
+						continue
+					}
+					// 全 0 (无销售单无调拨) 跳过
+					if allot.salesExcluded == 0 && allot.allotAmt == 0 {
+						continue
+					}
+					shops = append(shops, ShopData{
+						ShopName: shopName,
+						Sales:    allot.allotAmt, // 调拨口径作 sales
+						Qty:      allot.allotQty,
+						Profit:   0, // 调拨数据无 profit 概念
+					})
+					addedAllotShops++
 				}
-				shops = append(shops, ShopData{
-					ShopName: shopName,
-					Sales:    allot.allotAmt, // 调拨口径作 sales (ecommerceExcludeAllotCond 已排除销售单)
-					Qty:      allot.allotQty,
-					Profit:   0, // 调拨数据无 profit 概念
+				// 重新按 sales DESC 排
+				sort.SliceStable(shops, func(i, j int) bool {
+					return shops[i].Sales > shops[j].Sales
 				})
-				addedAllotShops++
 			}
-			// 重新按 sales DESC 排 (新加的 2 entry 可能在中间位置)
-			sort.SliceStable(shops, func(i, j int) bool {
-				return shops[i].Sales > shops[j].Sales
-			})
 		}
 	}
 
