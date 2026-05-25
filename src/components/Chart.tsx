@@ -56,9 +56,11 @@ const themedOption = (option?: Record<string, any>) => {
 const Chart: React.FC<ChartProps> = ({ style, option, ...props }) => {
   const mergedOption = useMemo(() => themedOption(option), [option]);
 
+  // v1.74.3-3 跑哥 5/25 修: notMerge=true 让 setOption 全替换不残留旧 series
+  // 之前 merge 模式下切部门 tab, ecommerce 的"调拨额"黄柱 series 残留到其它部门 tab
   return (
     <Suspense fallback={<div style={style ? { ...style, display: 'flex', alignItems: 'center', justifyContent: 'center' } : defaultFallbackStyle}><Spin /></div>}>
-      <EChartsComponent {...props} option={mergedOption} style={style} />
+      <EChartsComponent notMerge {...props} option={mergedOption} style={style} />
     </Suspense>
   );
 };
