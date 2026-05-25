@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -87,6 +88,16 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		if !found {
 			deptList = append(deptList, d)
 		}
+	}
+
+	// v1.74.3: 电商部门 KPI 合并 2 调拨渠道金额 (排除销售单口径 + 加调拨口径)
+	// 设计文档 docs/specs/2026-05-25-overview-ecommerce-allot-merge-design.md
+	// helper 失败 → log + 不阻塞主流程, 用原口径 (回落到 v1.74.2 之前行为)
+	if salesExcluded, allotAmt, allotErr := h.loadEcommerceAllotAdjustment(
+		r.Context(), start, end, scopeCond, scopeArgs); allotErr != nil {
+		log.Printf("[overview] 调拨口径加载失败, 用原口径: %v", allotErr)
+	} else {
+		applyEcommerceAllotAdjustment(deptList, salesExcluded, allotAmt)
 	}
 
 	// 2. 每日销售趋势（含未映射部门，归入other）
