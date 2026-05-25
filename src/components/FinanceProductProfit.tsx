@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { DEPT_COLORS, CHART_COLORS, GRADE_COLORS } from '../chartTheme';
-import { Row, Col, Card, Table, Statistic, Select, Radio, Switch } from 'antd';
+import { Row, Col, Card, Table, Statistic, Select, Radio, Switch, Alert } from 'antd';
 import ReactECharts from './Chart';
 import DateFilter from './DateFilter';
 import PageLoading from './PageLoading';
@@ -67,14 +67,18 @@ const FinanceProductProfit: React.FC = () => {
     .sort((a: any, b: any) => (b.profit || 0) - (a.profit || 0))
     .forEach((g: any, i: number) => { rankMap[g.goodsNo] = i + 1; });
 
-  const totalSales = goods.reduce((s: number, g: any) => s + (g.sales || 0), 0);
+  // v1.74.4: 用 backend 已合并好的 totalSales/totalSku (含 v1.74.3 调拨合并 + 全部 SKU)
+  // 旧版 goods.reduce 是 5/20 货品看板同款 bug: TOP15 合计被当全部 sum (feedback_frontend_reduce_with_limit)
+  // 毛利保留 reduce: 调拨业务无毛利字段, backend 不返回调拨毛利合并, 维持销售单口径
+  const totalSales = (data.totalSales as number) ?? goods.reduce((s: number, g: any) => s + (g.sales || 0), 0);
   const totalProfit = goods.reduce((s: number, g: any) => s + (g.profit || 0), 0);
   const overallProfitRate = totalSales > 0 ? totalProfit / totalSales : 0;
+  const totalSku = (data.totalSku as number) ?? goods.length;
   const statCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', accentColor: color },
     { title: '总毛利', value: totalProfit, precision: 2, prefix: '¥', accentColor: '#10b981' },
     { title: '综合毛利率', value: overallProfitRate * 100, precision: 1, suffix: '%', accentColor: profitRateColor(overallProfitRate) },
-    { title: 'SKU种类数', value: goods.length, suffix: '种', accentColor: '#7c3aed' },
+    { title: 'SKU种类数', value: totalSku, suffix: '种', accentColor: '#7c3aed' },
   ];
 
   // 产品定位 × 店铺 明细表（按 grade Tab 切换，含毛利；矩阵表已迁至利润总览）
@@ -381,6 +385,19 @@ const FinanceProductProfit: React.FC = () => {
           </Col>
         ))}
       </Row>
+
+      {(dept === 'ecommerce' || dept === 'instant_retail') && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginTop: 12 }}
+          message={
+            dept === 'ecommerce'
+              ? '总销售额已含京东自营/天猫超市寄售调拨业务 (跟综合看板口径一致); 毛利仅按销售单成本核算, 不含调拨业务毛利'
+              : '总销售额已含朴朴渠道调拨业务 (跟综合看板口径一致); 毛利仅按销售单成本核算, 不含调拨业务毛利'
+          }
+        />
+      )}
 
       {/* 占比饼图（维度 + 度量双切换） */}
       <Card
