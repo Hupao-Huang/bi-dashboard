@@ -63,15 +63,16 @@ mysql -h127.0.0.1 -uroot -p<pwd> bi_dashboard
 
 ### 后端 (`server/`)
 - **入口**: `cmd/server/main.go`（276 行，编译产物 = `bi-server.exe`，部署到 `server/` 根目录）
-- **Handler 层 `internal/handler/`** (~37k 行含测试 / 125 文件, 2026-05-22 校准)：
-  - **dashboard 系列已拆完** (v0.96): `dashboard.go` (65 行 入口) + `dashboard_overview.go` (416) + `dashboard_department.go` (733) + `dashboard_cache.go` (131) + `dashboard_helpers.go` (167) + `dashboard_sproducts.go` (229)
+- **Handler 层 `internal/handler/`** (~37k 行含测试 / 125 文件, 2026-05-26 校准 v1.74.5)：
+  - **dashboard 系列已拆完** (v0.96): `dashboard.go` (65 行 入口) + `dashboard_overview.go` (942) + `dashboard_department.go` (992) + `dashboard_cache.go` (131) + `dashboard_helpers.go` (172) + `dashboard_sproducts.go` (229)
+    - v1.74.3 拓范让 `dashboard_overview.go` 从 416 → 942 (加 5 个调拨 helper: loadEcommerceAllotAdjustment / DailyAllot / ShopAllot / GoodsAllotDetail + applyAllot* 子函数), `dashboard_department.go` 从 733 → 992 (helper 复用 + 即时零售部朴朴 inline SQL)
   - **当前 top 5 大文件**:
     - `yingdao_rpa.go` (1012) — 影刀 RPA 触发/状态/批量队列 (v1.66 加, 主题单一)
+    - `dashboard_department.go` (992) — 部门页详情 + crossDept=1 跨部门聚合 (v1.74.3 拓范)
     - `task_monitor.go` (973) — schtasks 监控 + 手动跑任务 (主题略混杂, 可拆)
+    - `dashboard_overview.go` (942) — 综合看板 + 5 调拨 helper + instant_retail 朴朴 (v1.74.3+v1.74.3-3)
     - `offline_sales_forecast.go` (929) — 销量预测算法 + 回测
-    - `supply_chain_dashboard.go` (865) — 采购计划/库存预警
-    - `business_report.go` (772) — 业务预决算
-  - 其他高频: `marketing_cost.go` (720) / `auth_seed.go` (680) / `hesi.go` (643) / `distribution_customer.go` (640) / `finance_report_query.go` (504)
+  - 其他高频: `supply_chain_dashboard.go` (865) / `business_report.go` (772) / `marketing_cost.go` (720) / `auth_seed.go` (680) / `hesi.go` (651) / `distribution_customer.go` (640) / `finance_report_query.go` (504)
   - `auth.go` / `auth_login.go` / `auth_dingtalk.go` / `auth_session.go` — 用户/角色/钉钉 OAuth/审计 (v1.71.0+1.72.0 加强 errcheck + cleanup)
   - `sync.go` / `task_monitor.go` — 同步触发/进度
 - **业务子模块**: `internal/jackyun/` (吉客云 SDK) / `internal/yonsuite/` (YS 用友) / `internal/finance/` (财务解析) / `internal/business/` (业务规则) / `internal/importutil/` (Excel 导入工具)
@@ -121,6 +122,11 @@ mysql -h127.0.0.1 -uroot -p<pwd> bi_dashboard
 - **改代码前先 Read 字段/类型定义，禁止猜字段名**
 - **YS 用友日期过滤必须用 `simpleVOs`**，文档说的 top-level `vouchdate` 字段静默失效
 - **YS 现存量接口 `data` 是直接 array**（不是 `data.recordList`），空 body 即全量
+
+### 前端 (TS 特定)
+- **前端 `reduce` 算 KPI 前必 grep 后端 SQL 是否 LIMIT**: 后端按 sales DESC LIMIT N 切 TOP, 前端 `data.goods.reduce(...)` 把 TOP-N 合计当全部 sum, 漏 12-43% (5/20 ProductDashboard 翻车, v1.74.4 财务/4 部门 product-profit 页又翻一次). 用 `data.totalSales ?? goods.reduce(...)` 优先 backend 全口径字段
+- **后端 `*_test.go` 大文件改 SQL 后 sqlmock 顺序也要同步**: dashboard_overview_test.go / dashboard_department_test.go 用 sqlmock.QueryMatcherRegexp 按顺序 match, 加新 SQL (例如 v1.74.3 调拨 helper) 不更新 mock 会全测失败. 见 dashboard_department_test.go:20 "crossDept=1 多 2 SQL" 注释
+- **业务字段大杂烩存 raw_json 时, 后端 passthrough + 前端通用 transform**: 例如 `hesi_flow_detail.raw_json` 存合思 API 原始字段 (不同费用类型自定义 `u_xxx` 字段不同). 后端 `json.RawMessage` passthrough (IFNULL 兜底), 前端 helpers (`HESI_FIELD_LABELS` / `labelOfHesiField` / `renderHesiValue` / `renderHesiDetailExpand`) 通用 transform 渲染 Descriptions. 比硬编码字段表灵活, 新业务字段自动展示 (v1.74.5 模式)
 
 ### 部署 + 发版流程（App 版本号模式，2026-05-12 起）
 
