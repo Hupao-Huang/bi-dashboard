@@ -491,14 +491,27 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// v1.75.3: 主体校验扩展到所有 expense 类单据 (跑哥 5/26 拍板 B 方案)
-	// 覆盖 4 个真实花钱的报销模板:
+	// v1.75.3: 主体校验扩展到所有 expense 类单据
+	// v1.75.4: 付款单排除 (主体=费用归属公司 ≠ 申请人合同公司, 校验无意义)
+	// 当前覆盖 3 个模板:
 	//   - 日常报销单 (ID01Fk3qJYYFvp, 2744 单)
-	//   - 付款单/票到付款 (ID01KgaO6dcZtR, 3762 单)
 	//   - 费用核销申请单 (ID01Fk8AefXZzp, 3062 单)
 	//   - 银行支付申请单 (ID01FhdI9II931, 1188 单)
-	// 申请类/借款类不校验 (没真金白银花钱, 错填主体业务影响小)
-	if flow.FormType == "expense" && flow.OwnerId != nil {
+	// 跳过模板 (主体语义不是申请人合同公司):
+	//   - 付款单/票到付款 (ID01KgaO6dcZtR, 3762 单) — 主体=被付款方/费用归属
+	skipEntityCheckSpecPrefixes := []string{
+		"ID01KgaO6dcZtR", // 付款单（票到付款/票到核销）
+	}
+	shouldEntityCheck := flow.FormType == "expense" && flow.OwnerId != nil
+	if shouldEntityCheck && flow.SpecificationId != nil {
+		for _, p := range skipEntityCheckSpecPrefixes {
+			if strings.HasPrefix(*flow.SpecificationId, p) {
+				shouldEntityCheck = false
+				break
+			}
+		}
+	}
+	if shouldEntityCheck {
 		var expectedCompany sql.NullString
 		var matchMethod sql.NullString
 		queryErr := h.DB.QueryRow(
