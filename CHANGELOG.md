@@ -539,6 +539,31 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.74.9 (2026-05-26) — 费控管理单据详情显示发起人/公司/部门名字
+
+**业务背景**: 跑哥反馈费控管理点开单据详情, 弹窗"基本信息"只看到金额/状态/时间, 看不出来"是谁发的、哪家公司、什么部门" — 之前数据库只存合思的 ID, 名字得调字典. 5/26 拍板 A 方案 (法人实体作为"公司"全显).
+
+**变更点**:
+- 后端 `hesi_specifications.go` 新增 3 个字典缓存 (5 分钟 TTL, 仿原模板字典模式):
+  - `LookupStaffName` — 合思员工 880 条 (`/openapi/v2/staffs`)
+  - `LookupDeptName` — 合思部门 511 条 (`/openapi/v2/departments`)
+  - `LookupLegalEntityName` — 合思自定义维度"法人实体" 48 条 (`/openapi/v2/dimensions/items`)
+- 后端 `hesi.go` `GetHesiFlowDetail` 在返回单据时同步查 5 个名字:
+  - `ownerName` / `submitterName` (员工字典)
+  - `departmentName` (报销/借款部门) / `ownerDepartmentName` (发起人部门, 同时补 SELECT `owner_department` 字段, 之前没读)
+  - `legalEntityName` (从 `raw_json["法人实体"]` 解析后查公司字典)
+- 前端 `ExpenseControl.tsx` 详情弹窗"基本信息" tab 5 行新字段, 放在"单据类型"之后、"状态"之前 (用户最先关注 = 谁/什么公司). 公司用整行 (span=2).
+
+**性能**: 首次拉 3 个字典共 ~1s (3 次合思 API 调用), 之后 5 min 内点详情 0 额外延迟. 已实测点单据 B26003150 弹窗:
+- 公司: 杭州华鲜高新技术有限公司
+- 发起人/提交人: 虞希
+- 发起人部门: 拼多多运营事业部
+- 报销/借款部门: 京东粮油调味组
+
+**踩坑**: 合思 `count` 参数上限 1000, 不是无限. 第一版 count=10000 全部 HTTP 400 静默 fallback 空字符串 ("姓名空"问题). 通过 stderr log 定位修. 当前 3 个字典最大 880 (员工), 离 1000 上限有缓冲. 将来超 1000 需加分页.
+
+---
+
 ## v1.74.8 (2026-05-26) — SQL 30s 超时全局覆盖 (Phase 1: 103 处 hot path 自动防锁)
 
 **业务背景**: PUA 字节 4 路 audit 性能稳定 Critical #1. memory `feedback_no_long_sql_no_timeout` 翻车原型: 一条慢 SQL 撑满 `MaxOpenConns=100` 后, 所有新请求阻塞 + 定时任务排队. 当前 175 处 `db.Query/Exec/QueryRow` 全部走原始 (非 Context), 没任何 SQL 设过 timeout. 单点最毒.

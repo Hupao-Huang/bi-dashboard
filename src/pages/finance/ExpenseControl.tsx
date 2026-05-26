@@ -757,6 +757,29 @@ const ExpenseControl: React.FC = () => {
                   <Descriptions.Item label="单据类型">
                     {formTypeMap[detailData.flow.formType]?.label || detailData.flow.formType}
                   </Descriptions.Item>
+                  <Descriptions.Item label="公司（法人实体）" span={2}>
+                    {detailData.flow.legalEntityName
+                      ? detailData.flow.legalEntityName
+                      : detailData.flow.legalEntityId
+                        ? <Typography.Text type="secondary">ID: {detailData.flow.legalEntityId}（字典未匹配）</Typography.Text>
+                        : '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="发起人">
+                    {detailData.flow.ownerName || (detailData.flow.ownerId
+                      ? <Typography.Text type="secondary">未匹配</Typography.Text>
+                      : '-')}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="提交人">
+                    {detailData.flow.submitterName || (detailData.flow.submitterId
+                      ? <Typography.Text type="secondary">未匹配</Typography.Text>
+                      : '-')}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="发起人部门">
+                    {detailData.flow.ownerDepartmentName || '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="报销/借款部门">
+                    {detailData.flow.departmentName || '-'}
+                  </Descriptions.Item>
                   <Descriptions.Item label="状态">
                     <Tag color={stateMap[detailData.flow.state]?.color}>
                       {stateMap[detailData.flow.state]?.label || detailData.flow.state}

@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -131,5 +134,151 @@ func (h *DashboardHandler) LookupSpecName(specID string) string {
 		}
 	}
 	return ""
+}
+
+// ============================================================================
+// v1.74.9: 合思员工/部门/法人实体字典 (单据详情弹窗展示名字, 而非 ID)
+// 合思 OpenAPI 设计是返 ID, 名字得调字典接口. 仿 LookupSpecName 模式, 3 个字典各自缓存.
+// 字典体量: 员工 880 / 部门 511 / 法人实体 48, 一次拉完, 5min TTL 平衡新鲜度与性能.
+// ============================================================================
+
+type hesiDictItem struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+var (
+	hesiStaffCache       map[string]string
+	hesiStaffCacheAt     time.Time
+	hesiStaffCacheMu     sync.Mutex
+	hesiDeptCache        map[string]string
+	hesiDeptCacheAt      time.Time
+	hesiDeptCacheMu      sync.Mutex
+	hesiLegalEntityCache map[string]string
+	hesiLegalCacheAt     time.Time
+	hesiLegalCacheMu     sync.Mutex
+	hesiDictTTL          = 5 * time.Minute
+)
+
+// fetchHesiDictMap 通用字典拉取: 调合思接口, parse items, 返 id→name map
+// 用 sync.Mutex 包外部, 内部不锁 (避免外层已持锁双重加锁)
+func (h *DashboardHandler) fetchHesiDictMap(path string) (map[string]string, error) {
+	token, err := h.getHesiToken()
+	if err != nil {
+		log.Printf("[hesi-dict] getHesiToken failed: %v", err)
+		return nil, err
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	// count 合思上限 1000, 超了返 400 "count参数不能大于1000"
+	// 当前规模: 员工 880 / 部门 511 / 法人实体 48, 都 < 1000. 超 1000 时需分页 (TODO)
+	url := fmt.Sprintf("%s%s%saccessToken=%s&start=0&count=1000", hesiAPIBase, path, sep, token)
+	resp, err := hesiHTTP.Get(url)
+	if err != nil {
+		log.Printf("[hesi-dict] GET %s failed: %v", path, err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet := string(data)
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+		log.Printf("[hesi-dict] HTTP %d on %s: %s", resp.StatusCode, path, snippet)
+		return nil, fmt.Errorf("合思返回 HTTP %d: %s", resp.StatusCode, snippet)
+	}
+	var parsed struct {
+		Items []hesiDictItem `json:"items"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		log.Printf("[hesi-dict] unmarshal %s failed: %v, body=%s", path, err, string(data[:min(200, len(data))]))
+		return nil, err
+	}
+	m := make(map[string]string, len(parsed.Items))
+	for _, it := range parsed.Items {
+		if it.ID != "" {
+			m[it.ID] = it.Name
+		}
+	}
+	log.Printf("[hesi-dict] %s loaded %d items", path, len(m))
+	return m, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// LookupStaffName 员工 ID → 姓名. staff_id 格式 "ID01FfMgoeP7cz:ID01Fp0xxx"
+func (h *DashboardHandler) LookupStaffName(staffID string) string {
+	if staffID == "" {
+		return ""
+	}
+	hesiStaffCacheMu.Lock()
+	defer hesiStaffCacheMu.Unlock()
+	if time.Since(hesiStaffCacheAt) >= hesiDictTTL || hesiStaffCache == nil {
+		m, err := h.fetchHesiDictMap("/api/openapi/v2/staffs")
+		if err != nil {
+			return ""
+		}
+		hesiStaffCache = m
+		hesiStaffCacheAt = time.Now()
+	}
+	return hesiStaffCache[staffID]
+}
+
+// LookupDeptName 部门 ID → 部门名. dept_id 格式 "ID01FfMgoeP7cz:ID01Fp0xxx"
+func (h *DashboardHandler) LookupDeptName(deptID string) string {
+	if deptID == "" {
+		return ""
+	}
+	hesiDeptCacheMu.Lock()
+	defer hesiDeptCacheMu.Unlock()
+	if time.Since(hesiDeptCacheAt) >= hesiDictTTL || hesiDeptCache == nil {
+		m, err := h.fetchHesiDictMap("/api/openapi/v2/departments")
+		if err != nil {
+			return ""
+		}
+		hesiDeptCache = m
+		hesiDeptCacheAt = time.Now()
+	}
+	return hesiDeptCache[deptID]
+}
+
+// LookupLegalEntityName 法人实体 ID → 公司名 (合思 dimensions 自定义维度 "法人实体")
+// 注意: 法人实体 ID 是无 corp prefix 的纯 ID, 如 "ID01KiKNGdLTLF"
+// corp prefix (从 token 第二段取) 是 dimensions 接口的 dimensionId 前缀
+func (h *DashboardHandler) LookupLegalEntityName(entityID string) string {
+	if entityID == "" {
+		return ""
+	}
+	hesiLegalCacheMu.Lock()
+	defer hesiLegalCacheMu.Unlock()
+	if time.Since(hesiLegalCacheAt) >= hesiDictTTL || hesiLegalEntityCache == nil {
+		// 从 token 中提取 corp ID (token 格式 "xxx:corpId")
+		token, err := h.getHesiToken()
+		if err != nil {
+			return ""
+		}
+		corpID := token
+		if idx := strings.Index(token, ":"); idx > 0 {
+			corpID = token[idx+1:]
+		}
+		// URL encode "法人实体"
+		dimID := corpID + ":" + "法人实体"
+		path := "/api/openapi/v2/dimensions/items?dimensionId=" + neturl.QueryEscape(dimID)
+		m, err := h.fetchHesiDictMap(path)
+		if err != nil {
+			return ""
+		}
+		hesiLegalEntityCache = m
+		hesiLegalCacheAt = time.Now()
+	}
+	return hesiLegalEntityCache[entityID]
 }
 
