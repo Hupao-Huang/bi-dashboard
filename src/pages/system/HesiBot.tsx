@@ -708,6 +708,58 @@ const HesiBot: React.FC = () => {
                   <Descriptions.Item label="单据类型">
                     {formTypeMap[detailData.flow.formType]?.label || detailData.flow.formType}
                   </Descriptions.Item>
+                  <Descriptions.Item label="公司（法人实体）" span={2}>
+                    {detailData.flow.legalEntityName
+                      ? detailData.flow.legalEntityName
+                      : detailData.flow.legalEntityId
+                        ? <Typography.Text type="secondary">ID: {detailData.flow.legalEntityId}（字典未匹配）</Typography.Text>
+                        : '-'}
+                    {detailData.flow.entityCheck === 'ok' && (
+                      <Tooltip title={detailData.flow.entityCheckReason || '跟钉钉花名册的合同公司一致'}>
+                        <Tag color="success" icon={<CheckCircleOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
+                          已核对
+                        </Tag>
+                      </Tooltip>
+                    )}
+                    {detailData.flow.entityCheck === 'mismatch' && (
+                      <Tooltip title={detailData.flow.entityCheckReason || '与钉钉花名册不一致'}>
+                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
+                          主体可能选错 · 应为 {detailData.flow.entityCheckExpected}
+                        </Tag>
+                      </Tooltip>
+                    )}
+                    {detailData.flow.entityCheck === 'no_data' && (
+                      <Tooltip title={detailData.flow.entityCheckReason || '钉钉花名册无合同公司数据'}>
+                        <Tag color="default" style={{ marginLeft: 8, cursor: 'help' }}>
+                          无法核对
+                        </Tag>
+                      </Tooltip>
+                    )}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={
+                    <Tooltip title="这笔费是谁的 / 谁来背 (单据所有者). 99% 跟提交人一样, 个别助理代提交时才会不同, 找费用责任人看这个.">
+                      <span style={{ cursor: 'help' }}>发起人</span>
+                    </Tooltip>
+                  }>
+                    {detailData.flow.ownerName || (detailData.flow.ownerId
+                      ? <Typography.Text type="secondary">未匹配</Typography.Text>
+                      : '-')}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={
+                    <Tooltip title="实际在合思系统里点'提交'的那个人. 出差报销有时候会助理代提交, 这时跟发起人不同; 找操作单据的人看这个.">
+                      <span style={{ cursor: 'help' }}>提交人</span>
+                    </Tooltip>
+                  }>
+                    {detailData.flow.submitterName || (detailData.flow.submitterId
+                      ? <Typography.Text type="secondary">未匹配</Typography.Text>
+                      : '-')}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="发起人部门">
+                    {detailData.flow.ownerDepartmentName || '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="报销/借款部门">
+                    {detailData.flow.departmentName || '-'}
+                  </Descriptions.Item>
                   <Descriptions.Item label="状态">
                     <Tag color={stateMap[detailData.flow.state]?.color}>
                       {stateMap[detailData.flow.state]?.label || detailData.flow.state}
