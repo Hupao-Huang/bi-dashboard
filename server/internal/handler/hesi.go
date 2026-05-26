@@ -491,10 +491,14 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// v1.75.0: "日常报销单"主体校验 (跟钉钉花名册"合同公司"对比)
-	// 日常报销单 specificationId 前缀: ID01Fk3qJYYFvp
-	const dailyExpenseSpecPrefix = "ID01Fk3qJYYFvp"
-	if flow.SpecificationId != nil && strings.HasPrefix(*flow.SpecificationId, dailyExpenseSpecPrefix) && flow.OwnerId != nil {
+	// v1.75.3: 主体校验扩展到所有 expense 类单据 (跑哥 5/26 拍板 B 方案)
+	// 覆盖 4 个真实花钱的报销模板:
+	//   - 日常报销单 (ID01Fk3qJYYFvp, 2744 单)
+	//   - 付款单/票到付款 (ID01KgaO6dcZtR, 3762 单)
+	//   - 费用核销申请单 (ID01Fk8AefXZzp, 3062 单)
+	//   - 银行支付申请单 (ID01FhdI9II931, 1188 单)
+	// 申请类/借款类不校验 (没真金白银花钱, 错填主体业务影响小)
+	if flow.FormType == "expense" && flow.OwnerId != nil {
 		var expectedCompany sql.NullString
 		var matchMethod sql.NullString
 		queryErr := h.DB.QueryRow(
