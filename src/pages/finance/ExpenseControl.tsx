@@ -819,16 +819,27 @@ const ExpenseControl: React.FC = () => {
                       {stateMap[detailData.flow.state]?.label || detailData.flow.state}
                     </Tag>
                   </Descriptions.Item>
-                  <Descriptions.Item label="支付金额">
-                    {detailData.flow.payMoney ? `¥${detailData.flow.payMoney.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-'}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="报销金额">
-                    {detailData.flow.expenseMoney ? `¥${detailData.flow.expenseMoney.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-'}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="凭证状态">{detailData.flow.voucherStatus || '-'}</Descriptions.Item>
+                  {/* v1.75.5: 4 个金额/凭证/支付字段按 form_type 自适应
+                      - expense 类 (报销) 始终显示 (即使空, 作为业务异常警告)
+                      - 其他类 (申请/借款/商城) 仅 value 非空才显示 */}
+                  {(detailData.flow.formType === 'expense' || detailData.flow.payMoney) && (
+                    <Descriptions.Item label="支付金额">
+                      {detailData.flow.payMoney ? `¥${detailData.flow.payMoney.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-'}
+                    </Descriptions.Item>
+                  )}
+                  {(detailData.flow.formType === 'expense' || detailData.flow.expenseMoney) && (
+                    <Descriptions.Item label="报销金额">
+                      {detailData.flow.expenseMoney ? `¥${detailData.flow.expenseMoney.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-'}
+                    </Descriptions.Item>
+                  )}
+                  {(detailData.flow.formType === 'expense' || detailData.flow.voucherStatus) && (
+                    <Descriptions.Item label="凭证状态">{detailData.flow.voucherStatus || '-'}</Descriptions.Item>
+                  )}
                   <Descriptions.Item label="创建时间">{formatTime(detailData.flow.createTime)}</Descriptions.Item>
                   <Descriptions.Item label="提交时间">{formatTime(detailData.flow.submitDate)}</Descriptions.Item>
-                  <Descriptions.Item label="支付时间">{formatTime(detailData.flow.payDate)}</Descriptions.Item>
+                  {(detailData.flow.formType === 'expense' || detailData.flow.payDate) && (
+                    <Descriptions.Item label="支付时间">{formatTime(detailData.flow.payDate)}</Descriptions.Item>
+                  )}
                   <Descriptions.Item label="完成时间">{formatTime(detailData.flow.flowEndTime)}</Descriptions.Item>
                   <Descriptions.Item label="单据模板" span={2}>
                     {(() => {
