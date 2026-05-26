@@ -295,32 +295,41 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	// 主表
 	var rawJSON *string
 	var flow struct {
-		FlowId        string   `json:"flowId"`
-		Code          string   `json:"code"`
-		Title         string   `json:"title"`
-		FormType      string   `json:"formType"`
-		State         string   `json:"state"`
-		OwnerId       *string  `json:"ownerId"`
-		DepartmentId  *string  `json:"departmentId"`
-		SubmitterId   *string  `json:"submitterId"`
-		PayMoney      *float64 `json:"payMoney"`
-		ExpenseMoney  *float64 `json:"expenseMoney"`
-		LoanMoney     *float64 `json:"loanMoney"`
-		CreateTime    *int64   `json:"createTime"`
-		UpdateTime    *int64   `json:"updateTime"`
-		SubmitDate    *int64   `json:"submitDate"`
-		PayDate       *int64   `json:"payDate"`
-		FlowEndTime   *int64   `json:"flowEndTime"`
-		VoucherNo         *string `json:"voucherNo"`
-		VoucherStatus     *string `json:"voucherStatus"`
-		SpecificationId   *string `json:"specificationId"`
-		SpecificationName string  `json:"specificationName"`
+		FlowId       string   `json:"flowId"`
+		Code         string   `json:"code"`
+		Title        string   `json:"title"`
+		FormType     string   `json:"formType"`
+		State        string   `json:"state"`
+		OwnerId      *string  `json:"ownerId"`
+		DepartmentId *string  `json:"departmentId"`
+		// v1.74.9: owner_department 字段以前没 SELECT, 现在补上 (发起人所在部门, 跟 department_id=报销部门 不同)
+		OwnerDepartment   *string  `json:"ownerDepartmentId"`
+		SubmitterId       *string  `json:"submitterId"`
+		PayMoney          *float64 `json:"payMoney"`
+		ExpenseMoney      *float64 `json:"expenseMoney"`
+		LoanMoney         *float64 `json:"loanMoney"`
+		CreateTime        *int64   `json:"createTime"`
+		UpdateTime        *int64   `json:"updateTime"`
+		SubmitDate        *int64   `json:"submitDate"`
+		PayDate           *int64   `json:"payDate"`
+		FlowEndTime       *int64   `json:"flowEndTime"`
+		VoucherNo         *string  `json:"voucherNo"`
+		VoucherStatus     *string  `json:"voucherStatus"`
+		SpecificationId   *string  `json:"specificationId"`
+		SpecificationName string   `json:"specificationName"`
+		// v1.74.9: 字典查询补名字, 单据详情弹窗用 (合思 API 设计返 ID, 名字得另查字典)
+		OwnerName           string `json:"ownerName"`
+		SubmitterName       string `json:"submitterName"`
+		DepartmentName      string `json:"departmentName"`      // 报销/借款部门名
+		OwnerDepartmentName string `json:"ownerDepartmentName"` // 发起人部门名
+		LegalEntityId       string `json:"legalEntityId"`       // raw_json 里 "法人实体" 字段 (合思自定义维度)
+		LegalEntityName     string `json:"legalEntityName"`     // 跑哥要的"公司名称"
 	}
-	err := h.DB.QueryRow(`SELECT flow_id, code, title, form_type, state, owner_id, department_id, submitter_id,
+	err := h.DB.QueryRow(`SELECT flow_id, code, title, form_type, state, owner_id, department_id, owner_department, submitter_id,
 		pay_money, expense_money, loan_money, create_time, update_time, submit_date, pay_date, flow_end_time,
 		voucher_no, voucher_status, specification_id, raw_json FROM hesi_flow WHERE flow_id=?`, flowId).Scan(
 		&flow.FlowId, &flow.Code, &flow.Title, &flow.FormType, &flow.State,
-		&flow.OwnerId, &flow.DepartmentId, &flow.SubmitterId,
+		&flow.OwnerId, &flow.DepartmentId, &flow.OwnerDepartment, &flow.SubmitterId,
 		&flow.PayMoney, &flow.ExpenseMoney, &flow.LoanMoney,
 		&flow.CreateTime, &flow.UpdateTime, &flow.SubmitDate, &flow.PayDate, &flow.FlowEndTime,
 		&flow.VoucherNo, &flow.VoucherStatus, &flow.SpecificationId, &rawJSON)
@@ -332,6 +341,20 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	// v1.62.x: 查模板名称 (60s 缓存)
 	if flow.SpecificationId != nil && *flow.SpecificationId != "" {
 		flow.SpecificationName = h.LookupSpecName(*flow.SpecificationId)
+	}
+
+	// v1.74.9: 查员工/部门/法人实体名字 (5min 缓存, 字典首次拉合思 ~800ms, 之后内存)
+	if flow.OwnerId != nil {
+		flow.OwnerName = h.LookupStaffName(*flow.OwnerId)
+	}
+	if flow.SubmitterId != nil {
+		flow.SubmitterName = h.LookupStaffName(*flow.SubmitterId)
+	}
+	if flow.DepartmentId != nil {
+		flow.DepartmentName = h.LookupDeptName(*flow.DepartmentId)
+	}
+	if flow.OwnerDepartment != nil {
+		flow.OwnerDepartmentName = h.LookupDeptName(*flow.OwnerDepartment)
 	}
 
 	// 明细
@@ -447,6 +470,15 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	if rawJSON != nil {
 		if err := json.Unmarshal([]byte(*rawJSON), &formData); err != nil {
 			formData = nil
+		}
+	}
+
+	// v1.74.9: 从 raw_json 抽 "法人实体" 字段 + 查字典拿公司名
+	// (合思的"法人实体"是自定义维度, 不是 corporation_id; 跑哥要看的"公司"按这个字段)
+	if m, ok := formData.(map[string]interface{}); ok {
+		if le, ok := m["法人实体"].(string); ok && le != "" {
+			flow.LegalEntityId = le
+			flow.LegalEntityName = h.LookupLegalEntityName(le)
 		}
 	}
 
