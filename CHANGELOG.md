@@ -539,6 +539,26 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.74.6 (2026-05-26) — 电商部门页"每日趋势"图补回 2 调拨渠道 (月级 ¥667 万缺口)
+
+**业务背景**: PUA 字节多 agent 安全/业务/性能 4 路 audit 暴露的业务 Critical 之一. v1.74.3 拓范时电商部页所有 KPI 卡/店铺榜/TOP15 商品/品牌/产品定位/平台销售全部加了 helper 合并 2 调拨渠道 (清心湖自营 + 猫超寄售), **唯独"每日销售趋势"图漏加**, 月级缺口 ~¥667 万 (2026-04 实测: 4/7 ¥460 万 + 4/22 ¥207 万), 跨同一页面的 KPI 卡数对不上.
+
+### 改动
+- `server/internal/handler/dashboard_department.go`: GetDepartmentDetail trend loop 之后, `dept=ecommerce` 时调用 `loadEcommerceDailyAllot` (helper 已就绪, 综合看板同款), 把日级 `allotAmt/allotQty` 加回 daily slice
+- 兜底: helper 失败 → log + 不阻塞, 趋势图用原口径 (跟 KPI 对不上但页面不挂)
+
+### 不动
+- 业务算法/口径无新发明, 沿用 v1.74.3 helper (`allocate_orders.channel_key IN ('京东', '猫超')` 锁定 2 渠道)
+- 前端 `DepartmentPage.tsx` 0 行改动 (后端 daily 字段值变了, 前端 reduce 自动跟上)
+- KPI 卡 / 店铺榜 / TOP15 已在 v1.74.3 修过, 这次只补漏趋势
+
+### 影响
+- 后端: `dashboard_department.go` +16 行 (1 个 `if dept=ecommerce` 块 + 调 helper + 累加 loop), bi-server.exe 重 build 重启 (PID 29308 → 30368)
+- 前端: 0 行改动, 不需要 npm build
+- 用户: 浏览器硬刷 (Ctrl+F5 防 cache24h) 即可看到电商部门趋势图 4/7 和 4/22 调拨金额回归
+
+---
+
 ## v1.74.5 (2026-05-26) — 费控管理"费用明细"展示扩容: 看合思 API 完整原始字段
 
 **业务背景**: 跑哥反馈费控管理 → 单据详情 → 费用明细 Tab 内容太少 (原 5 列: 序号/金额/消费时间/发票/消费原因). 合思 API 实际返回字段远多于此 (币种/单位/差旅出发地目的地/付款截图/出差补贴金额分类等), `raw_json` 字段已全存在 `hesi_flow_detail` 表 (5/9 起一直存), 但前端没用.
