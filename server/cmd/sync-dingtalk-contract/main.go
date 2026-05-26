@@ -157,13 +157,12 @@ func queryOnJobUseridList(token string) ([]string, error) {
 		}
 		all = append(all, parsed.Result.DataList...)
 		log.Printf("[ding] queryonjob offset=%d 拉到 %d, 累计 %d (next_cursor=%d)", offset, len(parsed.Result.DataList), len(all), parsed.Result.NextCursor)
-		if len(parsed.Result.DataList) < size {
-			break // 拉完了
-		}
-		offset = parsed.Result.NextCursor
-		if offset == 0 {
+		// 翻页终止: 只看 next_cursor==0 (钉钉文档: 0=无更多)
+		// 不能用 len<size 判断, 钉钉每页可能返不满 size 但仍有下一页 (5/26 翻车: 第三页返 47<50 但 next_cursor=538491 还有人)
+		if parsed.Result.NextCursor == 0 {
 			break
 		}
+		offset = parsed.Result.NextCursor
 		time.Sleep(200 * time.Millisecond) // QPS 防撞
 	}
 	return all, nil
