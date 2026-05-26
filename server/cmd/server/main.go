@@ -16,6 +16,7 @@ import (
 	"bi-dashboard/internal/dingtalk"
 	"bi-dashboard/internal/handler"
 	"bi-dashboard/internal/yingdao"
+	"bi-dashboard/internal/yonsuite"
 
 	"github.com/getsentry/sentry-go"
 	_ "github.com/go-sql-driver/mysql"
@@ -194,6 +195,15 @@ func main() {
 		log.Println("AI Assistant disabled (config.ai_assistant.enabled=false 或未配 llm_api_key)")
 	}
 
+	// v1.75.7: 用友 YS 客户端 (查凭证明细, 仅 bi-server 主进程用)
+	var ysClient *yonsuite.Client
+	if cfg.YonSuite.AppKey != "" && cfg.YonSuite.AppSecret != "" && cfg.YonSuite.BaseURL != "" {
+		ysClient = yonsuite.NewClient(cfg.YonSuite.AppKey, cfg.YonSuite.AppSecret, cfg.YonSuite.BaseURL)
+		log.Printf("YS YonBIP client ready (base=%s)", cfg.YonSuite.BaseURL)
+	} else {
+		log.Println("YS YonBIP disabled (未配置 yonsuite.appkey/secret)")
+	}
+
 	h := &handler.DashboardHandler{
 		DB:               db,
 		DingToken:        cfg.DingTalk.WebhookToken,
@@ -207,6 +217,7 @@ func main() {
 		Notifier:         notifier,
 		YingDao:          yingdaoClient,
 		AIAssistant:      aiSvc,
+		YS:               ysClient,
 	}
 
 	// 启动定时任务健康巡检 (失败/卡死自动钉钉告警 admin)
