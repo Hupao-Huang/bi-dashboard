@@ -779,7 +779,11 @@ const HesiBot: React.FC = () => {
                     </Descriptions.Item>
                   )}
                   {(detailData.flow.formType === 'expense' || detailData.flow.voucherStatus) && (
-                    <Descriptions.Item label="凭证状态">{detailData.flow.voucherStatus || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={
+                      <Tooltip title="财务做账状态. 已生成 = 合思生成会计凭证后自动同步到用友, 财务做完账; 未生成 = 还没做账(单据审批完了但财务那边还没记到账本).">
+                        <span style={{ cursor: 'help' }}>凭证状态</span>
+                      </Tooltip>
+                    }>{detailData.flow.voucherStatus || '-'}</Descriptions.Item>
                   )}
                   <Descriptions.Item label="创建时间">{formatTime(detailData.flow.createTime)}</Descriptions.Item>
                   <Descriptions.Item label="提交时间">{formatTime(detailData.flow.submitDate)}</Descriptions.Item>
