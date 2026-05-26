@@ -539,6 +539,49 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.74.7 (2026-05-26) — 综合看板 TOP15 商品补回 2 调拨渠道 SKU + codex 3 轮二审
+
+**业务背景**: PUA 字节多 agent 4 路 audit Critical #2. 综合看板 TOP15 商品销售排行直接 `FROM sales_goods_summary`, 但 2 调拨渠道 (清心湖自营 / 猫超寄售) 的 SKU 数据**不在 sales_goods_summary** (在 allocate_orders/details), 综合看板 TOP15 完全缺少这些 SKU. 跟 v1.74.3 KPI/趋势/店铺榜对齐口径.
+
+### 改动
+- `server/internal/handler/dashboard_overview.go` GetOverview() topGoods 段:
+  - SQL `ORDER BY sales DESC LIMIT 15` → `LIMIT 50` (给 merge 留 buffer)
+  - 调 `loadEcommerceGoodsAllotDetail` 拿 2 渠道调拨 SKU
+  - 已在 topGoods 的 SKU: 加和 sales/qty (profit 不加, 调拨无毛利)
+  - 不在 topGoods 的 SKU: append 新 entry
+  - 重排 + unconditional final trim 回 LIMIT 15
+
+### codex 二审 3 轮闭环 (业务红线 KPI ranking)
+- **Round 1 P1**: `loadEcommerceGoodsAllotDetail` 没传 scopeCond → 受限用户跨权限注入 SKU
+  - Fix: 加 scope guard, 受限用户 Depts 不含 ecommerce → 跳过 merge
+- **Round 2 P1 #1**: scope guard 只看 Depts, 漏 Platforms/Shops
+  - Fix: 保守策略, 任何 scope 限制都跳过 (调拨数据本身无 platform/shop 维度精准过滤)
+- **Round 2 P1 #2**: SQL `LIMIT 15` 之外的 SKU 加调拨 sales 后应进 TOP15 但被截
+  - Fix: SQL 改 `LIMIT 50` buffer
+- **Round 3 P1**: SQL `LIMIT 50` fallback 路径 (scope skip / helper err / 空 allot) 未 trim → 返 50 行 regression
+  - Fix: unconditional final trim 移到 if-else 外, 任何路径都 cap 回 15
+- **Round 4**: GATE PASS ✅ "logic appears internally consistent... I did not find a clear, actionable regression"
+
+### 不动
+- helper `loadEcommerceGoodsAllotDetail` signature 0 改动 (沿用 v1.74.3 拓范)
+- 前端 `OverviewDashboard.tsx` 0 改动 (后端 topGoods 字段值变了, 前端展示自动跟上)
+- DB schema 不变
+
+### ⚠️ Pre-existing 同款 scope 漏 (列下波修)
+- `loadEcommerceAllotAdjustment` (KPI 卡)
+- `loadEcommerceDailyAllot` (趋势, v1.74.6 也复用)
+- `loadEcommerceShopAllot` (店铺榜)
+- `loadInstantRetailDailyAllot` (即时零售趋势)
+
+这 4 个 helper 的 allocate_orders SQL 都没传 scopeCond. 跟 v1.74.7 同款问题, 但属 v1.74.3 已 ship 功能, 改它影响范围大 (4 部门页 KPI + 趋势), 留下波集中修.
+
+### 影响
+- 后端: `dashboard_overview.go` +44 行 (helper 调用 + merge + scope guard + final trim) - 2 改 (SQL LIMIT 15→50, 内部 trim 移外), bi-server.exe 重 build 重启 (PID 30368 → 5224)
+- 前端: 0 行
+- 用户: 浏览器硬刷 (Ctrl+F5) 看到综合看板 TOP15 商品排行可能新增 2 调拨渠道独占 SKU (尤其有大笔调拨日 4/7 / 4/22 等)
+
+---
+
 ## v1.74.6 (2026-05-26) — 电商部门页"每日趋势"图补回 2 调拨渠道 (月级 ¥667 万缺口)
 
 **业务背景**: PUA 字节多 agent 安全/业务/性能 4 路 audit 暴露的业务 Critical 之一. v1.74.3 拓范时电商部页所有 KPI 卡/店铺榜/TOP15 商品/品牌/产品定位/平台销售全部加了 helper 合并 2 调拨渠道 (清心湖自营 + 猫超寄售), **唯独"每日销售趋势"图漏加**, 月级缺口 ~¥667 万 (2026-04 实测: 4/7 ¥460 万 + 4/22 ¥207 万), 跨同一页面的 KPI 卡数对不上.
