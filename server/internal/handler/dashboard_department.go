@@ -129,6 +129,23 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// v1.74.6: 电商部页趋势漏算 2 调拨渠道 (清心湖自营+猫超寄售), 与同页 KPI 卡对不上
+	// helper loadEcommerceDailyAllot 已就绪 (综合看板同款), 复用拿日级 allotAmt 加回 daily
+	// 兜底: 失败 → log + 不阻塞, 趋势用原口径 (跟 KPI 对不上但页面不挂)
+	if dept == "ecommerce" {
+		if dailyAllot, dailyErr := h.loadEcommerceDailyAllot(
+			r.Context(), trendStart, trendEnd, pureScopeCond, scopeArgs); dailyErr != nil {
+			log.Printf("[department/ecommerce] 趋势日级调拨加载失败, 用原口径: %v", dailyErr)
+		} else {
+			for i := range daily {
+				if d, ok := dailyAllot[daily[i].Date]; ok {
+					daily[i].Sales += d.allotAmt
+					daily[i].Qty += d.allotQty
+				}
+			}
+		}
+	}
+
 	// 2. 店铺/大区排行（offline 按大区合并，其余按 shop_name）
 	shopListArgs := append([]interface{}{dept, start, end}, platArgs...)
 	shopListArgs = append(shopListArgs, scopeArgs...)
