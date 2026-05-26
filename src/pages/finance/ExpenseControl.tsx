@@ -201,6 +201,8 @@ const ExpenseControl: React.FC = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [attachUrls, setAttachUrls] = useState<any>(null);
   const [attachLoading, setAttachLoading] = useState(false);
+  // v1.75.8: 凭证明细从 Tab 改子弹窗
+  const [voucherModalOpen, setVoucherModalOpen] = useState(false);
 
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
 
@@ -837,7 +839,19 @@ const ExpenseControl: React.FC = () => {
                       <Tooltip title="财务做账状态. 已生成 = 合思生成会计凭证后自动同步到用友, 财务做完账; 未生成 = 还没做账(单据审批完了但财务那边还没记到账本).">
                         <span style={{ cursor: 'help' }}>凭证状态</span>
                       </Tooltip>
-                    }>{detailData.flow.voucherStatus || '-'}</Descriptions.Item>
+                    }>
+                      {detailData.flow.voucherStatus || '-'}
+                      {detailData.voucherDetail && (
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ marginLeft: 8, padding: 0, height: 'auto' }}
+                          onClick={() => setVoucherModalOpen(true)}
+                        >
+                          查看凭证
+                        </Button>
+                      )}
+                    </Descriptions.Item>
                   )}
                   <Descriptions.Item label="创建时间">{formatTime(detailData.flow.createTime)}</Descriptions.Item>
                   <Descriptions.Item label="提交时间">{formatTime(detailData.flow.submitDate)}</Descriptions.Item>
@@ -1011,64 +1025,72 @@ const ExpenseControl: React.FC = () => {
                 </div>
               ),
             }] : []),
-            // v1.75.7: 用友凭证明细 Tab (借贷分录)
-            ...(detailData.voucherDetail ? [{
-              key: 'voucher',
-              label: '凭证明细',
-              children: (
-                <div>
-                  <Descriptions bordered size="small" column={2} style={{ marginBottom: 12 }}>
-                    <Descriptions.Item label="凭证号">
-                      <Tag color="purple">{detailData.voucherDetail.header?.displayname || '-'}</Tag>
-                    </Descriptions.Item>
-                    <Descriptions.Item label="会计期间">{detailData.voucherDetail.header?.period || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="账簿">{detailData.voucherDetail.header?.accbook?.name || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="凭证类型">{detailData.voucherDetail.header?.vouchertype?.name || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="制单人">{detailData.voucherDetail.header?.maker?.name || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="制单日期">{detailData.voucherDetail.header?.maketime || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="借方合计">
-                      <Typography.Text strong>{detailData.voucherDetail.header?.totaldebit_org != null
-                        ? `¥${Number(detailData.voucherDetail.header.totaldebit_org).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`
-                        : '-'}</Typography.Text>
-                    </Descriptions.Item>
-                    <Descriptions.Item label="贷方合计">
-                      <Typography.Text strong>{detailData.voucherDetail.header?.totalcredit_org != null
-                        ? `¥${Number(detailData.voucherDetail.header.totalcredit_org).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`
-                        : '-'}</Typography.Text>
-                    </Descriptions.Item>
-                  </Descriptions>
-                  <Table
-                    size="small"
-                    dataSource={detailData.voucherDetail.body || []}
-                    rowKey={(r: any, i: number = 0) => r.id || `${r.recordnumber}-${i}`}
-                    pagination={false}
-                    columns={[
-                      { title: '行', dataIndex: 'recordnumber', width: 50, align: 'center' },
-                      { title: '摘要', dataIndex: 'description', ellipsis: true },
-                      {
-                        title: '科目', width: 220,
-                        render: (_: any, row: any) => row.accsubject
-                          ? <span>{row.accsubject.code} {row.accsubject.name}</span>
-                          : '-',
-                      },
-                      {
-                        title: '借方', dataIndex: 'debit_org', width: 130, align: 'right',
-                        render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
-                      },
-                      {
-                        title: '贷方', dataIndex: 'credit_org', width: 130, align: 'right',
-                        render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
-                      },
-                      {
-                        title: '辅助核算', dataIndex: 'auxiliaryShow', ellipsis: true,
-                        render: (v: string) => v || <Typography.Text type="secondary">-</Typography.Text>,
-                      },
-                    ]}
-                  />
-                </div>
-              ),
-            }] : []),
           ]} />
+        )}
+      </Modal>
+
+      {/* v1.75.8: 凭证明细子弹窗 (从详情 Modal 的"凭证状态"行的"查看凭证"按钮触发) */}
+      <Modal
+        title={detailData?.voucherDetail?.header?.displayname
+          ? `凭证明细 - ${detailData.voucherDetail.header.displayname}`
+          : '凭证明细'}
+        open={voucherModalOpen}
+        onCancel={() => setVoucherModalOpen(false)}
+        footer={null}
+        width={1000}
+        destroyOnHidden
+      >
+        {detailData?.voucherDetail && (
+          <div>
+            <Descriptions bordered size="small" column={2} style={{ marginBottom: 12 }}>
+              <Descriptions.Item label="凭证号">
+                <Tag color="purple">{detailData.voucherDetail.header?.displayname || '-'}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="会计期间">{detailData.voucherDetail.header?.period || '-'}</Descriptions.Item>
+              <Descriptions.Item label="账簿">{detailData.voucherDetail.header?.accbook?.name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="凭证类型">{detailData.voucherDetail.header?.vouchertype?.name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="制单人">{detailData.voucherDetail.header?.maker?.name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="制单日期">{detailData.voucherDetail.header?.maketime || '-'}</Descriptions.Item>
+              <Descriptions.Item label="借方合计">
+                <Typography.Text strong>{detailData.voucherDetail.header?.totaldebit_org != null
+                  ? `¥${Number(detailData.voucherDetail.header.totaldebit_org).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`
+                  : '-'}</Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="贷方合计">
+                <Typography.Text strong>{detailData.voucherDetail.header?.totalcredit_org != null
+                  ? `¥${Number(detailData.voucherDetail.header.totalcredit_org).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`
+                  : '-'}</Typography.Text>
+              </Descriptions.Item>
+            </Descriptions>
+            <Table
+              size="small"
+              dataSource={detailData.voucherDetail.body || []}
+              rowKey={(r: any, i: number = 0) => r.id || `${r.recordnumber}-${i}`}
+              pagination={false}
+              columns={[
+                { title: '行', dataIndex: 'recordnumber', width: 50, align: 'center' },
+                { title: '摘要', dataIndex: 'description', ellipsis: true },
+                {
+                  title: '科目', width: 220,
+                  render: (_: any, row: any) => row.accsubject
+                    ? <span>{row.accsubject.code} {row.accsubject.name}</span>
+                    : '-',
+                },
+                {
+                  title: '借方', dataIndex: 'debit_org', width: 130, align: 'right',
+                  render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
+                },
+                {
+                  title: '贷方', dataIndex: 'credit_org', width: 130, align: 'right',
+                  render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
+                },
+                {
+                  title: '辅助核算', dataIndex: 'auxiliaryShow', ellipsis: true,
+                  render: (v: string) => v || <Typography.Text type="secondary">-</Typography.Text>,
+                },
+              ]}
+            />
+          </div>
         )}
       </Modal>
 
