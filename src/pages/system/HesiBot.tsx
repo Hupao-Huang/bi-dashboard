@@ -985,27 +985,32 @@ const HesiBot: React.FC = () => {
               pagination={false}
               columns={[
                 { title: '行', dataIndex: 'recordnumber', width: 50, align: 'center' },
-                { title: '摘要', dataIndex: 'description', ellipsis: true },
                 {
-                  title: '科目', width: 220,
-                  render: (_: any, row: any) => row.accsubject
-                    ? <span>{row.accsubject.code} {row.accsubject.name}</span>
+                  title: '摘要', dataIndex: 'description', width: 400, ellipsis: true,
+                  render: (v: string) => v
+                    ? <Tooltip title={v}><span style={{ cursor: 'help' }}>{v}</span></Tooltip>
                     : '-',
                 },
                 {
-                  title: '借方', dataIndex: 'debit_org', width: 130, align: 'right',
-                  render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
-                },
-                {
-                  title: '贷方', dataIndex: 'credit_org', width: 130, align: 'right',
-                  render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
-                },
-                {
-                  title: '辅助核算', dataIndex: 'auxiliaryShow', width: 280,
-                  render: (v: string) => v
-                    ? <Tooltip title={v}>
-                        <span style={{ cursor: 'help', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-block', maxWidth: 260 }}>{v}</span>
+                  title: '科目', width: 260, ellipsis: true,
+                  render: (_: any, row: any) => row.accsubject
+                    ? <Tooltip title={`${row.accsubject.code} ${row.accsubject.name}`}>
+                        <span style={{ cursor: 'help' }}>{row.accsubject.code} {row.accsubject.name}</span>
                       </Tooltip>
+                    : '-',
+                },
+                {
+                  title: '借方', dataIndex: 'debit_org', width: 120, align: 'right',
+                  render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
+                },
+                {
+                  title: '贷方', dataIndex: 'credit_org', width: 120, align: 'right',
+                  render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
+                },
+                {
+                  title: '辅助核算', dataIndex: 'auxiliaryShow', width: 320, ellipsis: true,
+                  render: (v: string) => v
+                    ? <Tooltip title={v}><span style={{ cursor: 'help' }}>{v}</span></Tooltip>
                     : <Typography.Text type="secondary">-</Typography.Text>,
                 },
               ]}
