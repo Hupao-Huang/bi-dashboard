@@ -120,7 +120,7 @@ func isBuiltInRole(code string) bool {
 func (h *DashboardHandler) AdminUsers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		h.adminUsersList(w)
+		h.adminUsersList(w, r)
 	case http.MethodPost:
 		h.adminUsersCreate(w, r)
 	default:
@@ -140,7 +140,7 @@ func (h *DashboardHandler) AdminRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT r.id, r.code, r.name, IFNULL(r.description,''),
 			COUNT(DISTINCT rp.permission_id) AS permission_count,
 			COUNT(DISTINCT ur.user_id) AS user_count
@@ -331,7 +331,7 @@ func (h *DashboardHandler) AdminOnlineUsers(w http.ResponseWriter, r *http.Reque
 			minutes = n
 		}
 	}
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT u.id, u.username, IFNULL(u.real_name, '') AS real_name,
 		       IFNULL(u.department, '') AS department,
 		       IFNULL(u.dingtalk_real_name, '') AS dingtalk_real_name,

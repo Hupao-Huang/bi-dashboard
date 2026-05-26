@@ -112,7 +112,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 		case "tmall":
 			// 天猫CPC(万象台)
 			args := append([]interface{}{trendStart, trendEnd}, shopArgs...)
-			rows, ok := queryRowsOrWriteError(w, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
+			rows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 				ROUND(SUM(cost),2), ROUND(SUM(total_pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(total_pay_amount)/SUM(cost),2) ELSE 0 END,
 				SUM(clicks), SUM(impressions)
@@ -139,7 +139,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 			// 天猫CPS(淘宝联盟)
 			hasCps = true
 			args2 := append([]interface{}{trendStart, trendEnd}, shopArgs...)
-			rows2, ok := queryRowsOrWriteError(w, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
+			rows2, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 				ROUND(SUM(settle_amount),2), ROUND(SUM(settle_total_cost),2), SUM(pay_users)
 				FROM op_tmall_cps_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
 				GROUP BY stat_date ORDER BY stat_date`, args2...)
@@ -163,7 +163,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 			}
 			// 天猫店铺CPC
 			sArgs := append([]interface{}{start, end}, shopArgs...)
-			sRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT shop_name, ROUND(SUM(cost),2), ROUND(SUM(total_pay_amount),2),
+			sRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT shop_name, ROUND(SUM(cost),2), ROUND(SUM(total_pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(total_pay_amount)/SUM(cost),2) ELSE 0 END, SUM(clicks)
 				FROM op_tmall_campaign_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
 				GROUP BY shop_name ORDER BY SUM(cost) DESC`, sArgs...)
@@ -187,7 +187,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 			}
 			// 天猫场景明细
 			dArgs := append([]interface{}{start, end}, shopArgs...)
-			dRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT scene_name, ROUND(SUM(cost),2), ROUND(SUM(total_pay_amount),2),
+			dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT scene_name, ROUND(SUM(cost),2), ROUND(SUM(total_pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(total_pay_amount)/SUM(cost),2) ELSE 0 END,
 				SUM(clicks),
 				CASE WHEN SUM(clicks)>0 THEN ROUND(SUM(cost)/SUM(clicks),2) ELSE 0 END
@@ -243,7 +243,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 		case "jd":
 			// 京东CPC(京准通)
 			args := append([]interface{}{trendStart, trendEnd}, shopArgs...)
-			rows, ok := queryRowsOrWriteError(w, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
+			rows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 				ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
 				SUM(clicks), SUM(impressions)
@@ -270,7 +270,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 			// 京东CPS(京东联盟)
 			hasCps = true
 			args2 := append([]interface{}{trendStart, trendEnd}, shopArgs...)
-			rows2, ok := queryRowsOrWriteError(w, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
+			rows2, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 				ROUND(SUM(complete_amount),2), ROUND(SUM(actual_commission),2), SUM(complete_buyers)
 				FROM op_jd_affiliate_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
 				GROUP BY stat_date ORDER BY stat_date`, args2...)
@@ -294,7 +294,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 			}
 			// 京东店铺CPC
 			sArgs := append([]interface{}{start, end}, shopArgs...)
-			sRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT shop_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
+			sRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT shop_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END, SUM(clicks)
 				FROM op_jd_campaign_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
 				GROUP BY shop_name ORDER BY SUM(cost) DESC`, sArgs...)
@@ -318,7 +318,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 			}
 			// 京东推广类型明细
 			dArgs := append([]interface{}{start, end}, shopArgs...)
-			dRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT promo_type, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
+			dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT promo_type, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
 				SUM(clicks),
 				CASE WHEN SUM(clicks)>0 THEN ROUND(SUM(cost)/SUM(clicks),2) ELSE 0 END
@@ -347,7 +347,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 		case "pdd":
 			// 拼多多CPC
 			args := append([]interface{}{trendStart, trendEnd}, shopArgs...)
-			rows, ok := queryRowsOrWriteError(w, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
+			rows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 				ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
 				SUM(clicks), SUM(impressions)
@@ -373,7 +373,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 			}
 			// 拼多多店铺CPC
 			sArgs := append([]interface{}{start, end}, shopArgs...)
-			sRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT shop_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
+			sRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT shop_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END, SUM(clicks)
 				FROM op_pdd_campaign_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
 				GROUP BY shop_name ORDER BY SUM(cost) DESC`, sArgs...)
@@ -397,7 +397,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 			}
 			// 拼多多推广类型明细
 			dArgs := append([]interface{}{start, end}, shopArgs...)
-			dRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT promo_type, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
+			dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT promo_type, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
 				SUM(clicks),
 				CASE WHEN SUM(clicks)>0 THEN ROUND(SUM(cost)/SUM(clicks),2) ELSE 0 END
@@ -473,7 +473,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 		case "tmall_cs":
 			// 天猫超市CPC
 			args := append([]interface{}{trendStart, trendEnd}, shopArgs...)
-			rows, ok := queryRowsOrWriteError(w, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
+			rows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 				ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
 				SUM(clicks), SUM(impressions)
@@ -499,7 +499,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 			}
 			// 天猫超市店铺CPC(一盘货/寄售双店对比)
 			sArgs := append([]interface{}{start, end}, shopArgs...)
-			sRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT shop_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
+			sRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT shop_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 				CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END, SUM(clicks)
 				FROM op_tmall_cs_campaign_daily WHERE stat_date BETWEEN ? AND ?`+shopCond+`
 				GROUP BY shop_name ORDER BY SUM(cost) DESC`, sArgs...)
@@ -638,7 +638,7 @@ func (h *DashboardHandler) GetMarketingCost(w http.ResponseWriter, r *http.Reque
 	}
 	if len(shopQueries) > 0 {
 		fullQuery := joinStrings(shopQueries, " UNION ") + " ORDER BY 1"
-		sRows, ok := queryRowsOrWriteError(w, h.DB, fullQuery, shopQueryArgs...)
+		sRows, ok := queryRowsOrWriteError(w, r, h.DB, fullQuery, shopQueryArgs...)
 		if !ok {
 			return
 		}

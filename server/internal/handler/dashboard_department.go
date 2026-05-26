@@ -95,7 +95,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	// 1. 每日趋势（短范围自动扩展）
 	trendStart, trendEnd := getTrendDateRange(start, end)
 	trendArgs := append([]interface{}{dept, trendStart, trendEnd}, extraArgs...)
-	trendRows, ok := queryRowsOrWriteError(w, h.DB, `
+	trendRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date, '%Y-%m-%d'),
 			ROUND(SUM(local_goods_amt), 2) as sales,
 			ROUND(SUM(goods_qty), 0) as qty,
@@ -170,7 +170,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		  AND stat_date BETWEEN ? AND ?` + platCond + scopeCond + `
 		GROUP BY shop_name ORDER BY sales DESC`
 	}
-	shopRows, ok := queryRowsOrWriteError(w, h.DB, shopListSQL, shopListArgs...)
+	shopRows, ok := queryRowsOrWriteError(w, r, h.DB, shopListSQL, shopListArgs...)
 	if !ok {
 		return
 	}
@@ -303,7 +303,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 
 	// 3. 商品排行
 	goodsArgs := append([]interface{}{dept, start, end}, extraArgs...)
-	goodsRows, ok := queryRowsOrWriteError(w, h.DB, `
+	goodsRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT s.goods_no, s.goods_name, s.brand_name, IFNULL(s.cate_name,''),
 			ROUND(SUM(s.local_goods_amt), 2) as sales,
 			ROUND(SUM(s.goods_qty), 0) as qty,
@@ -485,7 +485,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				ORDER BY goods_no, sales DESC`
 			}
 		}
-		chRows, ok := queryRowsOrWriteError(w, h.DB, chSQL, chArgs...)
+		chRows, ok := queryRowsOrWriteError(w, r, h.DB, chSQL, chArgs...)
 		if !ok {
 			return
 		}
@@ -505,7 +505,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 
 	// 4. 品牌分布
 	brandArgs := append([]interface{}{dept, start, end}, extraArgs...)
-	brandRows, ok := queryRowsOrWriteError(w, h.DB, `
+	brandRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT IFNULL(brand_name,'未知') as brand,
 			ROUND(SUM(local_goods_amt), 2) as sales
 		FROM sales_goods_summary
@@ -571,7 +571,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	}
 	var grades []GradeData
 	gradeArgs := append([]interface{}{dept, start, end}, extraArgs...)
-	gradeRows, ok := queryRowsOrWriteError(w, h.DB, `
+	gradeRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT IFNULL(g.goods_field7,'未设置') as grade,
 			ROUND(SUM(s.local_goods_amt), 2) as sales
 		FROM sales_goods_summary s
@@ -629,7 +629,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	}
 	var gradePlatSales []GradePlatItem
 	if dept == "ecommerce" || dept == "social" || dept == "instant_retail" {
-		gpRows, ok := queryRowsOrWriteError(w, h.DB, `
+		gpRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 			SELECT IFNULL(g.goods_field7,'未设置') as grade,
 			CASE
 				WHEN s.shop_name LIKE '%即时零售%' THEN '即时零售'
@@ -709,7 +709,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				GROUP BY grade, s.shop_name
 				ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`
 		}
-		gpRows, ok := queryRowsOrWriteError(w, h.DB, gpSQL, dept, start, end)
+		gpRows, ok := queryRowsOrWriteError(w, r, h.DB, gpSQL, dept, start, end)
 		if !ok {
 			return
 		}
@@ -729,7 +729,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 
 	// 5. 平台列表（合并后，只返回有销售数据的）
 	// 先查有数据的原始平台名
-	platRows, ok := queryRowsOrWriteError(w, h.DB, `
+	platRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DISTINCT sc.online_plat_name
 		FROM sales_channel sc
 		INNER JOIN sales_goods_summary s ON s.shop_name = sc.channel_name
@@ -807,7 +807,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		Qty      float64 `json:"qty"`
 	}
 	var platformSales []PlatSales
-	platSalesRows, ok := queryRowsOrWriteError(w, h.DB, `
+	platSalesRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT CASE
 			WHEN s.shop_name LIKE '%即时零售%' THEN '即时零售'
 			WHEN sc.online_plat_name IS NULL OR sc.online_plat_name = '' THEN '其他'
@@ -894,7 +894,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		startTime, _ := time.Parse("2006-01-02", start)
 		endTime, _ := time.Parse("2006-01-02", end)
 		if !startTime.IsZero() && !endTime.IsZero() {
-			tRows, tOk := queryRowsOrWriteError(w, h.DB, `
+			tRows, tOk := queryRowsOrWriteError(w, r, h.DB, `
 				SELECT region, SUM(target)
 				FROM offline_region_target
 				WHERE (year*100+month) BETWEEN ? AND ?
@@ -933,7 +933,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	var gradeDeptSalesAll []GradeDeptItem
 	var gradeShopSalesAll []GradeShopItem
 	if crossDept {
-		gdRows, ok := queryRowsOrWriteError(w, h.DB, `
+		gdRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 			SELECT IFNULL(g.goods_field7,'未设置') as grade, s.department,
 				ROUND(SUM(s.local_goods_amt),2) as sales,
 				ROUND(SUM(s.gross_profit),2) as profit
@@ -958,7 +958,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		gsRows, ok := queryRowsOrWriteError(w, h.DB, `
+		gsRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 			SELECT IFNULL(g.goods_field7,'未设置') as grade,
 				IFNULL(s.department,'其他') as department,
 				s.shop_name,

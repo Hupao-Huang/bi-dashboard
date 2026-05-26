@@ -69,7 +69,7 @@ func (h *DashboardHandler) GetFeiguaData(w http.ResponseWriter, r *http.Request)
 	}
 	var dailyGmv []DailyGMV
 	tArgs := append([]interface{}{trendStart, trendEnd}, platArgs...)
-	tRows, ok := queryRowsOrWriteError(w, h.DB, `
+	tRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'), platform,
 			ROUND(SUM(gmv),2), SUM(order_count), COUNT(DISTINCT creator_name)
 		FROM fg_creator_daily
@@ -123,7 +123,7 @@ func (h *DashboardHandler) GetFeiguaData(w http.ResponseWriter, r *http.Request)
 	}
 	var creators []CreatorRank
 	cArgs := append([]interface{}{start, end}, platArgs...)
-	cRows, ok := queryRowsOrWriteError(w, h.DB, `
+	cRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT creator_name, platform, ROUND(SUM(gmv),2), SUM(order_count),
 			ROUND(SUM(commission),2), SUM(product_count), IFNULL(MAX(follower), '未分配')
 		FROM fg_creator_daily WHERE stat_date BETWEEN ? AND ?`+platCond+`
@@ -154,7 +154,7 @@ func (h *DashboardHandler) GetFeiguaData(w http.ResponseWriter, r *http.Request)
 	}
 	var followers []FollowerRank
 	fArgs := append([]interface{}{start, end}, platArgs...)
-	fRows, ok := queryRowsOrWriteError(w, h.DB, `
+	fRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT IFNULL(follower,'未分配'), ROUND(SUM(gmv),2), SUM(order_count),
 			COUNT(DISTINCT creator_name), ROUND(SUM(commission),2)
 		FROM fg_creator_daily WHERE stat_date BETWEEN ? AND ?`+platCond+`
@@ -183,7 +183,7 @@ func (h *DashboardHandler) GetFeiguaData(w http.ResponseWriter, r *http.Request)
 	}
 	var platforms []PlatformShare
 	pArgs := append([]interface{}{start, end}, platArgs...)
-	pRows, ok := queryRowsOrWriteError(w, h.DB, `
+	pRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT platform, ROUND(SUM(gmv),2), SUM(order_count), COUNT(DISTINCT creator_name)
 		FROM fg_creator_daily WHERE stat_date BETWEEN ? AND ?`+platCond+`
 		GROUP BY platform ORDER BY SUM(gmv) DESC`, pArgs...)
@@ -210,7 +210,7 @@ func (h *DashboardHandler) GetFeiguaData(w http.ResponseWriter, r *http.Request)
 	}
 	var roster []RosterStat
 	rArgs := append([]interface{}{}, platArgs...)
-	rRows, ok := queryRowsOrWriteError(w, h.DB, `
+	rRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT platform, COUNT(*), SUM(CASE WHEN contact_status='已建联' THEN 1 ELSE 0 END)
 		FROM fg_creator_roster
 		WHERE 1 = 1`+platCond+`

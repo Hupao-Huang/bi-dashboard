@@ -35,7 +35,7 @@ func (h *DashboardHandler) GetVipOps(w http.ResponseWriter, r *http.Request) {
 		CancelAmount  float64 `json:"cancelAmount"`
 	}
 	var daily []VipDaily
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			impressions, page_views, detail_uv, detail_uv_value,
 			cart_buyers, collect_buyers,

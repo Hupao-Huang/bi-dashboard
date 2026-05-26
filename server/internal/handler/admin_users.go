@@ -12,8 +12,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func (h *DashboardHandler) adminUsersList(w http.ResponseWriter) {
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+func (h *DashboardHandler) adminUsersList(w http.ResponseWriter, r *http.Request) {
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT u.id, u.username, IFNULL(u.real_name,''), IFNULL(u.phone,''), u.status,
 			IFNULL(DATE_FORMAT(u.last_login_at, '%Y-%m-%d %H:%i:%s'),''),
 			IFNULL(GROUP_CONCAT(r.code ORDER BY r.code SEPARATOR ','), ''),

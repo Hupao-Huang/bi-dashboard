@@ -28,7 +28,7 @@ func (h *DashboardHandler) GetPddOps(w http.ResponseWriter, r *http.Request) {
 		PayOrdersPct float64 `json:"payOrdersPct"`
 	}
 	var shopDaily []ShopDaily
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			IFNULL(SUM(pay_amount),0), IFNULL(SUM(pay_count),0), IFNULL(SUM(pay_orders),0),
 			IFNULL(AVG(conv_rate),0), IFNULL(AVG(unit_price),0), IFNULL(AVG(pay_orders_pct),0)
@@ -61,7 +61,7 @@ func (h *DashboardHandler) GetPddOps(w http.ResponseWriter, r *http.Request) {
 		PayCount       int     `json:"payCount"`
 	}
 	var goodsDaily []GoodsDaily
-	rows2, ok := queryRowsOrWriteError(w, h.DB, `
+	rows2, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			IFNULL(SUM(goods_visitors),0), IFNULL(SUM(goods_views),0), IFNULL(SUM(goods_collect),0),
 			IFNULL(SUM(sale_goods_count),0), IFNULL(SUM(pay_amount),0), IFNULL(SUM(pay_count),0)
@@ -94,7 +94,7 @@ func (h *DashboardHandler) GetPddOps(w http.ResponseWriter, r *http.Request) {
 		GoodsClickCnt int     `json:"goodsClickCnt"`
 	}
 	var videoDaily []VideoDaily
-	rows3, ok := queryRowsOrWriteError(w, h.DB, `
+	rows3, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			IFNULL(SUM(total_gmv),0), IFNULL(SUM(order_count),0), IFNULL(SUM(order_uv),0),
 			IFNULL(SUM(feed_count),0), IFNULL(SUM(video_view_cnt),0), IFNULL(SUM(goods_click_cnt),0)

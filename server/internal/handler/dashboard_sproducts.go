@@ -76,7 +76,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 		GROUP BY s.shop_name, s.department
 		ORDER BY SUM(s.local_goods_amt) DESC LIMIT 20`
 	}
-	sRows, ok := queryRowsOrWriteError(w, h.DB, shopSQL, args1...)
+	sRows, ok := queryRowsOrWriteError(w, r, h.DB, shopSQL, args1...)
 	if !ok {
 		return
 	}
@@ -127,7 +127,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 		GROUP BY s.goods_no, g.goods_name
 		ORDER BY SUM(s.local_goods_amt) DESC`
 	}
-	gRows, ok := queryRowsOrWriteError(w, h.DB, goodsSQL, args2...)
+	gRows, ok := queryRowsOrWriteError(w, r, h.DB, goodsSQL, args2...)
 	if !ok {
 		return
 	}
@@ -148,7 +148,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 	}
 	var trend []DailyTrend
 	args3 := append([]interface{}{trendStart, trendEnd}, deptArgs...)
-	tRows, ok := queryRowsOrWriteError(w, h.DB, `
+	tRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(s.stat_date,'%Y-%m-%d'), ROUND(SUM(s.local_goods_amt),2), ROUND(SUM(s.goods_qty),0)
 		FROM sales_goods_summary s
 		INNER JOIN (SELECT DISTINCT goods_no FROM goods WHERE goods_field7 = 'S') g ON g.goods_no = s.goods_no
@@ -207,7 +207,7 @@ func (h *DashboardHandler) GetSProducts(w http.ResponseWriter, r *http.Request) 
 		HAVING SUM(s.local_goods_amt) > 0
 		ORDER BY g.goods_name, SUM(s.local_goods_amt) DESC`
 	}
-	dRows, ok := queryRowsOrWriteError(w, h.DB, detailSQL, args4...)
+	dRows, ok := queryRowsOrWriteError(w, r, h.DB, detailSQL, args4...)
 	if !ok {
 		return
 	}

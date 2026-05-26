@@ -29,7 +29,7 @@ func (h *DashboardHandler) GetDouyinOps(w http.ResponseWriter, r *http.Request) 
 		RefundRate float64 `json:"refundRate"`
 	}
 	var liveTrend []LiveTrend
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			COUNT(DISTINCT anchor_id, start_time), SUM(watch_uv), ROUND(SUM(pay_amount),2),
 			ROUND(AVG(avg_online),0),
@@ -58,7 +58,7 @@ func (h *DashboardHandler) GetDouyinOps(w http.ResponseWriter, r *http.Request) 
 		ConvRate    float64 `json:"convRate"`
 	}
 	var goodsTop []GoodsTop
-	gRows, ok := queryRowsOrWriteError(w, h.DB, `
+	gRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT product_name, ROUND(SUM(pay_amount),2), SUM(pay_qty), SUM(click_uv),
 			CASE WHEN SUM(click_uv)>0 THEN ROUND(SUM(pay_qty)/SUM(click_uv)*100,2) ELSE 0 END
 		FROM op_douyin_goods_daily
@@ -86,7 +86,7 @@ func (h *DashboardHandler) GetDouyinOps(w http.ResponseWriter, r *http.Request) 
 		MaxOnline  int     `json:"maxOnline"`
 	}
 	var anchors []AnchorRank
-	aRows, ok := queryRowsOrWriteError(w, h.DB, `
+	aRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT anchor_name, COUNT(DISTINCT stat_date, start_time), ROUND(SUM(duration_min),0),
 			ROUND(SUM(pay_amount),2), SUM(watch_uv), MAX(max_online)
 		FROM op_douyin_live_daily
@@ -113,7 +113,7 @@ func (h *DashboardHandler) GetDouyinOps(w http.ResponseWriter, r *http.Request) 
 		AdCost      float64 `json:"adCost"`
 	}
 	var channels []ChannelData
-	chRows, ok := queryRowsOrWriteError(w, h.DB, `
+	chRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT channel_name, SUM(watch_ucnt), ROUND(SUM(pay_amt),2), SUM(pay_cnt), ROUND(SUM(ad_costed_amt),2)
 		FROM op_douyin_channel_daily
 		WHERE stat_date BETWEEN ? AND ?
@@ -136,7 +136,7 @@ func (h *DashboardHandler) GetDouyinOps(w http.ResponseWriter, r *http.Request) 
 		StepValue int64  `json:"stepValue"`
 	}
 	var funnel []FunnelStep
-	fRows, ok := queryRowsOrWriteError(w, h.DB, `
+	fRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT step_name, step_value FROM op_douyin_funnel_daily
 		WHERE stat_date = (SELECT MAX(stat_date) FROM op_douyin_funnel_daily WHERE stat_date BETWEEN ? AND ?)
 		ORDER BY step_order LIMIT 7`, start, end)
@@ -162,7 +162,7 @@ func (h *DashboardHandler) GetDouyinOps(w http.ResponseWriter, r *http.Request) 
 		NetROI    float64 `json:"netROI"`
 	}
 	var adTrend []AdTrend
-	adTRows, ok := queryRowsOrWriteError(w, h.DB, `
+	adTRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 			CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
@@ -196,7 +196,7 @@ func (h *DashboardHandler) GetDouyinOps(w http.ResponseWriter, r *http.Request) 
 		Refund1h    float64 `json:"refund1hRate"`
 	}
 	var adDetails []AdDetail
-	adDRows, ok := queryRowsOrWriteError(w, h.DB, `
+	adDRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT douyin_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 			CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
 			ROUND(SUM(net_amount),2),
@@ -261,7 +261,7 @@ func (h *DashboardHandler) GetDouyinDistOps(w http.ResponseWriter, r *http.Reque
 		Talents     int     `json:"talents"`
 	}
 	var plans []PlanItem
-	plRows, ok := queryRowsOrWriteError(w, h.DB, `
+	plRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT account_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2), COUNT(DISTINCT douyin_name)
 		FROM op_douyin_dist_account_daily
 		WHERE stat_date BETWEEN ? AND ?
@@ -287,7 +287,7 @@ func (h *DashboardHandler) GetDouyinDistOps(w http.ResponseWriter, r *http.Reque
 	}
 	var distTrend []DistTrend
 	trendArgs := append([]interface{}{trendStart, trendEnd}, acctArgs...)
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 			CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END
@@ -317,7 +317,7 @@ func (h *DashboardHandler) GetDouyinDistOps(w http.ResponseWriter, r *http.Reque
 	}
 	var accountRank []AccountRank
 	rankArgs := append([]interface{}{start, end}, acctArgs...)
-	aRows, ok := queryRowsOrWriteError(w, h.DB, `
+	aRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT douyin_name, account_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 			CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
 			ROUND(SUM(net_amount),2)
@@ -347,7 +347,7 @@ func (h *DashboardHandler) GetDouyinDistOps(w http.ResponseWriter, r *http.Reque
 	}
 	var productRank []ProductRank
 	prodArgs := append([]interface{}{start, end}, acctArgs...)
-	pRows, ok := queryRowsOrWriteError(w, h.DB, `
+	pRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT product_name, account_name, ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 			CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
 			SUM(clicks)
