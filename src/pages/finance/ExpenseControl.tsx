@@ -764,12 +764,20 @@ const ExpenseControl: React.FC = () => {
                         ? <Typography.Text type="secondary">ID: {detailData.flow.legalEntityId}（字典未匹配）</Typography.Text>
                         : '-'}
                   </Descriptions.Item>
-                  <Descriptions.Item label="发起人">
+                  <Descriptions.Item label={
+                    <Tooltip title="这笔费是谁的 / 谁来背 (单据所有者). 99% 跟提交人一样, 个别助理代提交时才会不同, 找费用责任人看这个.">
+                      <span style={{ cursor: 'help' }}>发起人</span>
+                    </Tooltip>
+                  }>
                     {detailData.flow.ownerName || (detailData.flow.ownerId
                       ? <Typography.Text type="secondary">未匹配</Typography.Text>
                       : '-')}
                   </Descriptions.Item>
-                  <Descriptions.Item label="提交人">
+                  <Descriptions.Item label={
+                    <Tooltip title="实际在合思系统里点'提交'的那个人. 出差报销有时候会助理代提交, 这时跟发起人不同; 找操作单据的人看这个.">
+                      <span style={{ cursor: 'help' }}>提交人</span>
+                    </Tooltip>
+                  }>
                     {detailData.flow.submitterName || (detailData.flow.submitterId
                       ? <Typography.Text type="secondary">未匹配</Typography.Text>
                       : '-')}
