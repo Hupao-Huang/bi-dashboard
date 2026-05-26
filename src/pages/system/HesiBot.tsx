@@ -1001,8 +1001,12 @@ const HesiBot: React.FC = () => {
                   render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
                 },
                 {
-                  title: '辅助核算', dataIndex: 'auxiliaryShow', ellipsis: true,
-                  render: (v: string) => v || <Typography.Text type="secondary">-</Typography.Text>,
+                  title: '辅助核算', dataIndex: 'auxiliaryShow', width: 280,
+                  render: (v: string) => v
+                    ? <Tooltip title={v}>
+                        <span style={{ cursor: 'help', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-block', maxWidth: 260 }}>{v}</span>
+                      </Tooltip>
+                    : <Typography.Text type="secondary">-</Typography.Text>,
                 },
               ]}
             />
