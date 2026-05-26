@@ -699,6 +699,8 @@ const HesiBot: React.FC = () => {
       >
         {detailLoading ? <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div> : detailData && (
           <Tabs defaultActiveKey="basic" items={[
+            // v1.75.2: Tab 自适应规则 (跟费控管理一致)
+            // 明细/附件 count>0 才显; 发票 count>0 才显, 例外 form_type=expense 即使 0 也显作业务警告
             {
               key: 'basic',
               label: '基本信息',
@@ -796,7 +798,7 @@ const HesiBot: React.FC = () => {
                 </Descriptions>
               ),
             },
-            {
+            ...((detailData.details?.length || 0) > 0 ? [{
               key: 'details',
               label: `费用明细 (${detailData.details?.length || 0})`,
               children: (
@@ -825,8 +827,8 @@ const HesiBot: React.FC = () => {
                   ]}
                 />
               ),
-            },
-            {
+            }] : []),
+            ...(((detailData.invoices?.length || 0) > 0 || detailData.flow.formType === 'expense') ? [{
               key: 'invoices',
               label: `发票 (${detailData.invoices?.length || 0})`,
               children: (
@@ -872,8 +874,8 @@ const HesiBot: React.FC = () => {
                   ]}
                 />
               ),
-            },
-            {
+            }] : []),
+            ...((detailData.attachments?.length || 0) > 0 ? [{
               key: 'attachments',
               label: `附件 (${detailData.attachments?.length || 0})`,
               children: (
@@ -911,7 +913,7 @@ const HesiBot: React.FC = () => {
                   )}
                 </div>
               ),
-            },
+            }] : []),
           ]} />
         )}
       </Modal>

@@ -748,6 +748,11 @@ const ExpenseControl: React.FC = () => {
       >
         {detailLoading ? <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div> : detailData && (
           <Tabs defaultActiveKey="basic" items={[
+            // v1.75.2: Tab 自适应显示规则 (基于 17 模板真实数据统计)
+            // - 基本信息: 永远显
+            // - 费用明细: count > 0 才显 (申请单/借款单/商城类几乎无明细)
+            // - 发票: count > 0 才显, 例外: form_type=expense 即使 0 也显作业务异常警告
+            // - 附件: count > 0 才显
             {
               key: 'basic',
               label: '基本信息',
@@ -845,7 +850,7 @@ const ExpenseControl: React.FC = () => {
                 </Descriptions>
               ),
             },
-            {
+            ...((detailData.details?.length || 0) > 0 ? [{
               key: 'details',
               label: `费用明细 (${detailData.details?.length || 0})`,
               children: (
@@ -904,8 +909,8 @@ const ExpenseControl: React.FC = () => {
                   ]}
                 />
               ),
-            },
-            {
+            }] : []),
+            ...(((detailData.invoices?.length || 0) > 0 || detailData.flow.formType === 'expense') ? [{
               key: 'invoices',
               label: `发票 (${detailData.invoices?.length || 0})`,
               children: (
@@ -951,8 +956,8 @@ const ExpenseControl: React.FC = () => {
                   ]}
                 />
               ),
-            },
-            {
+            }] : []),
+            ...((detailData.attachments?.length || 0) > 0 ? [{
               key: 'attachments',
               label: `附件 (${detailData.attachments?.length || 0})`,
               children: (
@@ -990,7 +995,7 @@ const ExpenseControl: React.FC = () => {
                   )}
                 </div>
               ),
-            },
+            }] : []),
           ]} />
         )}
       </Modal>
