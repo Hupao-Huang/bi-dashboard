@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -324,6 +325,11 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		OwnerDepartmentName string `json:"ownerDepartmentName"` // 发起人部门名
 		LegalEntityId       string `json:"legalEntityId"`       // raw_json 里 "法人实体" 字段 (合思自定义维度)
 		LegalEntityName     string `json:"legalEntityName"`     // 跑哥要的"公司名称"
+		// v1.75.0: 钉钉花名册合同公司校验 (仅"日常报销单"模板触发)
+		// EntityCheck = "ok"(一致) | "mismatch"(不一致) | "no_data"(钉钉无数据) | ""(不适用)
+		EntityCheck         string `json:"entityCheck"`
+		EntityCheckExpected string `json:"entityCheckExpected"` // 应为的公司名 (mismatch 时填)
+		EntityCheckReason   string `json:"entityCheckReason"`   // 解释文案 (前端 Tooltip 用)
 	}
 	err := h.DB.QueryRow(`SELECT flow_id, code, title, form_type, state, owner_id, department_id, owner_department, submitter_id,
 		pay_money, expense_money, loan_money, create_time, update_time, submit_date, pay_date, flow_end_time,
@@ -356,6 +362,9 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	if flow.OwnerDepartment != nil {
 		flow.OwnerDepartmentName = h.LookupDeptName(*flow.OwnerDepartment)
 	}
+
+	// v1.75.0: entityCheck 校验代码挪到 raw_json 解析后 (因为依赖 flow.LegalEntityName)
+	// 见下方 "// 原始form JSON" 之后
 
 	// 明细
 	// v1.74.5: 加返 specificationId + rawJson, 让前端展开行显示合思 API 原始字段
@@ -479,6 +488,38 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		if le, ok := m["法人实体"].(string); ok && le != "" {
 			flow.LegalEntityId = le
 			flow.LegalEntityName = h.LookupLegalEntityName(le)
+		}
+	}
+
+	// v1.75.0: "日常报销单"主体校验 (跟钉钉花名册"合同公司"对比)
+	// 日常报销单 specificationId 前缀: ID01Fk3qJYYFvp
+	const dailyExpenseSpecPrefix = "ID01Fk3qJYYFvp"
+	if flow.SpecificationId != nil && strings.HasPrefix(*flow.SpecificationId, dailyExpenseSpecPrefix) && flow.OwnerId != nil {
+		var expectedCompany sql.NullString
+		var matchMethod sql.NullString
+		queryErr := h.DB.QueryRow(
+			`SELECT contract_company_name, match_method FROM hesi_employee_contract_company WHERE hesi_staff_id = ?`,
+			*flow.OwnerId,
+		).Scan(&expectedCompany, &matchMethod)
+		switch {
+		case queryErr == sql.ErrNoRows || !expectedCompany.Valid || expectedCompany.String == "":
+			flow.EntityCheck = "no_data"
+			if matchMethod.Valid && matchMethod.String == "none" {
+				flow.EntityCheckReason = "该员工在钉钉花名册中未找到 (可能已离职或外部账号)"
+			} else {
+				flow.EntityCheckReason = "钉钉花名册的'合同信息→合同公司'字段未填, 请联系 HR 在钉钉智能人事补全"
+			}
+		case queryErr != nil:
+			flow.EntityCheck = ""
+		case flow.LegalEntityName == "":
+			flow.EntityCheck = ""
+		case flow.LegalEntityName == expectedCompany.String:
+			flow.EntityCheck = "ok"
+			flow.EntityCheckReason = "已核对: 跟钉钉花名册的合同公司一致"
+		default:
+			flow.EntityCheck = "mismatch"
+			flow.EntityCheckExpected = expectedCompany.String
+			flow.EntityCheckReason = "申请人填的'法人实体'跟钉钉花名册的'合同公司'不一致, 请核实主体选择"
 		}
 	}
 

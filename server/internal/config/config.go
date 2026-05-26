@@ -55,6 +55,10 @@ type DingTalkConfig struct {
 	NotifyAppKey    string `json:"notify_app_key"`
 	NotifyAppSecret string `json:"notify_app_secret"`
 	NotifyRobotCode string `json:"notify_robot_code"` // 机器人 robotCode (一般等于 AppKey)
+
+	// v1.75.0: 智能人事接口需要 AgentId (在钉钉开发者后台拿, 应用基本信息页)
+	// 仅 sync-dingtalk-contract CLI 用 (拉花名册 sys05 合同公司, 校验报销单主体)
+	NotifyAgentID int64 `json:"notify_agent_id"`
 }
 
 type HesiConfig struct {
