@@ -13,7 +13,20 @@ warnings.filterwarnings('ignore')
 import logging
 logging.basicConfig(level=logging.WARNING)
 
-DB = dict(host='127.0.0.1', port=3306, user='root', password='Hch123456', database='bi_dashboard')
+def _bi_cfg():
+    """读 server/config.json (与后端 Go 共用一份凭证), walk-up 自动找文件"""
+    import os, json
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in range(5):
+        for cand in [os.path.join(here, *(['..'] * up), 'server', 'config.json'),
+                     os.path.join(here, *(['..'] * up), 'config.json')]:
+            if os.path.exists(cand):
+                return json.load(open(cand, encoding='utf-8'))
+    raise RuntimeError('未找到 server/config.json, 请按 server/.env.example 配置凭证')
+
+
+_d = _bi_cfg()['database']
+DB = dict(host=_d['host'], port=_d['port'], user=_d['user'], password=_d['password'], database=_d['dbname'])
 
 REGIONS = ['华北大区', '华东大区', '华中大区', '华南大区', '西南大区',
            '西北大区', '东北大区', '山东大区', '重客']

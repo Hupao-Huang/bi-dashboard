@@ -1,7 +1,17 @@
 #!/bin/bash
-# 发送钉钉通知
-TOKEN="8969f9eb2e775d6c2b7c825b090f4b13c948b7ae74271e712e11140cf920fd35"
-SECRET="SEC7fc41ffb9de85b7136195100f56fe4e796d0760627e378e125645ed41dce5096"
+# 发送钉钉通知 (从 server/config.json 读凭证, 与后端 Go 共用一份)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CFG="${SCRIPT_DIR}/config.json"
+if [ ! -f "$CFG" ]; then
+    echo "[send_ding.sh] 找不到 $CFG, 请按 server/.env.example 配置凭证" >&2
+    exit 1
+fi
+TOKEN=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['dingtalk']['webhook_token'])" "$CFG" 2>/dev/null)
+SECRET=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['dingtalk']['webhook_secret'])" "$CFG" 2>/dev/null)
+if [ -z "$TOKEN" ] || [ -z "$SECRET" ]; then
+    echo "[send_ding.sh] server/config.json 缺 dingtalk.webhook_token 或 webhook_secret" >&2
+    exit 1
+fi
 MSG="$1"
 
 TIMESTAMP=$(date +%s%3N)

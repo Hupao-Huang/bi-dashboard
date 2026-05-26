@@ -11,8 +11,21 @@ from collections import defaultdict
 from urllib.parse import quote
 import os
 
-APPKEY = '87d4f181d550426db299890a7abb6ddd'
-SECRET = '7944bc4fc4b2cd2f79ea972140a1078c19c21e09'
+
+def _bi_cfg():
+    """读 server/config.json (与后端 Go 共用一份凭证), walk-up 自动找文件"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in range(5):
+        for cand in [os.path.join(here, *(['..'] * up), 'server', 'config.json'),
+                     os.path.join(here, *(['..'] * up), 'config.json')]:
+            if os.path.exists(cand):
+                return json.load(open(cand, encoding='utf-8'))
+    raise RuntimeError('未找到 server/config.json, 请按 server/.env.example 配置凭证')
+
+
+_cfg = _bi_cfg()
+APPKEY = _cfg['yonsuite']['appkey']
+SECRET = _cfg['yonsuite']['appsecret']
 BASE = 'https://c3.yonyoucloud.com'
 
 # 中文 COMMENT 映射 (按字段名规则推断)

@@ -572,7 +572,7 @@ Expected: tag pushed to GitHub.
 Run mysql:
 
 ```bash
-mysql --default-character-set=utf8mb4 -h127.0.0.1 -uroot -p"Hch123456" bi_dashboard <<'SQL'
+mysql --default-character-set=utf8mb4 -h127.0.0.1 -uroot -p"$(python -c "import json; print(json.load(open('server/config.json'))['database']['password'])")" bi_dashboard <<'SQL'
 UPDATE notices SET is_pinned=0 WHERE is_pinned=1;
 INSERT INTO notices (title, content, type, is_pinned, is_active, created_by, created_at, updated_at) VALUES (
 '综合看板电商部门金额口径修正 (v1.74.3)',

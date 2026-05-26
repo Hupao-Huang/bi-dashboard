@@ -34,9 +34,22 @@ def col_to_getter(col_type):
     return 'getStr'  # VARCHAR/TEXT 等
 
 
+def _bi_cfg():
+    """读 server/config.json (与后端 Go 共用一份凭证), walk-up 自动找文件"""
+    import os, json
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in range(5):
+        for cand in [os.path.join(here, *(['..'] * up), 'server', 'config.json'),
+                     os.path.join(here, *(['..'] * up), 'config.json')]:
+            if os.path.exists(cand):
+                return json.load(open(cand, encoding='utf-8'))
+    raise RuntimeError('未找到 server/config.json, 请按 server/.env.example 配置凭证')
+
+
 def main():
-    conn = pymysql.connect(host='127.0.0.1', port=3306, user='root', password='Hch123456',
-                           database='bi_dashboard', charset='utf8mb4')
+    _d = _bi_cfg()['database']
+    conn = pymysql.connect(host=_d['host'], port=_d['port'], user=_d['user'], password=_d['password'],
+                           database=_d['dbname'], charset='utf8mb4')
     cur = conn.cursor()
     # 拿现有所有列 + 类型 (按位置序)
     cur.execute("""
