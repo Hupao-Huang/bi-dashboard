@@ -953,7 +953,7 @@ const HesiBot: React.FC = () => {
         open={voucherModalOpen}
         onCancel={() => setVoucherModalOpen(false)}
         footer={null}
-        width={1000}
+        width={1400}
         destroyOnHidden
       >
         {detailData?.voucherDetail && (
