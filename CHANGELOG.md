@@ -539,6 +539,42 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.75.0 (2026-05-26) — 费控"日常报销单"主体校验: 跟钉钉花名册合同公司对比
+
+**业务背景**: 跑哥反馈"想识别申请人填的法人实体跟钉钉花名册里真实劳动主体是不是一致"  
+原始用例: 申请人选错主体导致财务对账出错 / 法人实体跨签合同口径不清.  
+仅对**日常报销单**模板做校验 (specificationId 前缀 ID01Fk3qJYYFvp), 其他模板不影响.
+
+**实现链路**:
+- 数据源: 钉钉智能人事 `POST /topapi/smartwork/hrm/employee/v2/list` 返回 `sys05-contractCompanyName` (合同信息组→合同公司)
+- 桥接 key: 手机号 (合思 staffs.cellphone ↔ 钉钉 sys00-mobile, 钉钉返回带"+86-"前缀需剥离)
+- 字典体量: 钉钉 41 个合同公司 vs 合思 48 个法人实体, 字面基本一致 (抽样 4 家全对), 无需别名表
+
+**变更点**:
+- 新增本地表 `hesi_employee_contract_company` (合思员工 ID → 钉钉合同公司映射, 5 字段含合同类型/到期日, UPSERT 模式)
+- 新增 CLI `sync-dingtalk-contract` (合思 880 员工 → 钉钉 queryonjob 在职 147 → v2/list 100 一批拿 sys05 → 手机号桥接)
+- 新增 schtasks `BI-SyncDingtalkContract` 每日 03:00 SYSTEM /RL HIGHEST (跟 BI-SyncHesi 错峰)
+- 新增 config.dingtalk.notify_agent_id (智能人事接口需要 AgentId, 4555938649)
+- 后端 `GetHesiFlowDetail` 在日常报销单 specificationId 命中时, 查 hesi_employee_contract_company.contract_company_name 跟 flow.LegalEntityName 字面比对, 返 `entityCheck`/`entityCheckExpected`/`entityCheckReason` 三字段
+- 前端 ExpenseControl.tsx 详情弹窗 "公司（法人实体）" 行后加 Tag:
+  - ✅ 已核对 (绿色, 一致)
+  - ⚠️ 主体可能选错 · 应为 XX (红色, 不一致显示应为的公司)
+  - 无法核对 (灰色, 钉钉花名册无数据或未匹配)
+  - 鼠标悬停 Tooltip 显示具体 reason 文案
+
+**初版数据**:
+- 钉钉在职 147 人, 全部桥接成功 (mobile=147, name 兜底=1)
+- 近 3 个月日常报销单 245 个 unique 发起人, 95 个能查到钉钉合同公司 (覆盖 38.8%)
+- 抽样 4 单 mismatch 全识别: 高诚(应南京分公司)/罗加芸(应华鲜高新)/徐园(应华鲜高新)/聂煜轩(应华鲜高新)
+- 剩 150 个发起人钉钉花名册"合同信息"字段为空, 需 HR 在钉钉智能人事补全后 T+1 自动生效
+
+**踩坑**:
+- 钉钉 v2/list 必须传 agentid (跟 staffs 列表 / queryonjob 不一样)
+- 钉钉 field_code 是 sys00-name/sys00-mobile, 不是 meta/get 返回的中文 "姓名"/"手机号"
+- 钉钉手机号格式 "+86-13357134296", 桥接前必须剥离 "+86-" 前缀
+
+---
+
 ## v1.74.9 (2026-05-26) — 费控管理单据详情显示发起人/公司/部门名字
 
 **业务背景**: 跑哥反馈费控管理点开单据详情, 弹窗"基本信息"只看到金额/状态/时间, 看不出来"是谁发的、哪家公司、什么部门" — 之前数据库只存合思的 ID, 名字得调字典. 5/26 拍板 A 方案 (法人实体作为"公司"全显).

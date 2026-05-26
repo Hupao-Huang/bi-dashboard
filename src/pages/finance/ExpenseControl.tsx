@@ -763,6 +763,27 @@ const ExpenseControl: React.FC = () => {
                       : detailData.flow.legalEntityId
                         ? <Typography.Text type="secondary">ID: {detailData.flow.legalEntityId}（字典未匹配）</Typography.Text>
                         : '-'}
+                    {detailData.flow.entityCheck === 'ok' && (
+                      <Tooltip title={detailData.flow.entityCheckReason || '跟钉钉花名册的合同公司一致'}>
+                        <Tag color="success" icon={<CheckCircleOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
+                          已核对
+                        </Tag>
+                      </Tooltip>
+                    )}
+                    {detailData.flow.entityCheck === 'mismatch' && (
+                      <Tooltip title={detailData.flow.entityCheckReason || '与钉钉花名册不一致'}>
+                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
+                          主体可能选错 · 应为 {detailData.flow.entityCheckExpected}
+                        </Tag>
+                      </Tooltip>
+                    )}
+                    {detailData.flow.entityCheck === 'no_data' && (
+                      <Tooltip title={detailData.flow.entityCheckReason || '钉钉花名册无合同公司数据'}>
+                        <Tag color="default" style={{ marginLeft: 8, cursor: 'help' }}>
+                          无法核对
+                        </Tag>
+                      </Tooltip>
+                    )}
                   </Descriptions.Item>
                   <Descriptions.Item label={
                     <Tooltip title="这笔费是谁的 / 谁来背 (单据所有者). 99% 跟提交人一样, 个别助理代提交时才会不同, 找费用责任人看这个.">
