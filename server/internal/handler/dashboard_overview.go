@@ -183,7 +183,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		  AND s.stat_date BETWEEN ? AND ?
 		  AND IFNULL(s.department,'') NOT IN ('excluded','other','')`+withAlias(scopeCond, "s")+`
 		GROUP BY s.goods_no, s.goods_name, s.brand_name, s.cate_name, g.goods_field7
-		ORDER BY sales DESC LIMIT 15`, goodsArgs...)
+		ORDER BY sales DESC LIMIT 50`, goodsArgs...)
 	if !ok {
 		return
 	}
@@ -209,6 +209,69 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	if writeDatabaseError(w, goodsRows.Err()) {
 		return
+	}
+
+	// v1.74.7: 综合看板 TOP15 漏算 2 调拨渠道 SKU (清心湖自营/猫超寄售)
+	// 这 2 渠道按调拨单算销售额, SKU 数据不在 sales_goods_summary, 沿用 v1.74.3 helper + T6j 同款 merge
+	// 兜底: helper 失败 → log + 不阻塞, TOP15 用原口径 (漏调拨 SKU 但页面不挂)
+	// 注意: 主 TOP15 修后, 3.5 商品渠道分布展开行可能看不到这 2 渠道, 计划下波处理
+	//
+	// v1.74.7 scope guard (codex 二审 P1 round 2): 任何 scope 限制都跳过 merge
+	// 保守策略: 调拨数据本身没 platform/shop 维度可精准过滤, 受限用户回落 sales_goods_summary 口径
+	// 跟 buildSalesDataScopeCond 行为对齐, 杜绝跨权限注入. SuperAdmin / 无 scope 用户正常 merge
+	// 同款 scope 漏在 v1.74.3 KPI/趋势/店铺 3 个 helper 也存在 (pre-existing), 列下波修
+	//
+	// SQL 上面已改 LIMIT 15 → LIMIT 50 给 merge 留 buffer (codex P1 round 2 #2)
+	// 防 16-50 名 SKU 加上调拨 sales 后应进 TOP15 但被 SQL 提前截掉
+	scopeAllowsEcom := true
+	if payload, ok := authPayloadFromContext(r); ok && payload != nil && !payload.IsSuperAdmin {
+		s := payload.DataScopes
+		if len(s.Depts) > 0 || len(s.Platforms) > 0 || len(s.Shops) > 0 {
+			scopeAllowsEcom = false
+		}
+	}
+	if !scopeAllowsEcom {
+		// 跳过 merge: 当前用户无电商部权限, TOP15 用原 sales_goods_summary 口径
+	} else if allotGoods, err := h.loadEcommerceGoodsAllotDetail(r.Context(), start, end); err != nil {
+		log.Printf("[overview] TOP15 调拨 SKU 加载失败, 用原口径: %v", err)
+	} else if len(allotGoods) > 0 {
+		idx := make(map[string]int)
+		for i, g := range topGoods {
+			idx[g.GoodsNo] = i
+		}
+		for _, a := range allotGoods {
+			if a.Sales == 0 && a.Qty == 0 {
+				continue
+			}
+			if i, ok := idx[a.GoodsNo]; ok {
+				// SKU 已在 TOP (其它电商渠道也卖) → 加和
+				topGoods[i].Sales += a.Sales
+				topGoods[i].Qty += a.Qty
+				// Profit 不加 (调拨无毛利, 保留原销售单 profit)
+			} else {
+				// SKU 不在 TOP (仅 2 调拨渠道卖) → append entry
+				topGoods = append(topGoods, GoodsRank{
+					GoodsNo:  a.GoodsNo,
+					Name:     a.GoodsName,
+					Brand:    a.BrandName,
+					Category: a.CateName,
+					Grade:    a.Grade,
+					Sales:    a.Sales,
+					Qty:      a.Qty,
+					Profit:   0,
+				})
+				idx[a.GoodsNo] = len(topGoods) - 1
+			}
+		}
+		// 重排 (final trim 在 if-else 之后 unconditional 应用, codex P1 round 3)
+		sort.SliceStable(topGoods, func(i, j int) bool {
+			return topGoods[i].Sales > topGoods[j].Sales
+		})
+	}
+	// v1.74.7 final trim (unconditional, codex P1 round 3): SQL LIMIT 50 → 任何路径都需 cap 回 15
+	// 覆盖: (1) scope skip 时 SQL 已返 50 行  (2) helper err 时 SQL 已返 50 行  (3) 空 allot 同上  (4) 正常 merge 时 sort 后多余
+	if len(topGoods) > 15 {
+		topGoods = topGoods[:15]
 	}
 
 	// 3.5 商品渠道分布
