@@ -539,6 +539,38 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.75.7 (2026-05-26) — 单据详情接入用友凭证查询: 看见借贷分录
+
+**业务背景**: 跑哥问"凭证状态显示已生成, 我能看到凭证的样子吗" — 合思 OpenAPI 只存凭证号 (4-51) 这个标记, 拿不到借贷分录. 接入用友 YS 总账凭证查询 API 才能拉到完整内容.
+
+**调研发现**:
+- 合思 OpenAPI 没有凭证详情查询接口 (各种候选路径全 404)
+- 用友 YS 有官方接口 `/iuap-api-gateway/yonbip/fi/ficloud/openapi/voucher/queryVouchers` (跑哥发的文档 apiId=34b5b2e4abbf4cde95d65e1aef999115)
+- 合思 → 用友联动: 合思生成凭证 voucher_no '4-51' 后**自动同步**到用友, 在用友里就是 'displayname=付-51, billcode=51, vouchertype.code=4'
+- 用友凭证 `externalSourceDataId` 字段实测为 null, 不能直接 join — 用账簿+期间+凭证类型+billcode 4 个键组合定位
+
+**实现链路**:
+- **新接口** `yonsuite/voucher.go` QueryVoucherList (仿 purchase/subcontract 接口, 复用 token/限流)
+- **新表** `hesi_legal_entity_ys_accbook` 48 条合思法人实体 → 用友账簿映射, NULL=用友无对应账簿 (安心食品集团)
+- **特殊处理**:
+  - 浙江松鲜鲜世创 7 个分公司无独立账簿, 统一归 100016 主账簿
+  - 宣城分公司用友账簿名"调味料"错别字, 手工指定到 10000503
+- **bi-server 初始化** 加 `*yonsuite.Client`, main.go 启动时 NewClient (复用 4 个已有接口的鉴权+限流)
+- **`GetHesiFlowDetail` 增强** loadYSVoucherDetail helper: voucherStatus='已生成' + voucherNo + 法人实体映射上, 调用友接口拉完整凭证返 `voucherDetail` 字段
+- **前端弹窗** 加"凭证明细" Tab (仅 voucherDetail 非空时显示): 凭证号/期间/账簿/凭证类型/制单人/制单日期/借贷合计 + 分录表 (行号/摘要/科目/借方/贷方/辅助核算)
+
+**实测**:
+- B26003041 翁佳玲营养师肖像授权费 voucher_no='4-51' → 用友 付-51 期间 2026-05 借/贷 ¥800/¥800, 2 条分录: 借方"预付账款_预付费用" 800, 贷方对方科目
+- 制单人显示"合思费控工程师" (= 合思自动推过来生成的凭证, 不是手工做账)
+
+**性能**:
+- 用友接口 ~300ms (单次)
+- 受 YS 1.1s 限流: 用户手动点详情场景没问题, 高频访问需加缓存 (未来优化)
+
+**未生成凭证 / 申请类 / 借款类 / 主体无账簿** 自动跳过, 不调用友接口, 不影响性能.
+
+---
+
 ## v1.75.6 (2026-05-26) — 凭证状态 label 加 Tooltip 解释 (扫盲非财务用户)
 
 **业务背景**: 跑哥问"凭证状态是啥意思""你怎么知道财务做完账了". 追问后确认: 合思生成会计凭证后会**自动同步到用友**, 所以 voucherStatus 字段语义清晰.

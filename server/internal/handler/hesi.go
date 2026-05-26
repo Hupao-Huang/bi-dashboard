@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"bi-dashboard/internal/yonsuite"
 )
 
 const (
@@ -491,6 +494,12 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// v1.75.7: 凭证状态='已生成' → 调用友 YS 凭证查询拿借贷分录
+	// 合思 voucher_no 格式 "{vouchertype.code}-{billcode}" (例 "4-51"=付款凭证第51号)
+	// 合思法人实体 → 用友账簿 code (hesi_legal_entity_ys_accbook 映射表)
+	// 合思 voucherCreateTime → 用友会计期间 yyyy-MM
+	voucherDetail := h.loadYSVoucherDetail(flow.LegalEntityId, flow.VoucherStatus, flow.VoucherNo, rawJSON)
+
 	// v1.75.3: 主体校验扩展到所有 expense 类单据
 	// v1.75.4: 付款单排除 (主体=费用归属公司 ≠ 申请人合同公司, 校验无意义)
 	// 当前覆盖 3 个模板:
@@ -541,12 +550,98 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"flow":        flow,
-		"details":     details,
-		"invoices":    invoices,
-		"attachments": attachments,
-		"formData":    formData,
+		"flow":          flow,
+		"details":       details,
+		"invoices":      invoices,
+		"attachments":   attachments,
+		"formData":      formData,
+		"voucherDetail": voucherDetail, // v1.75.7: 用友凭证明细 (借贷分录), nil 时前端不显示
 	})
+}
+
+// loadYSVoucherDetail v1.75.7: 查用友凭证明细 (借贷分录)
+// 触发条件: voucherStatus='已生成' + 有 voucherNo + 法人实体能查到账簿 code + YS 客户端已配
+// 返 nil = 不展示 (任一条件不满足 / YS 接口失败 / 没找到)
+func (h *DashboardHandler) loadYSVoucherDetail(legalEntityId string, voucherStatus *string, voucherNo *string, rawJSON *string) interface{} {
+	if h.YS == nil {
+		return nil
+	}
+	if voucherStatus == nil || *voucherStatus != "已生成" {
+		return nil
+	}
+	if voucherNo == nil || *voucherNo == "" {
+		return nil
+	}
+	if legalEntityId == "" {
+		return nil
+	}
+	// 解析 voucherNo 格式 "{vouchertype.code}-{billcode}", 例 "4-51"
+	parts := strings.SplitN(*voucherNo, "-", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	vtype := parts[0]
+	billcode, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nil
+	}
+	// 查法人实体 → 账簿 code 映射
+	var accbookCode sql.NullString
+	if err := h.DB.QueryRow(
+		"SELECT ys_accbook_code FROM hesi_legal_entity_ys_accbook WHERE legal_entity_id = ?",
+		legalEntityId,
+	).Scan(&accbookCode); err != nil {
+		if err != sql.ErrNoRows {
+			log.Printf("[ys-voucher] 查账簿映射失败: %v", err)
+		}
+		return nil
+	}
+	if !accbookCode.Valid || accbookCode.String == "" {
+		return nil // 法人实体无对应账簿 (如安心食品集团)
+	}
+	// 从 raw_json 抽 voucherCreateTime 推算会计期间 yyyy-MM
+	period := ""
+	if rawJSON != nil {
+		var rawMap map[string]interface{}
+		if err := json.Unmarshal([]byte(*rawJSON), &rawMap); err == nil {
+			if vct, ok := rawMap["voucherCreateTime"]; ok {
+				var ms int64
+				switch v := vct.(type) {
+				case float64:
+					ms = int64(v)
+				case json.Number:
+					ms, _ = v.Int64()
+				}
+				if ms > 0 {
+					period = time.UnixMilli(ms).Format("2006-01")
+				}
+			}
+		}
+	}
+
+	req := &yonsuite.VoucherListReq{
+		AccbookCode:         accbookCode.String,
+		BillcodeMin:         billcode,
+		BillcodeMax:         billcode,
+		VoucherTypeCodeList: []string{vtype},
+	}
+	req.Pager.PageIndex = 1
+	req.Pager.PageSize = 5
+	if period != "" {
+		req.PeriodStart = period
+		req.PeriodEnd = period
+	}
+
+	resp, err := h.YS.QueryVoucherList(req)
+	if err != nil {
+		log.Printf("[ys-voucher] 查询失败 accbook=%s voucherNo=%s: %v", accbookCode.String, *voucherNo, err)
+		return nil
+	}
+	if resp == nil || len(resp.Data.RecordList) == 0 {
+		return nil
+	}
+	// 返第一条 (按 accbook + billcode + vtype 精确定位, 理论上只有 1 条)
+	return resp.Data.RecordList[0]
 }
 
 // GetHesiAttachmentURLs 实时获取附件下载URL
