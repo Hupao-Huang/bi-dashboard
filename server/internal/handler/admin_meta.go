@@ -10,7 +10,7 @@ func (h *DashboardHandler) AdminMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roleRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT code, name FROM roles ORDER BY id`)
+	roleRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT code, name FROM roles ORDER BY id`)
 	if !ok {
 		return
 	}
@@ -28,7 +28,7 @@ func (h *DashboardHandler) AdminMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	permissionRows, ok := queryRowsOrWriteError(w, h.DB, `SELECT code, name, type FROM permissions ORDER BY type, id`)
+	permissionRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT code, name, type FROM permissions ORDER BY type, id`)
 	if !ok {
 		return
 	}
@@ -46,7 +46,7 @@ func (h *DashboardHandler) AdminMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deptRows, ok := queryRowsOrWriteError(w, h.DB, `
+	deptRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DISTINCT department
 		FROM sales_channel
 		WHERE department IS NOT NULL AND department != ''
@@ -84,7 +84,7 @@ func (h *DashboardHandler) AdminMeta(w http.ResponseWriter, r *http.Request) {
 		{Value: "shipinhao", Label: "视频号"},
 	}
 
-	shopRows, ok := queryRowsOrWriteError(w, h.DB, `
+	shopRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DISTINCT channel_name, IFNULL(department, '')
 		FROM sales_channel
 		WHERE channel_name IS NOT NULL AND channel_name != ''
@@ -111,7 +111,7 @@ func (h *DashboardHandler) AdminMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	warehouseRows, ok := queryRowsOrWriteError(w, h.DB, `
+	warehouseRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT warehouse_name
 		FROM (
 			SELECT DISTINCT TRIM(warehouse_name) AS warehouse_name

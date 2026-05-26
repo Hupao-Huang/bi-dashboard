@@ -285,7 +285,7 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 				MonthQty: r.MonthQty, CurrentQty: r.CurrentQty,
 			})
 		}
-		writeStockResponse(w, summary, flat, h, warehouseScopeCond, warehouseScopeArgs)
+		writeStockResponse(w, r, summary, flat, h, warehouseScopeCond, warehouseScopeArgs)
 		return
 	}
 
@@ -374,11 +374,12 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		result = result[:500]
 	}
 
-	writeStockResponse(w, summary, result, h, warehouseScopeCond, warehouseScopeArgs)
+	writeStockResponse(w, r, summary, result, h, warehouseScopeCond, warehouseScopeArgs)
 }
 
 func writeStockResponse(
 	w http.ResponseWriter,
+	r *http.Request,
 	summary map[string]int,
 	items interface{},
 	h *DashboardHandler,
@@ -390,6 +391,7 @@ func writeStockResponse(
 	whArgs = append(whArgs, planArgs...)
 	whRows, ok := queryRowsOrWriteError(
 		w,
+		r,
 		h.DB,
 		`SELECT DISTINCT warehouse_name FROM stock_quantity WHERE goods_attr = 1 AND warehouse_name != ''`+warehouseScopeCond+planCond+` AND (current_qty > 0 OR month_qty > 0) ORDER BY warehouse_name`,
 		whArgs...,

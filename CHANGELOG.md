@@ -539,6 +539,65 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.74.8 (2026-05-26) — SQL 30s 超时全局覆盖 (Phase 1: 103 处 hot path 自动防锁)
+
+**业务背景**: PUA 字节 4 路 audit 性能稳定 Critical #1. memory `feedback_no_long_sql_no_timeout` 翻车原型: 一条慢 SQL 撑满 `MaxOpenConns=100` 后, 所有新请求阻塞 + 定时任务排队. 当前 175 处 `db.Query/Exec/QueryRow` 全部走原始 (非 Context), 没任何 SQL 设过 timeout. 单点最毒.
+
+### Phase 1 策略 (高 leverage, 0 业务公式改动)
+不手撸 175 处 caller, 改 `queryRowsOrWriteError` helper 1 处, 自动覆盖**103 处 hot path** (handler 层 SQL).
+
+### 改动
+- `server/internal/handler/db_helpers.go`:
+  - 加 `const defaultQueryTimeout = 30 * time.Second`
+  - 加 `type rowsWithCancel struct { *sql.Rows; cancel context.CancelFunc }` wrapper
+  - 覆盖 `Close()` 方法: 先 `cancel()` 再 `Rows.Close()`, 确定性 cleanup ctx tree
+  - `queryRowsOrWriteError` signature 加 `r *http.Request` 参数 + `WithTimeout(r.Context(), 30s)` + `db.QueryContext`
+- **17 个 handler file** sed 替换 caller `queryRowsOrWriteError(w, h.DB,` → `queryRowsOrWriteError(w, r, h.DB,`:
+  - admin.go / admin_meta.go / admin_users.go
+  - dashboard_department.go / dashboard_overview.go / dashboard_sproducts.go
+  - douyin.go / finance_report_query.go / marketing_cost.go
+  - offline_sales_forecast.go / offline_target.go
+  - ops_customer.go / ops_feigua.go / ops_jd.go / ops_pdd.go / ops_tmall.go / ops_vip.go
+  - stock.go (含 writeStockResponse 内部 helper 一并加 r 参数 + 2 个 caller 同步)
+- caller 函数体 **0 行改动** (Go 字段提升: `rows.Next/Scan/Err/Close` 仍走 embedded `*sql.Rows`)
+
+### codex 二审 2 轮闭环
+- **Round 1 P1**: `runtime.SetFinalizer` 不可靠, GC 时机不定累积 timer/资源, 高负载场景会爆
+  - Fix: 改用 `rowsWithCancel` wrapper, `Close()` 时确定性 cancel ctx
+- **Round 2**: GATE PASS ✅ "did not find any concrete regressions"
+
+### ctx 生命周期 (Go idiomatic)
+```
+HTTP Request 进 → handler 拿到 r → queryRowsOrWriteError(w, r, ...) 走 helper
+  → WithTimeout(r.Context(), 30s) → QueryContext → 包 rowsWithCancel 返
+caller defer rows.Close()                ↓
+  → rowsWithCancel.Close() → cancel() + Rows.Close() → ctx 释放
+```
+
+3 种保护:
+- **HTTP client 主动断开** → r.Context() cancel → SQL 立即停 (浪费 connection 短)
+- **30s 超时强制中断** → 慢 SQL 不会无限拖, 释放 connection 回 pool
+- **正常完成** → defer Close 链触发 deterministic cleanup
+
+### 不动 (Phase 2 留)
+- **72 处直接 `h.DB.Query/QueryRow/Exec`** 没走 helper, 不在 Phase 1 范围:
+  - hesi worker (7 处, 后台异步)
+  - supply_chain_dashboard.go (24 goroutine 并发)
+  - distribution_customer.go (4 跨月 N+1)
+  - 其他若干
+- Phase 2 设计: 加 `dbQueryCtx/dbExecCtx` 类 helper + caller 改, 或者把直接调用迁到 helper
+- 留下波集中改 (跟 175 SQL 全清扫一起)
+
+### 影响
+- 后端: db_helpers.go 重写 (15→57 行) + 17 file 102 caller sed + stock.go 加 r (含 internal helper) - bi-server.exe 重 build 重启 (PID 5224 → 31268)
+- 前端: 0 行
+- 用户: **0 视觉变化**, 但慢 SQL 不再锁库 (理论 30s 上限). 极端情况某用户复杂报表查询 > 30s, 会失败提示 "database query failed" 而不是拖死全站
+
+### Pre-existing 直接 db.Query 漏 (列下波修)
+跟 [[project_dingtalk_bind]] 二期前置依赖 + 财务板块大调整一起做.
+
+---
+
 ## v1.74.7 (2026-05-26) — 综合看板 TOP15 商品补回 2 调拨渠道 SKU + codex 3 轮二审
 
 **业务背景**: PUA 字节多 agent 4 路 audit Critical #2. 综合看板 TOP15 商品销售排行直接 `FROM sales_goods_summary`, 但 2 调拨渠道 (清心湖自营 / 猫超寄售) 的 SKU 数据**不在 sales_goods_summary** (在 allocate_orders/details), 综合看板 TOP15 完全缺少这些 SKU. 跟 v1.74.3 KPI/趋势/店铺榜对齐口径.

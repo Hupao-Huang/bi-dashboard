@@ -174,7 +174,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 		platformFilter,
 	}
 
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT platform, stat_date, shop_name, consult_users, inquiry_users, pay_users, sales_amount, first_response_seconds, response_seconds, satisfaction_rate, conv_rate
 		FROM (
 			SELECT

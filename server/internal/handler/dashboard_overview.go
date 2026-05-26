@@ -38,7 +38,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 
 	// 1. 各部门汇总（含未映射部门，归入other）
 	deptArgs := append([]interface{}{start, end}, scopeArgs...)
-	deptRows, ok := queryRowsOrWriteError(w, h.DB, `
+	deptRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT CASE WHEN department IS NULL OR department = '' THEN 'other' ELSE department END as dept,
 			ROUND(SUM(IFNULL(local_goods_amt, goods_amt)), 2) as sales,
 			ROUND(SUM(goods_qty), 0) as qty,
@@ -123,7 +123,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 
 	// 2. 每日销售趋势（含未映射部门，归入other）
 	trendArgs := append([]interface{}{trendStart, trendEnd}, scopeArgs...)
-	trendRows, ok := queryRowsOrWriteError(w, h.DB, `
+	trendRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date, '%Y-%m-%d') as d,
 			CASE WHEN department IS NULL OR department = '' THEN 'other' ELSE department END as dept,
 			ROUND(SUM(IFNULL(local_goods_amt, goods_amt)), 2) as sales,
@@ -171,7 +171,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 
 	// 3. 商品销售排行 TOP15
 	goodsArgs := append([]interface{}{start, end}, scopeArgs...)
-	goodsRows, ok := queryRowsOrWriteError(w, h.DB, `
+	goodsRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT s.goods_no, s.goods_name, s.brand_name, s.cate_name,
 			IFNULL(g.goods_field7,'') as grade,
 			ROUND(SUM(s.goods_amt), 2) as sales,
@@ -289,7 +289,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 			chArgs = append(chArgs, g.GoodsNo)
 		}
 		chArgs = append(chArgs, scopeArgs...)
-		chRows, ok := queryRowsOrWriteError(w, h.DB, `
+		chRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 			SELECT goods_no, shop_name,
 				ROUND(SUM(IFNULL(local_goods_amt, goods_amt)), 2) as sales,
 				ROUND(SUM(goods_qty), 0) as qty
@@ -318,7 +318,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 
 	// 4. 店铺/渠道排行 TOP15
 	shopArgs := append([]interface{}{start, end}, scopeArgs...)
-	shopRows, ok := queryRowsOrWriteError(w, h.DB, `
+	shopRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT shop_name, department,
 			ROUND(SUM(IFNULL(local_goods_amt, goods_amt)), 2) as sales,
 			ROUND(SUM(goods_qty), 0) as qty
@@ -387,7 +387,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		phJoined := strings.Join(ph, ",")
 
 		// Top 5 SKU per shop
-		gRows, gok := queryRowsOrWriteError(w, h.DB, `
+		gRows, gok := queryRowsOrWriteError(w, r, h.DB, `
 			WITH RankedGoods AS (
 				SELECT s.shop_name, s.goods_no, s.goods_name,
 					IFNULL(g.goods_field7,'') as grade,
@@ -418,7 +418,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Top 5 分类 per shop
-		cRows, cok := queryRowsOrWriteError(w, h.DB, `
+		cRows, cok := queryRowsOrWriteError(w, r, h.DB, `
 			WITH RankedCates AS (
 				SELECT s.shop_name, IFNULL(NULLIF(s.cate_name,''),'未分类') as cate_name,
 					ROUND(SUM(IFNULL(s.local_goods_amt, s.goods_amt)),2) as sales,
@@ -454,7 +454,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	var grades []GradeDist
 	gradeArgs := append([]interface{}{start, end}, scopeArgs...)
-	gradeRows, ok := queryRowsOrWriteError(w, h.DB, `
+	gradeRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT IFNULL(g.goods_field7,'未设置') as grade,
 			ROUND(SUM(s.goods_amt), 2) as sales
 		FROM sales_goods_summary s
@@ -487,7 +487,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	var gradeDeptSales []GradeDeptSales
 	gdArgs := append([]interface{}{start, end}, scopeArgs...)
-	gdRows, ok := queryRowsOrWriteError(w, h.DB, `
+	gdRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT IFNULL(g.goods_field7,'未设置') as grade,
 			IFNULL(s.department,'其他') as department,
 			ROUND(SUM(s.goods_amt), 2) as sales,

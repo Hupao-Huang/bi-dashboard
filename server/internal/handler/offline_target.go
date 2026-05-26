@@ -19,7 +19,7 @@ func (h *DashboardHandler) GetOfflineTargets(w http.ResponseWriter, r *http.Requ
 		year = time.Now().Year()
 	}
 
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT month, region, target
 		FROM offline_region_target
 		WHERE year = ?
@@ -117,7 +117,7 @@ func (h *DashboardHandler) GetOfflineTargetsByMonth(w http.ResponseWriter, r *ht
 		month = int(time.Now().Month())
 	}
 
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT region, target FROM offline_region_target
 		WHERE year = ? AND month = ?`, year, month)
 	if !ok {

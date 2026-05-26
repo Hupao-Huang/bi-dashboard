@@ -33,7 +33,7 @@ func (h *DashboardHandler) GetJdOps(w http.ResponseWriter, r *http.Request) {
 		RefundAmount float64 `json:"refundAmount"`
 	}
 	var shopDaily []ShopDaily
-	rows, ok := queryRowsOrWriteError(w, h.DB, `
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			IFNULL(SUM(visitors),0), IFNULL(SUM(page_views),0),
 			IFNULL(SUM(pay_customers),0), IFNULL(SUM(pay_amount),0),
@@ -71,7 +71,7 @@ func (h *DashboardHandler) GetJdOps(w http.ResponseWriter, r *http.Request) {
 		LostCustomers       int    `json:"lostCustomers"`
 	}
 	var customerDaily []CustomerDaily
-	rows2, ok := queryRowsOrWriteError(w, h.DB, `
+	rows2, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			IFNULL(SUM(browse_customers),0), IFNULL(SUM(cart_customers),0),
 			IFNULL(SUM(order_customers),0), IFNULL(SUM(pay_customers),0),
@@ -105,7 +105,7 @@ func (h *DashboardHandler) GetJdOps(w http.ResponseWriter, r *http.Request) {
 		UnitPrice    float64 `json:"unitPrice"`
 	}
 	var customerTypes []CustomerType
-	ctRows, ok := queryRowsOrWriteError(w, h.DB, `
+	ctRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'), customer_type, pay_customers,
 			pay_pct, conv_rate, unit_price
 		FROM op_jd_customer_type_daily
@@ -133,7 +133,7 @@ func (h *DashboardHandler) GetJdOps(w http.ResponseWriter, r *http.Request) {
 		TopBrand       string `json:"topBrand"`
 	}
 	var keywords []IndustryKeyword
-	kwRows, ok := queryRowsOrWriteError(w, h.DB, `
+	kwRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT keyword, search_rank, compete_rank, click_rank,
 			IFNULL(pay_amount_range,''), IFNULL(top_brand,'')
 		FROM op_jd_industry_keyword
@@ -162,7 +162,7 @@ func (h *DashboardHandler) GetJdOps(w http.ResponseWriter, r *http.Request) {
 		UV        int     `json:"uv"`
 	}
 	var promos []PromoSummary
-	pRows, ok := queryRowsOrWriteError(w, h.DB, `
+	pRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT promo_type, ROUND(SUM(pay_amount),2), SUM(pay_users), SUM(pay_count),
 			CASE WHEN SUM(uv)>0 THEN ROUND(SUM(pay_users)/SUM(uv)*100,2) ELSE 0 END, SUM(uv)
 		FROM op_jd_promo_daily
@@ -190,7 +190,7 @@ func (h *DashboardHandler) GetJdOps(w http.ResponseWriter, r *http.Request) {
 		PayCount  int     `json:"payCount"`
 	}
 	var promoSkus []PromoSku
-	psRows, ok := queryRowsOrWriteError(w, h.DB, `
+	psRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT goods_name, promo_type, SUM(uv), ROUND(SUM(pay_amount),2), SUM(pay_users), SUM(pay_count)
 		FROM op_jd_promo_sku_daily
 		WHERE shop_name = ? AND stat_date BETWEEN ? AND ?

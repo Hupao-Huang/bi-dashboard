@@ -40,7 +40,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		BounceRate  float64 `json:"bounceRate"`
 	}
 	var traffic []TrafficDaily
-	tRows, ok := queryRowsOrWriteError(w, h.DB, `
+	tRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'), visitors, page_views,
 			cart_buyers, pay_buyers, pay_amount, pay_conv_rate, uv_value, bounce_rate
 		FROM op_tmall_shop_daily
@@ -72,7 +72,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		Impr      int     `json:"impressions"`
 	}
 	var campaigns []CampaignDaily
-	cRows, ok := queryRowsOrWriteError(w, h.DB, `
+	cRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			ROUND(SUM(cost),2), ROUND(SUM(total_pay_amount),2),
 			CASE WHEN SUM(cost)>0 THEN ROUND(SUM(total_pay_amount)/SUM(cost),2) ELSE 0 END,
@@ -104,7 +104,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		Clicks    int     `json:"clicks"`
 	}
 	var scenes []SceneSummary
-	sRows, ok := queryRowsOrWriteError(w, h.DB, `
+	sRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT scene_name, ROUND(SUM(cost),2), ROUND(SUM(total_pay_amount),2),
 			CASE WHEN SUM(cost)>0 THEN ROUND(SUM(total_pay_amount)/SUM(cost),2) ELSE 0 END,
 			SUM(clicks)
@@ -134,7 +134,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		PayUsers      int     `json:"payUsers"`
 	}
 	var cps []CPSDaily
-	cpsRows, ok := queryRowsOrWriteError(w, h.DB, `
+	cpsRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			ROUND(SUM(settle_amount),2), ROUND(SUM(settle_total_cost),2), SUM(pay_users)
 		FROM op_tmall_cps_daily
@@ -163,7 +163,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		PayUsers      int     `json:"payUsers"`
 	}
 	var cpsPlans []CPSPlan
-	cpRows, ok := queryRowsOrWriteError(w, h.DB, `
+	cpRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT plan_name, ROUND(SUM(settle_amount),2), ROUND(SUM(settle_total_cost),2), SUM(pay_users)
 		FROM op_tmall_cps_daily
 		WHERE shop_name = ? AND stat_date BETWEEN ? AND ?
@@ -193,7 +193,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		RepurchaseRate  float64 `json:"repurchaseRate"`
 	}
 	var members []MemberDaily
-	mRows, ok := queryRowsOrWriteError(w, h.DB, `
+	mRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			paid_member_cnt, member_pay_amount, member_unit_price,
 			total_member_cnt, repurchase_rate
@@ -228,7 +228,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		RefundAmt   float64 `json:"refundAmount"`
 	}
 	var goodsTop []GoodsItem
-	gRows, ok := queryRowsOrWriteError(w, h.DB, `
+	gRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT product_name, SUM(visitors), SUM(cart_buyers), SUM(pay_qty),
 			ROUND(SUM(pay_amount),2),
 			CASE WHEN SUM(visitors)>0 THEN CONCAT(ROUND(SUM(pay_buyers)/SUM(visitors)*100,2),'%%') ELSE '0%%' END,
@@ -259,7 +259,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		DeepenRatio    float64 `json:"deepenRatio"`
 	}
 	var brandDaily []BrandDaily
-	bRows, ok := queryRowsOrWriteError(w, h.DB, `
+	bRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'), member_pay_amount,
 			customer_volume, loyal_volume, interest_volume, purchase_volume, deepen_ratio
 		FROM op_tmall_brand_daily
@@ -286,7 +286,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		PayUV       int     `json:"payUV"`
 	}
 	var crowdDaily []CrowdDaily
-	crRows, ok := queryRowsOrWriteError(w, h.DB, `
+	crRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'), coverage,
 			ta_concentrate_ratio, shop_alipay_amount, shop_alipay_uv
 		FROM op_tmall_crowd_daily
@@ -317,7 +317,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		UnitPrice       float64 `json:"unitPrice"`
 	}
 	var industry []IndustryMonthly
-	iRows, ok := queryRowsOrWriteError(w, h.DB, `
+	iRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT stat_month, IFNULL(category,''), new_ratio, new_sales_ratio, new_repurchase_30d,
 			old_ratio, old_sales_ratio, old_repurchase_30d, unit_price
 		FROM op_tmall_industry_monthly
@@ -345,7 +345,7 @@ func (h *DashboardHandler) GetTmallOps(w http.ResponseWriter, r *http.Request) {
 		LastRepurchaseDays float64 `json:"lastRepurchaseDays"`
 	}
 	var repurchase []RepurchaseMonthly
-	rRows, ok := queryRowsOrWriteError(w, h.DB, `
+	rRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT stat_month, IFNULL(category,''), shop_repurchase_30d, shop_repurchase_180d,
 			shop_repurchase_360d, lost_repurchase_rate, last_repurchase_days
 		FROM op_tmall_repurchase_monthly
@@ -399,7 +399,7 @@ func (h *DashboardHandler) GetTmallcsOps(w http.ResponseWriter, r *http.Request)
 		PayUsers         int     `json:"payUsers"`
 	}
 	var business []BusinessDaily
-	bRows, ok := queryRowsOrWriteError(w, h.DB, `
+	bRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 			pay_amount, sub_order_avg_price, avg_price, ipv_uv,
 			pay_sub_orders, pay_qty, conv_rate, pay_users
@@ -430,7 +430,7 @@ func (h *DashboardHandler) GetTmallcsOps(w http.ResponseWriter, r *http.Request)
 		Impr      int     `json:"impressions"`
 	}
 	var campaigns []CampaignDaily
-	cRows, ok := queryRowsOrWriteError(w, h.DB, `
+	cRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'), promo_type,
 			ROUND(SUM(cost),2), ROUND(SUM(pay_amount),2),
 			CASE WHEN SUM(cost)>0 THEN ROUND(SUM(pay_amount)/SUM(cost),2) ELSE 0 END,
@@ -460,7 +460,7 @@ func (h *DashboardHandler) GetTmallcsOps(w http.ResponseWriter, r *http.Request)
 		VisitHeat        float64 `json:"visitHeat"`
 	}
 	var keywords []IndustryKeyword
-	kRows, ok := queryRowsOrWriteError(w, h.DB, `
+	kRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT keyword, ROUND(AVG(search_impression),2), ROUND(AVG(trade_heat),2),
 			ROUND(AVG(trade_scale),2), ROUND(AVG(conv_index),2), ROUND(AVG(visit_heat),2)
 		FROM op_tmall_cs_industry_keyword
@@ -491,7 +491,7 @@ func (h *DashboardHandler) GetTmallcsOps(w http.ResponseWriter, r *http.Request)
 		TradeIndex      float64 `json:"tradeIndex"`
 	}
 	var ranks []MarketRank
-	rRows, ok := queryRowsOrWriteError(w, h.DB, `
+	rRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT category, brand_name,
 			ROUND(AVG(trade_heat),2), ROUND(AVG(trade_popularity),2),
 			ROUND(AVG(visit_heat),2), ROUND(AVG(conv_index),2), ROUND(AVG(trade_index),2)

@@ -65,7 +65,7 @@ func (h *DashboardHandler) GetFinanceReport(w http.ResponseWriter, r *http.Reque
 		      WHERE year = (SELECT MAX(year) FROM finance_report) AND department IN (%s)) fr
 		LEFT JOIN finance_subject_dict d ON d.subject_code = fr.subject_code
 		ORDER BY d.display_order, fr.subject_code, fr.sub_channel`, chanPH)
-	skRows, ok := queryRowsOrWriteError(w, h.DB, skQuery, skArgs...)
+	skRows, ok := queryRowsOrWriteError(w, r, h.DB, skQuery, skArgs...)
 	if !ok {
 		return
 	}
@@ -150,7 +150,7 @@ func (h *DashboardHandler) GetFinanceReport(w http.ResponseWriter, r *http.Reque
 	}
 	query := fmt.Sprintf(`SELECT year, month, department, sub_channel, subject_code, amount
 		FROM finance_report WHERE year BETWEEN ? AND ? AND month BETWEEN ? AND ? AND department IN (%s)`, chanPH)
-	rows, ok := queryRowsOrWriteError(w, h.DB, query, args...)
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, query, args...)
 	if !ok {
 		return
 	}
@@ -310,7 +310,7 @@ func (h *DashboardHandler) GetFinanceReportTrend(w http.ResponseWriter, r *http.
 		args = append(args, c)
 	}
 	q := fmt.Sprintf(`SELECT year, month, department, subject_code, subject_name, SUM(amount) amount FROM finance_report WHERE year BETWEEN ? AND ? AND month BETWEEN 1 AND 12 AND subject_code IN (%s) AND department IN (%s) AND sub_channel='' GROUP BY year, month, department, subject_code, subject_name ORDER BY year, month`, subjectPH, chanPH)
-	rows, ok := queryRowsOrWriteError(w, h.DB, q, args...)
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, q, args...)
 	if !ok {
 		return
 	}
@@ -361,7 +361,7 @@ func (h *DashboardHandler) GetFinanceReportCompare(w http.ResponseWriter, r *htt
 		}
 		q = fmt.Sprintf(`SELECT department, subject_code, subject_name, amount FROM finance_report WHERE year=? AND month=? AND subject_code IN (%s) AND sub_channel='' ORDER BY department, subject_code`, ph)
 	}
-	rows, ok := queryRowsOrWriteError(w, h.DB, q, args...)
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, q, args...)
 	if !ok {
 		return
 	}
@@ -479,7 +479,7 @@ func (h *DashboardHandler) GetFinanceReportStructure(w http.ResponseWriter, r *h
 }
 
 func (h *DashboardHandler) GetFinanceSubjects(w http.ResponseWriter, r *http.Request) {
-	rows, ok := queryRowsOrWriteError(w, h.DB, `SELECT subject_code, subject_name, subject_category, subject_level, parent_code, display_order FROM finance_subject_dict ORDER BY display_order, subject_code`)
+	rows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT subject_code, subject_name, subject_category, subject_level, parent_code, display_order FROM finance_subject_dict ORDER BY display_order, subject_code`)
 	if !ok {
 		return
 	}

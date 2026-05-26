@@ -490,7 +490,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	// 1. 近 3 月销量原始值 (按 SKU × 大区, 不四舍五入, 后面应用季节系数)
 	s3, e3 := monthsBack(ym, 3)
 	sugArgs := append([]interface{}{s3, e3}, cateArgs...)
-	sugRows, ok := queryRowsOrWriteError(w, h.DB, `
+	sugRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT goods_no AS sku_code,
 			MAX(goods_name) AS goods_name,
 			`+offlineForecastRegionExpr+` AS region,
@@ -571,7 +571,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		// 近 12 个月内出现过的 SKU (避免几千行无销量历史 SKU 也铺出来)
 		s12, e12 := monthsBack(ym, 12)
 		args12 := append([]interface{}{s12, e12}, cateArgs...)
-		skuRows, ok2 := queryRowsOrWriteError(w, h.DB, `
+		skuRows, ok2 := queryRowsOrWriteError(w, r, h.DB, `
 			SELECT DISTINCT goods_no, MAX(goods_name)
 			FROM sales_goods_summary
 			WHERE department = 'offline' AND stat_date BETWEEN ? AND ?
@@ -597,7 +597,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		// 近 6 个月
 		s6, e6 := monthsBack(ym, 6)
 		args6 := append([]interface{}{s6, e6}, cateArgs...)
-		skuRows, ok2 := queryRowsOrWriteError(w, h.DB, `
+		skuRows, ok2 := queryRowsOrWriteError(w, r, h.DB, `
 			SELECT DISTINCT goods_no, MAX(goods_name)
 			FROM sales_goods_summary
 			WHERE department = 'offline' AND stat_date BETWEEN ? AND ?
@@ -623,7 +623,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 
 	// 3. 已保存的预测值
 	forecasts := map[cellKey]int{}
-	fRows, ok3 := queryRowsOrWriteError(w, h.DB, `
+	fRows, ok3 := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT sku_code, region, forecast_qty, goods_name
 		FROM offline_sales_forecast WHERE ym = ?`, ym)
 	if !ok3 {
