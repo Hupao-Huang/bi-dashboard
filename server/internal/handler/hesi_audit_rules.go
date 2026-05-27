@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -94,6 +95,16 @@ var (
 	cityTierCacheMu sync.Mutex
 )
 
+// 出差补贴标准 (¥/天, 规则 11)
+// PDF V7.0 + 跑哥口述: 总裁 200 / 副总裁 150 / 集团总监 100 / 集团经理 80 / 主管及以下 60
+var subsidyStandard = map[string]float64{
+	"总裁":    200,
+	"副总裁":   150,
+	"集团总监":  100,
+	"集团经理":  80,
+	"主管和其他": 60,
+}
+
 // AuditSuggestion 审批建议输出
 type AuditSuggestion struct {
 	Action  string   `json:"action"` // agree / reject / manual
@@ -106,7 +117,7 @@ type AuditSuggestion struct {
 //   - departmentID: hesi_flow.department_id 报销/借款部门 ID (= raw_json.expenseDepartment, 规则 2)
 //   - expenseMoney: hesi_flow.expense_money 报销金额 (规则 5 招待费金额对比)
 //   - rawJSON: 合思单据 raw_json (含 payeeId / submitterId / 法人实体 / details / expenseLinks 等)
-func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitterID string, expenseMoney float64, rawJSON string) *AuditSuggestion {
+func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitterID, flowID string, expenseMoney float64, rawJSON string) *AuditSuggestion {
 	var raw map[string]interface{}
 	if rawJSON != "" {
 		_ = json.Unmarshal([]byte(rawJSON), &raw)
@@ -164,6 +175,37 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		if warnMsg != "" {
 			warnings = append(warnings, warnMsg)
 		}
+	}
+
+	// 规则 8 + 10: 发票审核 (抬头/税号/金额/开票时间) + 无票判定 + 3 种豁免
+	if invRej, invWarn := h.ruleInvoiceChecks(raw, ownerDeptID, flowID); len(invRej) > 0 || len(invWarn) > 0 {
+		rejectReasons = append(rejectReasons, invRej...)
+		warnings = append(warnings, invWarn...)
+	}
+
+	// 规则 11: 出差补贴 ≤ u_天数 × 职级标准 (半天按 1 天 ceil)
+	if rejMsg, warnMsg := h.ruleSubsidyStandard(raw, submitterID); rejMsg != "" || warnMsg != "" {
+		if rejMsg != "" {
+			rejectReasons = append(rejectReasons, rejMsg)
+		}
+		if warnMsg != "" {
+			warnings = append(warnings, warnMsg)
+		}
+	}
+
+	// 规则 12: 自驾 manual 提示 + 消费事由长度审核
+	if rejMsg, warnMsg := ruleDriveAndReasons(raw); rejMsg != "" || warnMsg != "" {
+		if rejMsg != "" {
+			rejectReasons = append(rejectReasons, rejMsg)
+		}
+		if warnMsg != "" {
+			warnings = append(warnings, warnMsg)
+		}
+	}
+
+	// 规则 13: 必填字段校验 (品牌中心/研发中心必选 + 附件 + 报销=支付金额)
+	if rej := h.ruleRequiredFields(raw, ownerDeptID); len(rej) > 0 {
+		rejectReasons = append(rejectReasons, rej...)
 	}
 
 	// 优先级: reject > manual > agree
@@ -347,6 +389,465 @@ func rulePayeeBank(db *sql.DB, payeeID string) string {
 	return "收款信息必须为银行账户, 当前为「" + sortLabel + "」(规则 3)"
 }
 
+// 样品 fee_type 集合 (规则 10 豁免 1: 研发部门 + 样品 = 无票豁免)
+var sampleFeeTypes = map[string]string{
+	"ID01Fk0FsIqhDV": "赠品及样品",
+	"ID01KhLrRhAWp9": "样品费用",
+	"ID01Fk0B0hMfF5": "小样推广赠品、样品",
+}
+
+// 出差/餐补/市内补贴 fee_type 集合 (规则 10 豁免 2: 补贴类无票豁免)
+var subsidyFeeTypes = map[string]string{
+	"ID01Fk0MQBAAQ7": "补贴",
+	"ID01Fk0MQBAB6D": "市内补贴",
+	"ID01FkA9pR8zGT": "餐费补贴",
+}
+
+// 私车公用 fee_type (规则 12-1 自驾报销)
+const driveFeeTypeID = "ID01Fr2mX8KP2T"
+
+// ruleRequiredFields 规则 13: 必填字段校验
+// 13-① 备注 (description) — 跑哥说"选填", 不审
+// 13-② 品牌中心部门 → u_品牌中心必选 非空
+// 13-③ 研发中心部门 → u_研发中心必选 非空
+// 13-④ 附件 — 跑哥拍板"只是字段说明, 不强制必填", 不审
+// 13-⑤ expenseMoney ≈ payMoney (容差 0.01)
+func (h *DashboardHandler) ruleRequiredFields(raw map[string]interface{}, ownerDeptID string) []string {
+	var rejects []string
+
+	// 13-② 品牌中心
+	if h.isBrandCenterDept(ownerDeptID) {
+		v, _ := raw["u_品牌中心必选"].(string)
+		if v == "" {
+			rejects = append(rejects, "部门为品牌中心, 但单据未填'品牌中心必选'字段 (规则 13-②)")
+		}
+	}
+	// 13-③ 研发中心 (复用 isResearchDept)
+	if h.isResearchDept(ownerDeptID) {
+		v, _ := raw["u_研发中心必选"].(string)
+		if v == "" {
+			rejects = append(rejects, "部门为研发中心, 但单据未填'研发中心必选'字段 (规则 13-③)")
+		}
+	}
+	// 13-⑤ 报销=支付金额
+	expMoney, ok1 := getStandardAmount(raw["expenseMoney"])
+	payMoney, ok2 := getStandardAmount(raw["payMoney"])
+	if ok1 && ok2 && expMoney > 0 && payMoney > 0 && math.Abs(expMoney-payMoney) > 0.01 {
+		rejects = append(rejects, fmt.Sprintf("报销金额 ¥%.2f ≠ 支付金额 ¥%.2f (规则 13-⑤)", expMoney, payMoney))
+	}
+	return rejects
+}
+
+// getStandardAmount 从 raw_json 金额结构 {"standard":"123.45",...} 取金额
+func getStandardAmount(v interface{}) (float64, bool) {
+	m, ok := v.(map[string]interface{})
+	if !ok {
+		return 0, false
+	}
+	s, ok := m["standard"].(string)
+	if !ok {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return f, true
+}
+
+// isBrandCenterDept 判定部门在品牌中心子树 (递归 parent_id)
+// 复用 isResearchDept 模式
+func (h *DashboardHandler) isBrandCenterDept(deptID string) bool {
+	cur := deptID
+	for i := 0; i < 10 && cur != ""; i++ {
+		var name, parent string
+		err := h.DB.QueryRow(`SELECT name, IFNULL(parent_id,'') FROM hesi_department WHERE id = ? LIMIT 1`, cur).Scan(&name, &parent)
+		if err != nil {
+			return false
+		}
+		if strings.Contains(name, "品牌中心") {
+			return true
+		}
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return false
+}
+
+// ruleDriveAndReasons 规则 12-1: 自驾 manual 提示 + 12-2: 消费事由长度审核
+// 12-1: 自驾报销 (fee_type=ID01Fr2mX8KP2T) → 转人工 (合思后台无车型/KM 结构化字段)
+//       跑哥规则: 油车 ¥0.7/KM, 电车 ¥0.6/KM
+// 12-2: consumptionReasons 长度 ≤10字 agree / 10-50字 manual / >50字 reject (跑哥说"控制在10字, 放宽到50")
+//       字数按 rune 计 (中文 1 字)
+func ruleDriveAndReasons(raw map[string]interface{}) (string, string) {
+	details, _ := raw["details"].([]interface{})
+	var driveDetails, longReasons, midReasons []int
+
+	for _, d := range details {
+		dm, _ := d.(map[string]interface{})
+		if dm == nil {
+			continue
+		}
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		if form == nil {
+			continue
+		}
+		no := 0
+		if n, ok := form["detailNo"].(float64); ok {
+			no = int(n)
+		}
+
+		// 12-1: 自驾 fee_type 触发
+		feeTypeID, _ := dm["feeTypeId"].(string)
+		if feeTypeID == driveFeeTypeID {
+			driveDetails = append(driveDetails, no)
+		}
+
+		// 12-2: 消费事由长度 (rune 计数, 中文 1 字)
+		reason, _ := form["consumptionReasons"].(string)
+		runeLen := len([]rune(reason))
+		if runeLen > 50 {
+			longReasons = append(longReasons, no)
+		} else if runeLen > 10 {
+			midReasons = append(midReasons, no)
+		}
+	}
+
+	var rejects, warnings []string
+	if len(longReasons) > 0 {
+		rejects = append(rejects, fmt.Sprintf("明细 %v 消费事由 > 50 字 (规则 12-2)", uniqueInts(longReasons)))
+	}
+	if len(driveDetails) > 0 {
+		warnings = append(warnings, fmt.Sprintf("明细 %v 自驾, 需人工核行车记录 KM × 车型单价 (油 ¥0.7/KM, 电 ¥0.6/KM, 规则 12-1)", uniqueInts(driveDetails)))
+	}
+	if len(midReasons) > 0 {
+		warnings = append(warnings, fmt.Sprintf("明细 %v 消费事由 10-50 字, 需酌情核 (规则 12-2)", uniqueInts(midReasons)))
+	}
+	return strings.Join(rejects, "; "), strings.Join(warnings, "; ")
+}
+
+// ruleSubsidyStandard 规则 11: 出差补贴 ≤ u_天数 × 职级标准
+// 跑哥规则: 总裁 200 / 副总裁 150 / 集团总监 100 / 集团经理 80 / 主管和其他 60 (¥/天)
+// 半天按 1 天计算 (math.Ceil)
+// 触发: detail.feeTypeId = ID01Fk0MQBAAQ7 (补贴顶类), 取 feeTypeForm.u_出差补贴金额 + u_天数
+// 注: 同明细的 u_市内补贴金额 / u_餐费补贴金额 不在本规则 (跑哥规则文写"出差补贴")
+// 返回 (rejectMsg, warnMsg)
+func (h *DashboardHandler) ruleSubsidyStandard(raw map[string]interface{}, submitterID string) (string, string) {
+	details, _ := raw["details"].([]interface{})
+	type hit struct {
+		no     int
+		amount float64
+		days   float64
+	}
+	var hits []hit
+	for _, d := range details {
+		dm, _ := d.(map[string]interface{})
+		if dm == nil {
+			continue
+		}
+		feeTypeID, _ := dm["feeTypeId"].(string)
+		if feeTypeID != "ID01Fk0MQBAAQ7" {
+			continue
+		}
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		if form == nil {
+			continue
+		}
+		no := 0
+		if n, ok := form["detailNo"].(float64); ok {
+			no = int(n)
+		}
+		var amt, days float64
+		if a, ok := form["u_出差补贴金额"].(map[string]interface{}); ok {
+			if s, ok := a["standard"].(string); ok {
+				amt, _ = strconv.ParseFloat(s, 64)
+			}
+		}
+		if v, ok := form["u_天数"].(string); ok {
+			days, _ = strconv.ParseFloat(v, 64)
+		}
+		if amt > 0 && days > 0 {
+			hits = append(hits, hit{no, amt, days})
+		}
+	}
+	if len(hits) == 0 {
+		return "", ""
+	}
+
+	// 查提交人岗位职级 (复用规则 7-3 的字段)
+	// fallback: SSC 表只 241 人 (审批职级), 普通员工 ~640 人不在 → 按"主管和其他" 60/天 (跑哥拍板)
+	position := ""
+	if submitterID != "" {
+		_ = h.DB.QueryRow(`SELECT IFNULL(position,'') FROM hesi_employee_contract_company WHERE hesi_staff_id = ? LIMIT 1`, submitterID).Scan(&position)
+	}
+	positionForDisplay := position
+	if position == "" {
+		position = "主管和其他"
+		positionForDisplay = "主管和其他 (花名册未匹配, fallback)"
+	}
+	std, ok := subsidyStandard[position]
+	if !ok {
+		return "", "岗位职级「" + position + "」非标准 5 档, 出差补贴标准未配置 (规则 11)"
+	}
+
+	var rejects []string
+	for _, h := range hits {
+		// 半天按 1 天 → ceil
+		ceilDays := math.Ceil(h.days)
+		cap := ceilDays * std
+		if h.amount > cap+0.01 {
+			rejects = append(rejects, fmt.Sprintf("明细#%d 出差补贴 ¥%.2f > 标准 ¥%.0f×%.0f天=¥%.2f (%s, 规则 11)",
+				h.no, h.amount, std, ceilDays, cap, positionForDisplay))
+		}
+	}
+	return strings.Join(rejects, "; "), ""
+}
+
+// isResearchDept 递归判定部门是否在研发链 (部门名或祖先含"研发")
+// 用于规则 10 豁免 1: 研发部门样品采买无票豁免
+// 实查: 应用研发部 / 技术研发部 / 产品研发中心 / 研发一二三组 等
+func (h *DashboardHandler) isResearchDept(deptID string) bool {
+	cur := deptID
+	for i := 0; i < 10 && cur != ""; i++ {
+		var name, parent string
+		err := h.DB.QueryRow(`SELECT name, IFNULL(parent_id,'') FROM hesi_department WHERE id = ? LIMIT 1`, cur).Scan(&name, &parent)
+		if err != nil {
+			return false
+		}
+		if strings.Contains(name, "研发") {
+			return true
+		}
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return false
+}
+
+// ruleInvoiceChecks 规则 8: 发票审核 4 项 + 规则 10: 无票判定 + 豁免
+//
+// 8-1: 发票抬头 (buyer_name) 必须 = 所属公司 (raw_json.法人实体 → invoice_title)
+// 8-2: 发票税号 (buyer_tax_no) 必须 = 所属公司税号 (开票资料 PDF 字典)
+// 8-3: 每个明细发票合计 (sum total_amount) ≥ 明细金额 (有票才校验)
+// 8-4: 开票时间 (invoice_date) 距单据提交 ≤1月 OK / 1-3月 manual / >3月 reject
+// 10:  每个明细必须有票, 除非属于豁免:
+//      - 豁免 A: 研发部门 (递归含"研发") + 样品 fee_type → 无票 OK
+//      - 豁免 B: 补贴 fee_type (出差补贴/市内补贴/餐费补贴) → 无票 OK
+//      - 豁免 C: u_无票原因截图说明 (实查 0 单, 当前不实现, 等合思后台加字段)
+//
+// 返回 (rejectReasons, warnings)
+func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDeptID, flowID string) ([]string, []string) {
+	if flowID == "" {
+		return nil, nil
+	}
+
+	// 拉单据全部发票 + LEFT JOIN detail 拿 detail_no 行号
+	type inv struct {
+		detailID  string
+		detailNo  int
+		buyerName string
+		taxNo     string
+		date      int64
+		total     float64
+		approve   float64
+	}
+	rows, err := h.DB.Query(`SELECT
+		IFNULL(i.detail_id,''), IFNULL(d.detail_no, 0),
+		IFNULL(i.buyer_name,''), IFNULL(i.buyer_tax_no,''),
+		IFNULL(i.invoice_date,0), IFNULL(i.total_amount,0), IFNULL(i.approve_amount,0)
+		FROM hesi_flow_invoice i
+		LEFT JOIN hesi_flow_detail d ON i.detail_id = d.detail_id AND d.flow_id = i.flow_id
+		WHERE i.flow_id = ?`, flowID)
+	if err != nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var invoices []inv
+	for rows.Next() {
+		var i inv
+		if err := rows.Scan(&i.detailID, &i.detailNo, &i.buyerName, &i.taxNo, &i.date, &i.total, &i.approve); err == nil {
+			invoices = append(invoices, i)
+		}
+	}
+	// 拉 details (从 raw_json) → 行号/金额/fee_type (用于规则 8-3 + 规则 10)
+	details, _ := raw["details"].([]interface{})
+	detailAmtMap := map[string]float64{}
+	detailNoMap := map[string]int{}
+	detailFeeTypeMap := map[string]string{}
+	allDetailIDs := []string{}
+	for _, iv := range invoices {
+		if iv.detailNo > 0 {
+			detailNoMap[iv.detailID] = iv.detailNo
+		}
+	}
+	for _, d := range details {
+		dm, _ := d.(map[string]interface{})
+		if dm == nil {
+			continue
+		}
+		// detailId/detailNo/amount 都嵌在 feeTypeForm 子对象里 (合思 raw_json 结构实查)
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		if form == nil {
+			continue
+		}
+		did, _ := form["detailId"].(string)
+		if did == "" {
+			continue
+		}
+		allDetailIDs = append(allDetailIDs, did)
+		if no, ok := form["detailNo"].(float64); ok && int(no) > 0 {
+			detailNoMap[did] = int(no)
+		}
+		// feeTypeId 在 detail 顶层 (跟其他规则一致)
+		if ft, ok := dm["feeTypeId"].(string); ok {
+			detailFeeTypeMap[did] = ft
+		}
+		if a, ok := form["amount"].(map[string]interface{}); ok {
+			if s, ok := a["standard"].(string); ok {
+				if v, e := strconv.ParseFloat(s, 64); e == nil {
+					detailAmtMap[did] = v
+				}
+			}
+		}
+	}
+
+	// 规则 10: 无票判定 — 每个明细必须有票, 除非属于豁免
+	// 跑哥规则: 研发部门 + 样品 / 出差补贴类 / 特殊无票截图说明 (字段未存, 走 manual)
+	detailHasInvoice := map[string]bool{}
+	for _, iv := range invoices {
+		detailHasInvoice[iv.detailID] = true
+	}
+	isResearch := h.isResearchDept(ownerDeptID)
+	var noInvoiceReject []int
+	for _, did := range allDetailIDs {
+		if detailHasInvoice[did] {
+			continue // 有票, 不进规则 10
+		}
+		feeTypeID := detailFeeTypeMap[did]
+		no := detailNoMap[did]
+		// 豁免 B: 补贴类 (出差/餐补/市内)
+		if _, ok := subsidyFeeTypes[feeTypeID]; ok {
+			continue
+		}
+		// 豁免 A: 研发部门 + 样品 fee_type
+		if _, ok := sampleFeeTypes[feeTypeID]; ok && isResearch {
+			continue
+		}
+		// 都不豁免 → reject
+		noInvoiceReject = append(noInvoiceReject, no)
+	}
+	if len(invoices) == 0 {
+		// 无发票时, 只跑规则 10 — 其他规则 8-1/8-2/8-3/8-4 都不适用
+		if len(noInvoiceReject) > 0 {
+			return []string{fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/特殊截图说明 豁免)", uniqueInts(noInvoiceReject))}, nil
+		}
+		return nil, nil
+	}
+
+	var rejects, warnings []string
+
+	// 拉所属公司 (法人实体) 的开票字典
+	legalEntityID, _ := raw["法人实体"].(string)
+	var expectedTitle, expectedTaxNo string
+	if legalEntityID != "" {
+		_ = h.DB.QueryRow(`SELECT IFNULL(invoice_title,''), IFNULL(tax_no,'') FROM hesi_legal_entity_invoice_info WHERE legal_entity_id = ? AND active=1 LIMIT 1`,
+			legalEntityID).Scan(&expectedTitle, &expectedTaxNo)
+	}
+
+	// 规则 8-1/8-2: 抬头+税号 vs 法人实体 (法人实体未在字典 → 转人工)
+	if expectedTitle == "" {
+		warnings = append(warnings, "所属公司未在开票资料字典内, 抬头/税号无法判定 (规则 8-1/8-2)")
+	} else {
+		var wrongTitle, wrongTax []int
+		for _, iv := range invoices {
+			no := detailNoMap[iv.detailID]
+			if iv.buyerName != "" && iv.buyerName != expectedTitle {
+				wrongTitle = append(wrongTitle, no)
+			}
+			if iv.taxNo != "" && iv.taxNo != expectedTaxNo {
+				wrongTax = append(wrongTax, no)
+			}
+		}
+		if len(wrongTitle) > 0 {
+			rejects = append(rejects, fmt.Sprintf("明细 %v 发票抬头 ≠「%s」(规则 8-1)", uniqueInts(wrongTitle), expectedTitle))
+		}
+		if len(wrongTax) > 0 {
+			rejects = append(rejects, fmt.Sprintf("明细 %v 发票税号 ≠「%s」(规则 8-2)", uniqueInts(wrongTax), expectedTaxNo))
+		}
+	}
+
+	// 规则 8-3: 每个明细发票合计 ≥ 明细金额
+	detailInvoiceSum := map[string]float64{}
+	for _, iv := range invoices {
+		amt := iv.total
+		if amt == 0 {
+			amt = iv.approve
+		}
+		detailInvoiceSum[iv.detailID] += amt
+	}
+	for did, detailAmt := range detailAmtMap {
+		sumInv := detailInvoiceSum[did]
+		// float64 精度容差 0.01 (一分钱), 业务一分钱差异不计较
+		if sumInv > 0 && sumInv+0.01 < detailAmt {
+			no := detailNoMap[did]
+			rejects = append(rejects, fmt.Sprintf("明细#%d 报销 ¥%.2f > 发票合计 ¥%.2f (规则 8-3)", no, detailAmt, sumInv))
+		}
+	}
+
+	// 规则 8-4: 开票时间 (距单据提交) ≤1月 OK / 1-3月 manual / >3月 reject
+	// raw_json.submitDate 是 毫秒级时间戳
+	submitDate := int64(0)
+	if v, ok := raw["submitDate"].(float64); ok {
+		submitDate = int64(v)
+	}
+	if submitDate > 0 {
+		const month = int64(30 * 24 * 3600 * 1000)
+		var stale1m, stale3m []int
+		for _, iv := range invoices {
+			if iv.date == 0 {
+				continue
+			}
+			diff := submitDate - iv.date
+			no := detailNoMap[iv.detailID]
+			if diff > 3*month {
+				stale3m = append(stale3m, no)
+			} else if diff > month {
+				stale1m = append(stale1m, no)
+			}
+		}
+		if len(stale3m) > 0 {
+			rejects = append(rejects, fmt.Sprintf("明细 %v 发票开票时间 > 3 个月 (规则 8-4)", uniqueInts(stale3m)))
+		}
+		if len(stale1m) > 0 {
+			warnings = append(warnings, fmt.Sprintf("明细 %v 发票开票时间 1-3 个月, 需酌情核 (规则 8-4)", uniqueInts(stale1m)))
+		}
+	}
+
+	// 规则 10: 部分明细无票且不豁免 → reject (有票明细的规则 8 已上面跑过)
+	if len(noInvoiceReject) > 0 {
+		rejects = append(rejects, fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/特殊截图说明 豁免)", uniqueInts(noInvoiceReject)))
+	}
+
+	return rejects, warnings
+}
+
+// uniqueInts 去重 + 升序排, 用于规则 8 提示里的"明细 [1 2 5]"
+func uniqueInts(s []int) []int {
+	seen := map[int]bool{}
+	out := []int{}
+	for _, v := range s {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	sort.Ints(out)
+	return out
+}
+
 // ruleAccommodationStandard 规则 7-3: 住宿费明细单晚价 ≤ 城市×职级标准
 // 跑哥规则: 一线/新一线/二线/其他城市 × 总裁/副总裁/集团总监/集团经理/主管和其他 5 档 (PDF V7.0)
 // 同住上浮: u_是否两人同住 非空 → 上浮 20% (按职位高者标准, 简化按当前人)
@@ -405,12 +906,15 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 	}
 
 	// 查提交人岗位职级 (花名册 SSC 表)
+	// fallback: SSC 表只 241 人, 普通员工 ~640 人不在 → 按"主管和其他" 400/300/300/300 (跑哥拍板)
 	position := ""
 	if submitterID != "" {
 		_ = h.DB.QueryRow(`SELECT IFNULL(position,'') FROM hesi_employee_contract_company WHERE hesi_staff_id = ? LIMIT 1`, submitterID).Scan(&position)
 	}
+	positionForDisplay := position
 	if position == "" {
-		return "", "提交人无岗位职级数据 (花名册未匹配), 住宿标准无法判定 (规则 7-3)"
+		position = "主管和其他"
+		positionForDisplay = "主管和其他 (花名册未匹配, fallback)"
 	}
 	standards, ok := accommodationStandard[position]
 	if !ok {
@@ -436,7 +940,7 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 		if line.amount > cap {
 			rejectMsgs = append(rejectMsgs, fmt.Sprintf(
 				"住宿#%d ¥%.2f > 标准 ¥%.0f×%d晚%s=¥%.2f (%s/%s, 规则 7-3)",
-				line.idx, line.amount, std, line.days, cohabitTag, cap, position, tier,
+				line.idx, line.amount, std, line.days, cohabitTag, cap, positionForDisplay, tier,
 			))
 		}
 	}
