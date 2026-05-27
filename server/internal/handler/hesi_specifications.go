@@ -157,6 +157,9 @@ var (
 	hesiLegalEntityCache map[string]string
 	hesiLegalCacheAt     time.Time
 	hesiLegalCacheMu     sync.Mutex
+	hesiFeeTypeCache     map[string]string
+	hesiFeeTypeCacheAt   time.Time
+	hesiFeeTypeCacheMu   sync.Mutex
 	hesiDictTTL          = 5 * time.Minute
 )
 
@@ -248,6 +251,24 @@ func (h *DashboardHandler) LookupDeptName(deptID string) string {
 		hesiDeptCacheAt = time.Now()
 	}
 	return hesiDeptCache[deptID]
+}
+
+// LookupFeeTypeName 费用类型 ID → 费用类型名 (合思 /api/openapi/v1/feeTypes, 5min cache)
+func (h *DashboardHandler) LookupFeeTypeName(feeTypeID string) string {
+	if feeTypeID == "" {
+		return ""
+	}
+	hesiFeeTypeCacheMu.Lock()
+	defer hesiFeeTypeCacheMu.Unlock()
+	if time.Since(hesiFeeTypeCacheAt) >= hesiDictTTL || hesiFeeTypeCache == nil {
+		m, err := h.fetchHesiDictMap("/api/openapi/v1/feeTypes")
+		if err != nil {
+			return ""
+		}
+		hesiFeeTypeCache = m
+		hesiFeeTypeCacheAt = time.Now()
+	}
+	return hesiFeeTypeCache[feeTypeID]
 }
 
 // LookupLegalEntityName 法人实体 ID → 公司名 (合思 dimensions 自定义维度 "法人实体")
