@@ -72,7 +72,6 @@ type myHesiPendingRow struct {
 	InvoiceExist        int              `json:"invoiceExist"`
 	InvoiceMissing      int              `json:"invoiceMissing"`
 	AttachmentCount     int              `json:"attachmentCount"`
-	Suggestion          *AuditSuggestion `json:"suggestion,omitempty"` // v1.63 MVP 报销单审批建议
 }
 
 // GetMyHesiPending GET /api/profile/hesi-pending
@@ -130,11 +129,6 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// v1.63 MVP: AI 审批建议规则当前仅适用于张俊 (Excel 私有定义), 其他审批人不跑
-	enableAuditSuggestion := strings.Contains(displayName, "张俊") ||
-		strings.Contains(queryName, "张俊") ||
-		strings.Contains(hesiRealName, "张俊")
-
 	// v1.62.x: SELECT 字段对齐费控管理 (含 specification_id / create_time / update_time / preApproved)
 	selectFields := `flow_id, code, IFNULL(title,''), form_type, state,
 			current_stage_name, current_approver_name, current_approver_code,
@@ -190,10 +184,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		if row.SpecificationId != nil && *row.SpecificationId != "" {
 			row.SpecificationName = h.LookupSpecName(*row.SpecificationId)
 		}
-		// v1.63 MVP: 仅对张俊作为审批人的报销单跑审批建议规则 (规则源自张俊 Excel)
-		if enableAuditSuggestion && row.FormType == "expense" {
-			row.Suggestion = AuditExpenseFlow(rawJSON)
-		}
+		_ = rawJSON
 		items = append(items, row)
 	}
 

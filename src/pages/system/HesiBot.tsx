@@ -9,14 +9,13 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  CheckCircleOutlined, CheckOutlined, ClockCircleOutlined, CloseOutlined,
+  CheckCircleOutlined, CheckOutlined, CloseOutlined,
   EyeOutlined, FileImageOutlined, FileTextOutlined, PaperClipOutlined,
   ReloadOutlined, RobotOutlined, SearchOutlined, UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
 import HesiBotRules from './HesiBotRules';
-import HesiBotStandard from './HesiBotStandard';
 
 interface PendingItem {
   flowId: string;
@@ -43,7 +42,6 @@ interface PendingItem {
   invoiceExist: number;
   invoiceMissing: number;
   attachmentCount: number;
-  suggestion?: { action: 'agree' | 'reject' | 'manual'; reasons: string[] };
 }
 
 const formTypeMap: Record<string, { label: string; color: string }> = {
@@ -204,8 +202,6 @@ const HesiBot: React.FC = () => {
 
   const totalAmount = filteredItems.reduce((sum, item) => sum + (getMoney(item) || 0), 0);
   const hasFilter = !!searchText || formTypeFilter.length > 0 || (!!dateRange && !!(dateRange[0] || dateRange[1]));
-  // AI 建议规则当前仅适用于张俊, 别人不跑规则 → 后端返回的 items 都没 suggestion → 前端藏列
-  const showAuditCol = items.some(it => !!it.suggestion);
 
   const openApproveModal = (item: PendingItem) => {
     setApproveTarget(item);
@@ -419,24 +415,6 @@ const HesiBot: React.FC = () => {
       title: '提交日期', dataIndex: 'submitDate', width: 110,
       render: (v: number | null) => v ? dayjs(Number(v)).format('YYYY-MM-DD') : '-',
     },
-    ...(showAuditCol ? [{
-      title: 'AI 建议', width: 130, align: 'center' as const,
-      render: (_: any, record: PendingItem) => {
-        const s = record.suggestion;
-        if (!s) return <span style={{ color: '#cbd5e1' }}>-</span>;
-        const cfg = ({
-          agree: { color: 'success', label: '建议同意', icon: <CheckOutlined /> },
-          reject: { color: 'error', label: '建议驳回', icon: <CloseOutlined /> },
-          manual: { color: 'warning', label: '转人工', icon: <ClockCircleOutlined /> },
-        } as Record<string, { color: string; label: string; icon: React.ReactNode }>)[s.action]
-          || { color: 'default', label: s.action, icon: null };
-        return (
-          <Tooltip title={<div>{s.reasons.map((r, i) => <div key={i}>· {r}</div>)}</div>}>
-            <Tag color={cfg.color} icon={cfg.icon as any}>{cfg.label}</Tag>
-          </Tooltip>
-        );
-      },
-    }] : []),
     {
       title: '操作', width: 160, fixed: 'right', align: 'center',
       render: (_, record) => {
@@ -478,8 +456,6 @@ const HesiBot: React.FC = () => {
       `}</style>
 
       {/* 顶部说明 + 后续路线 */}
-      {/* 审批标准说明仅在审批人是张俊 (本人登录或 admin 切换查看张俊) 时展示, 规则源自张俊私人 Excel */}
-      {((queryName || realName) || '').includes('张俊') && <HesiBotStandard />}
       <HesiBotRules />
 
       <Alert
