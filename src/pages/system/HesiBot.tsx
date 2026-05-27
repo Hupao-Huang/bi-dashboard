@@ -707,7 +707,7 @@ const HesiBot: React.FC = () => {
               key: 'basic',
               label: '基本信息',
               children: (
-                <Descriptions bordered size="small" column={2}>
+                <Descriptions bordered size="small" column={2} labelStyle={{ width: 140, whiteSpace: 'nowrap' }}>
                   <Descriptions.Item label="单据编码">{detailData.flow.code}</Descriptions.Item>
                   <Descriptions.Item label="单据类型">
                     {formTypeMap[detailData.flow.formType]?.label || detailData.flow.formType}
@@ -799,12 +799,12 @@ const HesiBot: React.FC = () => {
                       )}
                     </Descriptions.Item>
                   )}
-                  <Descriptions.Item label="创建时间">{formatTime(detailData.flow.createTime)}</Descriptions.Item>
-                  <Descriptions.Item label="提交时间">{formatTime(detailData.flow.submitDate)}</Descriptions.Item>
+                  <Descriptions.Item label="创建时间" contentStyle={{ whiteSpace: 'nowrap' }}>{formatTime(detailData.flow.createTime)}</Descriptions.Item>
+                  <Descriptions.Item label="提交时间" contentStyle={{ whiteSpace: 'nowrap' }}>{formatTime(detailData.flow.submitDate)}</Descriptions.Item>
                   {(detailData.flow.formType === 'expense' || detailData.flow.payDate) && (
-                    <Descriptions.Item label="支付时间">{formatTime(detailData.flow.payDate)}</Descriptions.Item>
+                    <Descriptions.Item label="支付时间" contentStyle={{ whiteSpace: 'nowrap' }}>{formatTime(detailData.flow.payDate)}</Descriptions.Item>
                   )}
-                  <Descriptions.Item label="完成时间">{formatTime(detailData.flow.flowEndTime)}</Descriptions.Item>
+                  <Descriptions.Item label="完成时间" contentStyle={{ whiteSpace: 'nowrap' }}>{formatTime(detailData.flow.flowEndTime)}</Descriptions.Item>
                   <Descriptions.Item label="单据模板" span={2}>
                     {(() => {
                       const sid: string | null = detailData.flow.specificationId;
