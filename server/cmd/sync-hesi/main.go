@@ -215,6 +215,55 @@ func getInvoiceDetails(token string, invoiceIds []string, objectId string) ([]ma
 	return result.Items, nil
 }
 
+// pickFirstStr 按字段后缀通用匹配 (兼容机打发票/出租车/火车/机票等不同 invoice 类型)
+// 合思字段命名 E_system_{发票类型中文名}_{字段中文名}, 不同类型前缀不同, 后缀一致
+func pickFirstStr(inv map[string]interface{}, suffix string) string {
+	for k, v := range inv {
+		if !strings.HasSuffix(k, suffix) {
+			continue
+		}
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func pickFirstInt64(inv map[string]interface{}, suffix string) int64 {
+	for k, v := range inv {
+		if !strings.HasSuffix(k, suffix) {
+			continue
+		}
+		switch x := v.(type) {
+		case float64:
+			if x != 0 {
+				return int64(x)
+			}
+		case int64:
+			if x != 0 {
+				return x
+			}
+		}
+	}
+	return 0
+}
+
+func pickFirstMoney(inv map[string]interface{}, suffix string) sql.NullFloat64 {
+	for k, v := range inv {
+		if !strings.HasSuffix(k, suffix) {
+			continue
+		}
+		if m, ok := v.(map[string]interface{}); ok {
+			if std, ok := m["standard"].(string); ok && std != "" {
+				if f, err := strconv.ParseFloat(std, 64); err == nil && f != 0 {
+					return sql.NullFloat64{Float64: f, Valid: true}
+				}
+			}
+		}
+	}
+	return sql.NullFloat64{}
+}
+
 // 保存发票主体信息到数据库
 func saveInvoiceDetails(db *sql.DB, items []map[string]interface{}) int {
 	updated := 0
@@ -223,43 +272,55 @@ func saveInvoiceDetails(db *sql.DB, items []map[string]interface{}) int {
 		if invId == "" {
 			continue
 		}
-		// 兼容不同发票类型的字段名
-		invNumber := getStr(inv, "E_system_发票主体_发票号码")
+		// 通用 pattern 兼容所有发票类型 (发票主体/非税收入类票据/机打发票/出租车发票/火车发票/...)
+		invNumber := pickFirstStr(inv, "_发票号码")
 		if invNumber == "" {
-			invNumber = getStr(inv, "E_system_非税收入类票据_票据号码")
+			invNumber = pickFirstStr(inv, "_票据号码")
 		}
-		invCode := getStr(inv, "E_system_发票主体_发票代码")
+		invCode := pickFirstStr(inv, "_发票代码")
 		if invCode == "" {
-			invCode = getStr(inv, "E_system_非税收入类票据_票据代码")
+			invCode = pickFirstStr(inv, "_票据代码")
 		}
-		invDate := getInt64(inv, "E_system_发票主体_发票日期")
+		invDate := pickFirstInt64(inv, "_发票日期")
 		if invDate == 0 {
-			invDate = getInt64(inv, "E_system_非税收入类票据_开票日期")
+			invDate = pickFirstInt64(inv, "_开票日期")
 		}
-		invStatus := getStr(inv, "E_system_发票主体_发票状态")
-		invType := getStr(inv, "E_system_发票主体_发票类别")
+		if invDate == 0 {
+			invDate = pickFirstInt64(inv, "_时间")
+		}
+		invStatus := pickFirstStr(inv, "_发票状态")
+		invType := pickFirstStr(inv, "_发票类别")
 		if invType == "" {
-			invType = getStr(inv, "E_system_非税收入类票据_发票类别")
+			invType = pickFirstStr(inv, "_发票种类")
 		}
-		buyerName := getStr(inv, "E_system_发票主体_购买方名称")
-		buyerTaxNo := getStr(inv, "E_system_发票主体_购买方纳税人识别号")
-		sellerName := getStr(inv, "E_system_发票主体_销售方名称")
+		buyerName := pickFirstStr(inv, "_购买方名称")
+		buyerTaxNo := pickFirstStr(inv, "_购买方税号")
+		if buyerTaxNo == "" {
+			buyerTaxNo = pickFirstStr(inv, "_购买方纳税人识别号")
+		}
+		sellerName := pickFirstStr(inv, "_销售方名称")
 		if sellerName == "" {
-			sellerName = getStr(inv, "E_system_非税收入类票据_收款单位")
+			sellerName = pickFirstStr(inv, "_收款单位")
 		}
-		sellerTaxNo := getStr(inv, "E_system_发票主体_销售方纳税人识别号")
+		sellerTaxNo := pickFirstStr(inv, "_销售方税号")
+		if sellerTaxNo == "" {
+			sellerTaxNo = pickFirstStr(inv, "_销售方纳税人识别号")
+		}
 		verified := 0
 		if v, ok := inv["E_system_发票主体_验真"]; ok && v == true {
 			verified = 1
 		}
-		invAmount := getMoney(inv, "E_system_发票主体_发票金额")
-		totalAmount := getMoney(inv, "E_system_发票主体_价税合计")
+		invAmount := pickFirstMoney(inv, "_发票金额")
+		totalAmount := pickFirstMoney(inv, "_价税合计")
 		if !totalAmount.Valid {
-			totalAmount = getMoney(inv, "E_system_非税收入类票据_金额合计")
+			totalAmount = pickFirstMoney(inv, "_金额合计")
+		}
+		if !totalAmount.Valid {
+			totalAmount = pickFirstMoney(inv, "_金额")
 		}
 		taxAmount := getMoney(inv, "E_税额")
 		if !taxAmount.Valid {
-			taxAmount = getMoney(inv, "E_system_发票主体_税额")
+			taxAmount = pickFirstMoney(inv, "_税额")
 		}
 
 		result, err := db.Exec(`UPDATE hesi_flow_invoice SET
