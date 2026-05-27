@@ -64,6 +64,7 @@ type myHesiPendingRow struct {
 	SubmitDate          *int64           `json:"submitDate"`
 	SubmitterId         *string          `json:"submitterId"`
 	DepartmentId        *string          `json:"departmentId"`
+	OwnerDepartment     *string          `json:"ownerDepartmentId"` // v1.76.0: 发起人部门 (规则 1)
 	PreApprovedNode     *string          `json:"preApprovedNode"`
 	PreApprovedTime     *string          `json:"preApprovedTime"`
 	SpecificationId     *string          `json:"specificationId"`
@@ -72,6 +73,7 @@ type myHesiPendingRow struct {
 	InvoiceExist        int              `json:"invoiceExist"`
 	InvoiceMissing      int              `json:"invoiceMissing"`
 	AttachmentCount     int              `json:"attachmentCount"`
+	Suggestion          *AuditSuggestion `json:"suggestion,omitempty"` // 樊雪娇日常报销单 AI 建议 (2026-05-27 v1.76.0)
 }
 
 // GetMyHesiPending GET /api/profile/hesi-pending
@@ -129,11 +131,18 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// 2026-05-27 v1.76.0: AI 审批建议适用于樊雪娇日常报销单 (spec prefix ID01Fk3qJYYFvp)
+	isFanXuejiao := strings.Contains(displayName, "樊雪娇") ||
+		strings.Contains(queryName, "樊雪娇") ||
+		strings.Contains(hesiRealName, "樊雪娇")
+	const dailyExpenseSpecPrefix = "ID01Fk3qJYYFvp"
+
 	// v1.62.x: SELECT 字段对齐费控管理 (含 specification_id / create_time / update_time / preApproved)
+	// v1.76.0: 加 owner_department (规则 1 发起人部门末级)
 	selectFields := `flow_id, code, IFNULL(title,''), form_type, state,
 			current_stage_name, current_approver_name, current_approver_code,
 			pay_money, expense_money, loan_money,
-			create_time, update_time, submit_date, submitter_id, department_id,
+			create_time, update_time, submit_date, submitter_id, department_id, owner_department,
 			JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.preApprovedNodeName')) AS pre_approved_node,
 			JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.preNodeApprovedTime')) AS pre_approved_time,
 			specification_id, IFNULL(raw_json,'')`
@@ -175,7 +184,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 			&row.StageName, &row.ApproverName, &row.CurrentApproverCode,
 			&row.PayMoney, &row.ExpenseMoney, &row.LoanMoney,
 			&row.CreateTime, &row.UpdateTime, &row.SubmitDate,
-			&row.SubmitterId, &row.DepartmentId,
+			&row.SubmitterId, &row.DepartmentId, &row.OwnerDepartment,
 			&row.PreApprovedNode, &row.PreApprovedTime,
 			&row.SpecificationId, &rawJSON); err != nil {
 			writeServerError(w, 500, "扫描失败", err)
@@ -184,7 +193,24 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		if row.SpecificationId != nil && *row.SpecificationId != "" {
 			row.SpecificationName = h.LookupSpecName(*row.SpecificationId)
 		}
-		_ = rawJSON
+		// AI 审批建议: 樊雪娇 + 日常报销单模板才跑
+		if isFanXuejiao && row.SpecificationId != nil && strings.HasPrefix(*row.SpecificationId, dailyExpenseSpecPrefix) {
+			ownerDeptID := ""
+			if row.OwnerDepartment != nil {
+				ownerDeptID = *row.OwnerDepartment
+			}
+			deptID := ""
+			if row.DepartmentId != nil {
+				deptID = *row.DepartmentId
+			}
+			expenseMoney := 0.0
+			if row.ExpenseMoney != nil {
+				expenseMoney = *row.ExpenseMoney
+			} else if row.PayMoney != nil {
+				expenseMoney = *row.PayMoney
+			}
+			row.Suggestion = h.AuditDailyExpense(ownerDeptID, deptID, expenseMoney, rawJSON)
+		}
 		items = append(items, row)
 	}
 
