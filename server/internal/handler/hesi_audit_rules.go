@@ -204,8 +204,9 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	}
 
 	// 规则 13: 必填字段校验 (品牌中心/研发中心必选 + 附件 + 报销=支付金额)
-	if rej := h.ruleRequiredFields(raw, ownerDeptID); len(rej) > 0 {
+	if rej, warn := h.ruleRequiredFields(raw, ownerDeptID); len(rej) > 0 || len(warn) > 0 {
 		rejectReasons = append(rejectReasons, rej...)
+		warnings = append(warnings, warn...)
 	}
 
 	// 优先级: reject > manual > agree
@@ -412,8 +413,11 @@ const driveFeeTypeID = "ID01Fr2mX8KP2T"
 // 13-③ 研发中心部门 → u_研发中心必选 非空
 // 13-④ 附件 — 跑哥拍板"只是字段说明, 不强制必填", 不审
 // 13-⑤ expenseMoney ≈ payMoney (容差 0.01)
-func (h *DashboardHandler) ruleRequiredFields(raw map[string]interface{}, ownerDeptID string) []string {
-	var rejects []string
+//
+//	codex 二审 v1.75.17 修: payMoney < expMoney 视为备用金/借款冲抵 (DB 实查 28+4 单),
+//	不再 reject, 转 manual 让审批人核. payMoney > expMoney 才算诡异 reject.
+func (h *DashboardHandler) ruleRequiredFields(raw map[string]interface{}, ownerDeptID string) ([]string, []string) {
+	var rejects, warnings []string
 
 	// 13-② 品牌中心
 	if h.isBrandCenterDept(ownerDeptID) {
@@ -429,13 +433,18 @@ func (h *DashboardHandler) ruleRequiredFields(raw map[string]interface{}, ownerD
 			rejects = append(rejects, "部门为研发中心, 但单据未填'研发中心必选'字段 (规则 13-③)")
 		}
 	}
-	// 13-⑤ 报销=支付金额
+	// 13-⑤ 报销=支付金额 (备用金冲抵场景转 manual, 不冤枉)
 	expMoney, ok1 := getStandardAmount(raw["expenseMoney"])
 	payMoney, ok2 := getStandardAmount(raw["payMoney"])
 	if ok1 && ok2 && expMoney > 0 && payMoney > 0 && math.Abs(expMoney-payMoney) > 0.01 {
-		rejects = append(rejects, fmt.Sprintf("报销金额 ¥%.2f ≠ 支付金额 ¥%.2f (规则 13-⑤)", expMoney, payMoney))
+		if payMoney < expMoney {
+			warnings = append(warnings, fmt.Sprintf("报销金额 ¥%.2f > 支付金额 ¥%.2f (¥%.2f 差额), 疑似备用金/借款冲抵, 需人工核 (规则 13-⑤)",
+				expMoney, payMoney, expMoney-payMoney))
+		} else {
+			rejects = append(rejects, fmt.Sprintf("支付金额 ¥%.2f > 报销金额 ¥%.2f, 数据异常 (规则 13-⑤)", payMoney, expMoney))
+		}
 	}
-	return rejects
+	return rejects, warnings
 }
 
 // getStandardAmount 从 raw_json 金额结构 {"standard":"123.45",...} 取金额
@@ -577,32 +586,40 @@ func (h *DashboardHandler) ruleSubsidyStandard(raw map[string]interface{}, submi
 	}
 
 	// 查提交人岗位职级 (复用规则 7-3 的字段)
-	// fallback: SSC 表只 241 人 (审批职级), 普通员工 ~640 人不在 → 按"主管和其他" 60/天 (跑哥拍板)
+	// fallback: SSC 表只 241 人 (审批职级), 普通员工 ~640 人不在.
+	// codex 二审 v1.75.17 修: 未匹配时按"主管和其他" cap 算, 但超额转 manual (不冤枉潜在未维护的高管)
 	position := ""
 	if submitterID != "" {
 		_ = h.DB.QueryRow(`SELECT IFNULL(position,'') FROM hesi_employee_contract_company WHERE hesi_staff_id = ? LIMIT 1`, submitterID).Scan(&position)
 	}
 	positionForDisplay := position
+	isFallback := false
 	if position == "" {
 		position = "主管和其他"
-		positionForDisplay = "主管和其他 (花名册未匹配, fallback)"
+		positionForDisplay = "主管和其他 (花名册未匹配)"
+		isFallback = true
 	}
 	std, ok := subsidyStandard[position]
 	if !ok {
 		return "", "岗位职级「" + position + "」非标准 5 档, 出差补贴标准未配置 (规则 11)"
 	}
 
-	var rejects []string
+	var rejects, warnings []string
 	for _, h := range hits {
 		// 半天按 1 天 → ceil
 		ceilDays := math.Ceil(h.days)
 		cap := ceilDays * std
 		if h.amount > cap+0.01 {
-			rejects = append(rejects, fmt.Sprintf("明细#%d 出差补贴 ¥%.2f > 标准 ¥%.0f×%.0f天=¥%.2f (%s, 规则 11)",
-				h.no, h.amount, std, ceilDays, cap, positionForDisplay))
+			msg := fmt.Sprintf("明细#%d 出差补贴 ¥%.2f > 标准 ¥%.0f×%.0f天=¥%.2f (%s, 规则 11)",
+				h.no, h.amount, std, ceilDays, cap, positionForDisplay)
+			if isFallback {
+				warnings = append(warnings, msg+" [SSC 未匹配, 请人工核职级]")
+			} else {
+				rejects = append(rejects, msg)
+			}
 		}
 	}
-	return strings.Join(rejects, "; "), ""
+	return strings.Join(rejects, "; "), strings.Join(warnings, "; ")
 }
 
 // isResearchDept 递归判定部门是否在研发链 (部门名或祖先含"研发")
@@ -906,15 +923,17 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 	}
 
 	// 查提交人岗位职级 (花名册 SSC 表)
-	// fallback: SSC 表只 241 人, 普通员工 ~640 人不在 → 按"主管和其他" 400/300/300/300 (跑哥拍板)
+	// codex 二审 v1.75.17 修: SSC 未匹配时按"主管和其他" cap 算, 但超额转 manual
 	position := ""
 	if submitterID != "" {
 		_ = h.DB.QueryRow(`SELECT IFNULL(position,'') FROM hesi_employee_contract_company WHERE hesi_staff_id = ? LIMIT 1`, submitterID).Scan(&position)
 	}
 	positionForDisplay := position
+	isFallback := false
 	if position == "" {
 		position = "主管和其他"
-		positionForDisplay = "主管和其他 (花名册未匹配, fallback)"
+		positionForDisplay = "主管和其他 (花名册未匹配)"
+		isFallback = true
 	}
 	standards, ok := accommodationStandard[position]
 	if !ok {
@@ -938,10 +957,15 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 			cohabitTag = " ×1.2(同住)"
 		}
 		if line.amount > cap {
-			rejectMsgs = append(rejectMsgs, fmt.Sprintf(
+			msg := fmt.Sprintf(
 				"住宿#%d ¥%.2f > 标准 ¥%.0f×%d晚%s=¥%.2f (%s/%s, 规则 7-3)",
 				line.idx, line.amount, std, line.days, cohabitTag, cap, positionForDisplay, tier,
-			))
+			)
+			if isFallback {
+				warnMsgs = append(warnMsgs, msg+" [SSC 未匹配, 请人工核职级]")
+			} else {
+				rejectMsgs = append(rejectMsgs, msg)
+			}
 		}
 	}
 	return strings.Join(rejectMsgs, "; "), strings.Join(warnMsgs, "; ")
