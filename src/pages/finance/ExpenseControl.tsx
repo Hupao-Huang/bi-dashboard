@@ -812,9 +812,23 @@ const ExpenseControl: React.FC = () => {
                   </Descriptions.Item>
                   <Descriptions.Item label="发起人部门">
                     {detailData.flow.ownerDepartmentName || '-'}
+                    {detailData.flow.ownerDepartmentCheck === 'non-leaf' && (
+                      <Tooltip title={detailData.flow.ownerDepartmentCheckReason || '该部门有下级'}>
+                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
+                          非末级部门
+                        </Tag>
+                      </Tooltip>
+                    )}
                   </Descriptions.Item>
                   <Descriptions.Item label="报销/借款部门">
                     {detailData.flow.departmentName || '-'}
+                    {detailData.flow.departmentCheck === 'non-leaf' && (
+                      <Tooltip title={detailData.flow.departmentCheckReason || '该部门有下级'}>
+                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
+                          非末级部门
+                        </Tag>
+                      </Tooltip>
+                    )}
                   </Descriptions.Item>
                   <Descriptions.Item label="状态">
                     <Tag color={stateMap[detailData.flow.state]?.color}>
@@ -876,6 +890,29 @@ const ExpenseControl: React.FC = () => {
                       );
                     })()}
                   </Descriptions.Item>
+                  {detailData.flow.payeeId && (
+                    <>
+                      <Descriptions.Item label="收款户名">{detailData.flow.payeeName || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="收款方式">
+                        {(() => {
+                          const m: Record<string, { label: string; color: string }> = {
+                            BANK: { label: '银行账户', color: 'success' },
+                            OVERSEABANK: { label: '海外银行', color: 'blue' },
+                            ALIPAY: { label: '支付宝', color: 'warning' },
+                            WALLET: { label: '微信/钉钉钱包', color: 'warning' },
+                            CHECK: { label: '支票', color: 'default' },
+                            ACCEPTANCEBILL: { label: '承兑汇票', color: 'default' },
+                            OTHER: { label: '其他', color: 'warning' },
+                          };
+                          const s = detailData.flow.payeeSort;
+                          const cfg = m[s] || { label: s || '-', color: 'default' };
+                          return <Tag color={cfg.color}>{cfg.label}</Tag>;
+                        })()}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="开户行" span={2}>{detailData.flow.payeeBank || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="收款账号" span={2}>{detailData.flow.payeeCardNo || '-'}</Descriptions.Item>
+                    </>
+                  )}
                 </Descriptions>
               ),
             },
@@ -888,6 +925,8 @@ const ExpenseControl: React.FC = () => {
                   dataSource={detailData.details || []}
                   rowKey={(r: any) => r.detailId || `${r.detailNo}-${r.amount}-${r.feeDate}`}
                   pagination={false}
+                  scroll={{ y: 480 }}
+                  sticky
                   expandable={{
                     expandedRowRender: renderHesiDetailExpand,
                     rowExpandable: (r: any) => {
@@ -897,7 +936,14 @@ const ExpenseControl: React.FC = () => {
                     },
                   }}
                   columns={[
-                    { title: '序号', dataIndex: 'detailNo', width: 60 },
+                    {
+                      title: '行号', width: 60,
+                      render: (_: any, __: any, idx: number) => idx + 1,
+                    },
+                    {
+                      title: '费用类型', dataIndex: 'feeTypeName', width: 140, ellipsis: true,
+                      render: (v: string) => v || <Typography.Text type="secondary">-</Typography.Text>,
+                    },
                     {
                       title: '金额', dataIndex: 'amount', width: 120, align: 'right',
                       render: (v: number) => v ? `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
@@ -911,12 +957,6 @@ const ExpenseControl: React.FC = () => {
                         if (p?.start && p?.end) return `${dayjs(p.start).format('MM-DD')} ~ ${dayjs(p.end).format('MM-DD')}`;
                         return '-';
                       },
-                    },
-                    {
-                      title: '费用类型', dataIndex: 'feeTypeId', width: 170,
-                      render: (v: string) => v
-                        ? <Tooltip title={`合思费用类型 ID: ${v}`}><Tag color="cyan">{v.length > 14 ? v.slice(0, 14) + '...' : v}</Tag></Tooltip>
-                        : '-',
                     },
                     {
                       title: '发票', dataIndex: 'invoiceStatus', width: 100,
@@ -950,14 +990,21 @@ const ExpenseControl: React.FC = () => {
                   pagination={false}
                   scroll={{ x: 1200 }}
                   columns={[
-                    { title: '发票号码', dataIndex: 'invoiceNumber', width: 200 },
+                    {
+                      title: '发票号码', dataIndex: 'invoiceNumber', width: 200,
+                      render: (v: string) => v || <Tag color="warning">未识别</Tag>,
+                    },
                     {
                       title: '发票日期', dataIndex: 'invoiceDate', width: 110,
                       render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD') : '-',
                     },
                     {
                       title: '价税合计', dataIndex: 'totalAmount', width: 120, align: 'right',
-                      render: (v: number) => v ? `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
+                      render: (v: number, r: any) => {
+                        if (v) return `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
+                        if (r.detailAmount) return <Typography.Text type="secondary">¥{r.detailAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</Typography.Text>;
+                        return '-';
+                      },
                     },
                     {
                       title: '税额', dataIndex: 'taxAmount', width: 100, align: 'right',
@@ -977,7 +1024,10 @@ const ExpenseControl: React.FC = () => {
                         return m[v] || v || '-';
                       },
                     },
-                    { title: '销售方', dataIndex: 'sellerName', width: 200, ellipsis: true },
+                    {
+                      title: '销售方/明细原因', dataIndex: 'sellerName', width: 200, ellipsis: true,
+                      render: (v: string, r: any) => v || (r.detailReason ? <Typography.Text type="secondary">{r.detailReason}</Typography.Text> : '-'),
+                    },
                     {
                       title: '验真', dataIndex: 'isVerified', width: 60, align: 'center',
                       render: (v: number) => v ? <Tag color="success">是</Tag> : <Tag>否</Tag>,

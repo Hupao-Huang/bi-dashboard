@@ -9,7 +9,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  CheckCircleOutlined, CheckOutlined, CloseOutlined,
+  CheckCircleOutlined, CheckOutlined, ClockCircleOutlined, CloseOutlined,
   EyeOutlined, FileImageOutlined, FileTextOutlined, PaperClipOutlined,
   ReloadOutlined, RobotOutlined, SearchOutlined, UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
@@ -42,6 +42,7 @@ interface PendingItem {
   invoiceExist: number;
   invoiceMissing: number;
   attachmentCount: number;
+  suggestion?: { action: 'agree' | 'reject' | 'manual'; reasons: string[] };
 }
 
 const formTypeMap: Record<string, { label: string; color: string }> = {
@@ -202,6 +203,8 @@ const HesiBot: React.FC = () => {
 
   const totalAmount = filteredItems.reduce((sum, item) => sum + (getMoney(item) || 0), 0);
   const hasFilter = !!searchText || formTypeFilter.length > 0 || (!!dateRange && !!(dateRange[0] || dateRange[1]));
+  // AI 建议规则当前仅适用于樊雪娇日常报销单 → 别人看到 items 无 suggestion → 列自动隐藏
+  const showAuditCol = items.some(it => !!it.suggestion);
 
   const openApproveModal = (item: PendingItem) => {
     setApproveTarget(item);
@@ -415,6 +418,24 @@ const HesiBot: React.FC = () => {
       title: '提交日期', dataIndex: 'submitDate', width: 110,
       render: (v: number | null) => v ? dayjs(Number(v)).format('YYYY-MM-DD') : '-',
     },
+    ...(showAuditCol ? [{
+      title: 'AI 建议', width: 130, align: 'center' as const,
+      render: (_: any, record: PendingItem) => {
+        const s = record.suggestion;
+        if (!s) return <span style={{ color: '#cbd5e1' }}>-</span>;
+        const cfg = ({
+          agree: { color: 'success', label: '建议同意', icon: <CheckOutlined /> },
+          reject: { color: 'error', label: '建议驳回', icon: <CloseOutlined /> },
+          manual: { color: 'warning', label: '转人工', icon: <ClockCircleOutlined /> },
+        } as Record<string, { color: string; label: string; icon: React.ReactNode }>)[s.action]
+          || { color: 'default', label: s.action, icon: null };
+        return (
+          <Tooltip title={<div>{s.reasons.map((r, i) => <div key={i}>· {r}</div>)}</div>}>
+            <Tag color={cfg.color} icon={cfg.icon as any}>{cfg.label}</Tag>
+          </Tooltip>
+        );
+      },
+    }] : []),
     {
       title: '操作', width: 160, fixed: 'right', align: 'center',
       render: (_, record) => {
@@ -736,9 +757,23 @@ const HesiBot: React.FC = () => {
                   </Descriptions.Item>
                   <Descriptions.Item label="发起人部门">
                     {detailData.flow.ownerDepartmentName || '-'}
+                    {detailData.flow.ownerDepartmentCheck === 'non-leaf' && (
+                      <Tooltip title={detailData.flow.ownerDepartmentCheckReason || '该部门有下级'}>
+                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
+                          非末级部门
+                        </Tag>
+                      </Tooltip>
+                    )}
                   </Descriptions.Item>
                   <Descriptions.Item label="报销/借款部门">
                     {detailData.flow.departmentName || '-'}
+                    {detailData.flow.departmentCheck === 'non-leaf' && (
+                      <Tooltip title={detailData.flow.departmentCheckReason || '该部门有下级'}>
+                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
+                          非末级部门
+                        </Tag>
+                      </Tooltip>
+                    )}
                   </Descriptions.Item>
                   <Descriptions.Item label="状态">
                     <Tag color={stateMap[detailData.flow.state]?.color}>
@@ -798,6 +833,29 @@ const HesiBot: React.FC = () => {
                       );
                     })()}
                   </Descriptions.Item>
+                  {detailData.flow.payeeId && (
+                    <>
+                      <Descriptions.Item label="收款户名">{detailData.flow.payeeName || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="收款方式">
+                        {(() => {
+                          const m: Record<string, { label: string; color: string }> = {
+                            BANK: { label: '银行账户', color: 'success' },
+                            OVERSEABANK: { label: '海外银行', color: 'blue' },
+                            ALIPAY: { label: '支付宝', color: 'warning' },
+                            WALLET: { label: '微信/钉钉钱包', color: 'warning' },
+                            CHECK: { label: '支票', color: 'default' },
+                            ACCEPTANCEBILL: { label: '承兑汇票', color: 'default' },
+                            OTHER: { label: '其他', color: 'warning' },
+                          };
+                          const s = detailData.flow.payeeSort;
+                          const cfg = m[s] || { label: s || '-', color: 'default' };
+                          return <Tag color={cfg.color}>{cfg.label}</Tag>;
+                        })()}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="开户行" span={2}>{detailData.flow.payeeBank || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="收款账号" span={2}>{detailData.flow.payeeCardNo || '-'}</Descriptions.Item>
+                    </>
+                  )}
                 </Descriptions>
               ),
             },
@@ -810,8 +868,17 @@ const HesiBot: React.FC = () => {
                   dataSource={detailData.details || []}
                   rowKey={(r: any) => r.detailId || `${r.detailNo}-${r.amount}-${r.feeDate}`}
                   pagination={false}
+                  scroll={{ y: 480 }}
+                  sticky
                   columns={[
-                    { title: '序号', dataIndex: 'detailNo', width: 60 },
+                    {
+                      title: '行号', width: 60,
+                      render: (_: any, __: any, idx: number) => idx + 1,
+                    },
+                    {
+                      title: '费用类型', dataIndex: 'feeTypeName', width: 140, ellipsis: true,
+                      render: (v: string) => v || <Typography.Text type="secondary">-</Typography.Text>,
+                    },
                     {
                       title: '金额', dataIndex: 'amount', width: 120, align: 'right',
                       render: (v: number) => v ? `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
@@ -821,9 +888,9 @@ const HesiBot: React.FC = () => {
                       render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD') : '-',
                     },
                     {
-                      title: '发票', dataIndex: 'invoiceStatus', width: 80,
-                      render: (v: string) => v === 'exist'
-                        ? <Tag icon={<CheckCircleOutlined />} color="success">有</Tag>
+                      title: '发票', dataIndex: 'invoiceStatus', width: 100,
+                      render: (v: string, r: any) => v === 'exist'
+                        ? <Tag icon={<CheckCircleOutlined />} color="success">{r.invoiceCount > 0 ? `${r.invoiceCount} 张` : '有'}</Tag>
                         : <Tag icon={<WarningOutlined />} color="error">无</Tag>,
                     },
                     { title: '消费原因', dataIndex: 'consumptionReasons', ellipsis: true },
@@ -842,14 +909,21 @@ const HesiBot: React.FC = () => {
                   pagination={false}
                   scroll={{ x: 1200 }}
                   columns={[
-                    { title: '发票号码', dataIndex: 'invoiceNumber', width: 200 },
+                    {
+                      title: '发票号码', dataIndex: 'invoiceNumber', width: 200,
+                      render: (v: string) => v || <Tag color="warning">未识别</Tag>,
+                    },
                     {
                       title: '发票日期', dataIndex: 'invoiceDate', width: 110,
                       render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD') : '-',
                     },
                     {
                       title: '价税合计', dataIndex: 'totalAmount', width: 120, align: 'right',
-                      render: (v: number) => v ? `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
+                      render: (v: number, r: any) => {
+                        if (v) return `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
+                        if (r.detailAmount) return <Typography.Text type="secondary">¥{r.detailAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</Typography.Text>;
+                        return '-';
+                      },
                     },
                     {
                       title: '税额', dataIndex: 'taxAmount', width: 100, align: 'right',
@@ -869,7 +943,10 @@ const HesiBot: React.FC = () => {
                         return m[v] || v || '-';
                       },
                     },
-                    { title: '销售方', dataIndex: 'sellerName', width: 200, ellipsis: true },
+                    {
+                      title: '销售方/明细原因', dataIndex: 'sellerName', width: 200, ellipsis: true,
+                      render: (v: string, r: any) => v || (r.detailReason ? <Typography.Text type="secondary">{r.detailReason}</Typography.Text> : '-'),
+                    },
                     {
                       title: '验真', dataIndex: 'isVerified', width: 60, align: 'center',
                       render: (v: number) => v ? <Tag color="success">是</Tag> : <Tag>否</Tag>,

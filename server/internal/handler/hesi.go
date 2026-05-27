@@ -333,6 +333,17 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		EntityCheck         string `json:"entityCheck"`
 		EntityCheckExpected string `json:"entityCheckExpected"` // 应为的公司名 (mismatch 时填)
 		EntityCheckReason   string `json:"entityCheckReason"`   // 解释文案 (前端 Tooltip 用)
+		// v1.76.0: 收款信息展示 (规则 3 配套, 查 hesi_payee_info 表)
+		PayeeID     string `json:"payeeId"`     // 收款方 ID
+		PayeeName   string `json:"payeeName"`   // 收款户名
+		PayeeSort   string `json:"payeeSort"`   // BANK/ALIPAY/WALLET/OVERSEABANK/CHECK/ACCEPTANCEBILL/OTHER
+		PayeeBank   string `json:"payeeBank"`   // 开户行/支付方
+		PayeeCardNo string `json:"payeeCardNo"` // 账号/卡号
+		// v1.76.0: 部门末级判定 (规则 1/2 配套, 跟 EntityCheck 同 pattern, 仅 non-leaf 前端标红)
+		OwnerDepartmentCheck       string `json:"ownerDepartmentCheck"`       // "ok" 末级 / "non-leaf" 有下级 / "" 未匹配字典
+		OwnerDepartmentCheckReason string `json:"ownerDepartmentCheckReason"` // Tooltip 文案
+		DepartmentCheck            string `json:"departmentCheck"`
+		DepartmentCheckReason      string `json:"departmentCheckReason"`
 	}
 	err := h.DB.QueryRow(`SELECT flow_id, code, title, form_type, state, owner_id, department_id, owner_department, submitter_id,
 		pay_money, expense_money, loan_money, create_time, update_time, submit_date, pay_date, flow_end_time,
@@ -376,6 +387,7 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		DetailId        *string         `json:"detailId"`
 		DetailNo        *int            `json:"detailNo"`
 		FeeTypeId       *string         `json:"feeTypeId"`
+		FeeTypeName     string          `json:"feeTypeName"` // v1.76.0: 反查合思字典
 		Amount          *float64        `json:"amount"`
 		FeeDate         *int64          `json:"feeDate"`
 		InvoiceCount    int             `json:"invoiceCount"`
@@ -399,6 +411,9 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 			if writeDatabaseError(w, drows.Scan(&d.DetailId, &d.DetailNo, &d.FeeTypeId, &d.Amount, &d.FeeDate,
 				&d.InvoiceCount, &d.InvoiceStatus, &d.Reasons, &d.SpecificationId, &d.RawJson)) {
 				return
+			}
+			if d.FeeTypeId != nil && *d.FeeTypeId != "" {
+				d.FeeTypeName = h.LookupFeeTypeName(*d.FeeTypeId)
 			}
 			details = append(details, d)
 		}
@@ -424,12 +439,21 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		SellerName    *string  `json:"sellerName"`
 		SellerTaxNo   *string  `json:"sellerTaxNo"`
 		IsVerified    *int     `json:"isVerified"`
+		// v1.76.0: 从关联 detail 兜底 (合思 OCR 失败时 invoice 字段全 NULL, 但 detail 有金额+原因)
+		DetailAmount  *float64 `json:"detailAmount"`
+		DetailReason  *string  `json:"detailReason"`
 	}
 	var invoices []InvoiceItem
-	irows, err := h.DB.Query(`SELECT invoice_id, invoice_number, invoice_code,
-		invoice_date, invoice_amount, total_amount, tax_amount, approve_amount,
-		invoice_status, invoice_type, buyer_name, buyer_tax_no, seller_name, seller_tax_no, is_verified
-		FROM hesi_flow_invoice WHERE flow_id=?`, flowId)
+	// v1.76.0: 只保留有发票的 detail 关联的 invoice 行 + 关联 detail.amount/reason 兜底显示
+	// 合思 detail invoice_count=0 (无票费用) 仍生成空 invoice 占位 → 过滤
+	// detail invoice_count>0 但 invoice_number=NULL = 合思 OCR 未识别但有图 → 保留, 用 detail 数据兜底
+	irows, err := h.DB.Query(`SELECT i.invoice_id, i.invoice_number, i.invoice_code,
+		i.invoice_date, i.invoice_amount, i.total_amount, i.tax_amount, i.approve_amount,
+		i.invoice_status, i.invoice_type, i.buyer_name, i.buyer_tax_no, i.seller_name, i.seller_tax_no, i.is_verified,
+		d.amount AS detail_amount, d.consumption_reasons AS detail_reason
+		FROM hesi_flow_invoice i
+		LEFT JOIN hesi_flow_detail d ON i.detail_id = d.detail_id AND i.flow_id = d.flow_id
+		WHERE i.flow_id=? AND (d.invoice_count IS NULL OR d.invoice_count > 0)`, flowId)
 	if writeDatabaseError(w, err) {
 		return
 	}
@@ -439,7 +463,8 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 			var inv InvoiceItem
 			if writeDatabaseError(w, irows.Scan(&inv.InvoiceId, &inv.InvoiceNumber, &inv.InvoiceCode,
 				&inv.InvoiceDate, &inv.InvoiceAmount, &inv.TotalAmount, &inv.TaxAmount, &inv.ApproveAmount,
-				&inv.InvoiceStatus, &inv.InvoiceType, &inv.BuyerName, &inv.BuyerTaxNo, &inv.SellerName, &inv.SellerTaxNo, &inv.IsVerified)) {
+				&inv.InvoiceStatus, &inv.InvoiceType, &inv.BuyerName, &inv.BuyerTaxNo, &inv.SellerName, &inv.SellerTaxNo, &inv.IsVerified,
+				&inv.DetailAmount, &inv.DetailReason)) {
 				return
 			}
 			invoices = append(invoices, inv)
@@ -491,6 +516,19 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		if le, ok := m["法人实体"].(string); ok && le != "" {
 			flow.LegalEntityId = le
 			flow.LegalEntityName = h.LookupLegalEntityName(le)
+		}
+		// v1.76.0: 取 payeeId + 查 hesi_payee_info 表展示收款信息
+		if pid, ok := m["payeeId"].(string); ok && pid != "" {
+			flow.PayeeID = pid
+			var pName, pSort, pBank, pCardNo sql.NullString
+			err := h.DB.QueryRow(`SELECT name, sort, bank, card_no FROM hesi_payee_info WHERE id = ? LIMIT 1`, pid).
+				Scan(&pName, &pSort, &pBank, &pCardNo)
+			if err == nil {
+				flow.PayeeName = pName.String
+				flow.PayeeSort = pSort.String
+				flow.PayeeBank = pBank.String
+				flow.PayeeCardNo = pCardNo.String
+			}
 		}
 	}
 
@@ -547,6 +585,28 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 			flow.EntityCheckExpected = expectedCompany.String
 			flow.EntityCheckReason = "申请人填的'法人实体'跟钉钉花名册的'合同公司'不一致, 请核实主体选择"
 		}
+	}
+
+	// v1.76.0: 发起人部门 + 报销/借款部门 末级判定 (规则 1/2 inline Tag, 详情接口独立判, 不调 AuditDailyExpense)
+	checkDeptLeaf := func(deptID string) (string, string) {
+		if deptID == "" {
+			return "", ""
+		}
+		var hasChild int
+		err := h.DB.QueryRow(`SELECT has_child FROM hesi_department WHERE id = ? AND active = 1 LIMIT 1`, deptID).Scan(&hasChild)
+		if err != nil {
+			return "", ""
+		}
+		if hasChild == 1 {
+			return "non-leaf", "该部门有下级, 应选末级部门"
+		}
+		return "ok", "已是末级部门"
+	}
+	if flow.OwnerDepartment != nil {
+		flow.OwnerDepartmentCheck, flow.OwnerDepartmentCheckReason = checkDeptLeaf(*flow.OwnerDepartment)
+	}
+	if flow.DepartmentId != nil {
+		flow.DepartmentCheck, flow.DepartmentCheckReason = checkDeptLeaf(*flow.DepartmentId)
 	}
 
 	writeJSON(w, map[string]interface{}{
