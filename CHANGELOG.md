@@ -539,6 +539,20 @@ Probe 显示 `d=0` 无显著滞后但为统一规范，按"所有 RPA 读 Excel 
 
 ---
 
+## v1.75.13 (2026-05-27) — 下线张俊 AI 审批建议 + 审核标准面板
+
+合思机器人页面顶部"报销单审核标准 (张俊 v2026.5.13)" 展示面板下线, 审批列表 "AI 建议" 列同步下线. 后续等跟财务核对完审核标准再开新功能.
+
+变更:
+- 删 server/internal/handler/hesi_audit_rules.go (4 条 v1.63 MVP 规则整文件)
+- 删 src/pages/system/HesiBotStandard.tsx (21 条标准 + 5 项人工复核只读展示)
+- profile_hesi_pending.go 去 suggestion 字段 + 张俊触发开关
+- HesiBot.tsx 去 AI 建议列 + 顶部展示面板渲染
+
+API /api/hesi/profile/pending 不再返 `suggestion` 字段, 不影响其他功能.
+
+---
+
 ## v1.75.8 (2026-05-26) — 凭证明细从 Tab 改成子弹窗 (按需展开)
 
 跑哥反馈"凭证明细"放顶部 Tab 不直观, 改成「凭证状态」字段后面加「查看凭证」按钮, 点击弹出子 Modal 展示借贷分录.
