@@ -12,30 +12,87 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
-// 业务招待费 fee_type ID 集合 (合思后台 2026-05-27 实查)
-// 父类 ID01Fk0FsIqgQn = "业务招待费", 子类: 招待费 / 礼品 / 总经办客情 / 等
+// 业务招待费 fee_type ID 集合 (合思 feeTypes API 2026-05-27 递归 descendants 实查 4 项)
+// 父类 ID01Fk0FsIqgQn = "业务招待费"
 var businessTreatFeeTypes = map[string]string{
 	"ID01Fk0FsIqgQn": "业务招待费",
 	"ID01Fk0IC65Hhd": "招待费",
 	"ID01Fk0IC65HxJ": "礼品",
 	"ID01KuC6LQ4oPR": "总经办客情",
-	"ID01MBFnQppBWn": "业务招待子类", // 樊雪娇数据出现过, 待补名
+	// 修正 v1.75.15: ID01MBFnQppBWn 实际是"业务宣传费" (parent=广告宣传费用), 不属于招待费, 移除
 }
 
-// 招待费用申请单 specification_id 前缀 (合思后台 2026-05-27 实查)
+// 招待费用申请单 specification_id 前缀 (合思 2026-05-27 实查)
 const reqTreatmentSpecPrefix = "ID01FAvUKAThbV"
 
-// 固定资产 fee_type ID (合思后台 2026-05-27 实查, 父类无子类)
+// 固定资产 fee_type ID (合思 2026-05-27 实查, 父类无子类)
 var fixedAssetFeeTypes = map[string]string{
 	"ID01FFN9mLHtrp": "固定资产",
 }
 
 // 固定资产申请单 specification_id 前缀
 const reqFixedAssetSpecPrefix = "ID01FFO5f39taD"
+
+// 交通及差旅费 fee_type ID 集合 (合思 feeTypes API 2026-05-27 递归 descendants 实查)
+// 父类 ID01Fk0sq1ya5x = "交通及差旅费", 含 15 项 (交通费/住宿费/补贴/各交通工具/过路停车)
+var travelExpenseFeeTypes = map[string]string{
+	"ID01Fk0sq1ya5x": "交通及差旅费",
+	"ID01Fk0STRw38z": "交通费",
+	"ID01Fk0STRw3p5": "住宿费",
+	"ID01Fk0MQBAAQ7": "补贴",
+	"ID01Fk0MQBAB6D": "市内补贴",
+	"ID01FkA9pR8zGT": "餐费补贴",
+	"ID01Fk0IZFCaJx": "飞机",
+	"ID01Fk0IZFCb03": "火车",
+	"ID01Fk0IZFCbgz": "客车",
+	"ID01Fk0IZFCbx5": "其他交通",
+	"ID01Fr2mX8KP2T": "私车公用",
+	"ID01KhLSijR88T": "汽车",
+	"ID01KhLSijR8FV": "过路费",
+	"ID01KhLSijR8Wr": "停车费",
+	"ID01KhLSijR8pp": "地铁",
+}
+
+// 出差申请单 specification_id 前缀 (合思预置, corp_prefix=ID01FfMgoeP7cz)
+const reqTripSpecPrefix = "ID01FfMgoeP7cz:PRESET_REQUISITION_TRIP"
+
+// 需人工核座位等级的 fee_type (规则 7-2)
+// 跑哥规则: 汽车/火车/高铁/动车二等座及以下, 飞机经济舱
+// 合思后台未存舱位字段, 合思订票时源头按职级卡座位; 凭票报销时无字段判定, 给审批人 manual 提示
+var seatReviewFeeTypes = map[string]string{
+	"ID01Fk0IZFCaJx": "飞机 (经济舱)",
+	"ID01Fk0IZFCb03": "火车 (二等座及以下)",
+	"ID01Fk0IZFCbgz": "客车",
+	"ID01Fk0IZFCbx5": "其他交通",
+	"ID01KhLSijR88T": "汽车 (二等座及以下)",
+}
+
+// 住宿费 fee_type (规则 7-3 触发 + 单晚价提取)
+const hotelFeeTypeID = "ID01Fk0STRw3p5"
+
+// 住宿标准矩阵 (¥/晚, PDF V7.0 2026-01-23)
+// 城市分级 × 职级, 同住按职位高者标准上浮 20%
+var accommodationStandard = map[string]map[string]float64{
+	"总裁":      {"一线": 1200, "新一线": 1000, "二线": 1000, "其他": 800},
+	"副总裁":     {"一线": 1000, "新一线": 800, "二线": 800, "其他": 600},
+	"集团总监":    {"一线": 500, "新一线": 400, "二线": 400, "其他": 300},
+	"集团经理":    {"一线": 450, "新一线": 350, "二线": 350, "其他": 300},
+	"主管和其他": {"一线": 400, "新一线": 300, "二线": 300, "其他": 300},
+}
+
+// 城市分级缓存 (5min TTL, hesi_city_tier 表 68 城市)
+var (
+	cityTierCache   map[string]string
+	cityTierCacheAt time.Time
+	cityTierCacheMu sync.Mutex
+)
 
 // AuditSuggestion 审批建议输出
 type AuditSuggestion struct {
@@ -49,13 +106,14 @@ type AuditSuggestion struct {
 //   - departmentID: hesi_flow.department_id 报销/借款部门 ID (= raw_json.expenseDepartment, 规则 2)
 //   - expenseMoney: hesi_flow.expense_money 报销金额 (规则 5 招待费金额对比)
 //   - rawJSON: 合思单据 raw_json (含 payeeId / submitterId / 法人实体 / details / expenseLinks 等)
-func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID string, expenseMoney float64, rawJSON string) *AuditSuggestion {
+func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitterID string, expenseMoney float64, rawJSON string) *AuditSuggestion {
 	var raw map[string]interface{}
 	if rawJSON != "" {
 		_ = json.Unmarshal([]byte(rawJSON), &raw)
 	}
 
 	var rejectReasons []string
+	var warnings []string
 
 	// 规则 1: 发起人部门 末级 (员工提交人部门, raw_json.u_提交人部门 = hesi_flow.owner_department)
 	if r := ruleDeptLeaf(h.DB, ownerDeptID, "发起人部门 (规则 1)"); r != "" {
@@ -88,8 +146,36 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID string, e
 		rejectReasons = append(rejectReasons, r)
 	}
 
+	// 规则 7-1: 交通及差旅费 关联出差申请单 + 金额不超
+	if r := h.ruleRequisitionLink(raw, expenseMoney, travelExpenseFeeTypes, reqTripSpecPrefix, "交通及差旅费", "出差申请单", "规则 7-1"); r != "" {
+		rejectReasons = append(rejectReasons, r)
+	}
+
+	// 规则 7-2: 飞机/火车/汽车明细需人工核座位等级 (合思未存舱位字段, manual 提示)
+	if w := ruleSeatManualReview(raw); w != "" {
+		warnings = append(warnings, w)
+	}
+
+	// 规则 7-3: 住宿费单晚价 ≤ 城市×职级标准 (同住上浮 20%)
+	if rejectMsg, warnMsg := h.ruleAccommodationStandard(raw, submitterID); rejectMsg != "" || warnMsg != "" {
+		if rejectMsg != "" {
+			rejectReasons = append(rejectReasons, rejectMsg)
+		}
+		if warnMsg != "" {
+			warnings = append(warnings, warnMsg)
+		}
+	}
+
+	// 优先级: reject > manual > agree
 	if len(rejectReasons) > 0 {
-		return &AuditSuggestion{Action: "reject", Reasons: rejectReasons}
+		all := rejectReasons
+		for _, w := range warnings {
+			all = append(all, "[需人工核] "+w)
+		}
+		return &AuditSuggestion{Action: "reject", Reasons: all}
+	}
+	if len(warnings) > 0 {
+		return &AuditSuggestion{Action: "manual", Reasons: warnings}
 	}
 	return &AuditSuggestion{Action: "agree", Reasons: []string{"所有规则通过"}}
 }
@@ -167,7 +253,10 @@ func (h *DashboardHandler) ruleRequisitionLink(raw map[string]interface{}, expen
 	}
 
 	// 3+4. 累计关联申请单金额 + 类型验证
+	// codex 二审修复 v1.75.15: 关联单查不到 / requisitionMoney 解析失败 → 不能静默放行,
+	// 改为 reject 提示"关联申请单无法识别金额" (业务安全偏严)
 	var totalReqMoney float64
+	matched := 0
 	for _, l := range linksRaw {
 		linkID, _ := l.(string)
 		if linkID == "" {
@@ -182,6 +271,7 @@ func (h *DashboardHandler) ruleRequisitionLink(raw map[string]interface{}, expen
 		if !strings.HasPrefix(specID.String, specPrefix) {
 			return "关联单不是「" + reqLabel + "」(" + ruleLabel + ")"
 		}
+		matched++
 		if reqRawJSON.Valid && reqRawJSON.String != "" {
 			var reqMap map[string]interface{}
 			if json.Unmarshal([]byte(reqRawJSON.String), &reqMap) == nil {
@@ -196,7 +286,15 @@ func (h *DashboardHandler) ruleRequisitionLink(raw map[string]interface{}, expen
 		}
 	}
 
-	if expenseMoney > totalReqMoney && totalReqMoney > 0 {
+	// 关联单都查不到 (link id 全无效) → reject
+	if matched == 0 {
+		return "关联" + reqLabel + " 查不到有效单据 (" + ruleLabel + ")"
+	}
+	// 关联单存在但金额解析失败 → reject (codex 二审防漏拦)
+	if totalReqMoney == 0 {
+		return "关联" + reqLabel + " 金额无法识别, 无法对比报销额 (" + ruleLabel + ")"
+	}
+	if expenseMoney > totalReqMoney {
 		return fmt.Sprintf("报销金额 ¥%.2f > 关联%s合计 ¥%.2f (%s)", expenseMoney, reqLabel, totalReqMoney, ruleLabel)
 	}
 	return ""
@@ -247,4 +345,168 @@ func rulePayeeBank(db *sql.DB, payeeID string) string {
 		sortLabel = sort
 	}
 	return "收款信息必须为银行账户, 当前为「" + sortLabel + "」(规则 3)"
+}
+
+// ruleAccommodationStandard 规则 7-3: 住宿费明细单晚价 ≤ 城市×职级标准
+// 跑哥规则: 一线/新一线/二线/其他城市 × 总裁/副总裁/集团总监/集团经理/主管和其他 5 档 (PDF V7.0)
+// 同住上浮: u_是否两人同住 非空 → 上浮 20% (按职位高者标准, 简化按当前人)
+// 单晚价算法: amount / 出差天数 (feeDatePeriod.end - start)/86400000 + 1
+// 返回: (reject 原因, warn 原因), 任一非空即触发
+func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{}, submitterID string) (string, string) {
+	details, _ := raw["details"].([]interface{})
+
+	type hotelLine struct {
+		idx     int
+		amount  float64
+		cityRaw string
+		days    int
+		cohabit bool
+	}
+	var lines []hotelLine
+	for i, d := range details {
+		dm, _ := d.(map[string]interface{})
+		if dm == nil {
+			continue
+		}
+		feeTypeID, _ := dm["feeTypeId"].(string)
+		if feeTypeID != hotelFeeTypeID {
+			continue
+		}
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		if form == nil {
+			continue
+		}
+		var amt float64
+		if a, ok := form["amount"].(map[string]interface{}); ok {
+			if s, ok := a["standard"].(string); ok {
+				amt, _ = strconv.ParseFloat(s, 64)
+			}
+		}
+		cityRaw, _ := form["city"].(string)
+		cohabit := false
+		if v, ok := form["u_是否两人同住"].(string); ok && v != "" {
+			cohabit = true
+		}
+		days := 1
+		if fp, ok := form["feeDatePeriod"].(map[string]interface{}); ok {
+			start, _ := fp["start"].(float64)
+			end, _ := fp["end"].(float64)
+			if end > start {
+				days = int((end-start)/86400000) + 1
+				if days < 1 {
+					days = 1
+				}
+			}
+		}
+		lines = append(lines, hotelLine{i + 1, amt, cityRaw, days, cohabit})
+	}
+	if len(lines) == 0 {
+		return "", ""
+	}
+
+	// 查提交人岗位职级 (花名册 SSC 表)
+	position := ""
+	if submitterID != "" {
+		_ = h.DB.QueryRow(`SELECT IFNULL(position,'') FROM hesi_employee_contract_company WHERE hesi_staff_id = ? LIMIT 1`, submitterID).Scan(&position)
+	}
+	if position == "" {
+		return "", "提交人无岗位职级数据 (花名册未匹配), 住宿标准无法判定 (规则 7-3)"
+	}
+	standards, ok := accommodationStandard[position]
+	if !ok {
+		return "", "岗位职级「" + position + "」非标准 5 档, 住宿标准未配置 (规则 7-3)"
+	}
+
+	tierMap := h.loadCityTierCache()
+	var rejectMsgs []string
+	var warnMsgs []string
+	for _, line := range lines {
+		tier := extractTier(line.cityRaw, tierMap)
+		std := standards[tier]
+		if std == 0 {
+			warnMsgs = append(warnMsgs, fmt.Sprintf("住宿明细#%d 城市分级未识别 (规则 7-3)", line.idx))
+			continue
+		}
+		cap := std * float64(line.days)
+		cohabitTag := ""
+		if line.cohabit {
+			cap *= 1.2
+			cohabitTag = " ×1.2(同住)"
+		}
+		if line.amount > cap {
+			rejectMsgs = append(rejectMsgs, fmt.Sprintf(
+				"住宿#%d ¥%.2f > 标准 ¥%.0f×%d晚%s=¥%.2f (%s/%s, 规则 7-3)",
+				line.idx, line.amount, std, line.days, cohabitTag, cap, position, tier,
+			))
+		}
+	}
+	return strings.Join(rejectMsgs, "; "), strings.Join(warnMsgs, "; ")
+}
+
+// loadCityTierCache 加载 hesi_city_tier 表到内存 cache (5min TTL)
+func (h *DashboardHandler) loadCityTierCache() map[string]string {
+	cityTierCacheMu.Lock()
+	defer cityTierCacheMu.Unlock()
+	if cityTierCache != nil && time.Since(cityTierCacheAt) < 5*time.Minute {
+		return cityTierCache
+	}
+	m := map[string]string{}
+	rows, err := h.DB.Query(`SELECT city_name, tier FROM hesi_city_tier`)
+	if err != nil {
+		return m
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name, tier string
+		if err := rows.Scan(&name, &tier); err == nil {
+			m[name] = tier
+		}
+	}
+	cityTierCache = m
+	cityTierCacheAt = time.Now()
+	return m
+}
+
+// extractTier 从 city raw 字符串 (例 [{"label":"浙江省/杭州/余杭区"}]) 找匹配的城市分级
+// 按 city_name 长度 desc 排序匹配, 避免 "石" 抢 "石家庄"
+func extractTier(cityRaw string, tierMap map[string]string) string {
+	if cityRaw == "" || len(tierMap) == 0 {
+		return "其他"
+	}
+	keys := make([]string, 0, len(tierMap))
+	for k := range tierMap {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
+	for _, k := range keys {
+		if strings.Contains(cityRaw, k) {
+			return tierMap[k]
+		}
+	}
+	return "其他"
+}
+
+// ruleSeatManualReview 规则 7-2: 飞机/火车/汽车/客车/其他交通明细 → 需人工核座位等级
+// 跑哥规则: 汽车/火车/高铁/动车二等座及以下, 飞机经济舱
+// 合思 raw_json 未存舱位/座位字段, 凭票报销时只能给 manual 提示
+// 数据驱动: 实查 286 单日常报销单含飞机/火车明细, 283 单 (99%) 有 u_付款截图 = 凭票报销
+func ruleSeatManualReview(raw map[string]interface{}) string {
+	details, _ := raw["details"].([]interface{})
+	var hits []string
+	seen := map[string]bool{}
+	for _, d := range details {
+		dm, ok := d.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		feeTypeID, _ := dm["feeTypeId"].(string)
+		if label, ok := seatReviewFeeTypes[feeTypeID]; ok && !seen[label] {
+			hits = append(hits, label)
+			seen[label] = true
+		}
+	}
+	if len(hits) == 0 {
+		return ""
+	}
+	return "含" + strings.Join(hits, "/") + ", 需人工核座位等级 (规则 7-2)"
 }

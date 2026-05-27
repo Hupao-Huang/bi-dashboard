@@ -209,7 +209,11 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 			} else if row.PayMoney != nil {
 				expenseMoney = *row.PayMoney
 			}
-			row.Suggestion = h.AuditDailyExpense(ownerDeptID, deptID, expenseMoney, rawJSON)
+			submitterID := ""
+			if row.SubmitterId != nil {
+				submitterID = *row.SubmitterId
+			}
+			row.Suggestion = h.AuditDailyExpense(ownerDeptID, deptID, submitterID, expenseMoney, rawJSON)
 		}
 		items = append(items, row)
 	}
