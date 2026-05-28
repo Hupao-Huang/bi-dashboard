@@ -75,6 +75,10 @@ const DingtalkCallback = lazy(() => import('./pages/DingtalkCallback'));
 const FuturesOverview = lazy(() => import('./pages/futures'));
 const FuturesTrend = lazy(() => import('./pages/futures/TrendChart'));
 const FuturesDetail = lazy(() => import('./pages/futures/Detail'));
+const BrandOverview = lazy(() => import('./pages/brand/Overview'));
+const BrandAwareness = lazy(() => import('./pages/brand/Awareness'));
+const BrandAffinity = lazy(() => import('./pages/brand/Affinity'));
+const BrandBinding = lazy(() => import('./pages/brand/Binding'));
 
 dayjs.locale('zh-cn');
 
@@ -182,7 +186,11 @@ const App: React.FC = () => (
               <Route path="/supply-chain/logistics-analysis" element={guard('supply_chain.logistics_analysis:view', <LogisticsAnalysis />)} />
               <Route path="/supply-chain/daily-alerts" element={guard('supply_chain.daily_alerts:view', <DailyAlerts />)} />
               <Route path="/supply-chain/monthly-billing" element={guard('supply_chain.monthly_billing:view', <MonthlyBilling />)} />
-              <Route path="/brand" element={guard('brand:view', <div style={{ textAlign: 'center', padding: 80, color: '#94a3b8' }}>品牌中心 - 待开发</div>)} />
+              <Route path="/brand" element={<Navigate to="/brand/overview" replace />} />
+              <Route path="/brand/overview" element={guard('brand.overview:view', <BrandOverview />)} />
+              <Route path="/brand/awareness" element={guard('brand.awareness:view', <BrandAwareness />)} />
+              <Route path="/brand/affinity" element={guard('brand.affinity:view', <BrandAffinity />)} />
+              <Route path="/brand/binding" element={guard('brand.binding:view', <BrandBinding />)} />
               <Route path="/system/access" element={guard('user.manage', <UserAccessPage />)} />
               <Route path="/system/online" element={guard('user.manage', <OnlineUsersPage />)} />
               <Route path="/system/roles" element={guard('role.manage', <RoleAccessPage />)} />

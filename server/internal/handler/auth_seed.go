@@ -22,7 +22,11 @@ type roleSeed struct {
 
 var permissionSeeds = []permissionSeed{
 	{Code: "overview:view", Name: "综合看板", Type: "page"},
-	{Code: "brand:view", Name: "品牌中心", Type: "menu"},
+	{Code: "brand:view", Name: "心智渗透", Type: "menu"},
+	{Code: "brand.overview:view", Name: "心智渗透-心智健康度总览", Type: "page"},
+	{Code: "brand.awareness:view", Name: "心智渗透-知名度层", Type: "page"},
+	{Code: "brand.affinity:view", Name: "心智渗透-好感度层", Type: "page"},
+	{Code: "brand.binding:view", Name: "心智渗透-心智绑定层", Type: "page"},
 	{Code: "ecommerce:view", Name: "电商部门", Type: "menu"},
 	{Code: "ecommerce.store_preview:view", Name: "电商-店铺数据预览", Type: "page"},
 	{Code: "ecommerce.store_dashboard:view", Name: "电商-店铺看板", Type: "page"},
@@ -98,7 +102,7 @@ var roleSeeds = []roleSeed{
 var roleDefaultPermissions = map[string][]string{
 	"management": {
 		"overview:view",
-		"brand:view",
+		"brand:view", "brand.overview:view", "brand.awareness:view", "brand.affinity:view", "brand.binding:view",
 		"ecommerce:view", "ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view", "ecommerce.marketing_cost:view", "ecommerce.special_channel_allot:view",
 		"social:view", "social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view", "social.feigua:view",
 		"offline:view", "offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view", "offline.high_value_customers:view", "offline.turnover_expiry:view", "offline.ka_monthly:view",
@@ -112,7 +116,7 @@ var roleDefaultPermissions = map[string][]string{
 	},
 	"dept_manager": {
 		"overview:view",
-		"brand:view",
+		"brand:view", "brand.overview:view", "brand.awareness:view", "brand.affinity:view", "brand.binding:view",
 		"ecommerce:view", "ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view", "ecommerce.marketing_cost:view", "ecommerce.special_channel_allot:view",
 		"social:view", "social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view", "social.feigua:view",
 		"offline:view", "offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view", "offline.high_value_customers:view", "offline.turnover_expiry:view", "offline.ka_monthly:view",
@@ -122,7 +126,7 @@ var roleDefaultPermissions = map[string][]string{
 		"profile.hesi_bot:view",
 	},
 	"operator": {
-		"brand:view",
+		"brand:view", "brand.overview:view", "brand.awareness:view", "brand.affinity:view", "brand.binding:view",
 		"ecommerce:view", "ecommerce.store_preview:view", "ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view", "ecommerce.marketing_cost:view", "ecommerce.special_channel_allot:view",
 		"social:view", "social.store_preview:view", "social.store_dashboard:view", "social.product_dashboard:view", "social.feigua:view",
 		"offline:view", "offline.store_preview:view", "offline.store_dashboard:view", "offline.product_dashboard:view", "offline.high_value_customers:view", "offline.turnover_expiry:view", "offline.ka_monthly:view",
@@ -132,13 +136,13 @@ var roleDefaultPermissions = map[string][]string{
 	},
 	"finance": {
 		"overview:view",
-		"brand:view",
+		"brand:view", "brand.overview:view", "brand.awareness:view", "brand.affinity:view", "brand.binding:view",
 		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view", "finance.report:view", "finance.report:import",
 		"profit:view", "cost:view", "gross_margin:view",
 		"profile.hesi_bot:view",
 	},
 	"supply_chain": {
-		"brand:view",
+		"brand:view", "brand.overview:view", "brand.awareness:view", "brand.affinity:view", "brand.binding:view",
 		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view",
 	},
 }

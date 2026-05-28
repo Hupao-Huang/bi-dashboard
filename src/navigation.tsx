@@ -68,7 +68,18 @@ const deptMenuChildren = (prefix: string, permissions: { preview: string; store:
 
 export const menuDefinitions: MenuDefinition[] = [
   { key: '/overview', icon: <DashboardOutlined />, label: '综合看板', permission: 'overview:view' },
-  { key: '/brand', icon: <TrademarkOutlined />, label: '品牌中心', permission: 'brand:view' },
+  {
+    key: '/brand',
+    icon: <TrademarkOutlined />,
+    label: '心智渗透',
+    permission: 'brand:view',
+    children: [
+      { key: '/brand/overview', icon: <DashboardOutlined />, label: '心智健康度总览', permission: 'brand.overview:view' },
+      { key: '/brand/awareness', icon: <RiseOutlined />, label: '知名度层 (A)', permission: 'brand.awareness:view' },
+      { key: '/brand/affinity', icon: <CrownOutlined />, label: '好感度层 (B)', permission: 'brand.affinity:view' },
+      { key: '/brand/binding', icon: <ShareAltOutlined />, label: '心智绑定层 (C)', permission: 'brand.binding:view' },
+    ],
+  },
   {
     key: '/ecommerce',
     icon: <ShoppingCartOutlined />,
@@ -269,7 +280,11 @@ export const pageTitleMap: Record<string, string> = {
   '/supply-chain/logistics-analysis': '快递仓储分析',
   '/supply-chain/daily-alerts': '每日预警',
   '/supply-chain/monthly-billing': '月度账单分析',
-  '/brand': '品牌中心',
+  '/brand': '心智渗透',
+  '/brand/overview': '心智健康度总览',
+  '/brand/awareness': '知名度层',
+  '/brand/affinity': '好感度层',
+  '/brand/binding': '心智绑定层',
   '/system': '系统设置',
   '/system/access': '用户管理',
   '/system/roles': '角色管理',
@@ -305,6 +320,10 @@ export const deptLabelMap: Record<string, string> = {
 export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/overview', permission: 'overview:view' },
   { path: '/brand', permission: 'brand:view' },
+  { path: '/brand/overview', permission: 'brand.overview:view' },
+  { path: '/brand/awareness', permission: 'brand.awareness:view' },
+  { path: '/brand/affinity', permission: 'brand.affinity:view' },
+  { path: '/brand/binding', permission: 'brand.binding:view' },
   { path: '/ecommerce', permission: 'ecommerce:view' },
   { path: '/ecommerce/store-preview', permission: 'ecommerce.store_preview:view' },
   { path: '/ecommerce/store-dashboard', permission: 'ecommerce.store_dashboard:view' },
