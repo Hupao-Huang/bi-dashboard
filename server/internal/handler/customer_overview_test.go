@@ -22,7 +22,7 @@ func TestGetCustomerOverviewEmptyResult(t *testing.T) {
 	cols := []string{
 		"platform", "stat_date", "shop_name", "consult_users", "inquiry_users",
 		"pay_users", "sales_amount", "first_response_seconds", "response_seconds",
-		"satisfaction_rate", "conv_rate",
+		"satisfaction_rate", "conv_rate", "sat_weight",
 	}
 	mock.ExpectQuery(`UNION ALL`).
 		WillReturnRows(sqlmock.NewRows(cols))
@@ -46,13 +46,13 @@ func TestGetCustomerOverviewWithData(t *testing.T) {
 	cols := []string{
 		"platform", "stat_date", "shop_name", "consult_users", "inquiry_users",
 		"pay_users", "sales_amount", "first_response_seconds", "response_seconds",
-		"satisfaction_rate", "conv_rate",
+		"satisfaction_rate", "conv_rate", "sat_weight",
 	}
 	mock.ExpectQuery(`UNION ALL`).
 		WillReturnRows(sqlmock.NewRows(cols).
-			AddRow("天猫", "2026-04-15", "天猫旗舰店", 100.0, 80.0, 50.0, 5000.0, 30.0, 60.0, 95.0, 60.0).
-			AddRow("拼多多", "2026-04-15", "拼多多店", 200.0, 150.0, 80.0, 8000.0, 0.0, 0.0, 90.0, 50.0).
-			AddRow("京东", "2026-04-15", "京东店", 80.0, 60.0, 40.0, 3000.0, 25.0, 50.0, 88.0, 70.0))
+			AddRow("天猫", "2026-04-15", "天猫旗舰店", 100.0, 80.0, 50.0, 5000.0, 30.0, 60.0, 95.0, 60.0, 40.0).
+			AddRow("拼多多", "2026-04-15", "拼多多店", 200.0, 150.0, 80.0, 8000.0, 0.0, 0.0, 90.0, 50.0, 150.0).
+			AddRow("京东", "2026-04-15", "京东店", 80.0, 60.0, 40.0, 3000.0, 25.0, 50.0, 88.0, 70.0, 60.0))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/customer/overview?start=2026-04-01&end=2026-04-30", nil)
@@ -73,13 +73,13 @@ func TestGetCustomerOverviewSkipTmallEmptyRow(t *testing.T) {
 	cols := []string{
 		"platform", "stat_date", "shop_name", "consult_users", "inquiry_users",
 		"pay_users", "sales_amount", "first_response_seconds", "response_seconds",
-		"satisfaction_rate", "conv_rate",
+		"satisfaction_rate", "conv_rate", "sat_weight",
 	}
 	// 天猫全 0 → 应被 skip (line 368 source 跳过 tmall 全空行)
 	mock.ExpectQuery(`UNION ALL`).
 		WillReturnRows(sqlmock.NewRows(cols).
-			AddRow("天猫", "2026-04-15", "天猫零数据店", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).
-			AddRow("拼多多", "2026-04-15", "拼多多店", 100.0, 80.0, 50.0, 5000.0, 0.0, 0.0, 90.0, 60.0))
+			AddRow("天猫", "2026-04-15", "天猫零数据店", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).
+			AddRow("拼多多", "2026-04-15", "拼多多店", 100.0, 80.0, 50.0, 5000.0, 0.0, 0.0, 90.0, 60.0, 80.0))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/customer/overview?start=2026-04-01&end=2026-04-30", nil)
@@ -100,12 +100,12 @@ func TestGetCustomerOverviewWithPlatformFilter(t *testing.T) {
 	cols := []string{
 		"platform", "stat_date", "shop_name", "consult_users", "inquiry_users",
 		"pay_users", "sales_amount", "first_response_seconds", "response_seconds",
-		"satisfaction_rate", "conv_rate",
+		"satisfaction_rate", "conv_rate", "sat_weight",
 	}
 	mock.ExpectQuery(`UNION ALL`).
 		WillReturnRows(sqlmock.NewRows(cols).
-			AddRow("天猫", "2026-04-15", "天猫店", 100.0, 80.0, 50.0, 5000.0, 30.0, 60.0, 95.0, 60.0).
-			AddRow("拼多多", "2026-04-15", "拼多多店", 200.0, 150.0, 80.0, 8000.0, 0.0, 0.0, 90.0, 50.0))
+			AddRow("天猫", "2026-04-15", "天猫店", 100.0, 80.0, 50.0, 5000.0, 30.0, 60.0, 95.0, 60.0, 40.0).
+			AddRow("拼多多", "2026-04-15", "拼多多店", 200.0, 150.0, 80.0, 8000.0, 0.0, 0.0, 90.0, 50.0, 150.0))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/customer/overview?start=2026-04-01&end=2026-04-30&platform=天猫", nil)

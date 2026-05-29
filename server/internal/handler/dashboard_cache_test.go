@@ -6,6 +6,7 @@ package handler
 // 注意: overviewCache 是 package-level 变量, 每个 test 开头 ClearOverviewCache 重置防互相污染.
 
 import (
+	"strconv"
 	"testing"
 	"time"
 )
@@ -122,8 +123,8 @@ func TestSetCacheWithTTLEvictsExpiredAtCapacity(t *testing.T) {
 }
 
 func fmtKey(prefix string, i int) string {
-	return prefix + "-" + itoa(i)
+	return prefix + "-" + strconv.Itoa(i)
 }
 
-// itoa removed v1.74.3: 跟 hesi_audit_rules.go:122 重复定义导致 go test 编译失败 (pre-existing bug).
-// 改用 hesi_audit_rules.go 的 itoa (package handler 内可访问).
+// itoa 历史上在 hesi_audit_rules.go 定义, 后被移除导致本测试包整体编译失败 (pre-existing bug)。
+// v1.75.19 修: 直接用 strconv.Itoa, 不再依赖 package 内 itoa helper。

@@ -18,6 +18,7 @@ type customerMetricRecord struct {
 	FirstRespSeconds float64
 	ResponseSeconds  float64
 	SatisfactionRate float64
+	SatWeight        float64
 	ConvRate         float64
 }
 
@@ -31,10 +32,10 @@ type customerMetricAgg struct {
 	FirstRespCount    int
 	ResponseSeconds   float64
 	ResponseCount     int
-	SatisfactionRate  float64
-	SatisfactionCount int
-	ConvRate          float64
-	ConvCount         int
+	SatisfactionSum    float64
+	SatisfactionWeight float64
+	ConvRate           float64
+	ConvCount          int
 }
 
 type customerPlatformStat struct {
@@ -116,9 +117,13 @@ func (a *customerMetricAgg) add(rec customerMetricRecord) {
 		a.ResponseSeconds += rec.ResponseSeconds
 		a.ResponseCount++
 	}
-	if rec.SatisfactionRate > 0 {
-		a.SatisfactionRate += normalizeRate(rec.SatisfactionRate)
-		a.SatisfactionCount++
+	// 满意率按"评价量"加权汇总, 而不是把每天的满意率等权简单平均。
+	// 有评价数的平台(抖音/天猫/小红书)权重=当天评价数 → 加权结果数学上等于 Σ好评÷Σ评价(店铺整体口径, 跟飞鸽后台一致);
+	// 无评价数的平台权重=当天接待量, 且 SQL 已保证仅当天有满意率时权重>0。
+	// 修复: 评价量小的店(如调味品旗舰店)某天 1 条差评=当天 0 分, 等权平均会被严重拖垮 (80% vs 真实 99%)。
+	if rec.SatWeight > 0 {
+		a.SatisfactionSum += normalizeRate(rec.SatisfactionRate) * rec.SatWeight
+		a.SatisfactionWeight += rec.SatWeight
 	}
 	if rec.ConvRate > 0 {
 		a.ConvRate += normalizeRate(rec.ConvRate)
@@ -141,10 +146,10 @@ func (a *customerMetricAgg) avgResponseSeconds() float64 {
 }
 
 func (a *customerMetricAgg) avgSatisfactionRate() float64 {
-	if a.SatisfactionCount == 0 {
+	if a.SatisfactionWeight == 0 {
 		return 0
 	}
-	return a.SatisfactionRate / float64(a.SatisfactionCount)
+	return a.SatisfactionSum / a.SatisfactionWeight
 }
 
 func (a *customerMetricAgg) avgConvRate() float64 {
@@ -175,7 +180,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 	}
 
 	rows, ok := queryRowsOrWriteError(w, r, h.DB, `
-		SELECT platform, stat_date, shop_name, consult_users, inquiry_users, pay_users, sales_amount, first_response_seconds, response_seconds, satisfaction_rate, conv_rate
+		SELECT platform, stat_date, shop_name, consult_users, inquiry_users, pay_users, sales_amount, first_response_seconds, response_seconds, satisfaction_rate, conv_rate, sat_weight
 		FROM (
 			SELECT
 				'天猫' AS platform,
@@ -191,7 +196,8 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				CASE
 					WHEN IFNULL(ti.final_conv_rate, 0) <= 1 THEN IFNULL(ti.final_conv_rate, 0) * 100
 					ELSE IFNULL(ti.final_conv_rate, 0)
-				END AS conv_rate
+				END AS conv_rate,
+				IFNULL(te.total_recv_eval, 0) AS sat_weight
 			FROM op_tmall_service_consult tc
 			LEFT JOIN op_tmall_service_inquiry ti ON ti.stat_date = tc.stat_date AND ti.shop_name = tc.shop_name
 			LEFT JOIN op_tmall_service_avgprice ta ON ta.stat_date = tc.stat_date AND ta.shop_name = tc.shop_name
@@ -214,7 +220,8 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 					WHEN IFNULL(px.three_min_reply_rate_823, 0) <= 1 THEN IFNULL(px.three_min_reply_rate_823, 0) * 100
 					ELSE IFNULL(px.three_min_reply_rate_823, 0)
 				END AS satisfaction_rate,
-				IFNULL(ps.inquiry_conv_rate, 0) AS conv_rate
+				IFNULL(ps.inquiry_conv_rate, 0) AS conv_rate,
+				CASE WHEN IFNULL(px.three_min_reply_rate_823, 0) > 0 THEN IFNULL(ps.inquiry_users, 0) ELSE 0 END AS sat_weight
 			FROM (
 				SELECT stat_date, shop_name FROM op_pdd_cs_service_daily
 				UNION
@@ -237,7 +244,8 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				IFNULL(jw.first_avg_resp_seconds, 0) AS first_response_seconds,
 				IFNULL(jw.new_avg_resp_seconds, 0) AS response_seconds,
 				IFNULL(jw.satisfaction_rate, 0) AS satisfaction_rate,
-				IFNULL(js.consult_to_order_rate, 0) AS conv_rate
+				IFNULL(js.consult_to_order_rate, 0) AS conv_rate,
+				CASE WHEN IFNULL(jw.satisfaction_rate, 0) > 0 THEN IFNULL(jw.receive_count, IFNULL(jw.consult_count, 0)) ELSE 0 END AS sat_weight
 			FROM (
 				SELECT stat_date, shop_name FROM op_jd_cs_workload_daily
 				UNION
@@ -260,7 +268,8 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				IFNULL(all_day_first_reply_seconds, 0) AS first_response_seconds,
 				IFNULL(all_day_avg_reply_seconds, 0) AS response_seconds,
 				IFNULL(all_day_satisfaction_rate, 0) AS satisfaction_rate,
-				IFNULL(inquiry_conv_rate, 0) AS conv_rate
+				IFNULL(inquiry_conv_rate, 0) AS conv_rate,
+				IFNULL(valid_eval_count, 0) AS sat_weight
 			FROM op_douyin_cs_feige_daily
 			WHERE stat_date BETWEEN ? AND ?
 
@@ -286,7 +295,8 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				CASE
 					WHEN IFNULL(inquiry_conv_rate, 0) <= 1 THEN IFNULL(inquiry_conv_rate, 0) * 100
 					ELSE IFNULL(inquiry_conv_rate, 0)
-				END AS conv_rate
+				END AS conv_rate,
+				CASE WHEN IFNULL(good_rate_person, 0) > 0 THEN IFNULL(consult_users, 0) ELSE 0 END AS sat_weight
 			FROM op_kuaishou_cs_assessment_daily
 			WHERE stat_date BETWEEN ? AND ?
 
@@ -312,7 +322,8 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 				CASE
 					WHEN IFNULL(inquiry_pay_case_ratio, 0) <= 1 THEN IFNULL(inquiry_pay_case_ratio, 0) * 100
 					ELSE IFNULL(inquiry_pay_case_ratio, 0)
-				END AS conv_rate
+				END AS conv_rate,
+				IFNULL(evaluate_case_count, 0) AS sat_weight
 			FROM op_xhs_cs_analysis_daily
 			WHERE stat_date BETWEEN ? AND ?
 		) metrics
@@ -335,6 +346,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 		var responseSeconds sql.NullFloat64
 		var satisfactionRate sql.NullFloat64
 		var convRate sql.NullFloat64
+		var satWeight sql.NullFloat64
 
 		if writeDatabaseError(w, rows.Scan(
 			&rec.Platform,
@@ -348,6 +360,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 			&responseSeconds,
 			&satisfactionRate,
 			&convRate,
+			&satWeight,
 		)) {
 			return
 		}
@@ -360,6 +373,7 @@ func (h *DashboardHandler) GetCustomerOverview(w http.ResponseWriter, r *http.Re
 		rec.ResponseSeconds = nullFloat(responseSeconds)
 		rec.SatisfactionRate = nullFloat(satisfactionRate)
 		rec.ConvRate = nullFloat(convRate)
+		rec.SatWeight = nullFloat(satWeight)
 
 		if platformFilter != "" && rec.Platform != platformFilter {
 			continue
