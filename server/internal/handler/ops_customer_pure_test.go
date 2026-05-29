@@ -58,7 +58,7 @@ func TestCustomerMetricAggAdd(t *testing.T) {
 	rec1 := customerMetricRecord{
 		ConsultUsers: 100, InquiryUsers: 80, PayUsers: 30, SalesAmount: 5000,
 		FirstRespSeconds: 5.5, ResponseSeconds: 8.0,
-		SatisfactionRate: 0.95, ConvRate: 0.30,
+		SatisfactionRate: 0.95, SatWeight: 10, ConvRate: 0.30,
 	}
 	agg.add(rec1)
 
@@ -71,9 +71,12 @@ func TestCustomerMetricAggAdd(t *testing.T) {
 	if agg.FirstRespCount != 1 {
 		t.Errorf("FirstRespSeconds > 0 应 +FirstRespCount")
 	}
-	// SatisfactionRate normalize: 0.95 → 95
-	if agg.SatisfactionRate != 95 {
-		t.Errorf("SatisfactionRate 应 normalize, got %v", agg.SatisfactionRate)
+	// 满意率按权重加权: normalizeRate(0.95)=95 ×权重10 → Sum=950, Weight=10, 均值=95
+	if agg.SatisfactionSum != 950 {
+		t.Errorf("SatisfactionSum 应 950, got %v", agg.SatisfactionSum)
+	}
+	if got := agg.avgSatisfactionRate(); got != 95 {
+		t.Errorf("avgSatisfactionRate 应 95, got %v", got)
 	}
 	// ConvRate normalize: 0.30 → 30
 	if agg.ConvRate != 30 {
@@ -113,7 +116,7 @@ func TestCustomerMetricAggAvgComputed(t *testing.T) {
 	agg := &customerMetricAgg{
 		FirstRespSeconds: 30, FirstRespCount: 3,
 		ResponseSeconds: 60, ResponseCount: 4,
-		SatisfactionRate: 270, SatisfactionCount: 3,
+		SatisfactionSum: 270, SatisfactionWeight: 3,
 		ConvRate: 90, ConvCount: 3,
 	}
 	if got := agg.avgFirstRespSeconds(); got != 10 {
@@ -127,6 +130,26 @@ func TestCustomerMetricAggAvgComputed(t *testing.T) {
 	}
 	if got := agg.avgConvRate(); got != 30 {
 		t.Errorf("avgConv=%v want 30", got)
+	}
+}
+
+// 回归测试: 满意率必须按评价量加权, 不能把每天的满意率等权简单平均。
+// 复现并防止 v1.75.18 之前的 bug: 评价量小的店某天 1 条差评(0 分)被等权平均严重拖垮。
+func TestCustomerMetricAggSatisfactionWeighted(t *testing.T) {
+	agg := &customerMetricAgg{}
+	// 当天 50 条评价全好评 = 100%
+	agg.add(customerMetricRecord{SatisfactionRate: 100, SatWeight: 50})
+	// 另一天只有 1 条评价且是差评 = 0%
+	agg.add(customerMetricRecord{SatisfactionRate: 0, SatWeight: 1})
+	// 加权 = (100×50 + 0×1) / (50+1) = 98.04%; 等权平均(旧 bug)会得 (100+0)/2 = 50%
+	got := agg.avgSatisfactionRate()
+	if got < 98.0 || got > 98.1 {
+		t.Errorf("加权满意率应 ~98.04, got %v (若得 50 说明退回等权平均 bug)", got)
+	}
+	// 无评价(权重 0)的记录不计入分母
+	agg.add(customerMetricRecord{SatisfactionRate: 0, SatWeight: 0})
+	if agg.SatisfactionWeight != 51 {
+		t.Errorf("SatWeight=0 不应计入, 权重和应 51, got %v", agg.SatisfactionWeight)
 	}
 }
 
