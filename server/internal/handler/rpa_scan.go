@@ -375,6 +375,34 @@ func clearRPAScanCache() {
 	rpaScanCachedAt = time.Time{}
 }
 
+// StartRPAScanTicker 后台每 5 分钟主动刷一次 RPA 文件扫描缓存
+// 让前端 RPAMonitor 页面打开瞬开, 不再卡在缓存过期触发的全盘重扫
+func StartRPAScanTicker() {
+	log.Println("[rpa_scan] 后台扫描 ticker 启动 (每 5 分钟主动刷缓存)")
+	refreshRPAScanBackground()
+	ticker := time.NewTicker(rpaScanCacheTTL)
+	defer ticker.Stop()
+	for range ticker.C {
+		refreshRPAScanBackground()
+	}
+}
+
+// refreshRPAScanBackground 后台跑一次文件扫描并更新缓存, panic 被 recover 防止整进程崩
+func refreshRPAScanBackground() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[rpa_scan] 后台扫描 panic recovered: %v", r)
+		}
+	}()
+	start := time.Now()
+	result := doRPAScan()
+	rpaScanMu.Lock()
+	rpaScanCache = result
+	rpaScanCachedAt = time.Now()
+	rpaScanMu.Unlock()
+	log.Printf("[rpa_scan] 后台扫描完成 耗时=%v 平台数=%d", time.Since(start), len(result.Platforms))
+}
+
 // -------- HTTP 处理器 --------
 
 // ScanRPAFiles GET /api/admin/rpa-scan

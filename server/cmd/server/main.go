@@ -580,6 +580,9 @@ func main() {
 	hesiApprovalStop := make(chan struct{})
 	go h.StartHesiApprovalWorker(hesiApprovalStop)
 
+	// RPA 文件扫描后台 ticker: 每 5 分钟刷缓存, 让 RPAMonitor 页面打开瞬开
+	go handler.StartRPAScanTicker()
+
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
