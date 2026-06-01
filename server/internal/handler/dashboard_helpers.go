@@ -27,25 +27,13 @@ func getOverviewTrendRange(r *http.Request, start, end string) (string, string) 
 }
 
 func buildOverviewCacheKey(r *http.Request, start, end, trendStart, trendEnd string) string {
-	payload, ok := authPayloadFromContext(r)
-	if !ok || payload == nil {
-		return fmt.Sprintf("anon|%s|%s|%s|%s", start, end, trendStart, trendEnd)
-	}
-
-	return fmt.Sprintf(
-		"u:%d|sa:%t|%s|%s|%s|%s|d:%s|p:%s|s:%s|w:%s|dom:%s",
-		payload.User.ID,
-		payload.IsSuperAdmin,
-		start,
-		end,
-		trendStart,
-		trendEnd,
-		strings.Join(payload.DataScopes.Depts, ","),
-		strings.Join(payload.DataScopes.Platforms, ","),
-		strings.Join(payload.DataScopes.Shops, ","),
-		strings.Join(payload.DataScopes.Warehouses, ","),
-		strings.Join(payload.DataScopes.Domains, ","),
-	)
+	payload, _ := authPayloadFromContext(r)
+	// v1.75.20: 内层缓存 key 改成按「权限范围签名」(不再带用户 ID), 与 WithCache 一致,
+	// 同权限范围的用户共享一份缓存。scopeCacheSig(nil) 返回 "anon", 覆盖未登录场景。
+	// 前缀用 "api|ov|" (不是裸 "ov|"): 让 ClearCacheByPrefix("api|") 这类广义清缓存
+	// (如 channel.go 改渠道部门后) 能同时清掉内外两层, 否则内层旧数据会被服务 ~30s (内层 TTL)。
+	return fmt.Sprintf("api|ov|%s|%s|%s|%s|%s",
+		scopeCacheSig(payload), start, end, trendStart, trendEnd)
 }
 
 // getDateRange 从请求中获取日期范围，默认返回全部数据的范围
