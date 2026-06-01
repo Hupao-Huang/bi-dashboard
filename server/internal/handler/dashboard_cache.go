@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +37,10 @@ func ClearOverviewCache() int {
 
 // ClearCacheByPrefix 精准清理：只删 key 以 prefix 开头的缓存条目
 // prefix 示例: "api|/api/stock/" 匹配所有 stock 相关接口（不影响别的模块）
-// WithCache 的 key 格式: "api|<path>?<query>|u:<uid>"
+// v1.75.20 起 key 格式:
+//   - WithCache 外层:        "api|<path>?<query>|<scopeSig>"
+//   - GetOverview 内层(ov|): "api|ov|<scopeSig>|<dates>"
+// 两层都以 "api|" 开头, 所以 ClearCacheByPrefix("api|") 广义清缓存能同时清内外层。
 func ClearCacheByPrefix(prefix string) int {
 	overviewCacheMu.Lock()
 	defer overviewCacheMu.Unlock()
@@ -88,14 +92,32 @@ func setCacheWithTTL(key string, data map[string]interface{}, ttl time.Duration)
 	}
 }
 
+// scopeCacheSig 生成用户「数据权限范围」的签名串。
+// 同一权限范围(部门/平台/店铺/仓库/域 + 是否超管)的用户得到相同签名,
+// 可安全共享同一份数据缓存——因为他们各自调 buildXxxDataScopeCond 得到的过滤条件完全相同,
+// 返回数据必然一致。权限(permission)不同的人在到达缓存前已被 RequirePermission 拦下,
+// 不会污染缓存。必须覆盖全部 5 个 scope 维度 + 超管标志, 漏一个就可能让不同权限的人撞 key 串数据。
+func scopeCacheSig(payload *authPayload) string {
+	if payload == nil {
+		return "anon"
+	}
+	s := payload.DataScopes
+	join := func(in []string) string {
+		out := append([]string(nil), in...)
+		sort.Strings(out)
+		return strings.Join(out, ",")
+	}
+	return fmt.Sprintf("sa:%t|d:%s|p:%s|s:%s|w:%s|dom:%s",
+		payload.IsSuperAdmin,
+		join(s.Depts), join(s.Platforms), join(s.Shops), join(s.Warehouses), join(s.Domains))
+}
+
 func (h *DashboardHandler) WithCache(ttl time.Duration, handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		payload, _ := authPayloadFromContext(r)
-		uid := int64(0)
-		if payload != nil {
-			uid = payload.User.ID
-		}
-		key := fmt.Sprintf("api|%s?%s|u:%d", r.URL.Path, r.URL.RawQuery, uid)
+		// v1.75.20: 缓存按「权限范围签名」分组(不再按用户 ID), 同权限的人共享一份缓存,
+		// 命中率从「每人每天冷一次」提升到「一组人里第一个开的人焐热, 其余全秒开」。
+		key := fmt.Sprintf("api|%s?%s|%s", r.URL.Path, r.URL.RawQuery, scopeCacheSig(payload))
 		if cached, ok := getOverviewCache(key); ok {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(cached)

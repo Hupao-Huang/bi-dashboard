@@ -583,6 +583,9 @@ func main() {
 	// RPA 文件扫描后台 ticker: 每 5 分钟刷缓存, 让 RPAMonitor 页面打开瞬开
 	go handler.StartRPAScanTicker()
 
+	// v1.75.20: 综合看板后台预热 ticker, 让 /api/overview 默认视图始终是热缓存 (秒开)
+	go h.StartOverviewPrewarm()
+
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
