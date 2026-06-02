@@ -347,6 +347,12 @@ func main() {
 	mux.HandleFunc("/api/admin/audit-logs", adminMeta(h.AdminAuditLogs))
 	mux.HandleFunc("/api/admin/pending-counts", protected(h.AdminPendingCounts))
 
+	// 用友 YonBIP 批量出库工具 (系统设置小工具, 单人高频用)。
+	// 权限 system.yonbip:use; super_admin 自动通过, 其他人没分配则进不来。
+	// export-execute 会真写用友 (建单+批次转换+审核, 不可逆)。
+	mux.HandleFunc("/api/yonbip/export-plan", pageProtected("system.yonbip:use", h.YonbipExportPlan))
+	mux.HandleFunc("/api/yonbip/export-execute", pageProtected("system.yonbip:use", h.YonbipExportExecute))
+
 	// T-1 数据看板：昨天/前天/上月数据永远不变，缓存 24 小时
 	// 同步脚本完成后会调 ClearCacheByPrefix 主动清除（详见 supply_chain.go / stock.go）
 	// 历史背景：曾命名 cache5m 但 TTL 为 60min，现统一为 cache24h（v0.56.7）

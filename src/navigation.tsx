@@ -226,6 +226,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/system/db-dict', icon: <DatabaseOutlined />, label: '数据库字典', permission: 'role.manage' },
       { key: '/system/trade-audit', icon: <AuditOutlined />, label: '销售单核对', permission: 'role.manage' },
       { key: '/system/ops', icon: <MonitorOutlined />, label: '运维监控', permission: 'role.manage' },
+      { key: '/system/yonbip', icon: <ShoppingCartOutlined />, label: '用友批量出库', permission: 'system.yonbip:use' },
     ],
   },
 ];
@@ -295,6 +296,7 @@ export const pageTitleMap: Record<string, string> = {
   '/system/db-dict': '数据库字典',
   '/system/trade-audit': '销售单核对',
   '/system/ops': '运维监控',
+  '/system/yonbip': '用友批量出库',
   '/profile': '个人中心',
   '/profile/info': '个人信息',
   '/profile/hesi-bot': '合思机器人',

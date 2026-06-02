@@ -1,0 +1,781 @@
+package handler
+
+// 用友 YonBIP 批量出库工具 (系统设置 → 小工具, 单人高频用)。
+// 一比一移植自本地 Python 工具 Desktop/project/yonbip_api/app.py:
+//   - plan_jky_export      → ybPlanExport (拆单算法, 纯逻辑, 注入库存查询便于单测)
+//   - api_jky_export_execute → (*DashboardHandler).ybExecute (三阶段: 批次转换→出库单→审核)
+//   - create_batch_conversion / create_other_out → ybBuildConversionBody / ybBuildOutItem+ybBuildOtherOutBody
+// 写库存=不可逆, 所有 YS 调用走 h.YS (复用 token/签名/1.1s 限流)。
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+
+	"bi-dashboard/internal/yonsuite"
+)
+
+// ---------------- 常量 (移植自 Python) ----------------
+
+type ybOrg struct {
+	ID   string
+	Name string
+}
+
+// ybOrgPriority 跨组织扣库存优先级 (按顺序扣, 未列入的组织不参与)。
+var ybOrgPriority = []ybOrg{
+	{"2451285875823214599", "浙江松鲜鲜自然调味品有限公司"},
+	{"2451285927362822152", "杭州润松自然调味品有限公司"},
+	{"2451285918772887559", "杭州华鲜高新技术有限公司"},
+}
+
+const ybDefaultOrgID = "2451285875823214599"
+
+// ybStatusPriority 库存状态优先级: 合格 → 不合格 → 废品 → 其他。
+var ybStatusPriority = map[string]int{
+	"2448706971278246078": 0, // 合格
+	"2448706971278246081": 1, // 不合格
+	"2448706971278246082": 2, // 废品
+}
+
+func ybStatusPri(sd string) int {
+	if p, ok := ybStatusPriority[sd]; ok {
+		return p
+	}
+	return 99
+}
+
+// ybCategoryNameToCode 收发类别 中文→code (前端可能传中文或 code)。
+var ybCategoryNameToCode = map[string]string{
+	"其他出库": "29", "销售出库": "22", "留样出库": "23",
+	"抽检损耗出库": "24", "组装拆卸出库": "25", "参展出库": "26",
+	"调拨出库": "27", "盘亏出库": "28", "生产损耗": "30",
+	"生产领料": "20", "委外发料": "21",
+}
+
+func ybNormalizeCategory(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if ybIsDigits(s) {
+		return s
+	}
+	return ybCategoryNameToCode[s] // 未知中文 → ""
+}
+
+// ybWhStripTokens 仓库名 normalize 时丢弃的组织/类型修饰段。
+var ybWhStripTokens = map[string]bool{
+	"润松": true, "浙江松鲜鲜": true, "公司仓": true, "外仓": true,
+	"委外": true, "公司": true, "分公司": true,
+}
+
+func ybNormalizeWhName(name string) string {
+	s := strings.TrimSpace(name)
+	if s == "" {
+		return ""
+	}
+	parts := strings.Split(s, "-")
+	keep := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" || ybWhStripTokens[p] {
+			continue
+		}
+		keep = append(keep, p)
+	}
+	if len(keep) == 0 {
+		return s
+	}
+	return strings.Join(keep, "-")
+}
+
+// ybWhMatch 仓库名严格匹配: 精确相等, 或 normalize 后精确相等 (不做子串匹配)。
+func ybWhMatch(jkyName, stockName string) bool {
+	a := strings.TrimSpace(jkyName)
+	b := strings.TrimSpace(stockName)
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	na, nb := ybNormalizeWhName(a), ybNormalizeWhName(b)
+	return na != "" && nb != "" && na == nb
+}
+
+// ---------------- 类型 (JSON 与前端 round-trip) ----------------
+
+type ybRow struct {
+	ProductCode   string `json:"product_code"`
+	Qty           string `json:"qty"`
+	TargetBatch   string `json:"target_batch"`
+	Bustype       string `json:"bustype"`
+	BillNo        string `json:"bill_no"`
+	Category      string `json:"category"`
+	WarehouseName string `json:"warehouse_name"`
+}
+
+type ybConvertSource struct {
+	FromBatch       string `json:"from_batch"`
+	FromProducedate string `json:"from_producedate"`
+	FromInvaliddate string `json:"from_invaliddate"`
+	Qty             int    `json:"qty"`
+	ProductskuID    string `json:"productsku_id"`
+	UnitID          string `json:"unit_id"`
+	StockUnitID     string `json:"stockUnitId"`
+	StockStatusDoc  string `json:"stockStatusDoc"`
+}
+
+type ybShipment struct {
+	OrgID           string            `json:"org_id"`
+	OrgName         string            `json:"org_name"`
+	WarehouseCode   string            `json:"warehouse_code"`
+	WarehouseName   string            `json:"warehouse_name"`
+	Qty             int               `json:"qty"`
+	TargetQtyDirect int               `json:"target_qty_direct"`
+	ConvertQty      int               `json:"convert_qty"`
+	ConvertSources  []ybConvertSource `json:"convert_sources"`
+	ProductCode     string            `json:"product_code"`
+	ProductName     string            `json:"product_name"`
+	ProductskuID    string            `json:"productsku_id"`
+	UnitID          string            `json:"unit_id"`
+	StockUnitID     string            `json:"stockUnitId"`
+	StockStatusDoc  string            `json:"stockStatusDoc"`
+	OutBatch        string            `json:"out_batch"`
+	OutProducedate  string            `json:"out_producedate"`
+	OutInvaliddate  string            `json:"out_invaliddate"`
+}
+
+type ybPlan struct {
+	Row          ybRow        `json:"row"`
+	ProductName  string       `json:"product_name"`
+	NeededQty    int          `json:"needed_qty"`
+	FulfilledQty int          `json:"fulfilled_qty"`
+	RemainingQty int          `json:"remaining_qty"`
+	Shipments    []ybShipment `json:"shipments"`
+}
+
+// ---------------- 拆单算法 (纯逻辑, 注入库存查询) ----------------
+
+// ybPlanExport 跨组织拆单。queryStock(oid, productCode) 返回该组织该货品的现存量行。
+// 多行明细共享一个库存池, 避免同仓同批次被重复占用。
+func ybPlanExport(queryStock func(orgID, productCode string) []yonsuite.StockRow, rows []ybRow) []ybPlan {
+	stockCache := map[string][]yonsuite.StockRow{}
+	stockPool := map[string]int{} // oid|wh|product|batch|status → 剩余可用量
+
+	poolKey := func(oid, wh, product, batch, status string) string {
+		return oid + "|" + wh + "|" + product + "|" + batch + "|" + status
+	}
+	getStock := func(oid, productCode string) []yonsuite.StockRow {
+		ck := oid + "|" + productCode
+		if srs, ok := stockCache[ck]; ok {
+			return srs
+		}
+		srs := queryStock(oid, productCode)
+		stockCache[ck] = srs
+		for _, sr := range srs {
+			stockPool[poolKey(oid, sr.WarehouseCode, productCode, sr.Batchno, sr.StockStatusDoc)] = int(sr.AvailableQty)
+		}
+		return srs
+	}
+
+	plans := make([]ybPlan, 0, len(rows))
+	for _, row := range rows {
+		productCode := strings.TrimSpace(row.ProductCode)
+		targetBatch := strings.TrimSpace(row.TargetBatch)
+		whName := strings.TrimSpace(row.WarehouseName)
+		needed := 0
+		if f, err := strconv.ParseFloat(strings.TrimSpace(row.Qty), 64); err == nil {
+			needed = int(f)
+		}
+
+		shipments := []ybShipment{}
+		remaining := needed
+		productName := ""
+
+		for _, org := range ybOrgPriority {
+			if remaining <= 0 {
+				break
+			}
+			oid := org.ID
+			stockRows := getStock(oid, productCode)
+			if len(stockRows) > 0 && productName == "" {
+				productName = stockRows[0].ProductName
+			}
+
+			inWh := make([]yonsuite.StockRow, 0)
+			for _, r := range stockRows {
+				if ybWhMatch(whName, r.WarehouseName) {
+					inWh = append(inWh, r)
+				}
+			}
+			if len(inWh) == 0 {
+				continue
+			}
+
+			whGroups := map[string][]yonsuite.StockRow{}
+			whOrder := []string{}
+			for _, r := range inWh {
+				if _, ok := whGroups[r.WarehouseCode]; !ok {
+					whOrder = append(whOrder, r.WarehouseCode)
+				}
+				whGroups[r.WarehouseCode] = append(whGroups[r.WarehouseCode], r)
+			}
+			sort.Strings(whOrder)
+
+			for _, whCode := range whOrder {
+				if remaining <= 0 {
+					break
+				}
+				whRows := whGroups[whCode]
+				whRealName := whRows[0].WarehouseName
+				poolOf := func(r yonsuite.StockRow) int {
+					return stockPool[poolKey(oid, whCode, productCode, r.Batchno, r.StockStatusDoc)]
+				}
+				sortByStatusPool := func(rs []yonsuite.StockRow) {
+					sort.SliceStable(rs, func(i, j int) bool {
+						pi, pj := ybStatusPri(rs[i].StockStatusDoc), ybStatusPri(rs[j].StockStatusDoc)
+						if pi != pj {
+							return pi < pj
+						}
+						return poolOf(rs[i]) > poolOf(rs[j])
+					})
+				}
+
+				var directRows, transferRows []yonsuite.StockRow
+				if targetBatch == "" {
+					directRows = append(directRows, whRows...)
+					sortByStatusPool(directRows)
+				} else {
+					for _, r := range whRows {
+						if r.Batchno == targetBatch {
+							directRows = append(directRows, r)
+						} else {
+							transferRows = append(transferRows, r)
+						}
+					}
+					sortByStatusPool(directRows)
+					sortByStatusPool(transferRows)
+				}
+
+				// 1) 直出: 每个 (batchno,status) 一个 shipment
+				for _, r := range directRows {
+					if remaining <= 0 {
+						break
+					}
+					av := poolOf(r)
+					if av <= 0 {
+						continue
+					}
+					use := av
+					if remaining < use {
+						use = remaining
+					}
+					stockPool[poolKey(oid, whCode, productCode, r.Batchno, r.StockStatusDoc)] = av - use
+					outBatch := targetBatch
+					if outBatch == "" {
+						outBatch = r.Batchno
+					}
+					shipments = append(shipments, ybShipment{
+						OrgID: oid, OrgName: org.Name,
+						WarehouseCode: whCode, WarehouseName: whRealName,
+						Qty: use, TargetQtyDirect: use, ConvertQty: 0,
+						ConvertSources: []ybConvertSource{},
+						ProductCode:    productCode,
+						ProductName:    ybFirstNonEmpty(r.ProductName, productName),
+						ProductskuID:   r.ProductskuID, UnitID: r.UnitID, StockUnitID: r.StockUnitID,
+						StockStatusDoc: r.StockStatusDoc,
+						OutBatch:       outBatch,
+						OutProducedate: r.Producedate, OutInvaliddate: r.Invaliddate,
+					})
+					remaining -= use
+				}
+
+				// 2) 批次转换补齐: 每个转换源 (batchno,status) 一个 shipment (自带 1 个 convert_source)
+				for _, r := range transferRows {
+					if remaining <= 0 {
+						break
+					}
+					av := poolOf(r)
+					if av <= 0 {
+						continue
+					}
+					use := av
+					if remaining < use {
+						use = remaining
+					}
+					stockPool[poolKey(oid, whCode, productCode, r.Batchno, r.StockStatusDoc)] = av - use
+					shipments = append(shipments, ybShipment{
+						OrgID: oid, OrgName: org.Name,
+						WarehouseCode: whCode, WarehouseName: whRealName,
+						Qty: use, TargetQtyDirect: 0, ConvertQty: use,
+						ConvertSources: []ybConvertSource{{
+							FromBatch: r.Batchno, FromProducedate: r.Producedate, FromInvaliddate: r.Invaliddate,
+							Qty: use, ProductskuID: r.ProductskuID, UnitID: r.UnitID, StockUnitID: r.StockUnitID,
+							StockStatusDoc: r.StockStatusDoc,
+						}},
+						ProductCode:    productCode,
+						ProductName:    ybFirstNonEmpty(r.ProductName, productName),
+						ProductskuID:   r.ProductskuID, UnitID: r.UnitID, StockUnitID: r.StockUnitID,
+						StockStatusDoc: r.StockStatusDoc,
+						OutBatch:       targetBatch,
+						OutProducedate: r.Producedate, OutInvaliddate: r.Invaliddate,
+					})
+					remaining -= use
+				}
+			}
+		}
+
+		plans = append(plans, ybPlan{
+			Row: row, ProductName: productName,
+			NeededQty: needed, FulfilledQty: needed - remaining, RemainingQty: remaining,
+			Shipments: shipments,
+		})
+	}
+	return plans
+}
+
+// ---------------- 执行编排 (三阶段, 写真用友) ----------------
+
+type ybConvLog struct {
+	FromBatch string `json:"from_batch"`
+	Qty       int    `json:"qty"`
+	DocCode   string `json:"doc_code"`
+	AuditOk   bool   `json:"audit_ok"`
+	Error     string `json:"error,omitempty"`
+}
+
+type ybShipLog struct {
+	OrgName       string      `json:"org_name"`
+	WarehouseName string      `json:"warehouse_name"`
+	Qty           int         `json:"qty"`
+	Conversions   []ybConvLog `json:"conversions"`
+	OutDocCode    string      `json:"out_doc_code"`
+	OutDocID      string      `json:"out_doc_id"`
+	AuditOk       bool        `json:"audit_ok"`
+	Error         string      `json:"error,omitempty"`
+	skipOut       bool        // 内部: 批次转换失败则跳过出库
+}
+
+type ybIdx struct{ pi, si int }
+
+// ybExecute 三阶段执行: ①批次转换 save+审核 ②按(组织,仓库,类别)合并出库单 save+审核 ③回填结果。
+func (h *DashboardHandler) ybExecute(vouchdate string, plans []ybPlan, groupByBill bool) []map[string]interface{} {
+	logs := map[ybIdx]*ybShipLog{}
+	for pi := range plans {
+		for si := range plans[pi].Shipments {
+			sh := plans[pi].Shipments[si]
+			logs[ybIdx{pi, si}] = &ybShipLog{
+				OrgName: sh.OrgName, WarehouseName: sh.WarehouseName, Qty: sh.Qty,
+				Conversions: []ybConvLog{},
+			}
+		}
+	}
+
+	// ---- 阶段 1: 批次转换 ----
+	for pi := range plans {
+		targetBatch := strings.TrimSpace(plans[pi].Row.TargetBatch)
+		for si := range plans[pi].Shipments {
+			sh := plans[pi].Shipments[si]
+			lg := logs[ybIdx{pi, si}]
+			for _, cs := range sh.ConvertSources {
+				convLog := ybConvLog{FromBatch: cs.FromBatch, Qty: cs.Qty}
+				body := ybBuildConversionBody(sh, vouchdate, cs, targetBatch)
+				wr, err := h.YS.MorphologyConversionSave(body)
+				if err != nil {
+					convLog.Error = ybErrMsg(wr, err, "批次转换保存失败")
+					lg.Conversions = append(lg.Conversions, convLog)
+					lg.Error = "批次转换失败: " + convLog.Error
+					lg.skipOut = true
+					break
+				}
+				var sd struct {
+					Infos []struct {
+						ID   json.Number `json:"id"`
+						Code string      `json:"code"`
+					} `json:"infos"`
+				}
+				_ = ybDecodeData(wr, &sd)
+				if len(sd.Infos) > 0 {
+					convLog.DocCode = sd.Infos[0].Code
+					if cvID, _ := sd.Infos[0].ID.Int64(); cvID != 0 {
+						awr, aerr := h.YS.MorphologyConversionBatchAudit([]int64{cvID})
+						convLog.AuditOk = aerr == nil && ybAuditOK(awr)
+						if !convLog.AuditOk {
+							convLog.Error = ybErrMsg(awr, aerr, "批次转换审核失败")
+						}
+					} else {
+						// 保存返回 code 200 但无单据 id (YS 异常响应): 无法自动审核, 明确报出别闷着
+						convLog.Error = "批次转换已保存但用友未返回单据id，无法自动审核，请去用友手动核对"
+					}
+				} else {
+					convLog.Error = "批次转换已保存但用友未返回单据信息，无法自动审核，请去用友手动核对"
+				}
+				lg.Conversions = append(lg.Conversions, convLog)
+				if convLog.Error != "" {
+					lg.Error = convLog.Error
+					lg.skipOut = true
+					break
+				}
+			}
+		}
+	}
+
+	// ---- 阶段 2: 按 (组织,仓库,bustype,category[,bill]) 合并 → 每组一张其他出库单 ----
+	type grpKey struct{ org, wh, bustype, category, bill string }
+	groups := map[grpKey][]ybIdx{}
+	groupOrder := []grpKey{}
+	for pi := range plans {
+		row := plans[pi].Row
+		bustype := ybFirstNonEmpty(strings.TrimSpace(row.Bustype), "A10001")
+		category := ybNormalizeCategory(row.Category)
+		for si := range plans[pi].Shipments {
+			sh := plans[pi].Shipments[si]
+			lg := logs[ybIdx{pi, si}]
+			if lg.skipOut || sh.Qty <= 0 {
+				continue
+			}
+			k := grpKey{sh.OrgID, sh.WarehouseCode, bustype, category, ""}
+			if groupByBill {
+				k.bill = row.BillNo
+			}
+			if _, ok := groups[k]; !ok {
+				groupOrder = append(groupOrder, k)
+			}
+			groups[k] = append(groups[k], ybIdx{pi, si})
+		}
+	}
+
+	for _, k := range groupOrder {
+		grp := groups[k]
+		items := make([]map[string]interface{}, 0, len(grp))
+		billNos := []string{}
+		seenBill := map[string]bool{}
+		for _, gi := range grp {
+			sh := plans[gi.pi].Shipments[gi.si]
+			row := plans[gi.pi].Row
+			outBatch := ybFirstNonEmpty(sh.OutBatch, strings.TrimSpace(row.TargetBatch))
+			prod, inv := sh.OutProducedate, sh.OutInvaliddate
+			if (prod == "" || inv == "") && len(sh.ConvertSources) > 0 {
+				cs0 := sh.ConvertSources[0]
+				prod = ybFirstNonEmpty(prod, cs0.FromProducedate)
+				inv = ybFirstNonEmpty(inv, cs0.FromInvaliddate)
+			}
+			items = append(items, ybBuildOutItem(sh, outBatch, prod, inv))
+			if row.BillNo != "" && !seenBill[row.BillNo] {
+				seenBill[row.BillNo] = true
+				billNos = append(billNos, row.BillNo)
+			}
+		}
+		memo := ""
+		if len(billNos) > 0 {
+			memo = "来自吉客云出库单 " + strings.Join(billNos, ", ")
+		}
+		body := ybBuildOtherOutBody(k.org, vouchdate, k.bustype, k.wh, memo, k.category, items)
+		wr, err := h.YS.OtherOutSave(body)
+		if err != nil {
+			em := ybErrMsg(wr, err, "其他出库单保存失败")
+			for _, gi := range grp {
+				if logs[gi].Error == "" {
+					logs[gi].Error = em
+				}
+			}
+			continue
+		}
+		var od struct {
+			ID   json.Number `json:"id"`
+			Code string      `json:"code"`
+		}
+		_ = ybDecodeData(wr, &od)
+		docCode := od.Code
+		outID, _ := od.ID.Int64()
+		auditOk := false
+		auditErr := ""
+		if outID != 0 {
+			awr, aerr := h.YS.OtherOutBatchAudit([]int64{outID})
+			auditOk = aerr == nil && ybAuditOK(awr)
+			if !auditOk {
+				auditErr = ybErrMsg(awr, aerr, "其他出库审核失败")
+			}
+		} else {
+			// 保存返回 code 200 但无单据 id (YS 异常响应): 单已建但无法自动审核, 明确报出
+			auditErr = "其他出库单已保存但用友未返回单据id，无法自动审核，请去用友手动审核"
+		}
+		for _, gi := range grp {
+			lg := logs[gi]
+			lg.OutDocCode = docCode
+			if outID != 0 {
+				lg.OutDocID = strconv.FormatInt(outID, 10)
+			}
+			lg.AuditOk = auditOk
+			if auditErr != "" && lg.Error == "" {
+				lg.Error = auditErr
+			}
+		}
+	}
+
+	// ---- 阶段 3: 构造返回 ----
+	out := make([]map[string]interface{}, 0, len(plans))
+	for pi := range plans {
+		subs := make([]*ybShipLog, 0, len(plans[pi].Shipments))
+		for si := range plans[pi].Shipments {
+			subs = append(subs, logs[ybIdx{pi, si}])
+		}
+		out = append(out, map[string]interface{}{
+			"row":           plans[pi].Row,
+			"needed_qty":    plans[pi].NeededQty,
+			"fulfilled_qty": plans[pi].FulfilledQty,
+			"remaining_qty": plans[pi].RemainingQty,
+			"shipments":     subs,
+		})
+	}
+	return out
+}
+
+// ---------------- YS 报文构造 ----------------
+
+// ybBuildConversionBody 批次转换单报文 (before lineType=1 → after lineType=2)。
+func ybBuildConversionBody(sh ybShipment, vouchdate string, cs ybConvertSource, toBatch string) map[string]interface{} {
+	vd := ybFmtDate(vouchdate) + " 00:00:00"
+	unitID := ybFirstNonEmpty(cs.UnitID, sh.UnitID)
+	stockUnit := ybFirstNonEmpty(cs.StockUnitID, cs.UnitID, sh.StockUnitID, sh.UnitID)
+
+	base := func() map[string]interface{} {
+		m := map[string]interface{}{
+			"warehouse":        sh.WarehouseCode,
+			"product":          sh.ProductCode,
+			"mainUnitId":       unitID,
+			"stockUnitId":      stockUnit,
+			"invExchRate":      "1",
+			"unitExchangeType": 0,
+			"stockStatusDoc":   ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc),
+			"qty":              cs.Qty,
+			"subQty":           cs.Qty,
+		}
+		if sku := ybFirstNonEmpty(cs.ProductskuID, sh.ProductskuID); sku != "" && sku != "0" {
+			m["productsku"] = sku
+		}
+		return m
+	}
+
+	before := base()
+	before["groupNumber"] = "1"
+	before["lineType"] = "1"
+	before["batchno"] = cs.FromBatch
+	if cs.FromProducedate != "" {
+		before["producedate"] = ybFmtDate(cs.FromProducedate) + " 00:00:00"
+	}
+	if cs.FromInvaliddate != "" {
+		before["invaliddate"] = ybFmtDate(cs.FromInvaliddate) + " 00:00:00"
+	}
+
+	after := base()
+	after["groupNumber"] = "1"
+	after["lineType"] = "2"
+	after["batchno"] = toBatch
+	if cs.FromProducedate != "" {
+		after["producedate"] = ybFmtDate(cs.FromProducedate) + " 00:00:00"
+	}
+	if cs.FromInvaliddate != "" {
+		after["invaliddate"] = ybFmtDate(cs.FromInvaliddate) + " 00:00:00"
+	}
+
+	return map[string]interface{}{
+		"data": map[string]interface{}{
+			"org":                        ybResolveOrg(sh.OrgID),
+			"businesstypeId":             "A70002",
+			"conversionType":             "1",
+			"mcType":                     "1",
+			"vouchdate":                  vd,
+			"beforeWarehouse":            sh.WarehouseCode,
+			"afterWarehouse":             sh.WarehouseCode,
+			"_status":                    "Insert",
+			"morphologyconversiondetail": []map[string]interface{}{before, after},
+		},
+	}
+}
+
+// ybBuildOutItem 其他出库单单行明细。
+func ybBuildOutItem(sh ybShipment, outBatch, prod, inv string) map[string]interface{} {
+	stockUnit := ybFirstNonEmpty(sh.StockUnitID, sh.UnitID)
+	line := map[string]interface{}{
+		"_status":          "Insert",
+		"product":          sh.ProductCode,
+		"qty":              sh.Qty,
+		"subQty":           sh.Qty,
+		"invExchRate":      "1",
+		"unitExchangeType": 0,
+	}
+	if outBatch != "" {
+		line["batchno"] = outBatch
+	}
+	if sh.UnitID != "" {
+		line["unit"] = sh.UnitID
+	}
+	if stockUnit != "" {
+		line["stockUnitId"] = stockUnit
+	}
+	if sh.ProductskuID != "" && sh.ProductskuID != "0" {
+		line["productsku"] = sh.ProductskuID
+	}
+	if prod != "" {
+		line["producedate"] = ybFmtDate(prod) + " 00:00:00"
+	}
+	if inv != "" {
+		line["invaliddate"] = ybFmtDate(inv) + " 00:00:00"
+	}
+	if sh.StockStatusDoc != "" && sh.StockStatusDoc != "0" {
+		line["stockStatusDoc"] = sh.StockStatusDoc
+	}
+	return line
+}
+
+// ybBuildOtherOutBody 其他出库单报文 (一组明细一张单)。
+func ybBuildOtherOutBody(orgID, vouchdate, bustype, whCode, memo, categoryCode string, items []map[string]interface{}) map[string]interface{} {
+	org := ybResolveOrg(orgID)
+	data := map[string]interface{}{
+		"_status":       "Insert",
+		"org":           org,
+		"accountOrg":    org,
+		"vouchdate":     ybFmtDate(vouchdate),
+		"bustype":       ybFirstNonEmpty(bustype, "A10001"),
+		"warehouse":     whCode,
+		"memo":          memo,
+		"othOutRecords": items,
+	}
+	if categoryCode != "" {
+		data["othOutRecordDefineCharacter"] = map[string]interface{}{"SF001": categoryCode}
+	}
+	return map[string]interface{}{"data": data}
+}
+
+// ---------------- HTTP handlers ----------------
+
+// YonbipExportPlan POST /api/yonbip/export-plan — 拆单计划 (只查库存, 不写)。
+func (h *DashboardHandler) YonbipExportPlan(w http.ResponseWriter, r *http.Request) {
+	if h.YS == nil {
+		writeError(w, http.StatusServiceUnavailable, "用友 YS 未配置")
+		return
+	}
+	var req struct {
+		Rows []ybRow `json:"rows"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求解析失败: "+err.Error())
+		return
+	}
+	if len(req.Rows) == 0 {
+		writeError(w, http.StatusBadRequest, "未解析到任何出库行")
+		return
+	}
+	queryStock := func(orgID, productCode string) []yonsuite.StockRow {
+		srs, err := h.YS.QueryStockByCondition(orgID, productCode, "", "", "")
+		if err != nil {
+			return nil
+		}
+		return srs
+	}
+	plans := ybPlanExport(queryStock, req.Rows)
+	writeJSON(w, map[string]interface{}{"plans": plans})
+}
+
+// YonbipExportExecute POST /api/yonbip/export-execute — 真执行 (写用友, 不可逆)。
+func (h *DashboardHandler) YonbipExportExecute(w http.ResponseWriter, r *http.Request) {
+	if h.YS == nil {
+		writeError(w, http.StatusServiceUnavailable, "用友 YS 未配置")
+		return
+	}
+	var req struct {
+		Vouchdate   string   `json:"vouchdate"`
+		Plans       []ybPlan `json:"plans"`
+		GroupByBill bool     `json:"group_by_bill"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求解析失败: "+err.Error())
+		return
+	}
+	if len(req.Plans) == 0 {
+		writeError(w, http.StatusBadRequest, "无计划可执行")
+		return
+	}
+	results := h.ybExecute(ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill)
+	writeJSON(w, map[string]interface{}{"results": results})
+}
+
+// ---------------- 小助手 ----------------
+
+func ybResolveOrg(orgID string) string {
+	if strings.TrimSpace(orgID) == "" {
+		return ybDefaultOrgID
+	}
+	return orgID
+}
+
+func ybFirstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func ybIsDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// ybFmtDate "20260531" / "2026-05-31" / "2026/05/31" → "2026-05-31"。
+func ybFmtDate(d string) string {
+	t := strings.TrimSpace(d)
+	s := strings.NewReplacer("-", "", "/", "").Replace(t)
+	if len(s) >= 8 && ybIsDigits(s[:8]) {
+		return s[:4] + "-" + s[4:6] + "-" + s[6:8]
+	}
+	return t
+}
+
+// ybDecodeData 用 UseNumber 解 WriteResp.Data (防 19 位 id 精度丢失)。
+func ybDecodeData(wr *yonsuite.WriteResp, v interface{}) error {
+	if wr == nil || len(wr.Data) == 0 {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(wr.Data))
+	dec.UseNumber()
+	return dec.Decode(v)
+}
+
+// ybAuditOK 审核成功 = code 200 且 failCount 0。
+func ybAuditOK(wr *yonsuite.WriteResp) bool {
+	if wr == nil || wr.Code != "200" {
+		return false
+	}
+	var d struct {
+		FailCount json.Number `json:"failCount"`
+	}
+	_ = ybDecodeData(wr, &d)
+	fc, _ := d.FailCount.Int64()
+	return fc == 0
+}
+
+// ybErrMsg 优先用 YS message, 再用 err, 最后默认文案。
+func ybErrMsg(wr *yonsuite.WriteResp, err error, dflt string) string {
+	if wr != nil && strings.TrimSpace(wr.Message) != "" {
+		return wr.Message
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return dflt
+}
