@@ -14,6 +14,18 @@ const STORAGE_KEY = 'bi_open_tabs_v1';
 // 不收进标签页的路由 (落地重定向 / 登录 / 钉钉回调)
 const SKIP = new Set(['/', '/login']);
 
+// 选中标签更醒目: 浅蓝底 + 顶部主题蓝条 + 蓝字加粗 (主题色 #1e40af, 跟侧边栏选中态一致)
+const TABS_CSS = `
+.bi-tabsnav .ant-tabs-tab.ant-tabs-tab-active {
+  background: rgba(30, 64, 175, 0.08) !important;
+  border-top: 2px solid #1e40af !important;
+}
+.bi-tabsnav .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #1e40af !important;
+  font-weight: 600 !important;
+}
+`;
+
 function titleOf(path: string): string {
   if (pageTitleMap[path]) return pageTitleMap[path];
   const dept = Object.keys(deptLabelMap).find((p) => path === p || path.startsWith(p + '/'));
@@ -77,7 +89,8 @@ const TabsNav: React.FC = () => {
   ];
 
   return (
-    <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '4px 12px 0', flexShrink: 0 }}>
+    <div className="bi-tabsnav" style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '4px 12px 0', flexShrink: 0 }}>
+      <style>{TABS_CSS}</style>
       <Tabs
         type="editable-card"
         hideAdd
