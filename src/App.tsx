@@ -72,6 +72,7 @@ const RPAManagementPage = lazy(() => import('./pages/system/RPAManagement'));
 const TradeAuditPage = lazy(() => import('./pages/system/TradeAudit'));
 const OpsMonitorPage = lazy(() => import('./pages/system/OpsMonitor'));
 const YonbipOutboundPage = lazy(() => import('./pages/system/YonbipOutbound'));
+const BatchConvertPage = lazy(() => import('./pages/system/BatchConvert'));
 const DingtalkCallback = lazy(() => import('./pages/DingtalkCallback'));
 const FuturesOverview = lazy(() => import('./pages/futures'));
 const FuturesTrend = lazy(() => import('./pages/futures/TrendChart'));
@@ -203,6 +204,7 @@ const App: React.FC = () => (
               <Route path="/system/db-dict" element={guard('role.manage', <DBDictionaryPage />)} />
               <Route path="/system/trade-audit" element={guard('role.manage', <TradeAuditPage />)} />
               <Route path="/system/yonbip" element={guard('system.yonbip:use', <YonbipOutboundPage />)} />
+              <Route path="/system/batch-convert" element={guard('system.yonbip:use', <BatchConvertPage />)} />
               {/* 旧路由兼容跳转 */}
               <Route path="/system/tasks" element={<Navigate to="/system/ops" replace />} />
               <Route path="/system/rpa-mapping" element={<Navigate to="/system/rpa" replace />} />

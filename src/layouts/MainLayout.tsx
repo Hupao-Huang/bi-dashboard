@@ -14,6 +14,8 @@ import { useAuth } from '../auth/AuthContext';
 import { buildMenuItems, deptLabelMap, getDefaultOpenKeys, pageTitleMap } from '../navigation';
 import { API_BASE } from '../config';
 import AIToolboxDrawer from '../components/AIToolboxDrawer';
+import ToolboxMenu from '../components/ToolboxMenu';
+import TabsNav from '../components/TabsNav';
 import FeedbackModal from '../components/FeedbackModal';
 import RPABatchQueueWidget from '../pages/system/RPABatchQueueWidget';
 import AIChatWidget from '../components/AIChatWidget';
@@ -384,6 +386,7 @@ const MainLayout: React.FC = () => {
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 12 }}>
+            <ToolboxMenu isMobile={isMobile} />
             <Button
               type="text"
               icon={<RocketOutlined />}
@@ -416,6 +419,8 @@ const MainLayout: React.FC = () => {
             </Dropdown>
           </div>
         </Header>
+
+        <TabsNav />
 
         <div id="bi-toolbar-slot" className="bi-toolbar-slot" />
 
