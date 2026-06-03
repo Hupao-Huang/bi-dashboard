@@ -346,6 +346,10 @@ func main() {
 	mux.HandleFunc("/api/audit/page-view", protected(h.AuditLogPageView))
 	mux.HandleFunc("/api/admin/audit-logs", adminMeta(h.AdminAuditLogs))
 	mux.HandleFunc("/api/admin/pending-counts", protected(h.AdminPendingCounts))
+	// 用户操作活动: 个人中心「我的活动」(看自己) + 系统设置「全员活动」(管理员看所有人)
+	mux.HandleFunc("/api/user/activity", protected(h.UserActivity))
+	mux.HandleFunc("/api/admin/user-activity", adminUsers(h.AdminUserActivity))
+	mux.HandleFunc("/api/admin/users-activity", adminUsers(h.AdminUsersActivity))
 
 	// 用友 YonBIP 批量出库工具 (系统设置小工具, 单人高频用)。
 	// 权限 system.yonbip:use; super_admin 自动通过, 其他人没分配则进不来。

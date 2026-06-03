@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Avatar, Button, Card, Col, Descriptions, Form, Input, message, Popconfirm, Row, Tag, Upload } from 'antd';
 import { CameraOutlined, DingtalkOutlined, LockOutlined, SaveOutlined, SyncOutlined, UserOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
+import UserActivityPanel, { UserActivity } from '../../components/UserActivityPanel';
 
 const Profile: React.FC = () => {
   const [profile, setProfile] = useState<any>(null);
@@ -11,6 +12,8 @@ const Profile: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [form] = Form.useForm();
   const [pwForm] = Form.useForm();
+  const [activity, setActivity] = useState<UserActivity | null>(null);
+  const [actLoading, setActLoading] = useState(true);
 
   const handleSyncDingtalk = async () => {
     setSyncing(true);
@@ -50,6 +53,15 @@ const Profile: React.FC = () => {
   }, [form]);
 
   useEffect(() => { fetchProfile(); }, [fetchProfile]);
+
+  // 我的活动（操作统计 + 热力图 + 最近记录），独立加载不挡个人资料
+  useEffect(() => {
+    fetch(`${API_BASE}/api/user/activity`, { credentials: 'include' })
+      .then(res => res.json())
+      .then(res => setActivity(res && res.code === 200 && res.data ? res.data : null))
+      .catch(err => console.warn('activity fetch:', err))
+      .finally(() => setActLoading(false));
+  }, []);
 
   const handleSave = async () => {
     try {
@@ -102,6 +114,7 @@ const Profile: React.FC = () => {
   };
 
   return (
+    <>
     <Row gutter={24}>
       <Col xs={24} md={8}>
         <Card style={{ textAlign: 'center' }}>
@@ -311,6 +324,11 @@ const Profile: React.FC = () => {
         </Card>
       </Col>
     </Row>
+
+    <Card title="我的活动" style={{ marginTop: 16 }}>
+      <UserActivityPanel data={activity} loading={actLoading} />
+    </Card>
+    </>
   );
 };
 
