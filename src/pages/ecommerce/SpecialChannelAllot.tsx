@@ -206,7 +206,7 @@ const SpecialChannelAllot: React.FC = () => {
                 {s.channelKey} <span style={{ color: '#64748b', fontWeight: 400, fontSize: 12 }}>· {s.channelName}</span>
               </div>
               <Statistic
-                title="销售额(审核通过计入)"
+                title="销售额"
                 value={s.totalSales}
                 precision={2}
                 valueStyle={{ color: '#3f8600', fontSize: 22 }}
@@ -244,7 +244,7 @@ const SpecialChannelAllot: React.FC = () => {
 
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={8}><Statistic title={isAll ? '总单数(全渠道)' : '单数'} value={dispOrders} /></Col>
-          <Col span={8}><Statistic title={isAll ? '总销售额(审核通过计入)' : '销售额(审核通过计入)'} value={dispSales} precision={2} valueStyle={{ color: '#3f8600' }} /></Col>
+          <Col span={8}><Statistic title={isAll ? '总销售额' : '销售额'} value={dispSales} precision={2} valueStyle={{ color: '#3f8600' }} /></Col>
         </Row>
 
         {channelOrders.length === 0 ? (
