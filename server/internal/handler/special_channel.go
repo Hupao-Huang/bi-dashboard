@@ -119,6 +119,7 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 		InStatus        int      `json:"inStatus"`
 		Status          int      `json:"status"`
 		GmtCreate       string   `json:"gmtCreate"`
+		AuditDate       string   `json:"auditDate"`
 		GmtModified     string   `json:"gmtModified"`
 		StatDate        string   `json:"statDate"`
 		SkuCount        int      `json:"skuCount"`
@@ -128,6 +129,7 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 	oRows, err := h.DB.Query(`
 		SELECT o.allocate_no, o.channel_key, o.in_warehouse_name, o.in_status, o.status,
 			DATE_FORMAT(o.gmt_create, '%Y-%m-%d %H:%i'),
+			IFNULL(DATE_FORMAT(o.audit_date, '%Y-%m-%d %H:%i'), ''),
 			DATE_FORMAT(o.gmt_modified, '%Y-%m-%d %H:%i'),
 			IFNULL(DATE_FORMAT(o.stat_date, '%Y-%m-%d'), ''),
 			o.sku_count,
@@ -145,7 +147,7 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 		var o OrderRow
 		var gc, gm sql.NullString
 		if writeDatabaseError(w, oRows.Scan(&o.AllocateNo, &o.ChannelKey, &o.InWarehouseName, &o.InStatus, &o.Status,
-			&gc, &gm, &o.StatDate, &o.SkuCount, &o.ExcelSales, &o.ApiSales)) {
+			&gc, &o.AuditDate, &gm, &o.StatDate, &o.SkuCount, &o.ExcelSales, &o.ApiSales)) {
 			return
 		}
 		// 按 dept 过滤: 不在当前 channelMap 的渠道跳过

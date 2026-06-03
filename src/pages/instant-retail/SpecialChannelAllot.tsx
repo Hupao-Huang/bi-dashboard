@@ -24,6 +24,7 @@ interface OrderRow {
   inStatus: number;
   status: number;
   gmtCreate: string;
+  auditDate: string;
   gmtModified: string;
   statDate: string;
   skuCount: number;
@@ -128,6 +129,7 @@ const SpecialChannelAllot: React.FC = () => {
     { title: '入库状态', dataIndex: 'inStatus', key: 'inStatus', width: 110,
       render: (s: number) => { const l = inStatusLabel(s); return <Tag color={l.color}>{l.text}</Tag>; } },
     { title: '创建时间', dataIndex: 'gmtCreate', key: 'gmtCreate', width: 140 },
+    { title: '审核时间', dataIndex: 'auditDate', key: 'auditDate', width: 140 },
     { title: '入库完成时间', dataIndex: 'gmtModified', key: 'gmtModified', width: 140 },
     { title: '销售统计日', dataIndex: 'statDate', key: 'statDate', width: 110,
       render: (v: string) => v || <span style={{ color: '#bbb' }}>—</span> },
