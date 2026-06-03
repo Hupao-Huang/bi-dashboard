@@ -37,6 +37,10 @@ func TestGetSupplyChainDashboardEmptyAllSQL(t *testing.T) {
 	mock.ExpectQuery(`SUM\(CASE WHEN sum_avail<=0 AND sum_month>0 THEN 1`).
 		WillReturnRows(sqlmock.NewRows([]string{"so", "s"}).AddRow(0, 0))
 
+	// 4b. 单仓缺货率 perWhStockout (v1.69.2, 按 SKU×仓 单元; 之前漏 mock 致本测试一直 fail)
+	mock.ExpectQuery(`IFNULL\(SUM\(CASE WHEN \(current_qty - locked_qty\) <= 0 AND month_qty > 0 THEN 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"u", "s"}).AddRow(0, 0))
+
 	// 5. highStockValue + totalStockValue (line 336)
 	mock.ExpectQuery(`SUM\(CASE WHEN sum_month>0 AND sum_avail/\(sum_month/30\) > 50 THEN sku_stock_value`).
 		WillReturnRows(sqlmock.NewRows([]string{"h", "t"}).AddRow(0.0, 0.0))
@@ -45,8 +49,8 @@ func TestGetSupplyChainDashboardEmptyAllSQL(t *testing.T) {
 	mock.ExpectQuery(`SELECT IFNULL\(SUM\(b\.current_qty \* IFNULL\(s\.cost_price,0\)\),0\)\s+FROM stock_batch_daily b`).
 		WillReturnRows(sqlmock.NewRows([]string{"a"}).AddRow(0.0))
 
-	// 7. monthly sales (line 382)
-	mock.ExpectQuery(`SELECT DATE_FORMAT\(stat_date,'%Y-%m'\) AS m, ROUND\(SUM\(local_goods_amt\),2\)\s+FROM sales_goods_summary`).
+	// 7. monthly sales — v1.75.x 改读月度物化表 sales_goods_summary_monthly + JOIN 品类派生表(全历史趋势)
+	mock.ExpectQuery(`SELECT stat_month AS m, ROUND\(SUM\(local_goods_amt\),2\)\s+FROM sales_goods_summary_monthly`).
 		WillReturnRows(sqlmock.NewRows([]string{"m", "v"}))
 
 	// 8. channel current period (line 427)

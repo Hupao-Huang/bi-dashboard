@@ -362,7 +362,7 @@ const InventoryWarning: React.FC = () => {
           <div style={{ flex: 1 }}>
             <InfoCircleOutlined style={{ marginRight: 6, color: '#1e40af' }} />
             <span style={{ color: '#1e293b', fontWeight: 600 }}>数据来源：</span>
-            南京委外成品仓、天津委外仓、西安仓库成品、松鲜鲜&大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共 7 个仓库）
+            南京委外成品仓、南京自营成品仓、天津委外仓、西安仓库成品、松鲜鲜&大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共 8 个仓库）
           </div>
           {syncInfo.lastFinishedAt && (
             <div style={{ whiteSpace: 'nowrap', color: syncInfo.lastError ? '#dc2626' : '#16a34a', fontSize: 11 }}>

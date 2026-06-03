@@ -10,10 +10,12 @@ const excludeAnhuiOrg = "安徽香松自然调味品有限公司"
 const excludeAnhuiOrgWHERE = " AND org_name != '安徽香松自然调味品有限公司'"
 const excludeAnhuiOrgYsWHERE = " AND ys.org_name != '安徽香松自然调味品有限公司'"
 
-// planWarehouses 计划/采购看板 + 库存预警共用的 7 仓白名单
+// planWarehouses 计划/采购看板 + 库存预警共用的 8 仓白名单 (2026-06-03 加南京自营仓 7→8)
 // 改这一处即可同步影响：计划看板、库存预警等所有"按仓库白名单"过滤的查询
+// 注意: 快递仓储分析(warehouse_flow.go)+物化表(cmd/build-warehouse-flow-summary)也共用此名单; 加/减仓须同步改 CLI 并重建 warehouse_flow_summary
 var planWarehouses = []string{
 	"南京委外成品仓-公司仓-委外",
+	"南京仓库成品-公司仓-自营", // 退役自营仓(2025-08 切到委外仓), 加回让南京销售趋势连续; 库存=0 不影响库存预警
 	"天津委外仓-公司仓-外仓",
 	"西安仓库成品-公司仓-外仓",
 	"松鲜鲜&大地密码云仓",
@@ -78,6 +80,27 @@ func planCategoryGoodsCond(alias string) (string, []interface{}) {
 			END
 		) IN (` + strings.Join(placeholders, ",") + `))`
 	return cond, args
+}
+
+// planCategoryGoodsSubquery 返回品类白名单对应 goods_no 的"派生表子查询"(不含 AND goods_no IN) + 参数
+// 用法: FROM 大表 JOIN (`+sub+`) gc ON gc.goods_no = 大表.goods_no
+// 为什么不直接用 planCategoryGoodsCond: 月度物化表(sales_goods_summary_monthly)全历史趋势上,
+// goods_no IN(子查询) 优化器选了坏计划要 9s, 改成 JOIN 派生表(品类 goods_no 只物化一次)只要 1.3s (口径完全一致, 实测同值)
+func planCategoryGoodsSubquery() (string, []interface{}) {
+	args := make([]interface{}, len(planCategories))
+	placeholders := make([]string, len(planCategories))
+	for i, c := range planCategories {
+		args[i] = c
+		placeholders[i] = "?"
+	}
+	sub := `SELECT goods_no FROM goods WHERE is_delete=0 AND (
+		CASE
+			WHEN cate_full_name LIKE '成品/%' THEN SUBSTRING_INDEX(SUBSTRING_INDEX(cate_full_name,'/',2),'/',-1)
+			WHEN cate_full_name IS NOT NULL AND cate_full_name != '' THEN cate_full_name
+			ELSE '未分类'
+		END
+	) IN (` + strings.Join(placeholders, ",") + `)`
+	return sub, args
 }
 
 // buildExcludeGoodsFilter 返回 " AND <column> NOT IN (?,?,...)" 子句和参数

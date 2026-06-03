@@ -40,17 +40,15 @@ func (h *DashboardHandler) GetSupplyChainMonthlyTrend(w http.ResponseWriter, r *
 	// 查月表（从日表聚合生成的，数据一致且性能高）
 	_ = startDate // 保留计算（未来可能复用）
 	_ = endDate
+	whCond, whArgs := buildPlanWarehouseFilter("warehouse_name")
 	args := []interface{}{startMonth, endMonth}
-	for _, wh := range planWarehouses {
-		args = append(args, wh)
-	}
+	args = append(args, whArgs...)
 	args = append(args, salesScopeArgs...)
 
 	rows, err := h.DB.Query(`
 		SELECT stat_month AS m, ROUND(SUM(local_goods_amt),2)
 		FROM sales_goods_summary_monthly
-		WHERE stat_month BETWEEN ? AND ?
-		AND warehouse_name IN (?,?,?,?,?,?,?)`+salesScopeCond+`
+		WHERE stat_month BETWEEN ? AND ?`+whCond+salesScopeCond+`
 		GROUP BY stat_month ORDER BY stat_month`, args...)
 	if err != nil {
 		log.Printf("monthly trend query failed: %v", err)
@@ -117,15 +115,11 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		h.DB.QueryRow(`SELECT IFNULL(MIN(snapshot_date),'') FROM stock_quantity_daily`).Scan(&stockSnapDate)
 	}
 
-	// 计划看板仓库白名单（采购需求：只展示这7个成品仓/委外仓/云仓的数据）
-	// 白名单定义在文件顶部 planWarehouses
-	planWhArgs := make([]interface{}, len(planWarehouses))
-	for i, w := range planWarehouses {
-		planWhArgs[i] = w
-	}
-	planWhCond := " AND warehouse_name IN (?,?,?,?,?,?,?)"
-	planWhCondS := " AND s.warehouse_name IN (?,?,?,?,?,?,?)"
-	planWhCondB := " AND b.warehouse_name IN (?,?,?,?,?,?,?)"
+	// 计划看板仓库白名单（采购需求：只展示这几个成品仓/委外仓/云仓的数据，名单在文件顶部 planWarehouses）
+	// 动态构造 IN 子句, 跟 planWarehouses 数量自动对齐 (加/减仓只改名单, 不用再改问号个数)
+	planWhCond, planWhArgs := buildPlanWarehouseFilter("warehouse_name")
+	planWhCondS, _ := buildPlanWarehouseFilter("s.warehouse_name")
+	planWhCondB, _ := buildPlanWarehouseFilter("b.warehouse_name")
 
 	// 用WaitGroup并发执行所有查询
 	var wg sync.WaitGroup
@@ -282,14 +276,18 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		monthlyArgs := append([]interface{}{}, planWhArgs...)
+		// v1.75.x: 改读月度物化表 sales_goods_summary_monthly (从日表聚合, 口径一致实测同值),
+		// 恢复"全部历史月"趋势(原日表全表扫 173s 超时被临时砍成近 13 个月); 品类用 JOIN 派生表避开 9s 慢子查询(实测 1.3s)
+		catSub, catSubArgs := planCategoryGoodsSubquery()
+		monthlyArgs := append([]interface{}{}, catSubArgs...)
+		monthlyArgs = append(monthlyArgs, planWhArgs...)
 		monthlyArgs = append(monthlyArgs, salesScopeArgs...)
-		monthlyArgs = append(monthlyArgs, cateArgs...)
 		rows, ok := queryRows(`
-			SELECT DATE_FORMAT(stat_date,'%Y-%m') AS m, ROUND(SUM(local_goods_amt),2)
-			FROM sales_goods_summary
-			WHERE 1=1`+planWhCond+salesScopeCond+cateCond+`
-			GROUP BY m ORDER BY m`, monthlyArgs...)
+			SELECT stat_month AS m, ROUND(SUM(local_goods_amt),2)
+			FROM sales_goods_summary_monthly
+			JOIN (`+catSub+`) gc ON gc.goods_no = sales_goods_summary_monthly.goods_no
+			WHERE 1=1`+planWhCond+salesScopeCond+`
+			GROUP BY stat_month ORDER BY stat_month`, monthlyArgs...)
 		if !ok {
 			return
 		}

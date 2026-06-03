@@ -183,8 +183,8 @@ func TestBuildPlanWarehouseFilter(t *testing.T) {
 	if !strings.HasPrefix(cond, " AND warehouse_name IN (") {
 		t.Errorf("应以 ' AND warehouse_name IN (' 开头, got %q", cond)
 	}
-	// 7 仓白名单 (memory project_plan_dashboard_warehouses)
-	if len(args) != 7 {
-		t.Errorf("planWarehouses 应有 7 个仓, got %d", len(args))
+	// 白名单仓数 (memory project_plan_dashboard_warehouses); 用 len 不写死数字, 加/减仓不破测试
+	if len(args) != len(planWarehouses) {
+		t.Errorf("args 应等于 planWarehouses 数量, got %d want %d", len(args), len(planWarehouses))
 	}
 }
