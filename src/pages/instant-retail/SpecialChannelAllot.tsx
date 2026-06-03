@@ -79,7 +79,7 @@ const SpecialChannelAllot: React.FC = () => {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [missing, setMissing] = useState<MissingRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeChannel, setActiveChannel] = useState<string>('朴朴');
+  const [activeChannel, setActiveChannel] = useState<string>('全部');
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailNo, setDetailNo] = useState('');
   const [details, setDetails] = useState<DetailRow[]>([]);
@@ -122,10 +122,18 @@ const SpecialChannelAllot: React.FC = () => {
 
   if (loading && orders.length === 0) return <PageLoading />;
 
-  const channelOrders = orders.filter(o => o.channelKey === activeChannel);
+  const isAll = activeChannel === '全部';
+  const channelOrders = isAll ? orders : orders.filter(o => o.channelKey === activeChannel);
   const channelSummary = summary.find(s => s.channelKey === activeChannel);
+  // 全部合集: 各渠道总单数 / 总销售额相加
+  const allOrdersCnt = summary.reduce((sum, s) => sum + s.totalOrders, 0);
+  const allSalesSum = summary.reduce((sum, s) => sum + s.totalSales, 0);
+  const dispOrders = isAll ? allOrdersCnt : (channelSummary?.totalOrders ?? 0);
+  const dispSales = isAll ? allSalesSum : (channelSummary?.totalSales ?? 0);
 
   const orderColumns = [
+    ...(isAll ? [{ title: '渠道', dataIndex: 'channelKey', key: 'channelKey', width: 80,
+      render: (v: string) => <Tag color="blue">{v}</Tag> }] : []),
     { title: '调拨单号', dataIndex: 'allocateNo', key: 'allocateNo', width: 200,
       render: (v: string) => <a onClick={() => openDetail(v)}>{v}</a> },
     { title: '入库仓', dataIndex: 'inWarehouseName', key: 'inWarehouseName', width: 220, ellipsis: true },
@@ -213,18 +221,19 @@ const SpecialChannelAllot: React.FC = () => {
       {/* 中部 Tab: 3 个渠道分别看 */}
       <Card>
         <Tabs activeKey={activeChannel} onChange={setActiveChannel}
-          items={summary.map(s => ({
-            key: s.channelKey,
-            label: <span>{s.channelKey} <Tag>{s.totalOrders} 单</Tag></span>,
-          }))}
+          items={[
+            { key: '全部', label: <span>全部合计 <Tag color="blue">{allOrdersCnt} 单</Tag></span> },
+            ...summary.map(s => ({
+              key: s.channelKey,
+              label: <span>{s.channelKey} <Tag>{s.totalOrders} 单</Tag></span>,
+            })),
+          ]}
         />
 
-        {channelSummary && (
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={8}><Statistic title="单数" value={channelSummary.totalOrders} /></Col>
-            <Col span={8}><Statistic title="销售额(审核通过计入)" value={channelSummary.totalSales} precision={2} valueStyle={{ color: '#3f8600' }} /></Col>
-          </Row>
-        )}
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={8}><Statistic title={isAll ? '总单数(全渠道)' : '单数'} value={dispOrders} /></Col>
+          <Col span={8}><Statistic title={isAll ? '总销售额(审核通过计入)' : '销售额(审核通过计入)'} value={dispSales} precision={2} valueStyle={{ color: '#3f8600' }} /></Col>
+        </Row>
 
         {channelOrders.length === 0 ? (
           <Empty description="该时间段无调拨单" />
