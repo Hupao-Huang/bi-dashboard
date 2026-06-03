@@ -91,7 +91,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	// === 4. 建议采购清单 (UNION 成品 + 包材, 按建议量倒序) ===
 	// v0.51: 在途量按 recieve_date <= today+90天 过滤 (远期/超期排除); 加 nextArriveDate 显示最近到货
 	// 编码两套并存: jkyCode + ysCode 通过 goods.sku_code 映射
-	// v0.62 改: 成品段限定 7 仓白名单(planWarehouses), 不含京东/天猫超市/朴朴外仓+采购外仓+不合格仓
+	// v0.62 改: 成品段限定 8 仓白名单(planWarehouses), 不含京东/天猫超市/朴朴外仓+采购外仓+不合格仓
 	//          展示全部 SKU(去掉 HAVING > 0 过滤), 跑哥要核对
 	planSqWhCond, planSqWhArgs := buildPlanWarehouseFilter("sq.warehouse_name")
 	prodExclCond, prodExclArgs := buildExcludeGoodsFilter("sq.goods_no")
@@ -270,7 +270,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	// 4c. 其他 (含广宣品/周边品/物流易耗品/其它) — v0.64 新增
 	// 跑哥指示: 用吉客云的库存和销量 (业务对广宣品的"消耗"走销售出库, 不走YS生产领料)
 	// 公式: max(0, 45 × 吉客云日均 - 吉客云库存 - YS在途采购 - YS在途委外)
-	// 范围: ys_stock manage_class_code LIKE '05%' 圈定 SKU, stock_quantity 取 7 仓白名单, 有月销
+	// 范围: ys_stock manage_class_code LIKE '05%' 圈定 SKU, stock_quantity 取 8 仓白名单, 有月销
 	otherPlanSqWhCond, otherPlanSqWhArgs := buildPlanWarehouseFilter("sq.warehouse_name")
 	otherProdExclCond, otherProdExclArgs := buildExcludeGoodsFilter("sq.goods_no")
 	otherSQL := `SELECT '其他' AS t,
@@ -361,9 +361,9 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	otherArgs := append([]interface{}{}, otherPlanSqWhArgs...)
 	otherArgs = append(otherArgs, otherProdExclArgs...)
 	for _, qa := range []queryWithArgs{
-		{prodSQL, prodArgs},   // 成品/半成品 7 仓白名单 + 虚拟品排除 + 排除广宣品(05%)
+		{prodSQL, prodArgs},   // 成品/半成品 8 仓白名单 + 虚拟品排除 + 排除广宣品(05%)
 		{matSQL, nil},         // 原材料/包材 YS 全仓 (限定 01%/02%)
-		{otherSQL, otherArgs}, // 其他 7 仓白名单 + 限定广宣品(05%)
+		{otherSQL, otherArgs}, // 其他 8 仓白名单 + 限定广宣品(05%)
 	} {
 		sRows, err := h.DB.Query(qa.sql, qa.args...)
 		if err != nil {

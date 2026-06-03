@@ -508,10 +508,10 @@ const PurchasePlan: React.FC = () => {
                 isSalesType ? (
                   <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                     <div><b>当前库存</b> = 实物库存 - 已被订单锁定的</div>
-                    <div style={{ marginTop: 4 }}>取自 <b>吉客云</b>, 仅 7 个核心仓相加:</div>
-                    <div>　南京委外成品 / 天津委外 / 西安成品</div>
-                    <div>　松鲜鲜&大地密码云仓 / 长沙委外成品</div>
-                    <div>　安徽郎溪成品 / 南京分销虚拟仓</div>
+                    <div style={{ marginTop: 4 }}>取自 <b>吉客云</b>, 仅 8 个核心仓相加:</div>
+                    <div>　南京委外成品 / 南京自营成品 / 天津委外</div>
+                    <div>　西安成品 / 松鲜鲜&大地密码云仓</div>
+                    <div>　长沙委外成品 / 安徽郎溪成品 / 南京分销虚拟仓</div>
                     <div style={{ marginTop: 4, color: '#dc2626' }}>　❌ 排除: 京东自营/天猫超市/朴朴 等平台外仓</div>
                     <div>　❌ 排除: 采购外仓 / 不合格仓 / 安徽香松</div>
                   </div>
@@ -532,7 +532,7 @@ const PurchasePlan: React.FC = () => {
                   <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                     <div><b>日均销售</b> = 近 30 天销售出库 ÷ 30 天</div>
                     <div style={{ marginTop: 4 }}>取自 <b>吉客云</b> 的销售出库数据</div>
-                    <div>仅累计上面 7 个核心仓的销量, 跟"当前库存"口径一致</div>
+                    <div>仅累计上面 8 个核心仓的销量, 跟"当前库存"口径一致</div>
                   </div>
                 ) : (
                   <div style={{ fontSize: 12, lineHeight: 1.6 }}>

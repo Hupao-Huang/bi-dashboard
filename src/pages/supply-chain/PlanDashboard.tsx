@@ -90,25 +90,25 @@ const PlanDashboard: React.FC = () => {
   const kpiCards = [
     { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#1e40af', icon: <DollarOutlined />, desc: wanHint(kpi.salesGMV || 0) + '销售出库销售额', animated: true,
       colSpan: { xs: 24, sm: 12, lg: 8 },
-      tip: '本期 10 个核心调味品类、7 个成品仓的销售出库金额（按选中日期范围汇总）。' },
+      tip: '本期 10 个核心调味品类、8 个成品仓的销售出库金额（按选中日期范围汇总）。' },
     { title: '库存成本', num: kpi.stockCost || 0, fmt: fmtYuan, color: '#06b6d4', icon: <DatabaseOutlined />, desc: wanHint(kpi.stockCost || 0) + '当前库存金额',
       colSpan: { xs: 24, sm: 12, lg: 8 },
-      tip: '当前 10 个核心调味品类、7 个成品仓的库存金额（每个 SKU 当前库存 × 成本价加总）。' },
+      tip: '当前 10 个核心调味品类、8 个成品仓的库存金额（每个 SKU 当前库存 × 成本价加总）。' },
     { title: '库存周转', num: kpi.turnoverDays || 0, fmt: fmtDay, color: '#f59e0b', icon: <SyncOutlined />, desc: '库存成本÷日均销售成本', animated: true,
       colSpan: { xs: 24, sm: 24, lg: 8 },
       tip: '库存周转(天) = 库存成本 ÷ 日均销售成本。表示当前库存够卖多少天。' },
     { title: '高库存占比', num: kpi.highStockRate || 0, fmt: fmtPct, color: '#7c3aed', icon: <WarningOutlined />, desc: '周转>50天的库存占比',
       colSpan: { xs: 12, sm: 12, lg: 6 },
-      tip: '10 个核心调味品类、7 个成品仓的在售商品中，"全仓加起来周转 > 50 天"的商品库存金额占比。按 SKU 全仓视角判断，避免单仓数据片面。广宣品/礼盒/子公司自营产品不计入。' },
+      tip: '10 个核心调味品类、8 个成品仓的在售商品中，"全仓加起来周转 > 50 天"的商品库存金额占比。按 SKU 全仓视角判断，避免单仓数据片面。广宣品/礼盒/子公司自营产品不计入。' },
     { title: '缺货率', num: kpi.stockoutRate || 0, fmt: fmtPct, color: '#ef4444', icon: <StopOutlined />, desc: `${kpi.stockoutSKU || 0}/${kpi.salesSKU || 0} 核心SKU`,
       colSpan: { xs: 12, sm: 12, lg: 6 },
-      tip: '全仓视角: 10 个核心调味品类、7 个成品仓里"全仓加起来真没货且最近还在卖"的商品数 ÷ "在售商品数"。已剔除非卖品/已下架/下架中/接单产/新品-接单产标签。广宣品/礼盒/子公司自营产品不计入 (它们不归采购部门管)。注意: 这是"汇总到 SKU"口径, 单仓缺货不算 — 看单仓缺货请看右边"单仓缺货率"。' },
+      tip: '全仓视角: 10 个核心调味品类、8 个成品仓里"全仓加起来真没货且最近还在卖"的商品数 ÷ "在售商品数"。已剔除非卖品/已下架/下架中/接单产/新品-接单产标签。广宣品/礼盒/子公司自营产品不计入 (它们不归采购部门管)。注意: 这是"汇总到 SKU"口径, 单仓缺货不算 — 看单仓缺货请看右边"单仓缺货率"。' },
     { title: '单仓缺货率', num: kpi.perWhStockoutRate || 0, fmt: fmtPct, color: '#dc2626', icon: <StopOutlined />, desc: `${kpi.perWhStockoutUnits || 0}/${kpi.perWhSalesUnits || 0} SKU×仓`,
       colSpan: { xs: 12, sm: 12, lg: 6 },
-      tip: '单仓视角: 按 (商品, 仓库) 单元统计"该 SKU 在该仓真没货且最近还在卖"的单元数 ÷ "在售单元数"。跟"缺货率"(全仓汇总)区分: 单仓缺货虽然其他仓有货, 但调拨要时间+成本+影响客户时效, 是采购预警信号。10 个核心调味品类、7 个成品仓。' },
+      tip: '单仓视角: 按 (商品, 仓库) 单元统计"该 SKU 在该仓真没货且最近还在卖"的单元数 ÷ "在售单元数"。跟"缺货率"(全仓汇总)区分: 单仓缺货虽然其他仓有货, 但调拨要时间+成本+影响客户时效, 是采购预警信号。10 个核心调味品类、8 个成品仓。' },
     { title: '库龄>90天', num: kpi.agedStockValue || 0, fmt: fmtWan, color: '#ea580c', icon: <WarningOutlined />, desc: '生产日期超90天的库存金额',
       colSpan: { xs: 12, sm: 12, lg: 6 },
-      tip: '生产日期超过 90 天的库存批次金额合计。10 个核心调味品类、7 个成品仓。' },
+      tip: '生产日期超过 90 天的库存批次金额合计。10 个核心调味品类、8 个成品仓。' },
   ];
 
   // ========== 月度销售趋势 ==========
@@ -259,7 +259,7 @@ const PlanDashboard: React.FC = () => {
 
       <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
       <div style={{ fontSize: 12, color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 12px', marginBottom: 16 }}>
-        数据来源：南京委外成品仓、天津委外仓、西安仓库成品、松鲜鲜&amp;大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共7个仓库）
+        数据来源：南京委外成品仓、南京自营成品仓、天津委外仓、西安仓库成品、松鲜鲜&amp;大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共8个仓库）
       </div>
 
       {/* 第1行：KPI 卡片 (v1.70.4: 上 3 大 lg=8 + 下 4 小 lg=6, 0 留白) */}
@@ -292,7 +292,7 @@ const PlanDashboard: React.FC = () => {
 
       {/* 第2行：月度销售趋势（全宽扁长，独立月份范围） */}
       <Card
-        title={<TitleTip title="月度销售趋势" tip="按月统计的销售金额。10 个核心调味品类、7 个成品仓的销售汇总。柱子高度 = 该月销售总金额。" />}
+        title={<TitleTip title="月度销售趋势" tip="按月统计的销售金额。10 个核心调味品类、8 个成品仓的销售汇总。柱子高度 = 该月销售总金额。" />}
         style={{ marginTop: 16 }}
         extra={
           <DatePicker.RangePicker
@@ -319,7 +319,7 @@ const PlanDashboard: React.FC = () => {
         <div style={{ flex: 55, minWidth: 0 }}>
           <Card title={<TitleTip title="品类库存健康度" tip={
             <div style={{ lineHeight: 1.7 }}>
-              <div><b>覆盖范围</b>：10 个核心调味品类（调味料/酱油/调味汁/干制面/素蚝油/酱类/醋/汤底/番茄沙司/糖），7 个成品仓。</div>
+              <div><b>覆盖范围</b>：10 个核心调味品类（调味料/酱油/调味汁/干制面/素蚝油/酱类/醋/汤底/番茄沙司/糖），8 个成品仓。</div>
               <div><b>库存金额</b>：每个商品在所有仓的当前库存 × 成本价，加总。</div>
               <div><b>日均销售成本</b>：近 30 天月销量 × 成本价 ÷ 30。</div>
               <div><b>库存周转(天)</b>：库存金额 ÷ 日均销售成本。</div>
@@ -360,7 +360,7 @@ const PlanDashboard: React.FC = () => {
         <div style={{ flex: 45, minWidth: 0 }}>
           <Card title={<TitleTip title={`各渠道销售额环比 · ${(data.channels || []).length}个`} tip={
             <div style={{ lineHeight: 1.7 }}>
-              <div><b>覆盖范围</b>：10 个核心调味品类，7 个成品仓。</div>
+              <div><b>覆盖范围</b>：10 个核心调味品类，8 个成品仓。</div>
               <div><b>日均销售额</b>：本期销售总额 ÷ 选中天数。</div>
               <div><b>累计销售额</b>：本期所有天加总。</div>
               <div><b>环比</b>：本期 vs 上一个月同期。</div>
@@ -377,12 +377,12 @@ const PlanDashboard: React.FC = () => {
       {/* 第4行：渠道销售占比 + 品类销售占比 + 品类毛利占比 (v1.02 跑哥要 3 饼图一排) */}
       <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <Card title={<TitleTip title="渠道销售占比" tip="本期各部门销售金额占比，仅含 10 个核心调味品类、7 个成品仓的销售。" />} style={{ height: '100%' }}>
+          <Card title={<TitleTip title="渠道销售占比" tip="本期各部门销售金额占比，仅含 10 个核心调味品类、8 个成品仓的销售。" />} style={{ height: '100%' }}>
             <ReactECharts option={channelPieOption} style={{ height: 280 }} />
           </Card>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <Card title={<TitleTip title="品类销售占比" tip="本期 10 个核心调味品类的销售金额占比，含 7 个成品仓全部部门销售。" />} style={{ height: '100%' }}>
+          <Card title={<TitleTip title="品类销售占比" tip="本期 10 个核心调味品类的销售金额占比，含 8 个成品仓全部部门销售。" />} style={{ height: '100%' }}>
             <ReactECharts option={makePieOption(
               (data.cateSales || []).slice(0, 10).map((c: any) => ({ value: c.sales, name: c.category }))
             )} style={{ height: 280 }} />
@@ -406,7 +406,7 @@ const PlanDashboard: React.FC = () => {
               <div><b>可用库存</b>：所有仓 SUM(当前库存 − 锁定数)。</div>
               <div><b>日均销量</b>：所有仓 SUM(月销量) ÷ 30。</div>
               <div><b>周转天数</b>：可用库存 ÷ 日均销量。</div>
-              <div><b>注意</b>：同一商品跨多仓已合并显示一行；只看 10 个核心调味品类、7 个成品仓。</div>
+              <div><b>注意</b>：同一商品跨多仓已合并显示一行；只看 10 个核心调味品类、8 个成品仓。</div>
             </div>
           } />}>
             <div style={{ minHeight: 420 }}>
@@ -421,7 +421,7 @@ const PlanDashboard: React.FC = () => {
               <div><b>已剔除</b>：非卖品 / 已下架 / 下架中 / 接单产 / 新品-接单产 标签的商品。</div>
               <div><b>日均销量</b>：所有仓 SUM(月销量) ÷ 30。</div>
               <div><b>日均损失</b>：所有仓 SUM(月销量 × 成本价) ÷ 30，按真实成本估算每天因缺货损失多少钱。</div>
-              <div><b>注意</b>：同一商品跨多仓已合并显示一行；只看 10 个核心调味品类、7 个成品仓。</div>
+              <div><b>注意</b>：同一商品跨多仓已合并显示一行；只看 10 个核心调味品类、8 个成品仓。</div>
             </div>
           } />}>
             <div style={{ minHeight: 420 }}>
@@ -438,7 +438,7 @@ const PlanDashboard: React.FC = () => {
             <div><b>口径</b>：生产日期超过 90 天的库存批次清单（按批次维度，不按 SKU 汇总）。</div>
             <div><b>库存金额</b>：该批次当前数量 × 成本价。</div>
             <div><b>库龄天数</b>：所选时间末日 − 生产日期。</div>
-            <div><b>注意</b>：同一商品多批次会拆开显示；7 个成品仓、10 个核心调味品类。</div>
+            <div><b>注意</b>：同一商品多批次会拆开显示；8 个成品仓、10 个核心调味品类。</div>
           </div>
         } />} style={{ marginTop: 16 }}>
           <div style={{ minHeight: 420 }}>

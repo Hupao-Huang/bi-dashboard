@@ -22,9 +22,10 @@ echarts.use([
   CanvasRenderer,
 ]);
 
-// 7 仓真实经纬度（与 planWarehouses 一致）
+// 8 仓真实经纬度（与 planWarehouses 一致, 2026-06-03 加南京自营仓）
 const warehouseCenter: Record<string, [number, number]> = {
   '南京委外成品仓-公司仓-委外':  [118.7969, 32.0603],   // 南京
+  '南京仓库成品-公司仓-自营':    [118.7969, 32.0603],   // 南京（退役自营仓, 2025上半年大发货仓）
   '天津委外仓-公司仓-外仓':       [117.1907, 39.1255],   // 天津
   '西安仓库成品-公司仓-外仓':     [108.9402, 34.3416],   // 西安
   '松鲜鲜&大地密码云仓':          [113.6645, 34.7570],   // 郑州（河南，跑哥确认）
@@ -163,7 +164,7 @@ const LogisticsAnalysis: React.FC = () => {
   }));
   const maxFlow = Math.max(1, ...flowLines.map(l => l.value));
 
-  // 选中仓的省份占比榜 (focusedWh 空时 = 7 仓汇总)
+  // 选中仓的省份占比榜 (focusedWh 空时 = 8 仓汇总)
   const focusedTotal = cellsForMap.reduce((s, c) => s + pick(c, metric), 0);
   const focusedProvBreakdown = (() => {
     const m = new Map<string, number>();
@@ -382,7 +383,7 @@ const LogisticsAnalysis: React.FC = () => {
         <div>
           <InfoCircleOutlined style={{ marginRight: 6, color: '#1e40af' }} />
           <span style={{ color: '#1e293b', fontWeight: 600 }}>数据来源：</span>
-          南京委外成品仓、天津委外仓、西安仓库成品、松鲜鲜&大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共 7 个仓库）
+          南京委外成品仓、南京自营成品仓、天津委外仓、西安仓库成品、松鲜鲜&大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共 8 个仓库）
           &nbsp;·&nbsp;
           <span style={{ color: '#1e293b', fontWeight: 600 }}>统计口径：</span>
           按<span style={{ color: '#dc2626', fontWeight: 600 }}>发货时间 consign_time</span> 分月，主表均为已发货订单
@@ -516,7 +517,7 @@ const LogisticsAnalysis: React.FC = () => {
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#7c3aed' }}>
             <Statistic title="出货仓库" value={k.warehouseCnt} suffix="个"
               prefix={<ShopOutlined style={{ color: '#7c3aed' }} />} />
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>白名单 7 仓内</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>白名单 8 仓内</div>
           </Card>
         </Col>
       </Row>
@@ -561,7 +562,7 @@ const LogisticsAnalysis: React.FC = () => {
                 onClick={() => setFocusedWh('')}
                 style={{ fontSize: 12 }}
               >
-                全部 7 仓
+                全部 8 仓
               </Button>
               {(overview.warehouses || []).filter(w => warehouseCenter[w.name]).map(w => (
                 <Button
@@ -584,7 +585,7 @@ const LogisticsAnalysis: React.FC = () => {
             {/* 省份占比榜 */}
             <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 8, marginBottom: 6 }}>
               <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
-                <span>{focusedWh ? `${shortenWarehouse(focusedWh)} → 各省 ${metricLabel[metric]}占比` : `7 仓汇总 → 各省 ${metricLabel[metric]}占比`}</span>
+                <span>{focusedWh ? `${shortenWarehouse(focusedWh)} → 各省 ${metricLabel[metric]}占比` : `8 仓汇总 → 各省 ${metricLabel[metric]}占比`}</span>
                 <span style={{ color: '#0f172a', fontWeight: 600 }}>{fmt(focusedTotal)} {metricUnit[metric]}</span>
               </div>
             </div>

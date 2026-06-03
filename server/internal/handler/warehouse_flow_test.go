@@ -56,7 +56,7 @@ func TestGetWarehouseFlowOverviewSummaryPath(t *testing.T) {
 			AddRow("华东仓", int64(3000), int64(3300)).
 			AddRow("华南仓", int64(2000), int64(2200)))
 
-	// 5. shopSQL (trade_YYYYMM 7 仓白名单内)
+	// 5. shopSQL (trade_YYYYMM 8 仓白名单内)
 	mock.ExpectQuery(`SELECT DISTINCT t\.shop_name FROM trade_202604 t`).
 		WillReturnRows(sqlmock.NewRows([]string{"shop_name"}).
 			AddRow("天猫旗舰店").AddRow("京东自营"))

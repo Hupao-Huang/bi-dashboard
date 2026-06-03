@@ -161,7 +161,7 @@ func (f flowFilter) buildJoins(tradeT, goodsT, pkgT string) string {
 }
 
 // buildWhere 返回 WHERE 子句 (含开头 " AND " 否则空) 和 args.
-//   - 主表过滤: shop / warehouse / province / 排取消 / 7 仓白名单
+//   - 主表过滤: shop / warehouse / province / 排取消 / 8 仓白名单
 //   - 商品过滤: skuKw / skuNo  (作用于 g)
 func (f flowFilter) buildWhere() (string, []interface{}) {
 	var sb strings.Builder
@@ -171,7 +171,7 @@ func (f flowFilter) buildWhere() (string, []interface{}) {
 	// v0.56.4: 排除 trade_type 8/12 (补差/对账特殊单, 不产生物流包裹, sync-detail 也显式排除 12)
 	// 实测: type 1/2/7/9/10 包裹覆盖率 100%, type 8/12 = 0%, 不算入仓储发货分析
 	sb.WriteString(" AND t.trade_type NOT IN (8, 12)")
-	// v0.56.2: 7 仓白名单 (与计划看板/库存预警共用 planWarehouses, 定义在 supply_chain.go)
+	// v0.56.2: 8 仓白名单 (与计划看板/库存预警共用 planWarehouses, 定义在 supply_chain.go)
 	// 同时把不合格仓/虚拟仓/原料仓/平台仓全部排除 (它们都不在白名单里)
 	whCond, whArgs := buildPlanWarehouseFilter("t.warehouse_name")
 	sb.WriteString(whCond)
@@ -265,7 +265,7 @@ func (h *DashboardHandler) GetWarehouseFlowOverview(w http.ResponseWriter, r *ht
 	// 渠道下拉/ymList 走原表(物化里 shop_name 也有但要保持口径一致, 历史 trade 表全)
 	tradeT := "trade_" + ym
 
-	// === 渠道(shop) 分布 - 用于筛选下拉 (限定 7 仓白名单内有销售单的渠道) ===
+	// === 渠道(shop) 分布 - 用于筛选下拉 (限定 8 仓白名单内有销售单的渠道) ===
 	whCondForShop, whArgsForShop := buildPlanWarehouseFilter("t.warehouse_name")
 	shopSQL := fmt.Sprintf(`SELECT DISTINCT t.shop_name FROM %s t
 		WHERE t.shop_name IS NOT NULL AND t.shop_name != ''%s

@@ -27,6 +27,7 @@ import (
 // 改这里要同步改 supply_chain.go
 var planWarehouses = []string{
 	"南京委外成品仓-公司仓-委外",
+	"南京仓库成品-公司仓-自营", // 2026-06-03 加, 退役自营仓(2025上半年大发货仓), 与 supply_chain.go 同步; 改后须重建 warehouse_flow_summary
 	"天津委外仓-公司仓-外仓",
 	"西安仓库成品-公司仓-外仓",
 	"松鲜鲜&大地密码云仓",
@@ -180,7 +181,7 @@ func buildOne(db *sql.DB, ym string) (int64, time.Duration) {
 		log.Fatalf("[%s] 源表 %s 不存在", ym, tradeT)
 	}
 
-	// 7 仓白名单 placeholders
+	// 8 仓白名单 placeholders
 	whPh := strings.Repeat("?,", len(planWarehouses))
 	whPh = whPh[:len(whPh)-1]
 	args := make([]interface{}, 0, len(planWarehouses)+1)
