@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -33,6 +34,9 @@ type Config struct {
 		Secret string `json:"secret"`
 		APIURL string `json:"api_url"`
 	} `json:"jackyun"`
+	Webhook struct {
+		Secret string `json:"secret"`
+	} `json:"webhook"`
 }
 
 // 3 个外仓 → 渠道映射
@@ -185,6 +189,18 @@ func main() {
 	}
 
 	fmt.Printf("\n🎯 同步完成: %d 单 / %d 行明细\n", totalOrders, totalDetails)
+
+	// 通知 bi-server 清缓存: 调拨改了 stat_date 会影响综合看板/部门页 GMV, 不清旧缓存挂 24h (全清=同时清内外两层)
+	if cfg.Webhook.Secret != "" {
+		req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/webhook/clear-cache", nil)
+		req.Header.Set("X-Webhook-Secret", cfg.Webhook.Secret)
+		if resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req); err == nil {
+			resp.Body.Close()
+			log.Println("已通知 bi-server 清缓存")
+		} else {
+			log.Printf("通知清缓存失败: %v", err)
+		}
+	}
 }
 
 func fetchAllocates(cli *jackyun.Client, start, end time.Time, whCode string) ([]AllocateOrder, error) {
@@ -237,8 +253,10 @@ func upsertOrder(db *sql.DB, o *AllocateOrder, channelKey string, lookup *PriceL
 
 	var statDate *string
 	inStatus := toInt(o.InStatus)
-	if inStatus == 3 && !gmtModified.IsZero() {
-		s := gmtModified.Format("2006-01-02")
+	// 口径变更 (跑哥 2026-06-03): 调拨销售改按"审核日"确认 (原按入库完成日 gmt_modified, 平均滞后 18.6 天 / 71% 单跨月)
+	// 只要审核通过 (status 2已审 / 3已关闭 / 20已完成) 就按审核日 audit_date 计入; 草稿(0)/待审(1)/审中(10) 不算
+	if st := toInt(o.Status); !auditDate.IsZero() && (st == 2 || st == 3 || st == 20) {
+		s := auditDate.Format("2006-01-02")
 		statDate = &s
 	}
 
