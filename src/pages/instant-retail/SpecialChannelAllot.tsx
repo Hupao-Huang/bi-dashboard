@@ -56,12 +56,15 @@ interface MissingRow {
   qtyTotal: number;
 }
 
-const inStatusLabel = (s: number): { text: string; color: string } => {
+// 单据状态 (status): 调拨销售按"审核通过"口径确认, 这里看单据审没审
+const statusLabel = (s: number): { text: string; color: string } => {
   switch (s) {
-    case 0: return { text: '未审核', color: 'default' };
-    case 1: return { text: '入库等待', color: 'orange' };
-    case 2: return { text: '部分入库', color: 'gold' };
-    case 3: return { text: '入库完成', color: 'green' };
+    case 0: return { text: '草稿', color: 'default' };
+    case 1: return { text: '待审', color: 'orange' };
+    case 2: return { text: '已审', color: 'blue' };
+    case 3: return { text: '已关闭', color: 'default' };
+    case 10: return { text: '审中', color: 'gold' };
+    case 20: return { text: '已完成', color: 'green' };
     default: return { text: `${s}`, color: 'default' };
   }
 };
@@ -126,8 +129,8 @@ const SpecialChannelAllot: React.FC = () => {
     { title: '调拨单号', dataIndex: 'allocateNo', key: 'allocateNo', width: 200,
       render: (v: string) => <a onClick={() => openDetail(v)}>{v}</a> },
     { title: '入库仓', dataIndex: 'inWarehouseName', key: 'inWarehouseName', width: 220, ellipsis: true },
-    { title: '入库状态', dataIndex: 'inStatus', key: 'inStatus', width: 110,
-      render: (s: number) => { const l = inStatusLabel(s); return <Tag color={l.color}>{l.text}</Tag>; } },
+    { title: '单据状态', dataIndex: 'status', key: 'status', width: 100,
+      render: (s: number) => { const l = statusLabel(s); return <Tag color={l.color}>{l.text}</Tag>; } },
     { title: '创建时间', dataIndex: 'gmtCreate', key: 'gmtCreate', width: 140 },
     { title: '审核时间', dataIndex: 'auditDate', key: 'auditDate', width: 140 },
     { title: '入库完成时间', dataIndex: 'gmtModified', key: 'gmtModified', width: 140 },
@@ -171,7 +174,7 @@ const SpecialChannelAllot: React.FC = () => {
     <div style={{ padding: 16 }}>
       <DateFilter start={startDate} end={endDate} onChange={handleDateChange} />
       <div style={{ color: '#888', fontSize: 13, marginBottom: 12 }}>
-        🔍 特殊渠道按"调拨入库完成"算销售额(在途数据展示但不计入"已完成销售额")
+        🔍 特殊渠道按"调拨审核通过"算销售额：单据审核通过即计入、按审核日归月（跟综合看板口径一致）
       </div>
 
       {/* 顶部 3 个渠道 KPI */}
@@ -182,30 +185,15 @@ const SpecialChannelAllot: React.FC = () => {
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
                 {s.channelKey} <span style={{ color: '#64748b', fontWeight: 400, fontSize: 12 }}>· {s.channelName}</span>
               </div>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Statistic
-                    title="✅ 已入库完成"
-                    value={s.completedSales}
-                    precision={2}
-                    valueStyle={{ color: '#3f8600', fontSize: 22 }}
-                  />
-                  <div style={{ color: '#64748b', fontSize: 12 }}>
-                    {s.completedOrders} 单 · {fmtWan(s.completedSales)}
-                  </div>
-                </Col>
-                <Col span={12}>
-                  <Statistic
-                    title="⏳ 在途待入"
-                    value={s.pendingSales}
-                    precision={2}
-                    valueStyle={{ color: '#faad14', fontSize: 22 }}
-                  />
-                  <div style={{ color: '#64748b', fontSize: 12 }}>
-                    {s.pendingOrders} 单 · {fmtWan(s.pendingSales)}
-                  </div>
-                </Col>
-              </Row>
+              <Statistic
+                title="销售额(审核通过计入)"
+                value={s.totalSales}
+                precision={2}
+                valueStyle={{ color: '#3f8600', fontSize: 22 }}
+              />
+              <div style={{ color: '#64748b', fontSize: 12 }}>
+                {s.totalOrders} 单 · {fmtWan(s.totalSales)}
+              </div>
             </Card>
           </Col>
         ))}
@@ -233,10 +221,8 @@ const SpecialChannelAllot: React.FC = () => {
 
         {channelSummary && (
           <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={6}><Statistic title="单数(全部)" value={channelSummary.totalOrders} /></Col>
-            <Col span={6}><Statistic title="销售额(全部)" value={channelSummary.totalSales} precision={2} /></Col>
-            <Col span={6}><Statistic title="已入库完成销售额" value={channelSummary.completedSales} precision={2} valueStyle={{ color: '#3f8600' }} /></Col>
-            <Col span={6}><Statistic title="在途销售额" value={channelSummary.pendingSales} precision={2} valueStyle={{ color: '#faad14' }} /></Col>
+            <Col span={8}><Statistic title="单数" value={channelSummary.totalOrders} /></Col>
+            <Col span={8}><Statistic title="销售额(审核通过计入)" value={channelSummary.totalSales} precision={2} valueStyle={{ color: '#3f8600' }} /></Col>
           </Row>
         )}
 
