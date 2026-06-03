@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS allocate_orders (
   gmt_create DATETIME NULL COMMENT '创建时间',
   gmt_modified DATETIME NULL COMMENT '修改时间(入库完成时是入库完成时刻)',
   audit_date DATETIME NULL COMMENT '审核时间',
-  stat_date DATE NULL COMMENT '销售统计日(=gmt_modified转日期, in_status=3时算)',
+  stat_date DATE NULL COMMENT '销售统计日(=审核日audit_date, status审核通过2/3/20时算; 2026-06-03口径改, 原=入库完成日gmt_modified)',
   channel_key VARCHAR(20) NOT NULL DEFAULT '' COMMENT '对应渠道key 京东/猫超/朴朴',
   synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '同步时间',
   PRIMARY KEY (id),

@@ -71,7 +71,7 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 			ROUND(IFNULL(SUM(d.excel_amount), 0), 2) AS sales
 		FROM allocate_orders o
 		LEFT JOIN allocate_details d ON o.allocate_no = d.allocate_no
-		WHERE DATE(o.gmt_modified) BETWEEN ? AND ?
+		WHERE o.stat_date BETWEEN ? AND ?
 		GROUP BY o.channel_key, o.in_status`, start, end)
 	if writeDatabaseError(w, err) {
 		return
@@ -136,8 +136,8 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 			ROUND(IFNULL((SELECT SUM(excel_amount) FROM allocate_details d WHERE d.allocate_no=o.allocate_no), 0), 2),
 			ROUND(o.total_amount, 2)
 		FROM allocate_orders o
-		WHERE DATE(o.gmt_modified) BETWEEN ? AND ?
-		ORDER BY o.gmt_modified DESC, o.allocate_no DESC`, start, end)
+		WHERE o.stat_date BETWEEN ? AND ?
+		ORDER BY o.stat_date DESC, o.allocate_no DESC`, start, end)
 	if writeDatabaseError(w, err) {
 		return
 	}
@@ -178,7 +178,7 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 		FROM allocate_details d
 		JOIN allocate_orders o ON o.allocate_no = d.allocate_no
 		WHERE d.price_source = 'missing'
-		  AND DATE(o.gmt_modified) BETWEEN ? AND ?
+		  AND o.stat_date BETWEEN ? AND ?
 		GROUP BY d.channel_key, d.goods_no, d.sku_barcode, d.goods_name
 		ORDER BY qty DESC`, start, end)
 	if writeDatabaseError(w, err) {

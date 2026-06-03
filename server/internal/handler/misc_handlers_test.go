@@ -328,10 +328,10 @@ func TestGetSpecialChannelAllotSummaryHappyPath(t *testing.T) {
 			AddRow("猫超", 3, 30, 60000.0).
 			AddRow("朴朴", 3, 10, 20000.0))
 
-	// 2) 调拨单 list (源码 line 128)
-	mock.ExpectQuery(`FROM allocate_orders o\s+WHERE DATE\(o\.gmt_modified\) BETWEEN`).
-		WillReturnRows(sqlmock.NewRows([]string{"allocate_no", "channel_key", "in_wh", "in_status", "status", "gc", "gm", "stat_date", "sku_count", "excel", "api"}).
-			AddRow("ALL001", "京东", "京东仓", 3, 1, "2026-04-01 10:00", "2026-04-02 10:00", "2026-04-01", 5, 1000.0, 1100.0))
+	// 2) 调拨单 list (源码 line 128, v1.75.x 口径改按审核日 stat_date 过滤)
+	mock.ExpectQuery(`FROM allocate_orders o\s+WHERE o\.stat_date BETWEEN`).
+		WillReturnRows(sqlmock.NewRows([]string{"allocate_no", "channel_key", "in_wh", "in_status", "status", "gc", "audit", "gm", "stat_date", "sku_count", "excel", "api"}).
+			AddRow("ALL001", "京东", "京东仓", 3, 1, "2026-04-01 10:00", "2026-04-01 10:05", "2026-04-02 10:00", "2026-04-01", 5, 1000.0, 1100.0))
 
 	// 3) missing SKU (源码 line 172)
 	mock.ExpectQuery(`FROM allocate_details d\s+JOIN allocate_orders o`).
