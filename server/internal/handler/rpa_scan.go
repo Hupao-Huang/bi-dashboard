@@ -435,6 +435,15 @@ var platformDBTables = map[string][]string{
 	"飞瓜":   {"fg_creator_daily"},
 }
 
+// rpaSealCutoff 文件封存截止日: platform -> yyyy-MM-dd, 此日"之前"的日期标"封存(历史)"
+// 用途: 某平台老数据平台侧已拿不到、原始文件没了, 但数据本身早已全部入库(已核实) →
+//   监控别再按"文件在不在"把这段报成异常, 标灰封存, 不算异常 / 不进完整率 / "只看异常"不显示。
+// 加封存只对"数据已确认入库齐全"的历史段用; 新增平台直接加一行 platform: "日期" 即可。
+// 案例: 拼多多 1/1~2/24 销售/商品文件平台拿不到了, 但库里 56 天数据 100% 齐, 故封存到 2026-02-25。
+var rpaSealCutoff = map[string]string{
+	"拼多多": "2026-02-25",
+}
+
 func (h *DashboardHandler) enrichDBStatus(result *rpaScanResult) {
 	for i := range result.Platforms {
 		p := &result.Platforms[i]
@@ -486,11 +495,25 @@ func (h *DashboardHandler) enrichDBStatus(result *rpaScanResult) {
 		for j := range p.Dates {
 			p.Dates[j].DBImported = importedDates[p.Dates[j].FormattedDate]
 		}
-		// 重算平台完整率: 按 (店,天) 单元里 status='complete' 的比例
+		// 文件封存: 截止日之前的日期标 sealed (平台老文件已拿不到但数据已全入库), 不算异常 / 不进完整率
+		if cutoff, ok := rpaSealCutoff[p.Name]; ok {
+			for j := range p.Dates {
+				if p.Dates[j].FormattedDate < cutoff {
+					p.Dates[j].Status = "sealed"
+					for k := range p.Dates[j].Stores {
+						p.Dates[j].Stores[k].Status = "sealed"
+					}
+				}
+			}
+		}
+		// 重算平台完整率: 按 (店,天) 单元里 status='complete' 的比例 (封存日期排除在分母外)
 		// 跟前端店铺级 badge 算法一致 (RPAMonitor.tsx storeCompleteness),
 		// 单店时平台率 == 店铺率, 不会出现 26% vs 95% 错位
 		totalCells, completeCells := 0, 0
 		for _, d := range p.Dates {
+			if d.Status == "sealed" {
+				continue
+			}
 			for _, s := range d.Stores {
 				totalCells++
 				if s.Status == "complete" {

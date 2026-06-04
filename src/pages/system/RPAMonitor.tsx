@@ -27,7 +27,7 @@ const { Text } = Typography;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type ItemStatus = 'complete' | 'partial' | 'missing' | 'no_dir';
+type ItemStatus = 'complete' | 'partial' | 'missing' | 'no_dir' | 'sealed';
 
 interface DataItem {
   name: string;
@@ -75,6 +75,7 @@ const STATUS_COLOR: Record<ItemStatus, string> = {
   partial: '#f59e0b',
   missing: '#ef4444',
   no_dir: '#94a3b8',
+  sealed: '#cbd5e1',
 };
 
 const STATUS_ICON: Record<ItemStatus, React.ReactNode> = {
@@ -82,6 +83,7 @@ const STATUS_ICON: Record<ItemStatus, React.ReactNode> = {
   partial: <WarningOutlined style={{ color: '#f59e0b' }} />,
   missing: <CloseCircleOutlined style={{ color: '#ef4444' }} />,
   no_dir: <MinusCircleOutlined style={{ color: '#94a3b8' }} />,
+  sealed: <MinusCircleOutlined style={{ color: '#cbd5e1' }} />,
 };
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
@@ -89,6 +91,7 @@ const STATUS_LABEL: Record<ItemStatus, string> = {
   partial: '部分',
   missing: '缺失',
   no_dir: '无目录',
+  sealed: '封存(历史)',
 };
 
 // ─── Cell component ───────────────────────────────────────────────────────────
@@ -151,6 +154,7 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSyn
   // 一行算"异常" = (导入状态!=已导入) 或 (任意店铺单元格!=完整)
   const isIssueDate = (date: string): boolean => {
     const meta = platform.dateMeta[date];
+    if (meta?.fileStatus === 'sealed') return false; // 封存历史段(文件平台拿不到但数据已全入库)不算异常
     const imported = meta?.dbImported;
     const fileComplete = meta?.fileStatus === 'complete';
     if (!imported || !fileComplete) return true;
@@ -247,7 +251,8 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSyn
 
   // Compute per-store completeness for summary row
   const storeCompleteness = platform.stores.map(store => {
-    const entries = platform.dates.map(d => platform.grid[d]?.[store]).filter(Boolean) as DateStoreEntry[];
+    const entries = (platform.dates.map(d => platform.grid[d]?.[store]).filter(Boolean) as DateStoreEntry[])
+      .filter(e => e.status !== 'sealed'); // 封存日期不计入店铺完整率
     if (entries.length === 0) return null;
     const complete = entries.filter(e => e.status === 'complete').length;
     return Math.round((complete / entries.length) * 100);
@@ -388,7 +393,7 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSyn
 
 const Legend: React.FC = () => (
   <Space size={16} style={{ fontSize: 12, color: '#64748b' }}>
-    {(['complete', 'partial', 'missing', 'no_dir'] as ItemStatus[]).map(s => (
+    {(['complete', 'partial', 'missing', 'no_dir', 'sealed'] as ItemStatus[]).map(s => (
       <Space key={s} size={4}>
         {STATUS_ICON[s]}
         <span>{STATUS_LABEL[s]}</span>
@@ -667,6 +672,7 @@ const RPAMonitor: React.FC = () => {
         const meta = p.dateMeta[date];
         const imported = meta?.dbImported ?? false;
         const fileStatus = meta?.fileStatus ?? 'missing';
+        if (fileStatus === 'sealed') continue; // 封存历史段不进问题汇总
         for (const store of p.stores) {
           const entry = p.grid[date]?.[store];
           if (!entry) continue;
