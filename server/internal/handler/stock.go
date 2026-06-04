@@ -220,7 +220,11 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 	case "overstock":
 		query += " AND (sq.current_qty - sq.locked_qty) > 0 AND sq.month_qty > 0 AND (sq.current_qty - sq.locked_qty) / (sq.month_qty/30) > 90"
 	case "dead":
-		query += " AND sq.month_qty = 0 AND sq.current_qty > 0"
+		// v1.x: 与卡片 dead 计数口径一致 —— 排除靠特殊渠道(京东/猫超/朴朴)调拨走量的货(它们不是真滞销)
+		query += ` AND sq.month_qty = 0 AND sq.current_qty > 0
+			AND sq.goods_no NOT IN (SELECT goods_no FROM allocate_details
+				WHERE channel_key IN ('京东','猫超','朴朴')
+				  AND stat_date > DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND stat_date <= CURDATE())`
 	default:
 		query += " AND (sq.current_qty > 0 OR sq.month_qty > 0)"
 	}
@@ -326,6 +330,7 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		SellableDays float64     `json:"sellableDays"`
 		DailyAvg     float64     `json:"dailyAvg"`
 		MonthQty     float64     `json:"monthQty"`
+		AllotQty     float64     `json:"allotQty"` // v1.x: 近30天特殊渠道(京东/猫超/朴朴)调拨件数, 供前端判"调拨在售"不标滞销
 		CurrentQty   float64     `json:"currentQty"`
 		WhCount      int         `json:"whCount"`
 		WhStockout   int         `json:"whStockout"`
@@ -356,8 +361,10 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 	for _, key := range aggOrder {
 		agg := aggMap[key]
 		allot := allotMap[key]
-		// v1.x: goods 聚合日均并入调拨当销售件数(per-仓子项仍纯 month_qty)
-		agg.DailyAvg = math.Round((agg.MonthQty+allot)/30*10) / 10
+		agg.AllotQty = allot
+		// goods 聚合日均: 有吉客云销量的货保持纯 month_qty(与下面 worstDays 可售天数同基准, 避免日均/可售天数不自洽);
+		//   全仓零吉客云销量但靠调拨走量的货, 在下面 !hasAnySales 分支用调拨件数算日均+可售天数(两者同基准, 自洽)。
+		agg.DailyAvg = math.Round(agg.MonthQty/30*10) / 10
 
 		// 找有销量的仓库中可售天数最低的
 		worstDays := 99999.0
@@ -377,9 +384,14 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		}
 
 		if !hasAnySales {
-			// v1.x: 全仓吉客云零销量但靠调拨走量的货, 不标滞销, 按调拨件数算可售天数(与计划看板/dead桶口径一致)
+			// v1.x: 全仓吉客云零销量但靠调拨走量的货, 不标滞销, 按调拨件数算日均+可售天数(与计划看板/dead桶口径一致, 二者同基准)
 			if allot > 0 && agg.CurrentQty > 0 {
-				agg.SellableDays = math.Round(agg.UsableQty/(allot/30)*10) / 10
+				agg.DailyAvg = math.Round(allot/30*10) / 10
+				if agg.UsableQty > 0 {
+					agg.SellableDays = math.Round(agg.UsableQty/(allot/30)*10) / 10
+				} else {
+					agg.SellableDays = -1 // 锁库≥现货=等同断货(避免负可售天数)
+				}
 			} else if agg.CurrentQty > 0 {
 				agg.SellableDays = 9999 // 有库存无销量=滞销
 			} else {

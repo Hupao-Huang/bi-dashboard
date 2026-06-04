@@ -553,7 +553,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 					SUM(s.month_qty) AS sum_month,
 					SUM(s.month_qty)+IFNULL(MAX(sca.allot_qty),0) AS sum_month_sale,
 					SUM(s.current_qty * s.cost_price) AS sku_stock_value,
-					SUM(s.month_qty * s.cost_price / 30) + IFNULL(MAX(sca.allot_qty),0) * (SUM(s.current_qty*s.cost_price)/NULLIF(SUM(s.current_qty),0)) / 30 AS sku_daily_cost,
+					SUM(s.month_qty * s.cost_price / 30) + IFNULL(MAX(sca.allot_qty),0) * IFNULL(SUM(s.current_qty*s.cost_price)/NULLIF(SUM(s.current_qty),0), 0) / 30 AS sku_daily_cost,
 					CASE WHEN MAX(g.flag_data) IN ('非卖品','已下架','下架中','接单产','新品-接单产') THEN 0 ELSE 1 END AS is_active_sku
 				FROM stock_quantity_daily s
 				LEFT JOIN `+planSpecialAllotQtySubSQL+` sca ON sca.goods_no = s.goods_no
@@ -901,6 +901,16 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	for i := range cateSalesList {
 		cateSalesList[i].Sales += planAllot.ByCategory[cateSalesList[i].Category]
 	}
+	// 补: 有调拨但本期基础销售=0 的品类(HAVING>0 滤掉了), 否则饼合计 < GMV
+	seenCat := map[string]bool{}
+	for _, c := range cateSalesList {
+		seenCat[c.Category] = true
+	}
+	for cat, amt := range planAllot.ByCategory {
+		if amt != 0 && !seenCat[cat] {
+			cateSalesList = append(cateSalesList, CateSales{Category: cat, Sales: amt})
+		}
+	}
 	// 区间天数(给渠道 split 的日均重算)
 	allotDays := 1
 	if sT, e1 := time.Parse("2006-01-02", start); e1 == nil {
@@ -936,6 +946,25 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 				d.YoyRate = (d.Total/d.LastYear - 1) * 100
 			}
 			channels = append(channels, *d)
+		}
+	}
+	// 补: 有调拨但本期8仓+10品类基础销售=0 的部门(不在 channelOrder), 否则渠道 split 合计 < GMV
+	seenDept := map[string]bool{}
+	for _, c := range channels {
+		seenDept[c.Channel] = true
+	}
+	for dept, amt := range planAllot.ByDept {
+		if amt != 0 && !seenDept[dept] {
+			nd := ChannelData{Channel: dept, Total: amt, DailyAvg: amt / float64(allotDays)}
+			nd.LastMonth = planAllotLM.ByDept[dept]
+			nd.LastYear = planAllotLY.ByDept[dept]
+			if nd.LastMonth > 0 {
+				nd.MomRate = (nd.Total/nd.LastMonth - 1) * 100
+			}
+			if nd.LastYear > 0 {
+				nd.YoyRate = (nd.Total/nd.LastYear - 1) * 100
+			}
+			channels = append(channels, nd)
 		}
 	}
 
