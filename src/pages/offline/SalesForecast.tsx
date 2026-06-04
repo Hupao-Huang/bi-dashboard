@@ -390,7 +390,6 @@ const SalesForecast: React.FC = () => {
         title: region,
         key: region,
         width: 160,
-        fixed: 'right' as const,
         align: 'center' as const,
         render: (_: any, row: ForecastItem) => {
           const userVal = userValues[row.sku_code]?.[region];
@@ -583,7 +582,7 @@ const SalesForecast: React.FC = () => {
             columns={columns}
             dataSource={filteredItems}
             pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
-            scroll={{ x: 240 + 110 + 110 + regions.length * 90 + 110 }}
+            scroll={{ x: 'max-content' }}
             size="small"
           />
         )}
