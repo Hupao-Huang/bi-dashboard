@@ -366,6 +366,8 @@ func main() {
 	cache24h := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(24*time.Hour, fn) }
 	// v1.73.2: hesi 数据 sync-hesi schtasks 每 15min 一次, cache TTL 必须同频, 否则用户看 24h 旧数据
 	cache15m := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(15*time.Minute, fn) }
+	// 期货行情盘中实时: sync-futures-realtime 每 5min 更新快照并清此缓存, TTL 同频兜底
+	cache5m := func(fn http.HandlerFunc) http.HandlerFunc { return h.WithCache(5*time.Minute, fn) }
 
 	mux.HandleFunc("/api/overview", pageAnyProtected(cache24h(h.GetOverview),
 		"overview:view", "finance.overview:view", "finance.monthly_profit:view",
@@ -436,7 +438,7 @@ func main() {
 	mux.HandleFunc("/api/supply-chain/qc-alert/detail", pageProtected("supply_chain.qc_alert:view", h.GetQCAlertDetail))
 	// 原料行情（期货）—— MVP 阶段开放给所有登录用户（不挂 permission，登录即可看）
 	mux.HandleFunc("/api/futures/symbols", protected(cache24h(h.GetFuturesSymbols)))
-	mux.HandleFunc("/api/futures/quotes", protected(cache24h(h.GetFuturesQuotes)))
+	mux.HandleFunc("/api/futures/quotes", protected(cache5m(h.GetFuturesQuotes)))
 	mux.HandleFunc("/api/futures/daily", protected(cache24h(h.GetFuturesDaily)))
 	// 分销·客户分析 (v1.29)
 	mux.HandleFunc("/api/distribution/customers/list", pageProtected("distribution.customer_list:edit", h.ListDistributionCustomers))

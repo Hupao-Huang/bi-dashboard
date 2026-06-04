@@ -32,6 +32,8 @@ export interface FuturesQuote extends FuturesSymbol {
   volume: number;
   openInterest: number;
   miniTrend: number[];     // 最近 30 天收盘价
+  quoteTime: string;       // 盘中实时报价时间 HH:MM:SS（无实时数据时为空）
+  isRealtime: boolean;     // 是否盘中实时（true=盘中实时价 / false=休市收盘价）
 }
 
 export const categoryLabel: Record<FuturesSymbol['category'], string> = {
