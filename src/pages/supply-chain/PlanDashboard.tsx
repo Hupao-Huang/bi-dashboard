@@ -88,7 +88,11 @@ const PlanDashboard: React.FC = () => {
   // v1.70.4: 加 colSpan 字段 - 上 3 大 KPI (金额/天) 用 lg=8 占满首行 24 列;
   //          下 4 小 KPI (比例/指标) 用 lg=6 占满次行 24 列. 跑哥 5/20 拍 0 留白布局.
   const kpiCards = [
-    { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#1e40af', icon: <DollarOutlined />, desc: wanHint(kpi.salesGMV || 0) + '销售出库销售额', animated: true,
+    { title: '销售GMV', num: kpi.salesGMV || 0, fmt: fmtYuan, color: '#1e40af', icon: <DollarOutlined />,
+      // v1.x: 拆分显示 销售出库 + 调拨当销售(京东/猫超/朴朴), 让总额构成透明
+      desc: (kpi.allotGMV || 0) > 0
+        ? `销售出库 ${fmtWan((kpi.salesGMV || 0) - (kpi.allotGMV || 0))} + 调拨 ${fmtWan(kpi.allotGMV || 0)}`
+        : wanHint(kpi.salesGMV || 0) + '销售出库销售额', animated: true,
       colSpan: { xs: 24, sm: 12, lg: 8 },
       tip: '本期 10 个核心调味品类、8 个成品仓的销售出库金额（按选中日期范围汇总）。' },
     { title: '库存成本', num: kpi.stockCost || 0, fmt: fmtYuan, color: '#06b6d4', icon: <DatabaseOutlined />, desc: wanHint(kpi.stockCost || 0) + '当前库存金额',

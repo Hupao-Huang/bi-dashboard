@@ -973,7 +973,8 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		"code": 200,
 		"data": map[string]interface{}{
 			"kpi": map[string]interface{}{
-				"salesGMV":       salesGMV,
+				"salesGMV":       salesGMV,                  // 总销售额(销售出库 + 特殊渠道调拨当销售)
+				"allotGMV":       planAllot.Total,           // 其中: 特殊渠道(京东/猫超/朴朴)调拨当销售部分(前端拆分显示)
 				"stockCost":      stockCost,
 				"turnoverDays":   turnoverDays,
 				"highStockRate":  highStockRate,
