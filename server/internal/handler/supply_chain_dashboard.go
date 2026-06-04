@@ -145,7 +145,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	}
 
 	// ========== 1. KPI 卡片 ==========
-	var salesGMV, stockCost, dailyCost, turnoverDays, agedStockValue float64
+	var salesGMV, stockCost, dailyCost, allotDailyCost, turnoverDays, agedStockValue float64
 	var highStockValue, totalStockValue, highStockRate, stockoutRate float64
 	var stockoutSKU, salesSKU int
 	// v1.69.2: 单仓缺货率 (按 SKU×仓 单元) — 跟 stockoutRate 的"全仓汇总"区分
@@ -181,11 +181,38 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		}
 	}()
 
+	// v1.x: 周转天数 KPI 的日销成本(dailyCost)并入特殊渠道调拨当销售。调拨是 goods 级件数无成本,
+	//   用该货在计划仓的"库存加权平均成本"(SUM(qty*cost)/SUM(qty), 自动剔除0库存仓脏cost)配成本:
+	//   allotDailyCost = SUM_over_goods( allot_qty × 加权avg成本 ) / 30, 加到 dailyCost(见下 turnoverDays 计算)。
+	//   纯调拨0库存货取不到成本 → wcost=NULL → 该货记0(保守, 宁可周转略高不灌假成本)。日期锚 stockSnapDate 与库存快照一致。
+	//   sca 的 2 个 ? 在 JOIN 文本最前, 外加 gc 的 snapshot_date ?, 故 stockSnapDate 出现 3 次。
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cateCondGC, _ := planCategoryGoodsCond("stock_quantity_daily")
+		adcArgs := append([]interface{}{stockSnapDate, stockSnapDate, stockSnapDate}, planWhArgs...)
+		adcArgs = append(adcArgs, warehouseArgs...)
+		adcArgs = append(adcArgs, cateArgs...)
+		if err := h.DB.QueryRow(`SELECT IFNULL(SUM(sca.allot_qty * gc.wcost)/30, 0)
+			FROM `+planSpecialAllotQtySubSQL+` sca
+			JOIN (
+				SELECT goods_no, SUM(current_qty * cost_price)/NULLIF(SUM(current_qty),0) AS wcost
+				FROM stock_quantity_daily
+				WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCondGC+`
+				GROUP BY goods_no
+			) gc ON gc.goods_no = sca.goods_no`, adcArgs...).Scan(&allotDailyCost); err != nil {
+			setQueryErr(err)
+		}
+	}()
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		// v1.02: 缺货率改 SKU 维度跨仓汇总 (跟"缺货产品明细"口径一致)
 		// + 排除非卖品/已下架/下架中/接单产/新品-接单产 标签的 SKU
+		// v1.x 决策: 缺货门槛(sum_month>0)故意不并调拨当销售。缺货定义="计划仓没货可发但有人要买"的采购预警;
+		//   京东/猫超/朴朴的货是从计划仓调拨出去的(货已发=已到位), 把调拨算进缺货分子会制造假缺货信号。
+		//   与高库存(并调拨, 放宽)方向相反: 缺货并调拨是"收紧", 业务无对应需求。**勿好心改成 sum_month_sale**。
 		flagExcludeCond, flagExcludeArgs := planStockoutExcludeFlagsCond("")
 		stockoutArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
 		stockoutArgs = append(stockoutArgs, warehouseArgs...)
@@ -211,6 +238,8 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		// v1.69.2: 单仓缺货率 — 不 GROUP BY goods_no, 直接按 (SKU, 仓库) 单元算
 		// 跟 stockoutRate "全仓汇总" 区分: 单仓缺货虽然其他仓有, 但调拨要时间+成本, 是采购预警
+		// v1.x: 调拨无仓库维度(allocate_details 不含仓), 全公司合计无法拆到单仓单元 → 单仓缺货率保持纯 month_qty,
+		//   不并调拨当销售(全仓视角的高库存/周转已并入)。缺货门槛口径见下方 stockoutRate 注释(决策: 缺货不并调拨)。
 		perWhFlagCond, perWhFlagArgs := planStockoutExcludeFlagsCond("")
 		perWhArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
 		perWhArgs = append(perWhArgs, warehouseArgs...)
@@ -475,7 +504,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 					SUM(s.month_qty) AS sum_month,
 					SUM(s.month_qty)+IFNULL(MAX(sca.allot_qty),0) AS sum_month_sale,
 					SUM(s.current_qty * s.cost_price) AS sku_stock_value,
-					SUM(s.month_qty * s.cost_price / 30) AS sku_daily_cost,
+					SUM(s.month_qty * s.cost_price / 30) + IFNULL(MAX(sca.allot_qty),0) * (SUM(s.current_qty*s.cost_price)/NULLIF(SUM(s.current_qty),0)) / 30 AS sku_daily_cost,
 					CASE WHEN MAX(g.flag_data) IN ('非卖品','已下架','下架中','接单产','新品-接单产') THEN 0 ELSE 1 END AS is_active_sku
 				FROM stock_quantity_daily s
 				LEFT JOIN `+planSpecialAllotQtySubSQL+` sca ON sca.goods_no = s.goods_no
@@ -812,8 +841,9 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	if totalStockValue > 0 {
 		highStockRate = highStockValue / totalStockValue * 100
 	}
-	if dailyCost > 0 {
-		turnoverDays = stockCost / dailyCost
+	// v1.x: 周转天数分母并入调拨日销成本(allotDailyCost), 与高库存/明细口径一致
+	if dailyCost+allotDailyCost > 0 {
+		turnoverDays = stockCost / (dailyCost + allotDailyCost)
 	}
 
 	// 组装渠道环比数据

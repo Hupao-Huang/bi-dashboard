@@ -89,11 +89,28 @@ func planCategoryGoodsCond(alias string) (string, []interface{}) {
 // 用法: LEFT JOIN (`+planSpecialAllotQtySubSQL+`) sca ON sca.goods_no = <库存表>.goods_no
 //   周转分母改用 SUM(month_qty)+IFNULL(MAX(sca.allot_qty),0); 两个 ? 都传库存快照日 stockSnapDate。
 // 注意: 渠道清单(京东/猫超/朴朴)唯一真源在 special_channel.go, 新增特殊渠道时这里要同步。
-//   allocate_* 表只存有效(非作废)单, stat_date 已是调拨审核业务日, 无需再过滤状态。
+//   allocate_details 不含仓库维度 → allot_qty 是全公司合计, 与库存侧按仓过滤(warehouseCond)口径不对称。
+//   当前安全: 计划看板前端无仓库选择器(warehouse 恒空)且无任何 warehouse 数据范围角色, warehouseCond 恒空。
+//   ⚠️ 若日后加"按仓筛选"或 warehouse 数据范围角色, 单仓视角下分母会被全公司调拨量灌水(周转低估、高库存漏列),
+//   届时需把调拨并入限制为仅全仓口径(warehouseCond 为空时才 fold)。
+//   stat_date 由 sync-allocate 仅对已审核单(status 2/3/20)写值, 草稿/待审为 NULL, 被 stat_date 范围比较自动排除;
+//   但已审核后整单作废且从吉客云 API 消失的残留单无法自动清零(见 memory project_special_channel_allot 残留风险),
+//   30 天窗口内会虚增一点分母, 影响极小, 上线知会即可。
 const planSpecialAllotQtySubSQL = `(SELECT goods_no, SUM(sku_count) AS allot_qty
 		FROM allocate_details
 		WHERE channel_key IN ('京东','猫超','朴朴')
 		  AND stat_date > DATE_SUB(?, INTERVAL 30 DAY) AND stat_date <= ?
+		GROUP BY goods_no)`
+
+// planSpecialAllotQtyLiveSubSQL: 同 planSpecialAllotQtySubSQL, 但日期锚用 CURDATE() (0 个 ?), 供查 LIVE 表
+//   stock_quantity(无 snapshot_date 列)的采购计划页/库存监控页用。计划看板查 stock_quantity_daily 有快照日,
+//   用上面那个绑 stockSnapDate 的版本; 这两页查实时表没有快照日变量, 故近30天锚到今天。
+// 用法: LEFT JOIN (`+planSpecialAllotQtyLiveSubSQL+`) sca ON sca.goods_no = sq.goods_no
+//   周转/日均分母 (SUM(month_qty)+IFNULL(MAX(sca.allot_qty),0)); 渠道/作废残留口径同 planSpecialAllotQtySubSQL 注释。
+const planSpecialAllotQtyLiveSubSQL = `(SELECT goods_no, SUM(sku_count) AS allot_qty
+		FROM allocate_details
+		WHERE channel_key IN ('京东','猫超','朴朴')
+		  AND stat_date > DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND stat_date <= CURDATE()
 		GROUP BY goods_no)`
 
 // planCategoryGoodsSubquery 返回品类白名单对应 goods_no 的"派生表子查询"(不含 AND goods_no IN) + 参数

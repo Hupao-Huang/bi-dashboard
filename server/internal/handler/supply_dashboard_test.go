@@ -33,6 +33,10 @@ func TestGetSupplyChainDashboardEmptyAllSQL(t *testing.T) {
 	mock.ExpectQuery(`SELECT IFNULL\(SUM\(current_qty \* cost_price\),0\), IFNULL\(SUM\(month_qty \* cost_price`).
 		WillReturnRows(sqlmock.NewRows([]string{"sc", "dc"}).AddRow(0.0, 0.0))
 
+	// 3b. allotDailyCost (周转分母并入调拨日销成本, sca JOIN 库存加权成本)
+	mock.ExpectQuery(`SELECT IFNULL\(SUM\(sca\.allot_qty \* gc\.wcost\)/30, 0\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"adc"}).AddRow(0.0))
+
 	// 4. stockoutSKU + salesSKU (line 313)
 	mock.ExpectQuery(`SUM\(CASE WHEN sum_avail<=0 AND sum_month>0 THEN 1`).
 		WillReturnRows(sqlmock.NewRows([]string{"so", "s"}).AddRow(0, 0))
