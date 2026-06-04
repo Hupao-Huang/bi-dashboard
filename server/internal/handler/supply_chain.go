@@ -82,6 +82,20 @@ func planCategoryGoodsCond(alias string) (string, []interface{}) {
 	return cond, args
 }
 
+// planSpecialAllotQtySubSQL: 近30天"特殊渠道(京东/猫超/朴朴)调拨当销售"按 goods_no 汇总数量的派生表。
+// 背景: 吉客云现存量自带的 month_qty(月销量)只算销售出库, 不含调拨; 京东/猫超/朴朴这几个渠道靠调拨单
+//   发货当销售(口径见 special_channel.go + allocate_orders/allocate_details 表)。不并进周转分母, 这些靠
+//   调拨走量的畅销货会被"高库存周转>50天"误判成滞销(实测松茸鲜素蚝油360g周转被算成4624天, 并进后49天)。
+// 用法: LEFT JOIN (`+planSpecialAllotQtySubSQL+`) sca ON sca.goods_no = <库存表>.goods_no
+//   周转分母改用 SUM(month_qty)+IFNULL(MAX(sca.allot_qty),0); 两个 ? 都传库存快照日 stockSnapDate。
+// 注意: 渠道清单(京东/猫超/朴朴)唯一真源在 special_channel.go, 新增特殊渠道时这里要同步。
+//   allocate_* 表只存有效(非作废)单, stat_date 已是调拨审核业务日, 无需再过滤状态。
+const planSpecialAllotQtySubSQL = `(SELECT goods_no, SUM(sku_count) AS allot_qty
+		FROM allocate_details
+		WHERE channel_key IN ('京东','猫超','朴朴')
+		  AND stat_date > DATE_SUB(?, INTERVAL 30 DAY) AND stat_date <= ?
+		GROUP BY goods_no)`
+
 // planCategoryGoodsSubquery 返回品类白名单对应 goods_no 的"派生表子查询"(不含 AND goods_no IN) + 参数
 // 用法: FROM 大表 JOIN (`+sub+`) gc ON gc.goods_no = 大表.goods_no
 // 为什么不直接用 planCategoryGoodsCond: 月度物化表(sales_goods_summary_monthly)全历史趋势上,
