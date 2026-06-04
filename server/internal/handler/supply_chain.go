@@ -113,6 +113,13 @@ const planSpecialAllotQtyLiveSubSQL = `(SELECT goods_no, SUM(sku_count) AS allot
 		  AND stat_date > DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND stat_date <= CURDATE()
 		GROUP BY goods_no)`
 
+// planExcludeAllotShopsCond: 计划看板销售查询排除"京东自营/猫超寄售"这 2 个特殊渠道店铺的销售单。
+//   这俩渠道只按调拨当销售算(见 loadPlanAllot), 销售单一律不进计划看板销售, 防与调拨重复计算。
+//   当前它们销售单挂自己平台仓(京东自营仓/天猫超市仓)本就不在计划 8 仓, 这道把规则写死: 哪天它们改从计划仓发货也不会双算。
+//   朴朴(js-…朴朴)纯调拨、在 sales_goods_summary 无销售单, 无需排除。shop_id 真源同 loadEcommerceAllotAdjustment/special_channel.go。
+//   无占位符, 直接拼到销售查询 WHERE 末尾(列名 shop_id 在 sales_goods_summary / _monthly 均无歧义)。
+const planExcludeAllotShopsCond = ` AND shop_id NOT IN ('1819610592561398400','1819610591915475584')`
+
 // planCategoryGoodsSubquery 返回品类白名单对应 goods_no 的"派生表子查询"(不含 AND goods_no IN) + 参数
 // 用法: FROM 大表 JOIN (`+sub+`) gc ON gc.goods_no = 大表.goods_no
 // 为什么不直接用 planCategoryGoodsCond: 月度物化表(sales_goods_summary_monthly)全历史趋势上,

@@ -53,7 +53,7 @@ func (h *DashboardHandler) GetSupplyChainMonthlyTrend(w http.ResponseWriter, r *
 		SELECT stat_month AS m, ROUND(SUM(local_goods_amt),2)
 		FROM sales_goods_summary_monthly
 		JOIN (`+catSub+`) gc ON gc.goods_no = sales_goods_summary_monthly.goods_no
-		WHERE stat_month BETWEEN ? AND ?`+whCond+salesScopeCond+`
+		WHERE stat_month BETWEEN ? AND ?`+whCond+salesScopeCond+planExcludeAllotShopsCond+`
 		GROUP BY stat_month ORDER BY stat_month`, args...)
 	if err != nil {
 		log.Printf("monthly trend query failed: %v", err)
@@ -219,7 +219,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		salesGMVArgs := append([]interface{}{start, end}, planWhArgs...)
 		salesGMVArgs = append(salesGMVArgs, salesScopeArgs...)
 		salesGMVArgs = append(salesGMVArgs, cateArgs...)
-		if err := h.DB.QueryRow(`SELECT IFNULL(SUM(local_goods_amt),0) FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond, salesGMVArgs...).Scan(&salesGMV); err != nil {
+		if err := h.DB.QueryRow(`SELECT IFNULL(SUM(local_goods_amt),0) FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+planExcludeAllotShopsCond, salesGMVArgs...).Scan(&salesGMV); err != nil {
 			setQueryErr(err)
 		}
 	}()
@@ -376,7 +376,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 			SELECT stat_month AS m, ROUND(SUM(local_goods_amt),2)
 			FROM sales_goods_summary_monthly
 			JOIN (`+catSub+`) gc ON gc.goods_no = sales_goods_summary_monthly.goods_no
-			WHERE 1=1`+planWhCond+salesScopeCond+`
+			WHERE 1=1`+planWhCond+salesScopeCond+planExcludeAllotShopsCond+`
 			GROUP BY stat_month ORDER BY stat_month`, monthlyArgs...)
 		if !ok {
 			return
@@ -422,7 +422,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 			SELECT CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END,
 				ROUND(SUM(local_goods_amt)/GREATEST(DATEDIFF(?,?)+1,1),2),
 				ROUND(SUM(local_goods_amt),2)
-			FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+`
+			FROM sales_goods_summary WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+planExcludeAllotShopsCond+`
 			GROUP BY CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END
 			ORDER BY SUM(local_goods_amt) DESC`, channelArgs...)
 		if !ok {
@@ -463,7 +463,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		rows, ok := queryRows(`
 			SELECT CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END, ROUND(SUM(local_goods_amt),2)
 			FROM sales_goods_summary
-			WHERE stat_date BETWEEN DATE_SUB(?, INTERVAL 1 MONTH) AND DATE_SUB(?, INTERVAL 1 MONTH)`+planWhCond+salesScopeCond+cateCond+`
+			WHERE stat_date BETWEEN DATE_SUB(?, INTERVAL 1 MONTH) AND DATE_SUB(?, INTERVAL 1 MONTH)`+planWhCond+salesScopeCond+cateCond+planExcludeAllotShopsCond+`
 			GROUP BY CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END`, lmArgs...)
 		if !ok {
 			return
@@ -495,7 +495,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		rows, ok := queryRows(`
 			SELECT CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END, ROUND(SUM(local_goods_amt),2)
 			FROM sales_goods_summary
-			WHERE stat_date BETWEEN DATE_SUB(?, INTERVAL 1 YEAR) AND DATE_SUB(?, INTERVAL 1 YEAR)`+planWhCond+salesScopeCond+cateCond+`
+			WHERE stat_date BETWEEN DATE_SUB(?, INTERVAL 1 YEAR) AND DATE_SUB(?, INTERVAL 1 YEAR)`+planWhCond+salesScopeCond+cateCond+planExcludeAllotShopsCond+`
 			GROUP BY CASE WHEN department IS NULL OR department='' THEN 'other' ELSE department END`, lyArgs...)
 		if !ok {
 			return
@@ -719,7 +719,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 			SELECT t.goods_no, t.goods_name, IFNULL(g.cate_full_name,''), IFNULL(g.goods_field7,''), t.sales, t.qty
 			FROM (SELECT goods_no, MAX(goods_name) AS goods_name,
 				ROUND(SUM(local_goods_amt),2) AS sales, ROUND(SUM(goods_qty),0) AS qty
-				FROM sales_goods_summary FORCE INDEX (idx_date_goods_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+`
+				FROM sales_goods_summary FORCE INDEX (idx_date_goods_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+planExcludeAllotShopsCond+`
 				GROUP BY goods_no ORDER BY sales DESC LIMIT 20) t
 			LEFT JOIN (SELECT goods_no, MAX(cate_full_name) AS cate_full_name, MAX(goods_field7) AS goods_field7
 				FROM goods WHERE is_delete=0 GROUP BY goods_no) g ON t.goods_no = g.goods_no`, topSalesArgs...)
@@ -749,7 +749,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 			SELECT t.goods_no, t.goods_name, IFNULL(g.cate_full_name,''), IFNULL(g.goods_field7,''), t.qty, t.sales
 			FROM (SELECT goods_no, MAX(goods_name) AS goods_name,
 				ROUND(SUM(goods_qty),0) AS qty, ROUND(SUM(local_goods_amt),2) AS sales
-				FROM sales_goods_summary FORCE INDEX (idx_date_goods_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+`
+				FROM sales_goods_summary FORCE INDEX (idx_date_goods_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+planExcludeAllotShopsCond+`
 				GROUP BY goods_no ORDER BY qty DESC LIMIT 20) t
 			LEFT JOIN (SELECT goods_no, MAX(cate_full_name) AS cate_full_name, MAX(goods_field7) AS goods_field7
 				FROM goods WHERE is_delete=0 GROUP BY goods_no) g ON t.goods_no = g.goods_no`, topQtyArgs...)
@@ -788,7 +788,7 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 				CASE WHEN cate_name LIKE '成品/%' THEN SUBSTRING_INDEX(SUBSTRING_INDEX(cate_name,'/',2),'/',-1)
 					WHEN cate_name IS NOT NULL AND cate_name != '' THEN cate_name ELSE '未分类' END AS category,
 				ROUND(SUM(local_goods_amt),2), ROUND(SUM(gross_profit),2)
-			FROM sales_goods_summary FORCE INDEX (idx_date_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+`
+			FROM sales_goods_summary FORCE INDEX (idx_date_amt) WHERE stat_date BETWEEN ? AND ?`+planWhCond+salesScopeCond+cateCond+planExcludeAllotShopsCond+`
 			GROUP BY category HAVING SUM(local_goods_amt) > 0
 			ORDER BY SUM(local_goods_amt) DESC`, cateSalesArgs...)
 		if !ok {
