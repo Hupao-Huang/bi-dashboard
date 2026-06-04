@@ -40,6 +40,8 @@ const (
 	materialOutListPath = "/iuap-api-gateway/yonbip/scm/materialout/list"
 	// stockListPath 现存量查询 (空 body 全量, data 是直接 array)
 	stockListPath = "/iuap-api-gateway/yonbip/scm/stock/QueryCurrentStocksByCondition"
+	// inspectionListPath 检验单列表查询 (质量管理/质量检验). billnum 默认来料检验单 qms_incominspectorder_list
+	inspectionListPath = "/iuap-api-gateway/yonbip/QMS_QIT/inspectorder/list"
 
 	// tokenSafetyMargin token 提前 5min 过期，避免边界条件
 	tokenSafetyMargin = 5 * time.Minute
@@ -423,6 +425,73 @@ func (c *Client) QueryStockList(req *StockListReq) (*StockListResp, error) {
 	}
 	if pr.Code != "200" {
 		return nil, fmt.Errorf("yonsuite stock non-200: code=%s msg=%s", pr.Code, pr.Message)
+	}
+	return &pr, nil
+}
+
+// InspectionSimple 检验单列表的"范围日期查询"块 (跟 simpleVOs 二选一/并用)
+type InspectionSimple struct {
+	OpenInspectDateBegin string `json:"open_inspectDate_begin,omitempty"` // 起始检验日期 yyyy-MM-dd
+	OpenInspectDateEnd   string `json:"open_inspectDate_end,omitempty"`   // 截止检验日期 yyyy-MM-dd
+	Verifystate          string `json:"verifystate,omitempty"`            // 单据状态 11开立/0待检/10检验完成/1审批中/2已审批/4已驳回
+}
+
+// InspectionListReq 检验单列表请求
+// billnum 检验单类型: 来料检验 qms_incominspectorder_list / 产品检验 qms_prodinspectorder_list /
+//   在库检验 qms_stockinspectorder_list / 其他 qms_otherinspectorder_list / 工序 qms_procedureinspectorder_list /
+//   发退货 qms_deliveryinspectorder_list. 默认来料检验。
+type InspectionListReq struct {
+	Billnum     string            `json:"billnum"`
+	PageIndex   int               `json:"pageIndex"`
+	PageSize    int               `json:"pageSize"`
+	SimpleVOs   []SimpleVO        `json:"simpleVOs,omitempty"`
+	Simple      *InspectionSimple `json:"simple,omitempty"`
+	QueryOrders []QueryOrder      `json:"queryOrders,omitempty"`
+	Pubts       string            `json:"pubts,omitempty"` // 秒级时间戳增量过滤 start|end
+}
+
+// QueryInspectionList 调检验单列表接口 (POST + access_token query). 返回结构同采购 (复用 PurchaseListResp)
+func (c *Client) QueryInspectionList(req *InspectionListReq) (*PurchaseListResp, error) {
+	token, err := c.AccessToken()
+	if err != nil {
+		return nil, err
+	}
+	c.waitRateLimit()
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal inspection req: %w", err)
+	}
+	q := url.Values{}
+	q.Set("access_token", token)
+	fullURL := c.BaseURL + inspectionListPath + "?" + q.Encode()
+
+	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("yonsuite inspection list http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	// UseNumber() 防 19 位 id 精度丢失
+	var pr PurchaseListResp
+	dec := json.NewDecoder(bytes.NewReader(respBody))
+	dec.UseNumber()
+	if err := dec.Decode(&pr); err != nil {
+		return nil, fmt.Errorf("unmarshal inspection list: %w, body=%s", err, truncate(string(respBody), 500))
+	}
+	if pr.Code != "200" {
+		return nil, fmt.Errorf("yonsuite inspection list non-200: code=%s msg=%s", pr.Code, pr.Message)
 	}
 	return &pr, nil
 }

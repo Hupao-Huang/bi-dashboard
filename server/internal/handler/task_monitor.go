@@ -59,6 +59,7 @@ var taskMetaByName = map[string]TaskConfig{
 	"BI-SyncYSPurchase":             {Name: "用友采购单同步", Description: "YS 采购订单接口", Schedule: "每小时(00:25起)", LogFile: "logs/sync-ys-purchase-*.log", Category: "sync"},
 	"BI-SyncYSMaterialOut":          {Name: "用友材料出库同步", Description: "YS 材料出库接口", Schedule: "每天 09:20", LogFile: "logs/sync-ys-materialout-*.log", Category: "sync"},
 	"BI-SyncYSSubcontract":          {Name: "用友委外单同步", Description: "YS 委外订单接口", Schedule: "每小时(00:35起)", LogFile: "logs/sync-ys-subcontract-*.log", Category: "sync"},
+	"BI-SyncYSInspection":           {Name: "用友来料检验单同步", Description: "YS 来料检验/质检接口(质检预警数据源)", Schedule: "每天 09:40", LogFile: "logs/sync-ys-inspection-*.log", Category: "sync"},
 	"BI-SyncOpsFallback":            {Name: "运营数据导入", Description: "天猫/京东/拼多多/唯品会/抖音等 10 平台", Schedule: "每天 13:00 (兜底)", LogFile: "sync-ops-daily.log", Category: "sync"},
 	"BI-Build-WarehouseFlowSummary": {Name: "物化表构建", Description: "warehouse_flow_summary 预聚合 (7s→5ms)", Schedule: "每天 03:30", LogFile: "build-warehouse-flow-summary.log", Category: "stock"},
 	"BI-BackupMySQL":                {Name: "MySQL 备份", Description: "全库 mysqldump", Schedule: "每天 02:00", LogFile: "backup-mysql.log", Category: "ops"},
