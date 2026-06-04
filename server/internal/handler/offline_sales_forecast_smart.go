@@ -1,11 +1,15 @@
 package handler
 
-// 销量预测·智能算法 (v1.66.0 起唯一算法)
+// 销量预测·混合版算法 (v1.77 起, 替代 v1.66 季节版)
 //
-// 设计目标: 1 个算法解决所有月份, 业务能看懂公式, 不依赖 ML 训练
+// 设计目标: 业务能看懂公式, 不依赖 ML 训练; 分而治之, 各月用各自最准的招
 //
-// 核心思路 (4 因素加权融合):
-//   预测值 = (α × 近3月均 + β × 同比 + γ × 环比) × 节假日因子 × 趋势调整
+// 核心思路:
+//   平淡月(3-12): (α × 近3月均 + β × 同比 + γ × 环比) × 节假日因子 × 趋势调整
+//   春节月(1/2):  去年同月 × 大区增长 (线下经销商节前囤货是稳定因素, 按去年同期推最稳)
+//   回测大区合计 14.1%→8.3%; 出数走 GetOfflineSalesForecast, 回测走 computeBacktestForecast, 加权部分共用 weightedForecast
+//
+// 平淡月加权权重表如下 (v1.66 设计, 混合版沿用):
 //
 // 权重按月份动态调整 (节假日因素):
 //
@@ -27,7 +31,6 @@ package handler
 
 import (
 	"fmt"
-	"math"
 )
 
 // MonthFactors 单月权重 + 节假日因子
@@ -70,114 +73,26 @@ func monthFactorsTable(month int) MonthFactors {
 	return MonthFactors{Alpha: 0.50, Beta: 0.40, Gamma: 0.10, HolidayFactor: 1.00, HolidayContext: ""}
 }
 
-// SmartForecastInput 单 SKU × 大区 的输入数据
-type SmartForecastInput struct {
-	History []float64 // 近 12 个月销量, [t-12, t-11, ..., t-1]
-	YoyQty  float64   // 去年同月销量 (t-12)
-}
-
-// SmartForecastResult 输出结果
-type SmartForecastResult struct {
-	Forecast       int     `json:"forecast"`        // 最终预测值
-	BaseAvg3       float64 `json:"baseAvg3"`        // 近 3 月均
-	YoyQty         float64 `json:"yoyQty"`          // 同比
-	MoMQty         float64 `json:"momQty"`          // 环比 (上月)
-	WeightedBase   float64 `json:"weightedBase"`    // α×avg3 + β×yoy + γ×mom
-	HolidayFactor  float64 `json:"holidayFactor"`   // 节假日因子
-	TrendFactor    float64 `json:"trendFactor"`     // 趋势调整因子
-	Alpha          float64 `json:"alpha"`           // 权重
-	Beta           float64 `json:"beta"`
-	Gamma          float64 `json:"gamma"`
-	HolidayContext string  `json:"holidayContext"`  // 节假日说明
-	TrendContext   string  `json:"trendContext"`    // 趋势说明
-	FormulaText    string  `json:"formulaText"`     // 完整公式可读文本
-}
-
-// computeSmartForecast 智能预测核心算法
-//
-// 输入:
-//   predictMonth: 目标预测月份 (1-12)
-//   in.History:   近12月销量, in.History[0] = t-12月, in.History[11] = 上月
-//   in.YoyQty:    去年同月销量 (= in.History[0])
-//
-// 输出: 完整 SmartForecastResult, 含计算过程方便业务理解
-func computeSmartForecast(predictMonth int, in SmartForecastInput) SmartForecastResult {
-	mf := monthFactorsTable(predictMonth)
-
-	// 1. 近 3 月均 (上月 + 上上月 + 上上上月)
-	var avg3 float64
-	if len(in.History) >= 3 {
-		avg3 = (in.History[len(in.History)-1] + in.History[len(in.History)-2] + in.History[len(in.History)-3]) / 3
-	} else if len(in.History) > 0 {
-		// 历史不足 3 月, 用现有的算
-		sum := 0.0
-		for _, v := range in.History {
-			sum += v
-		}
-		avg3 = sum / float64(len(in.History))
+// weightedForecast 平淡月(及春节无去年同月)的加权基线: α×近3月均 + β×同比 + γ×环比.
+// 只对有值(>0)的项分配权重并按非零项归一化(缺项不把权重浪费在 0 值上, 避免系统性偏低),
+// 返回"未乘节假日/趋势"的加权值. 出数 GetOfflineSalesForecast 与回测 computeBacktestForecast
+// 共用此函数 → 两条路口径强制一致, 不会再"改一处漏一处".
+func weightedForecast(mf MonthFactors, base, yoyAdj, mom float64) float64 {
+	wa, wb, wc := 0.0, 0.0, 0.0
+	if base > 0 {
+		wa = mf.Alpha
 	}
-
-	// 2. 同比 (去年同月)
-	yoy := in.YoyQty
-
-	// 3. 环比 (上月)
-	var mom float64
-	if len(in.History) >= 1 {
-		mom = in.History[len(in.History)-1]
+	if yoyAdj > 0 {
+		wb = mf.Beta
 	}
-
-	// 4. 加权基线
-	// 处理: 如果同比缺失 (yoy=0), 把 β 重分配给 α 和 γ
-	alpha, beta, gamma := mf.Alpha, mf.Beta, mf.Gamma
-	if yoy <= 0 {
-		// β 平分给 α 和 γ
-		extraEach := beta / 2
-		alpha += extraEach
-		gamma += extraEach
-		beta = 0
+	if mom > 0 {
+		wc = mf.Gamma
 	}
-	// 处理: 如果近3月均缺失, β 全部接管
-	if avg3 <= 0 {
-		beta += alpha
-		alpha = 0
+	sum := wa + wb + wc
+	if sum <= 0 {
+		return 0
 	}
-	// 处理: 如果环比缺失, 比例平分
-	if mom <= 0 {
-		alpha += gamma / 2
-		beta += gamma / 2
-		gamma = 0
-	}
-	weightedBase := alpha*avg3 + beta*yoy + gamma*mom
-
-	// 5. 节假日因子
-	afterHoliday := weightedBase * mf.HolidayFactor
-
-	// 6. 趋势调整 (近12月线性回归斜率)
-	trendFactor, trendCtx := computeTrendAdjustment(in.History)
-	final := afterHoliday * trendFactor
-
-	if final < 0 {
-		final = 0
-	}
-
-	formula := fmt.Sprintf("(%.0f×%.0f + %.0f×%.0f + %.0f×%.0f) × %.2f × %.2f = %.0f",
-		alpha, avg3, beta, yoy, gamma, mom, mf.HolidayFactor, trendFactor, final)
-
-	return SmartForecastResult{
-		Forecast:       int(math.Round(final)),
-		BaseAvg3:       math.Round(avg3*10) / 10,
-		YoyQty:         yoy,
-		MoMQty:         mom,
-		WeightedBase:   math.Round(weightedBase*10) / 10,
-		HolidayFactor:  mf.HolidayFactor,
-		TrendFactor:    math.Round(trendFactor*1000) / 1000,
-		Alpha:          alpha,
-		Beta:           beta,
-		Gamma:          gamma,
-		HolidayContext: mf.HolidayContext,
-		TrendContext:   trendCtx,
-		FormulaText:    formula,
-	}
+	return (wa*base + wb*yoyAdj + wc*mom) / sum
 }
 
 // computeTrendAdjustment 近 12 月销量线性回归算趋势, 返回乘数因子
@@ -237,12 +152,18 @@ type SmartForecastSummary struct {
 
 func smartForecastSummary(predictMonth int) SmartForecastSummary {
 	mf := monthFactorsTable(predictMonth)
-	formula := fmt.Sprintf("近3月×%.0f%% + 同比×%.0f%% + 环比×%.0f%%",
-		mf.Alpha*100, mf.Beta*100, mf.Gamma*100)
-	if mf.HolidayFactor != 1.0 {
-		formula += fmt.Sprintf(" × %.2f (%s)", mf.HolidayFactor, mf.HolidayContext)
-	} else if mf.HolidayContext != "" {
-		formula += fmt.Sprintf(" (%s)", mf.HolidayContext)
+	var formula string
+	if predictMonth == 1 || predictMonth == 2 {
+		// v1.77 混合版: 春节月用去年同月×增长 (经销商节前囤货稳定)
+		formula = "春节月: 去年同月 × 大区增长 (经销商节前囤货, 按去年同期推算最稳)"
+	} else {
+		formula = fmt.Sprintf("近3月×%.0f%% + 同比×%.0f%% + 环比×%.0f%%",
+			mf.Alpha*100, mf.Beta*100, mf.Gamma*100)
+		if mf.HolidayFactor != 1.0 {
+			formula += fmt.Sprintf(" × %.2f (%s)", mf.HolidayFactor, mf.HolidayContext)
+		} else if mf.HolidayContext != "" {
+			formula += fmt.Sprintf(" (%s)", mf.HolidayContext)
+		}
 	}
 	return SmartForecastSummary{
 		Month:          predictMonth,

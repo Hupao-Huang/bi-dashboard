@@ -124,8 +124,13 @@ func (h *DashboardHandler) GetOfflineSalesForecastBacktestRecent(w http.Response
 		predictMonth := int(cur.Month())
 		predicted := computeBacktestForecast(predictMonth, hist, yoy, growth)
 		mf := monthFactorsTable(predictMonth)
-		formula := fmt.Sprintf("近3月×%.0f%% + 同比×%.0f%%(×%.2f增长) + 环比×%.0f%% × %.2f节假日",
-			mf.Alpha*100, mf.Beta*100, growth, mf.Gamma*100, mf.HolidayFactor)
+		var formula string
+		if (predictMonth == 1 || predictMonth == 2) && yoy > 0 {
+			formula = fmt.Sprintf("春节月: 去年同月 × %.2f 增长", growth)
+		} else {
+			formula = fmt.Sprintf("近3月×%.0f%% + 同比×%.0f%%(×%.2f增长) + 环比×%.0f%% × %.2f节假日",
+				mf.Alpha*100, mf.Beta*100, growth, mf.Gamma*100, mf.HolidayFactor)
+		}
 
 		diff := predicted - int(math.Round(actual))
 		errPct := math.Round(float64(diff)/actual*1000) / 10
@@ -214,30 +219,17 @@ func computeBacktestForecast(predictMonth int, hist []float64, yoy, growth float
 	if len(hist) < 3 {
 		return 0
 	}
+	// v1.77 混合版: 春节月(1/2) 用去年同月×增长 (跟出数 GetOfflineSalesForecast 同口径)
+	if (predictMonth == 1 || predictMonth == 2) && yoy > 0 {
+		return int(math.Round(yoy * growth))
+	}
 	mf := monthFactorsTable(predictMonth)
 	avg3 := (hist[len(hist)-1] + hist[len(hist)-2] + hist[len(hist)-3]) / 3
 	mom := hist[len(hist)-1]
 	yoyAdjusted := yoy * growth
 
-	alpha, beta, gamma := mf.Alpha, mf.Beta, mf.Gamma
-	// 缺失项重分配权重
-	if yoyAdjusted <= 0 {
-		extraEach := beta / 2
-		alpha += extraEach
-		gamma += extraEach
-		beta = 0
-	}
-	if avg3 <= 0 {
-		beta += alpha
-		alpha = 0
-	}
-	if mom <= 0 {
-		alpha += gamma / 2
-		beta += gamma / 2
-		gamma = 0
-	}
-
-	weighted := alpha*avg3 + beta*yoyAdjusted + gamma*mom
+	// 与出数 GetOfflineSalesForecast 共用 weightedForecast (缺项按非零项归一化), 口径强制一致
+	weighted := weightedForecast(mf, avg3, yoyAdjusted, mom)
 	withHoliday := weighted * mf.HolidayFactor
 	// 趋势调整 (用近 12 月线性回归)
 	trendFactor, _ := computeTrendAdjustment(hist)

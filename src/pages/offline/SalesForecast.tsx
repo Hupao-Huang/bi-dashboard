@@ -97,9 +97,7 @@ interface ForecastItem {
   suggestions: Record<string, number>;
   forecasts: Record<string, number>;
   base_avgs?: Record<string, number>;
-  seasonal_factor?: number;
-  recent_season_avg?: number;
-  seasonal_replaced?: boolean;
+  yoy_qtys?: Record<string, number>;
 }
 
 const SalesForecast: React.FC = () => {
@@ -197,7 +195,7 @@ const SalesForecast: React.FC = () => {
   };
 
   const handleDownload = () => {
-    const headers = ['货品名', '货品编码', `${predictMonthLabel}季节系数`, ...regions, '线下总计'];
+    const headers = ['货品名', '货品编码', ...regions, '线下总计'];
     const aoa: any[][] = [headers];
     filteredItems.forEach(it => {
       const uv = userValues[it.sku_code] || {};
@@ -206,7 +204,6 @@ const SalesForecast: React.FC = () => {
       aoa.push([
         it.goods_name || '',
         it.sku_code,
-        it.seasonal_factor ?? null,
         ...cells,
         total,
       ]);
@@ -217,7 +214,6 @@ const SalesForecast: React.FC = () => {
     ws['!cols'] = [
       { wch: 32 }, // 货品名
       { wch: 14 }, // 货品编码
-      { wch: 12 }, // 季节系数
       ...regions.map(() => ({ wch: 10 })),
       { wch: 12 }, // 线下总计
     ];
@@ -391,32 +387,6 @@ const SalesForecast: React.FC = () => {
           </SkuTrendPopover>
         ),
       },
-      {
-        title: `${predictMonthLabel}季节`,
-        key: '_seasonal',
-        fixed: 'left' as const,
-        width: 110,
-        align: 'center' as const,
-        render: (_: any, row: ForecastItem) => {
-          const f = row.seasonal_factor ?? 1;
-          const replaced = !!row.seasonal_replaced;
-          const sourceText = replaced
-            ? `品类替代 — 该 SKU 该月历史数据被营销/促销污染 (同月 2 年波动 >30%), 改用调味品同类货品中位数代表客观规律`
-            : `单品自身 — 该 SKU 该月历史稳定 (同月 2 年波动 ≤30%), 用真实季节规律`;
-          let factorTag: React.ReactNode;
-          if (f >= 1.2) factorTag = <Tag color="orange" style={{ margin: 0 }}>×{f.toFixed(2)}</Tag>;
-          else if (f <= 0.8) factorTag = <Tag color="blue" style={{ margin: 0 }}>×{f.toFixed(2)}</Tag>;
-          else factorTag = <Tag color="default" style={{ margin: 0 }}>×{f.toFixed(2)}</Tag>;
-          const sourceTag = replaced
-            ? <Tag color="warning" style={{ margin: 0 }}>替代</Tag>
-            : <Tag color="success" style={{ margin: 0 }}>客观</Tag>;
-          return (
-            <Tooltip title={`${predictMonthLabel}系数 ${f.toFixed(2)} · ${sourceText}`}>
-              <Space size={2}>{factorTag}{sourceTag}</Space>
-            </Tooltip>
-          );
-        },
-      },
     ];
     regions.forEach(region => {
       cols.push({
@@ -428,24 +398,42 @@ const SalesForecast: React.FC = () => {
           const userVal = userValues[row.sku_code]?.[region];
           const suggest = row.suggestions?.[region];
           const base = row.base_avgs?.[region];
-          const factor = row.seasonal_factor ?? 1;
-          const recentAvg = row.recent_season_avg ?? 1;
+          const yoy = row.yoy_qtys?.[region];
+          const isSpring = predictMonthLabel === '1月' || predictMonthLabel === '2月';
+          const springByYoy = isSpring && yoy != null; // 春节且去年同期有量 → 走"去年同月×增长"主算法
           // Cell 直接显示算法预测值 (没手填时用 suggest, 手填后用 userVal)
           const displayValue = userVal ?? (suggest && suggest > 0 ? suggest : null);
           const trend = regionTrend[region];
-          const tooltipTitle = base && base > 0 && suggest ? (
+          const tooltipTitle = suggest && suggest > 0 ? (
             <div style={{ lineHeight: 1.7 }}>
-              <div>近3月均 {base.toFixed(1)} 件</div>
-              <div>÷ 近3月季节系数均 {recentAvg.toFixed(2)}</div>
-              <div>× {predictMonthLabel}系数 {factor.toFixed(2)}</div>
-              {forecastSummary?.holidayFactor && forecastSummary.holidayFactor !== 1 && (
+              {springByYoy ? (
+                // 春节主算法只用去年同月, 把它放首行加粗; 近3月均仅作参考
+                <>
+                  <div>去年同月 <b>{yoy!.toFixed(1)}</b> 件</div>
+                  {base != null && base > 0 && <div style={{ color: '#94a3b8' }}>近3月均 {base.toFixed(1)} 件 (参考)</div>}
+                </>
+              ) : (
+                <>
+                  {base != null && base > 0 && <div>近3月均 <b>{base.toFixed(1)}</b> 件</div>}
+                  {yoy != null && <div>去年同月 <b>{yoy.toFixed(1)}</b> 件</div>}
+                </>
+              )}
+              {!isSpring && forecastSummary?.holidayFactor && forecastSummary.holidayFactor !== 1 && (
                 <div>× 节假日因子 {forecastSummary.holidayFactor.toFixed(2)} ({forecastSummary.holidayContext})</div>
               )}
-              {trend && trend !== 1 && (
+              {!isSpring && trend && trend !== 1 && (
                 <div>× {region}近12月趋势 {trend.toFixed(2)} ({trend > 1 ? '上升' : '下降'})</div>
               )}
+              <div style={{ marginTop: 4, color: '#94a3b8', fontSize: 12 }}>
+                {springByYoy
+                  ? '春节: 去年同月 × 大区增长'
+                  : isSpring
+                    ? '春节(无去年同期): 按季节规律推算'
+                    : '平淡月: 近3月均+同比+环比加权 ×节假日×趋势'}
+              </div>
               <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid #475569' }}>
                 ≈ 建议 <b>{suggest}</b> 件
+                {springByYoy && <span style={{ color: '#fbbf24' }}> · 按去年同期</span>}
               </div>
             </div>
           ) : null;
@@ -466,8 +454,10 @@ const SalesForecast: React.FC = () => {
       });
     });
     // 线下总计列 - 9 大区填值合计 (实时跟随用户输入) + 偏离标记
-    // 偏离 = (本月预测合计 - 近 3 月大区合计月均) / 近 3 月大区合计月均
+    // 偏离基准: 平淡月用"近3月均", 春节月用"去年同月"(跟春节建议口径一致, 否则会拿去年同月口径的预测去比近3月均, 误报偏离)
     // |偏离| > 20% 红/橙 标记, 提醒业务复核
+    const isSpringMonth = predictMonthLabel === '1月' || predictMonthLabel === '2月';
+    const baseLabel = isSpringMonth ? '去年同月' : '近 3 月均';
     cols.push({
       title: '线下总计',
       key: '_offline_total',
@@ -480,9 +470,9 @@ const SalesForecast: React.FC = () => {
         regions.forEach(r => { total += uv[r] || 0; });
         if (total === 0) return <span style={{ color: '#bfbfbf' }}>—</span>;
 
-        // 计算偏离 (基于后端 base_avgs - 该 SKU × 大区 近 3 月销量均值)
+        // 计算偏离: 春节月基准用去年同月(yoy_qtys), 平淡月用近3月均(base_avgs)
         let baseTotal = 0;
-        regions.forEach(r => { baseTotal += row.base_avgs?.[r] || 0; });
+        regions.forEach(r => { baseTotal += (isSpringMonth ? row.yoy_qtys?.[r] : row.base_avgs?.[r]) || 0; });
         const totalTag = <Tag color="blue">{total.toLocaleString()}</Tag>;
         if (baseTotal <= 0) return totalTag;
 
@@ -491,7 +481,7 @@ const SalesForecast: React.FC = () => {
         if (Math.abs(devPct) < 20) return totalTag;
 
         const isHigh = devPct > 0;
-        const tooltipText = `预测 ${total.toLocaleString()} / 近 3 月均 ${Math.round(baseTotal).toLocaleString()} / 偏离 ${devPct > 0 ? '+' : ''}${devPct}%`;
+        const tooltipText = `预测 ${total.toLocaleString()} / ${baseLabel} ${Math.round(baseTotal).toLocaleString()} / 偏离 ${devPct > 0 ? '+' : ''}${devPct}%`;
         return (
           <Tooltip title={tooltipText}>
             <div style={{ display: 'flex', gap: 4, justifyContent: 'center', alignItems: 'center', cursor: 'help' }}>
@@ -505,7 +495,7 @@ const SalesForecast: React.FC = () => {
       },
     });
     return cols;
-  }, [regions, userValues, predictMonthLabel]);
+  }, [regions, userValues, predictMonthLabel, regionTrend, forecastSummary]);
 
   const filledCount = useMemo(() => {
     let c = 0;
@@ -520,30 +510,22 @@ const SalesForecast: React.FC = () => {
       showIcon
       closable
       style={{ marginBottom: 12 }}
-      message="销量预测·智能算法说明 (v1.66 起单一算法)"
+      message="销量预测·混合版算法说明 (v1.77 起)"
       description={
         <div style={{ lineHeight: 1.8 }}>
-          <div><b>核心公式</b>: 预测 = (α × 近3月均 + β × 同比 + γ × 环比) × 季节系数 × 节假日因子 × 大区12月趋势</div>
-          <div style={{marginTop:6}}><b>权重按月份动态调整 (节假日驱动)</b>:</div>
+          <div><b>分而治之</b>: 不同月份用各自最准的算法 (整体回测准确度比旧版明显提升)</div>
+          <div style={{ marginTop: 6 }}><b>春节月 (1月 / 2月)</b> — 直接看 <b>去年同月 × 大区增长</b></div>
+          <div style={{ color: '#64748b', paddingLeft: 12 }}>线下经销商节前集中囤货是稳定规律, 按去年同期推算最稳; 不再叠季节/节假日, 避免被一次性高量带偏</div>
+          <div style={{ marginTop: 6 }}><b>平淡月 (3-12月)</b> — <b>近3月均 + 同比 + 环比</b> 按月加权, 再乘节假日因子和大区趋势</div>
           <ol style={{ marginTop: 4, marginBottom: 8, paddingLeft: 20 }}>
-            <li><b>1月 (春节备货)</b> — α=20% / β=70% / γ=10%, 主用同比</li>
-            <li><b>2月 (春节假期)</b> — α=10% / β=80% / γ=10%, 主用同比</li>
-            <li><b>3-5月 (春节后)</b> — α=60% / β=30% / γ=10%, 主用近3月均</li>
-            <li><b>6月 (618)</b> — α=40% / β=50% / γ=10%, 节假日因子 ×1.05</li>
-            <li><b>7-8月 (平淡期)</b> — α=70% / β=20% / γ=10%, 主用近3月均</li>
-            <li><b>9-10月 (中秋国庆)</b> — α=40% / β=50% / γ=10%, 节假日因子 ×1.05</li>
-            <li><b>11月 (双11)</b> — α=30% / β=60% / γ=10%, 节假日因子 ×1.10</li>
-            <li><b>12月 (年终)</b> — α=50% / β=40% / γ=10%</li>
+            <li><b>3-5月 (春节后)</b> — 主用近3月均</li>
+            <li><b>6月 (618) / 9-10月 (中秋国庆)</b> — 同比为主, 节假日因子微调</li>
+            <li><b>7-8月 (平淡期)</b> — 主用近3月均</li>
+            <li><b>11月 (双11)</b> — 同比为主 (线下双11不爆发)</li>
+            <li><b>12月 (年终)</b> — 近3月均与同比并重</li>
           </ol>
-          <div><b>4 个数据来源</b>:</div>
-          <ol style={{ marginTop: 4, marginBottom: 8, paddingLeft: 20 }}>
-            <li><b>近3月均</b> — 上月+前月+大前月销量平均, 短期趋势锚</li>
-            <li><b>同比</b> — 去年同月销量, 春节月最稳</li>
-            <li><b>环比</b> — 上月销量, 短期趋势校验</li>
-            <li><b>节假日因子</b> — 618/双11/中秋国庆 适当上调</li>
-          </ol>
-          <div><b>大区12月趋势调整</b> — 每个大区拉近12月销量做线性回归,持续上升 ×1.05 / 持续下降 ×0.95 / 平稳 ×1.00.</div>
-          <div style={{marginTop:4,color:'#64748b'}}>顶部"本月公式"Tag hover 可看具体权重和趋势调整明细. 鼠标移到表格 cell 也能看每个 SKU × 大区的完整计算链路.</div>
+          <div><b>大区12月趋势调整</b> — 每个大区拉近12月销量看趋势, 持续上升 ×1.05 / 持续下降 ×0.95 / 平稳不动</div>
+          <div style={{ marginTop: 6, color: '#b45309' }}><b>单品请核对</b>: 系统给的是参考底. 个别货品去年同期偏高、今年已回落时, 建议会偏高 — 鼠标移到格子可看"近3月均 / 去年同月"等依据, 结合实际手工调整后再保存.</div>
         </div>
       }
     />
@@ -564,15 +546,24 @@ const SalesForecast: React.FC = () => {
               <div style={{ lineHeight: 1.7 }}>
                 <div><b>本月预测公式</b></div>
                 <div>{forecastSummary.formulaText}</div>
-                <div style={{ marginTop: 6, fontSize: 12, color: '#cbd5e1' }}>
-                  α (近3月均) = {((forecastSummary.alpha || 0) * 100).toFixed(0)}%<br />
-                  β (同比)    = {((forecastSummary.beta || 0) * 100).toFixed(0)}%<br />
-                  γ (环比)    = {((forecastSummary.gamma || 0) * 100).toFixed(0)}%<br />
-                  节假日因子   = ×{(forecastSummary.holidayFactor || 1).toFixed(2)}
-                </div>
-                <div style={{ marginTop: 4, fontSize: 12, color: '#cbd5e1' }}>
-                  另外按各大区近12月趋势 ×1.05 / ×0.95 / ×1.00 调整
-                </div>
+                {(predictMonthLabel === '1月' || predictMonthLabel === '2月') ? (
+                  <div style={{ marginTop: 6, fontSize: 12, color: '#cbd5e1' }}>
+                    春节月直接按"去年同月 × 大区增长"推算<br />
+                    经销商节前囤货稳定, 按去年同期最准
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ marginTop: 6, fontSize: 12, color: '#cbd5e1' }}>
+                      α (近3月均) = {((forecastSummary.alpha || 0) * 100).toFixed(0)}%<br />
+                      β (同比)    = {((forecastSummary.beta || 0) * 100).toFixed(0)}%<br />
+                      γ (环比)    = {((forecastSummary.gamma || 0) * 100).toFixed(0)}%<br />
+                      节假日因子   = ×{(forecastSummary.holidayFactor || 1).toFixed(2)}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 12, color: '#cbd5e1' }}>
+                      另外按各大区近12月趋势 ×1.05 / ×0.95 / ×1.00 调整
+                    </div>
+                  </>
+                )}
               </div>
             }>
               <Tag color="purple" style={{ cursor: 'help' }}>
