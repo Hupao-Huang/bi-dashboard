@@ -165,8 +165,10 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 				AND (current_qty - locked_qty) / (month_qty/30) BETWEEN 7 AND 14 THEN 1 ELSE 0 END),
 			SUM(CASE WHEN (current_qty - locked_qty) > 0 AND month_qty > 0
 				AND (current_qty - locked_qty) / (month_qty/30) > 90 THEN 1 ELSE 0 END),
-			SUM(CASE WHEN month_qty = 0 AND current_qty > 0 THEN 1 ELSE 0 END)
-		FROM stock_quantity WHERE goods_attr = 1 AND warehouse_name != ''`+warehouseCond+planCond,
+			SUM(CASE WHEN month_qty = 0 AND current_qty > 0 AND IFNULL(sca.allot_qty,0) = 0 THEN 1 ELSE 0 END)
+		FROM stock_quantity
+		LEFT JOIN `+planSpecialAllotQtyLiveSubSQL+` sca ON sca.goods_no = stock_quantity.goods_no
+		WHERE goods_attr = 1 AND warehouse_name != ''`+warehouseCond+planCond,
 		summaryArgs...,
 	).Scan(&total, &stockout, &urgent, &low, &overstock, &dead); err != nil {
 		writeError(w, 500, "database query failed")
@@ -289,6 +291,24 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// v1.x: 取特殊渠道(京东/猫超/朴朴)近30天调拨件数(goods 级), 用于 goods 聚合行判断"是否在卖"。
+	//   per-(SKU×仓)明细/预警桶仍用纯 month_qty —— 调拨无仓库维度不可拆到单仓单元(全仓视角的"调拨当销售"见计划看板)。
+	//   这里仅 goods 聚合行: ① DailyAvg 并入调拨 ② "全仓零销量"滞销判定排除靠调拨走量的货(避免与计划看板/dead桶口径打架)。
+	allotMap := map[string]float64{}
+	if aRows, aErr := h.DB.Query(`SELECT goods_no, SUM(sku_count) FROM allocate_details
+		WHERE channel_key IN ('京东','猫超','朴朴')
+		  AND stat_date > DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND stat_date <= CURDATE()
+		GROUP BY goods_no`); aErr == nil {
+		defer aRows.Close()
+		for aRows.Next() {
+			var gn string
+			var q float64
+			if aRows.Scan(&gn, &q) == nil {
+				allotMap[gn] = q
+			}
+		}
+	}
+
 	// 按 goods_no 聚合
 	type ChildItem struct {
 		Warehouse    string  `json:"warehouse"`
@@ -335,7 +355,9 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 	result := []AggItem{}
 	for _, key := range aggOrder {
 		agg := aggMap[key]
-		agg.DailyAvg = math.Round(agg.MonthQty/30*10) / 10
+		allot := allotMap[key]
+		// v1.x: goods 聚合日均并入调拨当销售件数(per-仓子项仍纯 month_qty)
+		agg.DailyAvg = math.Round((agg.MonthQty+allot)/30*10) / 10
 
 		// 找有销量的仓库中可售天数最低的
 		worstDays := 99999.0
@@ -355,7 +377,10 @@ func (h *DashboardHandler) GetStockWarning(w http.ResponseWriter, r *http.Reques
 		}
 
 		if !hasAnySales {
-			if agg.CurrentQty > 0 {
+			// v1.x: 全仓吉客云零销量但靠调拨走量的货, 不标滞销, 按调拨件数算可售天数(与计划看板/dead桶口径一致)
+			if allot > 0 && agg.CurrentQty > 0 {
+				agg.SellableDays = math.Round(agg.UsableQty/(allot/30)*10) / 10
+			} else if agg.CurrentQty > 0 {
 				agg.SellableDays = 9999 // 有库存无销量=滞销
 			} else {
 				agg.SellableDays = 0
