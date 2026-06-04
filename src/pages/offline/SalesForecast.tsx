@@ -364,11 +364,11 @@ const SalesForecast: React.FC = () => {
   const columns = useMemo(() => {
     const cols: any[] = [
       {
+        // 货品名不设固定宽度: 让它自适应吃掉表格剩余宽度, 否则"线下合计"作为最后一列会被 AntD
+        // 拉伸撑满, 输入框变巨大、数字飘到最右与表头错位 (合并大区为单列后的对齐 bug)。ellipsis 截断长名。
         title: '货品名',
         dataIndex: 'goods_name',
         key: 'goods_name',
-        fixed: 'left' as const,
-        width: 240,
         ellipsis: true,
         render: (v: string) => <Tooltip title={v}>{v || '(未命名)'}</Tooltip>,
       },
@@ -376,7 +376,6 @@ const SalesForecast: React.FC = () => {
         title: '货品编码',
         dataIndex: 'sku_code',
         key: 'sku_code',
-        fixed: 'left' as const,
         width: 110,
         render: (v: string) => (
           <SkuTrendPopover skuCode={v}>
