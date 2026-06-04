@@ -29,8 +29,8 @@ func TestGetSupplyChainDashboardEmptyAllSQL(t *testing.T) {
 	mock.ExpectQuery(`SELECT IFNULL\(SUM\(local_goods_amt\),0\) FROM sales_goods_summary WHERE stat_date BETWEEN \? AND \?`).
 		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(0.0))
 
-	// 2b. loadPlanAllot 钱侧调拨聚合, 被调 4 次(本期/全历史趋势/上月/去年) — 各加一条期望(OOO 匹配)
-	for i := 0; i < 4; i++ {
+	// 2b. loadPlanAllot 钱侧调拨聚合, 主 dashboard 调 3 次(本期/上月/去年; 趋势在独立端点不走这里) — 各加一条期望(OOO 匹配)
+	for i := 0; i < 3; i++ {
 		mock.ExpectQuery(`IFNULL\(SUM\(d\.excel_amount\), 0\) AS amt\s+FROM allocate_orders o`).
 			WillReturnRows(sqlmock.NewRows([]string{"ch", "ym", "cat", "amt"}))
 	}

@@ -32,6 +32,7 @@ interface StockItem {
   sellableDays: number;
   dailyAvg: number;
   monthQty: number;
+  allotQty?: number;
   currentQty: number;
   whCount?: number;
   whStockout?: number;
@@ -56,14 +57,16 @@ const warningFilters = [
   { key: 'dead', label: '滞销(零销量)' },
 ];
 
-const getWarningTag = (days: number, monthQty: number, currentQty: number) => {
-  if (monthQty > 0 && days <= 0) return <Tag color="red">断货</Tag>;
-  if (monthQty > 0 && days < 7) return <Tag color="orange">即将断货</Tag>;
-  if (monthQty > 0 && days <= 14) return <Tag color="gold">偏低</Tag>;
-  if (monthQty > 0 && days <= 30) return <Tag color="blue">正常</Tag>;
-  if (monthQty > 0 && days <= 90) return <Tag color="green">充足</Tag>;
-  if (monthQty > 0 && days > 90) return <Tag color="purple">积压</Tag>;
-  if (monthQty === 0 && currentQty > 0) return <Tag color="default">滞销</Tag>;
+const getWarningTag = (days: number, monthQty: number, currentQty: number, allotQty: number = 0) => {
+  // v1.x: 靠特殊渠道(京东/猫超/朴朴)调拨走量的货也算"在售"(吉客云 monthQty 不含调拨), 不能标滞销
+  const selling = monthQty > 0 || allotQty > 0;
+  if (selling && days <= 0) return <Tag color="red">断货</Tag>;
+  if (selling && days < 7) return <Tag color="orange">即将断货</Tag>;
+  if (selling && days <= 14) return <Tag color="gold">偏低</Tag>;
+  if (selling && days <= 30) return <Tag color="blue">正常</Tag>;
+  if (selling && days <= 90) return <Tag color="green">充足</Tag>;
+  if (selling && days > 90) return <Tag color="purple">积压</Tag>;
+  if (currentQty > 0) return <Tag color="default">滞销</Tag>;
   return <Tag color="default">-</Tag>;
 };
 
@@ -283,7 +286,7 @@ const InventoryWarning: React.FC = () => {
   const columns: any[] = [
     {
       title: '预警', key: 'warning', width: 80, fixed: 'left' as const,
-      render: (_: any, r: StockItem) => getWarningTag(r.sellableDays, r.monthQty, r.currentQty || r.usableQty),
+      render: (_: any, r: StockItem) => getWarningTag(r.sellableDays, r.monthQty, r.currentQty || r.usableQty, r.allotQty || 0),
     },
     { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 120 },
     { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 240, ellipsis: true },
@@ -335,7 +338,8 @@ const InventoryWarning: React.FC = () => {
       sorter: (a: StockItem, b: StockItem) => a.sellableDays - b.sellableDays,
       render: (_: any, r: StockItem) => {
         if (r.monthQty === 0 && (r.currentQty || 0) === 0 && r.usableQty <= 0) return '-';
-        if (r.monthQty === 0) return <span style={{ color: '#94a3b8' }}>无销量</span>;
+        // v1.x: 靠调拨走量的货(吉客云 monthQty=0 但 allotQty>0)显示后端按调拨算的可售天数, 不再显示"无销量"
+        if (r.monthQty === 0 && !((r.allotQty || 0) > 0)) return <span style={{ color: '#94a3b8' }}>无销量</span>;
         if (r.sellableDays <= 0) return <span style={{ color: '#ef4444', fontWeight: 700 }}>0</span>;
         const color = r.sellableDays < 7 ? '#ef4444' : r.sellableDays < 14 ? '#f59e0b' : r.sellableDays > 90 ? '#7c3aed' : '#1e293b';
         return <span style={{ fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{r.sellableDays}</span>;
