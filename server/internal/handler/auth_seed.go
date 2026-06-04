@@ -33,6 +33,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "ecommerce.product_dashboard:view", Name: "电商-货品看板", Type: "page"},
 	{Code: "ecommerce.marketing_cost:view", Name: "电商-营销费用", Type: "page"},
 	{Code: "ecommerce.special_channel_allot:view", Name: "电商-特殊渠道调拨对账", Type: "page"},
+	{Code: "ecommerce.special_channel_allot:edit", Name: "特殊渠道调拨改价(京东/猫超/朴朴)", Type: "action"},
 	{Code: "social:view", Name: "社媒部门", Type: "menu"},
 	{Code: "social.store_preview:view", Name: "社媒-店铺数据预览", Type: "page"},
 	{Code: "social.store_dashboard:view", Name: "社媒-店铺看板", Type: "page"},
