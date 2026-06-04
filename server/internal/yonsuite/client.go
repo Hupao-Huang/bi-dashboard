@@ -42,6 +42,8 @@ const (
 	stockListPath = "/iuap-api-gateway/yonbip/scm/stock/QueryCurrentStocksByCondition"
 	// inspectionListPath 检验单列表查询 (质量管理/质量检验). billnum 默认来料检验单 qms_incominspectorder_list
 	inspectionListPath = "/iuap-api-gateway/yonbip/QMS_QIT/inspectorder/list"
+	// inspectionDetailPath 检验单详情查询 (GET, 按 id 或 code + billnum). 含检验项明细/不合格原因
+	inspectionDetailPath = "/iuap-api-gateway/yonbip/QMS_QIT/inspectorder/detail"
 
 	// tokenSafetyMargin token 提前 5min 过期，避免边界条件
 	tokenSafetyMargin = 5 * time.Minute
@@ -494,6 +496,51 @@ func (c *Client) QueryInspectionList(req *InspectionListReq) (*PurchaseListResp,
 		return nil, fmt.Errorf("yonsuite inspection list non-200: code=%s msg=%s", pr.Code, pr.Message)
 	}
 	return &pr, nil
+}
+
+// QueryInspectionDetail 检验单详情 (GET). params 传 {"id": "..."} 或 {"code": "..."}; billnum 默认来料检验.
+// 返回 data 原始 map (含检验项明细/检验结果, 不合格原因在子结构里)
+func (c *Client) QueryInspectionDetail(params map[string]string) (map[string]interface{}, error) {
+	token, err := c.AccessToken()
+	if err != nil {
+		return nil, err
+	}
+	c.waitRateLimit()
+
+	q := url.Values{}
+	q.Set("access_token", token)
+	q.Set("billnum", "qms_incominspectorder_card")
+	for k, v := range params {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	fullURL := c.BaseURL + inspectionDetailPath + "?" + q.Encode()
+
+	resp, err := c.HTTP.Get(fullURL)
+	if err != nil {
+		return nil, fmt.Errorf("yonsuite inspection detail http: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	var pr struct {
+		Code    string                 `json:"code"`
+		Message string                 `json:"message"`
+		Data    map[string]interface{} `json:"data"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(respBody))
+	dec.UseNumber()
+	if err := dec.Decode(&pr); err != nil {
+		return nil, fmt.Errorf("unmarshal inspection detail: %w, body=%s", err, truncate(string(respBody), 500))
+	}
+	if pr.Code != "200" {
+		return nil, fmt.Errorf("yonsuite inspection detail non-200: code=%s msg=%s", pr.Code, pr.Message)
+	}
+	return pr.Data, nil
 }
 
 func truncate(s string, n int) string {
