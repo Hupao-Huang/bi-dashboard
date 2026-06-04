@@ -455,11 +455,17 @@ const SalesForecast: React.FC = () => {
               step={1}
               precision={0}
               placeholder="—"
-              style={{ width: 96 }}
+              style={{ width: '100%' }}
               variant="borderless"
             />
           );
-          const cell = <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>{input}{devTag}</div>;
+          // 固定两列: 输入框(右对齐数字) + 偏离标记区(定宽), 保证每行数字位置一致、不被标记挤偏
+          const cell = (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 54px', alignItems: 'center' }} className="offline-forecast-cell">
+              {input}
+              <div style={{ textAlign: 'left' }}>{devTag}</div>
+            </div>
+          );
           return tooltipTitle ? <Tooltip title={tooltipTitle}>{cell}</Tooltip> : cell;
         },
       });
@@ -475,6 +481,7 @@ const SalesForecast: React.FC = () => {
 
   const forecastTabContent = (
     <>
+    <style>{`.offline-forecast-cell .ant-input-number-input { text-align: right; padding-right: 6px; }`}</style>
     <Alert
       type="info"
       showIcon
