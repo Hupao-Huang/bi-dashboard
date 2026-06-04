@@ -22,11 +22,14 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 
 	// 紧急 SKU 数 (成品可售天数 < 7) — 必须按 SKU 聚合再算, 不能 row-level
 	// row-level 会因为同 SKU 散在多仓而把虚高计数, 实际全公司库存充裕也会算紧急
+	// v1.x: 日均并入特殊渠道调拨当销售量(与下方建议清单口径一致); WHERE 同步放宽 month>0 OR allot>0
 	if err := h.DB.QueryRow(`SELECT COUNT(*) FROM (
-		SELECT goods_no, SUM(current_qty - locked_qty) AS stock_total, SUM(month_qty)/30 AS daily_avg
-		FROM stock_quantity
-		WHERE goods_attr=1 AND month_qty > 0
-		GROUP BY goods_no
+		SELECT sq.goods_no, SUM(sq.current_qty - sq.locked_qty) AS stock_total,
+			(SUM(sq.month_qty)+IFNULL(MAX(sca.allot_qty),0))/30 AS daily_avg
+		FROM stock_quantity sq
+		LEFT JOIN `+planSpecialAllotQtyLiveSubSQL+` sca ON sca.goods_no = sq.goods_no
+		WHERE sq.goods_attr=1 AND (sq.month_qty > 0 OR IFNULL(sca.allot_qty,0) > 0)
+		GROUP BY sq.goods_no
 		HAVING stock_total > 0 AND stock_total / daily_avg < 7
 	) t`).Scan(&kpi.UrgentSKU); err != nil {
 		log.Printf("kpi urgent: %v", err)
@@ -122,13 +125,16 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		IFNULL(MAX(gm.ys_code), '') AS ys_code,
 		sq.goods_name,
 		ROUND(SUM(sq.current_qty - sq.locked_qty), 0) AS stock,
-		ROUND(SUM(sq.month_qty)/30, 1) AS daily_avg,
+		-- v1.x: 日均销量并入特殊渠道(京东/猫超/朴朴)调拨当销售量(吉客云 month_qty 不含调拨)。
+		--   否则靠调拨走量的货日均≈0 → 建议进货量被算成 0 → 系统劝你别补正在热卖的货(实测素蚝油360g 日均4.3→404件)。
+		--   WHERE 同步放宽成 month_qty>0 OR allot>0, 否则纯调拨货整条被滤掉、且其调拨仓库存被漏计(素蚝油库存7899→19885)。
+		ROUND((SUM(sq.month_qty)+IFNULL(MAX(sca.allot_qty),0))/30, 1) AS daily_avg,
 		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
 		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
 		COALESCE(NULLIF(MAX(gm.ys_class_name), ''), MAX(ys_direct.direct_class_name), '') AS ys_class_name,
 		CASE
-		  WHEN SUM(sq.month_qty) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
-		  WHEN SUM(sq.month_qty) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / (SUM(sq.month_qty)/30), 1)
+		  WHEN (SUM(sq.month_qty)+IFNULL(MAX(sca.allot_qty),0)) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
+		  WHEN (SUM(sq.month_qty)+IFNULL(MAX(sca.allot_qty),0)) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / ((SUM(sq.month_qty)+IFNULL(MAX(sca.allot_qty),0))/30), 1)
 		  ELSE 9999 END AS sellable_days,
 		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN ''
 		     ELSE DATE_FORMAT(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), '%Y-%m-%d') END AS next_arrive_date,
@@ -137,6 +143,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		IFNULL(MAX(gm.position), '') AS position,
 		IFNULL(MAX(gm.cate_name), '') AS cate_name
 		FROM stock_quantity sq
+		LEFT JOIN `+planSpecialAllotQtyLiveSubSQL+` sca ON sca.goods_no = sq.goods_no
 		LEFT JOIN (
 		  -- v0.54 fix: ys_purchase_orders.product_c_code 是 YS 编码, 必须通过 goods.sku_code 桥接到吉客云 goods_no
 		  SELECT g.goods_no AS jky_no, SUM(p.qty - IFNULL(p.total_in_qty, 0)) AS in_transit_qty
@@ -193,7 +200,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		    MAX(manage_class_code) AS direct_class_code
 		  FROM ys_stock GROUP BY product_code
 		) ys_direct ON ys_direct.product_code = sq.goods_no
-		WHERE sq.goods_attr = 1 AND sq.month_qty > 0
+		WHERE sq.goods_attr = 1 AND (sq.month_qty > 0 OR IFNULL(sca.allot_qty, 0) > 0)
 		  AND IFNULL(gm.ys_class_code, '') NOT LIKE '05%'
 		  AND IFNULL(ys_direct.direct_class_code, '') NOT LIKE '05%'` + planSqWhCond + prodExclCond + `
 		GROUP BY sq.goods_no, sq.goods_name`
@@ -278,13 +285,16 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		IFNULL(MAX(gm.ys_code), '') AS ys_code,
 		sq.goods_name,
 		ROUND(SUM(sq.current_qty - sq.locked_qty), 0) AS stock,
-		ROUND(SUM(sq.month_qty)/30, 1) AS daily_avg,
+		-- v1.x: 日均销量并入特殊渠道(京东/猫超/朴朴)调拨当销售量(吉客云 month_qty 不含调拨)。
+		--   否则靠调拨走量的货日均≈0 → 建议进货量被算成 0 → 系统劝你别补正在热卖的货(实测素蚝油360g 日均4.3→404件)。
+		--   WHERE 同步放宽成 month_qty>0 OR allot>0, 否则纯调拨货整条被滤掉、且其调拨仓库存被漏计(素蚝油库存7899→19885)。
+		ROUND((SUM(sq.month_qty)+IFNULL(MAX(sca.allot_qty),0))/30, 1) AS daily_avg,
 		IFNULL(ROUND(MAX(po.in_transit_qty), 0), 0) AS in_transit,
 		IFNULL(ROUND(MAX(sc.in_transit_qty), 0), 0) AS in_transit_subcontract,
 		COALESCE(NULLIF(MAX(gm.ys_class_name), ''), MAX(ys_direct.direct_class_name), '') AS ys_class_name,
 		CASE
-		  WHEN SUM(sq.month_qty) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
-		  WHEN SUM(sq.month_qty) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / (SUM(sq.month_qty)/30), 1)
+		  WHEN (SUM(sq.month_qty)+IFNULL(MAX(sca.allot_qty),0)) > 0 AND (SUM(sq.current_qty - sq.locked_qty)) <= 0 THEN -1
+		  WHEN (SUM(sq.month_qty)+IFNULL(MAX(sca.allot_qty),0)) > 0 THEN ROUND(SUM(sq.current_qty - sq.locked_qty) / ((SUM(sq.month_qty)+IFNULL(MAX(sca.allot_qty),0))/30), 1)
 		  ELSE 9999 END AS sellable_days,
 		CASE WHEN LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')) = '9999-12-31' THEN ''
 		     ELSE DATE_FORMAT(LEAST(IFNULL(MAX(po_arr.next_arrive), '9999-12-31'), IFNULL(MAX(sc_arr.next_arrive), '9999-12-31')), '%Y-%m-%d') END AS next_arrive_date,
@@ -293,6 +303,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		IFNULL(MAX(gm.position), '') AS position,
 		IFNULL(MAX(gm.cate_name), '') AS cate_name
 		FROM stock_quantity sq
+		LEFT JOIN `+planSpecialAllotQtyLiveSubSQL+` sca ON sca.goods_no = sq.goods_no
 		LEFT JOIN (
 		  SELECT g.goods_no AS jky_no, SUM(p.qty - IFNULL(p.total_in_qty, 0)) AS in_transit_qty
 		  FROM ys_purchase_orders p JOIN goods g ON g.sku_code = p.product_c_code
@@ -348,7 +359,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		    MAX(manage_class_code) AS direct_class_code
 		  FROM ys_stock GROUP BY product_code
 		) ys_direct ON ys_direct.product_code = sq.goods_no
-		WHERE sq.month_qty > 0
+		WHERE (sq.month_qty > 0 OR IFNULL(sca.allot_qty, 0) > 0)
 		  AND (gm.ys_class_code LIKE '05%' OR ys_direct.direct_class_code LIKE '05%')` + otherPlanSqWhCond + otherProdExclCond + `
 		GROUP BY sq.goods_no, sq.goods_name`
 
