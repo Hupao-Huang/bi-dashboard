@@ -209,7 +209,7 @@ const ForecastBacktestCard: React.FC = () => {
             />
 
             <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
-              💡 回测原理: 对每个历史月份, 用截至上月底的销量历史数据 + 当前算法 (含节假日因子和增长系数) 算预测值, 跟实际销量对比.
+              💡 回测原理: 对每个历史月份, 用截至上月底的销量历史数据 + 当前混合版算法 (春节月按去年同期 / 平淡月按近3月均+同比+环比加权) 算预测值, 跟实际销量对比.
               误差颜色: <Tag color="success" style={{ marginInlineEnd: 4 }}>绿 ≤ 5%</Tag>
               <Tag color="warning" style={{ marginInlineEnd: 4 }}>橙 ≤ 15%</Tag>
               <Tag color="error">红 &gt; 15%</Tag>

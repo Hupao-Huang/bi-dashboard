@@ -452,21 +452,16 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	if rangeMode == "" {
 		rangeMode = "recent6m"
 	}
-	// v1.66 起销量预测只保留一个智能算法
-	// 4 因素融合: 近3月均 + 同比 + 环比 + 季节性 + 节假日因子 + 趋势调整
-	// 见 offline_sales_forecast_smart.go: monthFactorsTable / computeTrendAdjustment
+	// v1.77 混合版: 春节月(1/2)按"去年同月×大区增长"; 平淡月(3-12)按 weightedForecast 加权(近3月均+同比+环比)×节假日×趋势
+	// 见 offline_sales_forecast_smart.go: monthFactorsTable / weightedForecast / computeTrendAdjustment
 	cateCond, cateArgs := offlineForecastCateCond()
 
-	// 0. 算 SKU × 月份(1-12) 季节指数 + 客观度标识 + 大区同比增长率
-	seasIdx, replaced, err := computeOfflineSeasonalIndex(h.DB, ym)
+	// 0. 算 SKU × 月份(1-12) 季节指数 (春节无去年同月时兜底用) + 大区同比增长率
+	seasIdx, _, err := computeOfflineSeasonalIndex(h.DB, ym)
 	if writeDatabaseError(w, err) {
 		return
 	}
 	regionGrowth, err := computeOfflineRegionGrowth(h.DB, ym)
-	if writeDatabaseError(w, err) {
-		return
-	}
-	regionMoM, err := computeOfflineRegionMoM(h.DB, ym)
 	if writeDatabaseError(w, err) {
 		return
 	}
@@ -477,27 +472,27 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	for i := 1; i <= 3; i++ {
 		recentMonths = append(recentMonths, int(predictTime.AddDate(0, -i, 0).Month()))
 	}
-	// 环比启用判定: 近 1 月 (= recentMonths[0]) 不能落 1/2/3 月
-	// 春节直接影响近 1 月才会反向带飞; 近 3 月含但近 1 月不含 (如 5/6 月预测) 时启用环比仍有效
-	useMoM := true
-	if len(recentMonths) > 0 {
-		near1 := recentMonths[0]
-		if near1 >= 1 && near1 <= 3 {
-			useMoM = false
-		}
-	}
 
-	// 1. 近 3 月销量原始值 (按 SKU × 大区, 不四舍五入, 后面应用季节系数)
-	s3, e3 := monthsBack(ym, 3)
-	sugArgs := append([]interface{}{s3, e3}, cateArgs...)
+	// 1. 一次拉齐 (按 SKU × 大区): 近3月均 + 去年同月(同比) + 上月(环比)
+	//    v1.77 混合版需要 SKU×大区 级的去年同月/上月, 原季节版只拉近3月均
+	predStart := predictTime.Format("2006-01-02")               // 预测月 1 号 (上界, 不含)
+	m3Start := predictTime.AddDate(0, -3, 0).Format("2006-01-02")  // 近3月起
+	m1Start := predictTime.AddDate(0, -1, 0).Format("2006-01-02")  // 上月起
+	yoyStart := predictTime.AddDate(0, -12, 0).Format("2006-01-02") // 去年同月起
+	yoyEnd := predictTime.AddDate(0, -11, 0).Format("2006-01-02")   // 去年同月止 (不含)
+	// WHERE 只扫真正用到的两段(近3月含上月 + 去年同月), 不扫中间 8 个月(避免全表多扫 4 倍)
+	sugArgs := []interface{}{m3Start, predStart, yoyStart, yoyEnd, m1Start, predStart, m3Start, predStart, yoyStart, yoyEnd}
+	sugArgs = append(sugArgs, cateArgs...)
 	sugRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT goods_no AS sku_code,
 			MAX(goods_name) AS goods_name,
 			`+offlineForecastRegionExpr+` AS region,
-			SUM(goods_qty) / 3.0 AS base_avg
+			SUM(CASE WHEN stat_date >= ? AND stat_date < ? THEN goods_qty ELSE 0 END) / 3.0 AS base_avg3,
+			SUM(CASE WHEN stat_date >= ? AND stat_date < ? THEN goods_qty ELSE 0 END) AS yoy_qty,
+			SUM(CASE WHEN stat_date >= ? AND stat_date < ? THEN goods_qty ELSE 0 END) AS mom_qty
 		FROM sales_goods_summary
 		WHERE department = 'offline'
-			AND stat_date BETWEEN ? AND ?
+			AND ((stat_date >= ? AND stat_date < ?) OR (stat_date >= ? AND stat_date < ?))
 			AND goods_no IS NOT NULL AND goods_no <> ''
 			AND `+offlineForecastRegionExpr+` IS NOT NULL`+cateCond+`
 		GROUP BY goods_no, region`, sugArgs...)
@@ -508,38 +503,26 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		sku    string
 		region string
 	}
-	suggestions := map[cellKey]int{}        // 季节调整后的建议值
-	baseAvgMap := map[cellKey]float64{}     // 近 3 月原始均值(tooltip 用)
-	skuMeta := map[string]string{}          // sku_code → goods_name
+	suggestions := map[cellKey]int{}    // 最终建议值
+	baseAvgMap := map[cellKey]float64{} // 近 3 月原始均值(tooltip 用)
+	yoyMap := map[cellKey]float64{}     // 去年同月销量(同比)
+	momMap := map[cellKey]float64{}     // 上月销量(环比)
+	skuMeta := map[string]string{}      // sku_code → goods_name
 	for sugRows.Next() {
 		var sku, region string
 		var goodsName sql.NullString
-		var base float64
-		if writeDatabaseError(w, sugRows.Scan(&sku, &goodsName, &region, &base)) {
+		var base, yoyQty, momQty float64
+		if writeDatabaseError(w, sugRows.Scan(&sku, &goodsName, &region, &base, &yoyQty, &momQty)) {
 			sugRows.Close()
 			return
 		}
 		if base < 0 {
 			base = 0
 		}
-		baseAvgMap[cellKey{sku, region}] = base
-
-		// 应用季节指数 + 大区同比 (年度扩张) + 大区环比 (短期趋势加速)
-		adjusted := applySeasonalAdjust(base, recentMonths, predictMonth, seasIdx[sku])
-		if g, ok := regionGrowth[region]; ok && g > 0 {
-			adjusted *= g
-		}
-		if useMoM {
-			if m, ok := regionMoM[region]; ok && m > 0 {
-				adjusted *= m
-			}
-		}
-		if adjusted < 0 {
-			adjusted = 0
-		}
-		// 此处先按内置 5 因素算法记 raw, 后面统一应用节假日因子 + 趋势调整
-		suggestions[cellKey{sku, region}] = int(math.Round(adjusted))
-
+		ck := cellKey{sku, region}
+		baseAvgMap[ck] = base
+		yoyMap[ck] = yoyQty
+		momMap[ck] = momQty
 		if goodsName.Valid && skuMeta[sku] == "" {
 			skuMeta[sku] = goodsName.String
 		}
@@ -549,20 +532,49 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// v1.66 节假日因子 + 趋势调整 (按大区算近12月趋势)
-	// 1. 节假日因子: 按预测月份固定 (1月春节备货 / 11月双11 等)
+	// === v1.77 混合版算法 (替代原季节版, 回测大区合计 14.1%→8.3%) ===
+	//  春节月(1/2)去年同月有量: 去年同月 × 大区增长 (经销商节前囤货稳定, 按去年同期最稳; 不叠节假日/趋势)
+	//  春节月无去年同月(新SKU): 季节版去季节 (近3月含1月备货高峰, 季节版更稳; 回测合计层几乎不命中此支)
+	//  平淡月(3-12): weightedForecast 加权 × 节假日因子 × 大区趋势 (与 computeBacktestForecast 共用同一函数, 口径一致)
 	monthFactor := monthFactorsTable(predictMonth)
-	// 2. 大区近12月趋势 (按月销量做线性回归, 上升/下降/平稳)
 	regionTrend, _ := computeOfflineRegionTrend(h.DB, ym)
-	for k, v := range suggestions {
-		final := float64(v) * monthFactor.HolidayFactor
-		if t, has := regionTrend[k.region]; has {
-			final *= t
+	isSpring := predictMonth == 1 || predictMonth == 2
+	for ck := range baseAvgMap {
+		base := baseAvgMap[ck]
+		yoy := yoyMap[ck]
+		mom := momMap[ck]
+		// 只对近3月有销量(base>0)的格子出建议。
+		// 注: 二审曾建议"春节月把去年同期有量但近3月断货的休眠货也纳入", 但 SKU 级实测: 纳入后
+		// 春节总量误差从 ~9% 飙到 ~59% (休眠货多数不重复去年销量), 故维持原门槛, 休眠货交业务手工补。
+		if base <= 0 {
+			continue
 		}
-		if final < 0 {
-			final = 0
+		region := ck.region
+		growth := 1.0
+		if g, ok := regionGrowth[region]; ok && g > 0 {
+			growth = g
 		}
-		suggestions[k] = int(math.Round(final))
+		var adjusted float64
+		if isSpring {
+			if yoy > 0 {
+				// 春节主算法: 去年同月 × 大区增长
+				adjusted = yoy * growth
+			} else {
+				// 春节无去年同月: 用季节版去季节 (近3月含1月春节备货高峰, 直接加权会把2月带高;
+				// 季节版除掉季节性更稳, SKU 级实测加权版总量误差飙到 59%, 季节版则正常)
+				adjusted = applySeasonalAdjust(base, recentMonths, predictMonth, seasIdx[ck.sku]) * growth
+			}
+		} else {
+			// 平淡月: 加权版 (与回测共用 weightedForecast, 缺项归一化不浪费权重)
+			adjusted = weightedForecast(monthFactor, base, yoy*growth, mom) * monthFactor.HolidayFactor
+			if t, has := regionTrend[region]; has {
+				adjusted *= t
+			}
+		}
+		if adjusted < 0 {
+			adjusted = 0
+		}
+		suggestions[ck] = int(math.Round(adjusted))
 	}
 
 	// 2. SKU 全集 — 近 6 个月销过的 SKU(默认),或全部 SKU
@@ -651,46 +663,20 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		GoodsName        string             `json:"goods_name"`
 		Suggestions      map[string]int     `json:"suggestions"`
 		Forecasts        map[string]int     `json:"forecasts"`
-		BaseAvgs         map[string]float64 `json:"base_avgs"`          // 近 3 月原始均值, tooltip 用
-		SeasonalFactor   float64            `json:"seasonal_factor"`    // 预测月季节系数 (SKU 级)
-		RecentSeasonAvg  float64            `json:"recent_season_avg"`  // 近 3 月对应系数均值, tooltip 用
-		SeasonalReplaced bool               `json:"seasonal_replaced"`  // 预测月系数是否被品类中位数替代(营销污染)
+		BaseAvgs    map[string]float64 `json:"base_avgs"` // 近 3 月原始均值, tooltip 依据
+		YoyQtys     map[string]float64 `json:"yoy_qtys"`  // 去年同月销量, tooltip 依据
 	}
 	predictYear := predictTime.Year()
 	holiday := holidayContext(predictYear, predictMonth)
 	items := make([]item, 0, len(skuSet))
 	for sku := range skuSet {
-		seasonal := 1.0
-		recentAvg := 1.0
-		if idx, has := seasIdx[sku]; has {
-			if v, ok := idx[predictMonth]; ok {
-				seasonal = math.Round(v*100) / 100
-			}
-			var sum float64
-			var cnt float64
-			for _, m := range recentMonths {
-				if v, ok := idx[m]; ok && v > 0 {
-					sum += v
-					cnt++
-				}
-			}
-			if cnt > 0 && sum > 0 {
-				recentAvg = math.Round(sum/cnt*100) / 100
-			}
-		}
-		replacedThis := false
-		if rm, has := replaced[sku]; has {
-			replacedThis = rm[predictMonth]
-		}
 		it := item{
-			SkuCode:          sku,
-			GoodsName:        skuMeta[sku],
-			Suggestions:      map[string]int{},
-			Forecasts:        map[string]int{},
-			BaseAvgs:         map[string]float64{},
-			SeasonalFactor:   seasonal,
-			RecentSeasonAvg:  recentAvg,
-			SeasonalReplaced: replacedThis,
+			SkuCode:     sku,
+			GoodsName:   skuMeta[sku],
+			Suggestions: map[string]int{},
+			Forecasts:   map[string]int{},
+			BaseAvgs:    map[string]float64{},
+			YoyQtys:     map[string]float64{},
 		}
 		for _, region := range offlineForecastRegions {
 			if v, ok := suggestions[cellKey{sku, region}]; ok && v > 0 {
@@ -701,6 +687,9 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 			}
 			if v, ok := baseAvgMap[cellKey{sku, region}]; ok && v > 0 {
 				it.BaseAvgs[region] = math.Round(v*10) / 10
+			}
+			if v, ok := yoyMap[cellKey{sku, region}]; ok && v > 0 {
+				it.YoyQtys[region] = math.Round(v*10) / 10
 			}
 		}
 		items = append(items, it)
@@ -719,12 +708,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 	for r, g := range regionGrowth {
 		growthOut[r] = math.Round(g*100) / 100
 	}
-	momOut := map[string]float64{}
-	for r, v := range regionMoM {
-		momOut[r] = math.Round(v*100) / 100
-	}
-
-	// v1.66 智能算法本月公式说明 (前端顶部 Tag hover 展示)
+	// 本月公式说明 (前端顶部 Tag hover 展示)
 	summary := smartForecastSummary(predictMonth)
 	regionTrendOut := map[string]float64{}
 	for r, t := range regionTrend {
@@ -737,8 +721,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		"items":            items,
 		"holiday_context":  holiday,
 		"region_growth":    growthOut,
-		"region_mom":       momOut,
-		"forecast_summary": summary,        // v1.66 本月用了什么权重 + 节假日因子
+		"forecast_summary": summary,        // 本月用了什么权重 + 节假日因子
 		"region_trend":     regionTrendOut, // v1.66 各大区近12月趋势调整因子 (1.05/0.95/1.0)
 	})
 }
