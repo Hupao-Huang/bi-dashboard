@@ -39,6 +39,10 @@ type FuturesQuote struct {
 	OpenInterest int64   `json:"openInterest"`
 	// MiniTrend 最近 30 天收盘价（首页迷你折线图用，节省一次请求）
 	MiniTrend []float64 `json:"miniTrend"`
+	// QuoteTime 盘中实时报价时间 HH:MM:SS（来自实时快照，无实时数据时为空）
+	QuoteTime string `json:"quoteTime"`
+	// IsRealtime 是否盘中实时（实时快照存在且报价时间在 10 分钟内）；false=休市/收盘数据
+	IsRealtime bool `json:"isRealtime"`
 }
 
 // FuturesBar 一根 K 线 / 一个日线点
@@ -165,7 +169,103 @@ func (h *DashboardHandler) GetFuturesQuotes(w http.ResponseWriter, r *http.Reque
 			MiniTrend:     mini,
 		})
 	}
+
+	// 盘中实时叠加：有实时快照的品种用最新价覆盖收盘价，涨跌按"现价 - 昨结算"算（期货标准口径）
+	overlayRealtimeQuotes(ctx, h.DB, out)
+
 	writeJSON(w, out)
+}
+
+// futuresRealtimeRow 实时快照表一行
+type futuresRealtimeRow struct {
+	QuoteDate    string
+	QuoteTime    string
+	Last         float64
+	Open         float64
+	High         float64
+	Low          float64
+	PrevSettle   float64
+	Volume       int64
+	OpenInterest int64
+}
+
+// overlayRealtimeQuotes 把 futures_quote_realtime 的盘中最新价叠加到日线快照上。
+// 无实时数据的品种保持日线收盘价不变（优雅回退）。
+func overlayRealtimeQuotes(ctx context.Context, db *sql.DB, out []FuturesQuote) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT symbol_code, DATE_FORMAT(quote_date,'%Y-%m-%d'), quote_time,
+		       last_price, open_price, high_price, low_price, prev_settle, volume, open_interest
+		FROM futures_quote_realtime`)
+	if err != nil {
+		return // 快照表查询失败不影响主流程，照常返回日线数据
+	}
+	defer rows.Close()
+
+	rt := map[string]futuresRealtimeRow{}
+	for rows.Next() {
+		var code string
+		var r futuresRealtimeRow
+		if err := rows.Scan(&code, &r.QuoteDate, &r.QuoteTime, &r.Last, &r.Open, &r.High, &r.Low, &r.PrevSettle, &r.Volume, &r.OpenInterest); err != nil {
+			continue
+		}
+		rt[code] = r
+	}
+
+	for i := range out {
+		q := &out[i]
+		r, ok := rt[q.Code]
+		if !ok || r.Last <= 0 {
+			continue
+		}
+		lastDailyDate := q.TradeDate // 覆盖前 = 最新日线那天
+		// 实时数据不能比日线还旧（极端情况实时同步断了好几天）
+		if r.QuoteDate < lastDailyDate {
+			continue
+		}
+		// 迷你折线图末端跟随最新价：新交易日则追加一点，同一天则替换末点
+		if len(q.MiniTrend) > 0 {
+			if r.QuoteDate > lastDailyDate {
+				q.MiniTrend = append(q.MiniTrend, r.Last)
+			} else {
+				q.MiniTrend[len(q.MiniTrend)-1] = r.Last
+			}
+		}
+		base := r.PrevSettle
+		if base <= 0 {
+			base = q.PrevClose
+		}
+		q.Open = r.Open
+		q.High = r.High
+		q.Low = r.Low
+		q.Close = r.Last
+		q.PrevClose = base
+		q.Change = r.Last - base
+		if base > 0 {
+			q.ChangePct = q.Change / base * 100
+		} else {
+			q.ChangePct = 0
+		}
+		q.Volume = r.Volume
+		q.OpenInterest = r.OpenInterest
+		q.TradeDate = r.QuoteDate
+		q.QuoteTime = r.QuoteTime
+		q.IsRealtime = isQuoteFresh(r.QuoteDate, r.QuoteTime)
+	}
+}
+
+// isQuoteFresh 判定报价是否"盘中实时"：新浪报价时间距现在 10 分钟内。
+// 用新浪自己的报价时间(而非本地入库时间)判定，盘中休市(如午间 11:30~13:30)时
+// 报价时间会停住变旧，自动判为"非实时"，不会休市了还假装实时。
+func isQuoteFresh(date, t string) bool {
+	if t == "" || date == "" {
+		return false
+	}
+	ts, err := time.ParseInLocation("2006-01-02 15:04:05", date+" "+t, time.Local)
+	if err != nil {
+		return false
+	}
+	d := time.Since(ts)
+	return d >= -2*time.Minute && d < 10*time.Minute
 }
 
 // GetFuturesDaily GET /api/futures/daily?code=M0&start=2024-01-01&end=2026-05-13

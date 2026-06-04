@@ -91,7 +91,20 @@ const FuturesOverview: React.FC = () => {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  // 盘中每分钟自动刷新一次最新价（后端缓存 5min + 实时同步 5min，分钟级跟手）
+  useEffect(() => {
+    fetchData();
+    const timer = setInterval(fetchData, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 盘中实时状态：任意品种带实时报价即视为盘中，取最新报价时间展示
+  const realtimeInfo = useMemo(() => {
+    const rt = quotes.filter(q => q.isRealtime && q.quoteTime);
+    if (rt.length === 0) return { live: false, time: '' };
+    const times = rt.map(q => q.quoteTime).sort();
+    return { live: true, time: times[times.length - 1] };
+  }, [quotes]);
 
   // 按分类拆
   const grouped = useMemo(() => {
@@ -130,7 +143,14 @@ const FuturesOverview: React.FC = () => {
         <div>
           <Title level={3} style={{ margin: 0 }}>原料行情总览</Title>
           <Text type="secondary" style={{ fontSize: 13 }}>
-            数据来源：新浪财经期货 · 数据截止 {lastTradeDate}
+            {realtimeInfo.live ? (
+              <>
+                <span style={{ color: upColor }}>● 盘中实时</span>
+                {' · '}{realtimeInfo.time} 更新 · 每分钟自动刷新
+              </>
+            ) : (
+              <>数据来源：新浪财经期货 · 休市 · 收盘数据截止 {lastTradeDate}</>
+            )}
           </Text>
         </div>
         <Tooltip title="重新拉取最新行情">

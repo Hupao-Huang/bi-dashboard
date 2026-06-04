@@ -67,6 +67,8 @@ var taskMetaByName = map[string]TaskConfig{
 	"BI-APIServer":                  {Name: "API 服务", Description: "后端 HTTP API 服务 (8080 端口)", Schedule: "开机自启", LogFile: "bi-server.err", Category: "service-legacy"},
 	"BI-Frontend":                   {Name: "前端服务", Description: "serve -s build (3000 端口)", Schedule: "开机自启", LogFile: "", Category: "service-legacy"},
 	"BI-SyncDailyTrades":            {Name: "销售单同步", Description: "每天 04:00 拉昨日销售单+明细+包裹", Schedule: "每天 04:00", LogFile: "sync-daily-trades.log", Category: "sync"},
+	"BI-SyncFutures":                {Name: "期货日线同步", Description: "新浪财经期货日线(原料行情数据源,16品种)", Schedule: "每天 17:30", LogFile: "sync-futures.log", Category: "sync"},
+	"BI-SyncFuturesRealtime":        {Name: "期货实时快照", Description: "新浪盘中最新价(原料行情总览准实时,自带交易时段闸门)", Schedule: "每5分钟(盘中)", LogFile: "sync-futures-realtime.log", Category: "sync"},
 	"BI-TrainProphet":               {Name: "Prophet 模型重训", Description: "销量预测 Prophet 季节模型每周自动重训", Schedule: "每周日 03:00", LogFile: "", Category: "ai"},
 	"BI-TrainStatsForecast":         {Name: "StatsForecast 模型重训", Description: "销量预测多模型集成 (Nixtla) 每周重训", Schedule: "每周日 03:30", LogFile: "", Category: "ai"},
 }
