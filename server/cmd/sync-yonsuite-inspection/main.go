@@ -155,7 +155,7 @@ func upsert(db *sql.DB, rec map[string]interface{}) (bool, bool, error) {
 		"pk_outsupplier", "pk_outsupplier_name", "pk_org_name",
 		"verifystate", "inspect_result", "pk_stockstatus_statusname", "handle_type_name",
 		"inspectnum", "qnum", "nqnum", "nnum", "qrate",
-		"manufacture_date", "validity_date", "vsourcecode",
+		"manufacture_date", "validity_date", "vsourcecode", "source_order_code", "source_bill_type",
 		"create_time", "modify_time", "pubts", "raw_json",
 	}
 	args := []interface{}{
@@ -165,6 +165,7 @@ func upsert(db *sql.DB, rec map[string]interface{}) (bool, bool, error) {
 		getInt(rec, "verifystate"), getStr(rec, "inspectResult"), getStr(rec, "pk_stockstatus_statusName"), getStr(rec, "handleType_name"),
 		getFloat(rec, "inspectnum"), getFloat(rec, "qnum"), getFloat(rec, "nqnum"), getFloat(rec, "nnum"), getFloat(rec, "qrate"),
 		getTime(rec, "manufacture_date"), getTime(rec, "validityDate"), getStr(rec, "vsourcecode"),
+		getStr(rec, "sourceOrderCode"), getStr(rec, "sourcebilltype"),
 		getTime(rec, "createTime"), getTime(rec, "modifyTime"), getStr(rec, "pubts"), nullableJSON(rawJSON),
 	}
 	placeholders := make([]string, len(cols))

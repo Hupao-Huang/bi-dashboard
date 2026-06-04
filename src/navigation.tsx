@@ -190,6 +190,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/supply-chain/logistics-analysis', icon: <CarOutlined />, label: '快递仓储分析', permission: 'supply_chain.logistics_analysis:view' },
       { key: '/supply-chain/daily-alerts', icon: <WarningOutlined />, label: '每日预警', permission: 'supply_chain.daily_alerts:view' },
       { key: '/supply-chain/monthly-billing', icon: <FileTextOutlined />, label: '月度账单分析', permission: 'supply_chain.monthly_billing:view' },
+      { key: '/supply-chain/qc-alert', icon: <SafetyCertificateOutlined />, label: '质检预警', permission: 'supply_chain.qc_alert:view' },
     ],
   },
   {
@@ -280,6 +281,7 @@ export const pageTitleMap: Record<string, string> = {
   '/supply-chain/logistics-analysis': '快递仓储分析',
   '/supply-chain/daily-alerts': '每日预警',
   '/supply-chain/monthly-billing': '月度账单分析',
+  '/supply-chain/qc-alert': '质检预警',
   '/brand': '心智渗透',
   '/brand/overview': '心智健康度总览',
   '/brand/awareness': '知名度层',
@@ -370,6 +372,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/supply-chain/logistics-analysis', permission: 'supply_chain.logistics_analysis:view' },
   { path: '/supply-chain/daily-alerts', permission: 'supply_chain.daily_alerts:view' },
   { path: '/supply-chain/monthly-billing', permission: 'supply_chain.monthly_billing:view' },
+  { path: '/supply-chain/qc-alert', permission: 'supply_chain.qc_alert:view' },
   { path: '/system/access', permission: 'user.manage' },
   { path: '/system/roles', permission: 'role.manage' },
   { path: '/system/feedback', permission: 'feedback.manage' },
