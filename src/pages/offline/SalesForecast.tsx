@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, message, Popconfirm, Popover, Space, Spin, Switch, Table, Tabs, Tag, Tooltip } from 'antd';
-import { DownloadOutlined, ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
+import { DownloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import * as XLSX from 'xlsx-js-style';
 import { API_BASE } from '../../config';
@@ -195,17 +195,15 @@ const SalesForecast: React.FC = () => {
   };
 
   const handleDownload = () => {
-    const headers = ['货品名', '货品编码', ...regions, '线下总计'];
+    const headers = ['货品名', '货品编码', ...regions];
     const aoa: any[][] = [headers];
     filteredItems.forEach(it => {
       const uv = userValues[it.sku_code] || {};
       const cells = regions.map(r => uv[r] ?? null);
-      const total = regions.reduce((s, r) => s + (uv[r] || 0), 0);
       aoa.push([
         it.goods_name || '',
         it.sku_code,
         ...cells,
-        total,
       ]);
     });
     // v1.60.3: 加 Antd 风格的视觉样式(表头蓝底白字 + 行边框 + 数值右对齐 + 合计列黄底加粗)
@@ -214,8 +212,7 @@ const SalesForecast: React.FC = () => {
     ws['!cols'] = [
       { wch: 32 }, // 货品名
       { wch: 14 }, // 货品编码
-      ...regions.map(() => ({ wch: 10 })),
-      { wch: 12 }, // 线下总计
+      ...regions.map(() => ({ wch: 16 })),
     ];
     // 行高(表头加高)
     ws['!rows'] = [{ hpt: 22 }, ...filteredItems.map(() => ({ hpt: 18 }))];
@@ -392,7 +389,8 @@ const SalesForecast: React.FC = () => {
       cols.push({
         title: region,
         key: region,
-        width: 90,
+        width: 160,
+        fixed: 'right' as const,
         align: 'center' as const,
         render: (_: any, row: ForecastItem) => {
           const userVal = userValues[row.sku_code]?.[region];
@@ -437,6 +435,19 @@ const SalesForecast: React.FC = () => {
               </div>
             </div>
           ) : null;
+          // 偏离标记: 当前值 vs 历史基准 (春节比去年同月, 平淡比近3月均), |偏离|≥20% 提醒复核
+          const baseline = isSpring ? yoy : base;
+          let devTag: React.ReactNode = null;
+          if (displayValue != null && baseline != null && baseline > 0) {
+            const devPct = Math.round((displayValue - baseline) / baseline * 100);
+            if (Math.abs(devPct) >= 20) {
+              devTag = (
+                <Tag color={Math.abs(devPct) >= 50 ? 'red' : devPct > 0 ? 'orange' : 'gold'} style={{ margin: 0 }}>
+                  {devPct > 0 ? '↑' : '↓'}{Math.abs(devPct)}%
+                </Tag>
+              );
+            }
+          }
           const input = (
             <InputNumber
               value={displayValue}
@@ -445,54 +456,14 @@ const SalesForecast: React.FC = () => {
               step={1}
               precision={0}
               placeholder="—"
-              style={{ width: '100%' }}
+              style={{ width: 96 }}
               variant="borderless"
             />
           );
-          return tooltipTitle ? <Tooltip title={tooltipTitle}>{input}</Tooltip> : input;
+          const cell = <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>{input}{devTag}</div>;
+          return tooltipTitle ? <Tooltip title={tooltipTitle}>{cell}</Tooltip> : cell;
         },
       });
-    });
-    // 线下总计列 - 9 大区填值合计 (实时跟随用户输入) + 偏离标记
-    // 偏离基准: 平淡月用"近3月均", 春节月用"去年同月"(跟春节建议口径一致, 否则会拿去年同月口径的预测去比近3月均, 误报偏离)
-    // |偏离| > 20% 红/橙 标记, 提醒业务复核
-    const isSpringMonth = predictMonthLabel === '1月' || predictMonthLabel === '2月';
-    const baseLabel = isSpringMonth ? '去年同月' : '近 3 月均';
-    cols.push({
-      title: '线下总计',
-      key: '_offline_total',
-      width: 150,
-      fixed: 'right' as const,
-      align: 'center' as const,
-      render: (_: any, row: ForecastItem) => {
-        const uv = userValues[row.sku_code] || {};
-        let total = 0;
-        regions.forEach(r => { total += uv[r] || 0; });
-        if (total === 0) return <span style={{ color: '#bfbfbf' }}>—</span>;
-
-        // 计算偏离: 春节月基准用去年同月(yoy_qtys), 平淡月用近3月均(base_avgs)
-        let baseTotal = 0;
-        regions.forEach(r => { baseTotal += (isSpringMonth ? row.yoy_qtys?.[r] : row.base_avgs?.[r]) || 0; });
-        const totalTag = <Tag color="blue">{total.toLocaleString()}</Tag>;
-        if (baseTotal <= 0) return totalTag;
-
-        const dev = (total - baseTotal) / baseTotal;
-        const devPct = Math.round(dev * 100);
-        if (Math.abs(devPct) < 20) return totalTag;
-
-        const isHigh = devPct > 0;
-        const tooltipText = `预测 ${total.toLocaleString()} / ${baseLabel} ${Math.round(baseTotal).toLocaleString()} / 偏离 ${devPct > 0 ? '+' : ''}${devPct}%`;
-        return (
-          <Tooltip title={tooltipText}>
-            <div style={{ display: 'flex', gap: 4, justifyContent: 'center', alignItems: 'center', cursor: 'help' }}>
-              {totalTag}
-              <Tag color={Math.abs(devPct) >= 50 ? 'red' : isHigh ? 'orange' : 'gold'} style={{ marginInlineEnd: 0 }}>
-                {isHigh ? '↑' : '↓'} {Math.abs(devPct)}%
-              </Tag>
-            </div>
-          </Tooltip>
-        );
-      },
     });
     return cols;
   }, [regions, userValues, predictMonthLabel, regionTrend, forecastSummary]);
