@@ -80,11 +80,10 @@ func main() {
 			continue
 		}
 
-		// 先清空当前 channel 的旧数据再插
-		if _, err := db.Exec("DELETE FROM channel_special_price WHERE channel_key=?", sheetName); err != nil {
-			log.Fatalf("清旧数据 %s 失败: %v", sheetName, err)
-		}
-
+		// 增量导入(不清空): 有则更新无则新增 (靠下面 ON DUPLICATE KEY UPDATE)。
+		// 2026-06-04 改: 原来这里 DELETE 整个渠道再插, 会把页面上手填的价(对账页价格维护)冲掉。
+		// 改成纯 upsert 后, Excel 批量导 与 页面手填 两边并存不冲突。
+		// 代价: Excel 里删掉某行不会同步删库里的旧价(极少见, 价格表只增不减没影响)。
 		count := 0
 		for ri, r := range rows {
 			if ri == 0 {

@@ -580,6 +580,9 @@ func main() {
 	// 特殊渠道按调拨算销售额(对账页) v0.62, v1.04 修正权限错配
 	mux.HandleFunc("/api/special-channel-allot/summary", pageProtected("ecommerce.special_channel_allot:view", h.GetSpecialChannelAllotSummary))
 	mux.HandleFunc("/api/special-channel-allot/details", pageProtected("ecommerce.special_channel_allot:view", h.GetSpecialChannelAllotDetails))
+	// 价格表维护: 列表谁能看对账页(电商/即时零售任一 view)就能看; 改价单独权限(默认仅超管)
+	mux.HandleFunc("/api/special-channel-allot/prices", pageAnyProtected(h.GetChannelPrices, "ecommerce.special_channel_allot:view", "instant_retail.special_channel_allot:view"))
+	mux.HandleFunc("/api/special-channel-allot/save-price", pageProtected("ecommerce.special_channel_allot:edit", h.SaveChannelPrice))
 
 	// 受保护的上传文件访问（禁止目录浏览）
 	mux.HandleFunc("/api/uploads/", protected(h.ServeUploadFile))

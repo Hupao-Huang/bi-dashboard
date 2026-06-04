@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import PageLoading from '../../components/PageLoading';
 import DateFilter from '../../components/DateFilter';
 import { API_BASE } from '../../config';
+import SpecialChannelPriceManager from '../../components/SpecialChannelPriceManager';
 
 interface ChannelSummary {
   channelKey: string;
@@ -169,15 +170,6 @@ const SpecialChannelAllot: React.FC = () => {
       render: (v: number) => <span style={{ color: '#64748b' }}>{fmtMoney(v)}</span> },
   ];
 
-  const missingColumns = [
-    { title: '渠道', dataIndex: 'channelKey', key: 'channelKey', width: 80 },
-    { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 130 },
-    { title: '条码', dataIndex: 'barcode', key: 'barcode', width: 160 },
-    { title: '名称', dataIndex: 'goodsName', key: 'goodsName', ellipsis: true },
-    { title: '出现单数', dataIndex: 'allocateCnt', key: 'allocateCnt', width: 90, align: 'right' as const },
-    { title: '累计调拨量', dataIndex: 'qtyTotal', key: 'qtyTotal', width: 110, align: 'right' as const },
-  ];
-
   return (
     <div style={{ padding: 16 }}>
       <DateFilter start={startDate} end={endDate} onChange={handleDateChange} />
@@ -213,7 +205,7 @@ const SpecialChannelAllot: React.FC = () => {
           showIcon
           icon={<ExclamationCircleOutlined />}
           message={`价格表缺失 ${missing.length} 个商品(销售额暂按 0 计算)`}
-          description="价格表里漏配了这些商品，请联系数据组补上后会自动同步"
+          description="点右上角「价格表」按钮可直接填单价(有改价权限的话),填完销售额自动补算"
           style={{ marginBottom: 16 }}
         />
       )}
@@ -221,6 +213,7 @@ const SpecialChannelAllot: React.FC = () => {
       {/* 中部 Tab: 3 个渠道分别看 */}
       <Card>
         <Tabs activeKey={activeChannel} onChange={setActiveChannel}
+          tabBarExtraContent={<SpecialChannelPriceManager dept="instant_retail" missing={missing} onSaved={fetchAll} />}
           items={[
             { key: '全部', label: <span>全部合计 <Tag color="blue">{allOrdersCnt} 单</Tag></span> },
             ...summary.map(s => ({
@@ -249,18 +242,6 @@ const SpecialChannelAllot: React.FC = () => {
         )}
       </Card>
 
-      {/* 缺失 SKU 清单 */}
-      {missing.length > 0 && (
-        <Card title="价格表缺失 SKU 清单(待维护)" style={{ marginTop: 16 }}>
-          <Table
-            dataSource={missing}
-            columns={missingColumns}
-            rowKey={(r) => r.channelKey + '|' + r.goodsNo}
-            size="small"
-            pagination={false}
-          />
-        </Card>
-      )}
 
       {/* 调拨单明细 Modal */}
       <Modal
