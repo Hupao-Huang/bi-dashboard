@@ -230,20 +230,24 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		defer wg.Done()
 		// v1.02: 高库存占比改 SKU 维度跨仓汇总 (跟"高库存产品明细"口径一致)
 		// 子查询先按 SKU 汇总 → 外层判断"全仓周转>50天"才算高库存
-		highStockArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
+		// v1.x: 高库存占比口径跟"高库存产品明细"一致, 周转分母并进特殊渠道(京东/猫超/朴朴)调拨当销售量。
+		//   详见 planSpecialAllotQtySubSQL; 调拨 2 个 ? 在最前(JOIN 在 WHERE 之前), 故 stockSnapDate 出现 3 次。
+		cateCondHR, _ := planCategoryGoodsCond("stock_quantity_daily")
+		highStockArgs := append([]interface{}{stockSnapDate, stockSnapDate, stockSnapDate}, planWhArgs...)
 		highStockArgs = append(highStockArgs, warehouseArgs...)
 		highStockArgs = append(highStockArgs, cateArgs...)
 		if err := h.DB.QueryRow(`SELECT
 			IFNULL(SUM(CASE WHEN sum_month>0 AND sum_avail/(sum_month/30) > 50 THEN sku_stock_value ELSE 0 END),0),
 			IFNULL(SUM(sku_stock_value),0)
 			FROM (
-				SELECT goods_no,
+				SELECT stock_quantity_daily.goods_no,
 					SUM(current_qty - locked_qty) AS sum_avail,
-					SUM(month_qty) AS sum_month,
+					SUM(month_qty)+IFNULL(MAX(sca.allot_qty),0) AS sum_month,
 					SUM(current_qty * cost_price) AS sku_stock_value
 				FROM stock_quantity_daily
-				WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond+`
-				GROUP BY goods_no
+				LEFT JOIN `+planSpecialAllotQtySubSQL+` sca ON sca.goods_no = stock_quantity_daily.goods_no
+				WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCondHR+`
+				GROUP BY stock_quantity_daily.goods_no
 			) t`, highStockArgs...).Scan(&highStockValue, &totalStockValue); err != nil {
 			setQueryErr(err)
 		}
@@ -442,18 +446,21 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		cateArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
+		// v1.x: 高库存判定的周转分母并进特殊渠道(京东/猫超/朴朴)调拨当销售量, 跟"高库存产品明细"/"高库存占比KPI"口径一致。
+		//   只动高库存判定(sum_month_sale), 缺货门槛(sum_month 原值)和金额周转(sku_daily_cost)不变。详见 planSpecialAllotQtySubSQL。
+		//   调拨 2 个 ? 在最前(JOIN 在内层 WHERE 之前), 故 stockSnapDate 出现 3 次。
+		cateArgs := append([]interface{}{stockSnapDate, stockSnapDate, stockSnapDate}, planWhArgs...)
 		cateArgs = append(cateArgs, warehouseArgsS...)
 		// v1.02: 品类库存健康度 高库存占比/缺货率 改 SKU 维度跨仓汇总 + 缺货统计排除非活跃标签
 		// 子查询: 按 (品类, goods_no) 先聚合 → 外层按品类汇总
-		// 高库存: SUM(可用)/SUM(月销/30)>50 全仓视角
+		// 高库存: SUM(可用)/SUM((月销+特殊渠道调拨)/30)>50 全仓视角; 缺货门槛仍用纯吉客云月销 sum_month
 		// 缺货统计排除 flag_data IN ('非卖品','已下架','下架中','接单产','新品-接单产')
 		rows, ok := queryRows(`
 			SELECT
 				category,
 				ROUND(SUM(sku_stock_value),2),
 				ROUND(SUM(sku_daily_cost),2),
-				SUM(CASE WHEN sum_month>0 AND sum_avail/(sum_month/30)>50 THEN sku_stock_value ELSE 0 END),
+				SUM(CASE WHEN sum_month_sale>0 AND sum_avail/(sum_month_sale/30)>50 THEN sku_stock_value ELSE 0 END),
 				SUM(CASE WHEN sum_avail<=0 AND sum_month>0 AND is_active_sku=1 THEN 1 ELSE 0 END),
 				SUM(CASE WHEN sum_month>0 AND is_active_sku=1 THEN 1 ELSE 0 END)
 			FROM (
@@ -466,10 +473,12 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 					END AS category,
 					SUM(s.current_qty - s.locked_qty) AS sum_avail,
 					SUM(s.month_qty) AS sum_month,
+					SUM(s.month_qty)+IFNULL(MAX(sca.allot_qty),0) AS sum_month_sale,
 					SUM(s.current_qty * s.cost_price) AS sku_stock_value,
 					SUM(s.month_qty * s.cost_price / 30) AS sku_daily_cost,
 					CASE WHEN MAX(g.flag_data) IN ('非卖品','已下架','下架中','接单产','新品-接单产') THEN 0 ELSE 1 END AS is_active_sku
 				FROM stock_quantity_daily s
+				LEFT JOIN `+planSpecialAllotQtySubSQL+` sca ON sca.goods_no = s.goods_no
 				LEFT JOIN (SELECT goods_no, MAX(cate_full_name) AS cate_full_name, MAX(flag_data) AS flag_data FROM goods WHERE is_delete=0 GROUP BY goods_no) g ON g.goods_no = s.goods_no
 				WHERE s.snapshot_date=? AND s.goods_attr=1 AND s.warehouse_name!=''`+planWhCondS+warehouseCondS+`
 				GROUP BY s.goods_no, category
@@ -521,21 +530,26 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		highItemArgs := append([]interface{}{stockSnapDate}, planWhArgs...)
+		// v1.x: 周转分母并进"特殊渠道(京东/猫超/朴朴)调拨当销售"量(吉客云 month_qty 不含调拨),
+		//   否则靠调拨走量的畅销货会被误判高库存(实测素蚝油360g周转4624天→并进后49天)。详见 planSpecialAllotQtySubSQL。
+		//   2 个调拨 ? 在最前(JOIN 在 WHERE 之前), 故 stockSnapDate 出现 3 次。
+		cateCondHI, _ := planCategoryGoodsCond("stock_quantity_daily")
+		highItemArgs := append([]interface{}{stockSnapDate, stockSnapDate, stockSnapDate}, planWhArgs...)
 		highItemArgs = append(highItemArgs, warehouseArgs...)
 		highItemArgs = append(highItemArgs, cateArgs...)
-		// v1.02: 按 SKU 跨仓汇总, 一个 SKU 一行 (周转 = SUM 可用 / SUM 月销量/30, 全仓视角)
+		// v1.02: 按 SKU 跨仓汇总, 一个 SKU 一行 (周转 = SUM 可用 / SUM(月销量+特殊渠道调拨)/30, 全仓视角)
 		rows, ok := queryRows(`
-			SELECT goods_no, MAX(goods_name),
+			SELECT stock_quantity_daily.goods_no, MAX(goods_name),
 				ROUND(SUM(current_qty - locked_qty),0),
-				ROUND(SUM(month_qty)/30,1),
-				ROUND(SUM(current_qty - locked_qty) / NULLIF(SUM(month_qty)/30,0),1),
+				ROUND((SUM(month_qty)+IFNULL(MAX(sca.allot_qty),0))/30,1),
+				ROUND(SUM(current_qty - locked_qty) / NULLIF((SUM(month_qty)+IFNULL(MAX(sca.allot_qty),0))/30,0),1),
 				ROUND(SUM(current_qty * cost_price),2)
 			FROM stock_quantity_daily
-			WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCond+`
-			GROUP BY goods_no
-			HAVING SUM(month_qty) > 0
-				AND SUM(current_qty - locked_qty) / (SUM(month_qty)/30) > 50
+			LEFT JOIN `+planSpecialAllotQtySubSQL+` sca ON sca.goods_no = stock_quantity_daily.goods_no
+			WHERE snapshot_date=? AND goods_attr=1 AND warehouse_name!=''`+planWhCond+warehouseCond+cateCondHI+`
+			GROUP BY stock_quantity_daily.goods_no
+			HAVING (SUM(month_qty)+IFNULL(MAX(sca.allot_qty),0)) > 0
+				AND SUM(current_qty - locked_qty) / ((SUM(month_qty)+IFNULL(MAX(sca.allot_qty),0))/30) > 50
 			ORDER BY SUM(current_qty * cost_price) DESC LIMIT 100`, highItemArgs...)
 		if !ok {
 			return

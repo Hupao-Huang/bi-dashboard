@@ -65,12 +65,12 @@ func TestGetSupplyChainDashboardEmptyAllSQL(t *testing.T) {
 	mock.ExpectQuery(`WHERE stat_date BETWEEN DATE_SUB\(\?, INTERVAL 1 YEAR\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"d", "v"}))
 
-	// 11. category health (line 547, 复杂子查询)
-	mock.ExpectQuery(`SELECT\s+category,.*FROM stock_quantity_daily s\s+LEFT JOIN \(SELECT goods_no, MAX\(cate_full_name\)`).
+	// 11. category health (复杂子查询; 高库存判定并进特殊渠道调拨, 内层多了 sca 调拨派生表 JOIN)
+	mock.ExpectQuery(`SELECT\s+category,.*FROM stock_quantity_daily s.*LEFT JOIN \(SELECT goods_no, MAX\(cate_full_name\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"cat", "sv", "dc", "hv", "so", "s"}))
 
-	// 12. high stock items (line 624)
-	mock.ExpectQuery(`SELECT goods_no, MAX\(goods_name\),\s+ROUND\(SUM\(current_qty - locked_qty\),0\),.*HAVING SUM\(month_qty\) > 0`).
+	// 12. high stock items (周转分母并进特殊渠道调拨量, goods_no 加表名限定 + sca JOIN)
+	mock.ExpectQuery(`SELECT stock_quantity_daily\.goods_no, MAX\(goods_name\),.*HAVING \(SUM\(month_qty\)\+IFNULL\(MAX\(sca\.allot_qty\),0\)\) > 0`).
 		WillReturnRows(sqlmock.NewRows([]string{"no", "name", "uq", "ds", "to", "sv"}))
 
 	// 13. stockout items (line 671)
