@@ -71,6 +71,29 @@ func (h *DashboardHandler) GetSupplyChainMonthlyTrend(w http.ResponseWriter, r *
 		list = append(list, d)
 	}
 
+	// v1.x: 月度趋势并入特殊渠道(京东/猫超/朴朴)调拨当销售(按月)。趋势是全品类口径(无 cateCond),
+	//   调拨同口径不筛品类; 调拨无仓维度(全公司), 这 3 渠道货从计划仓发故归入计划趋势。销售月份⊇调拨月份, 不补缺月。
+	allotByMonth := map[string]float64{}
+	aRows, aErr := h.DB.Query(`
+		SELECT DATE_FORMAT(o.stat_date,'%Y-%m') AS ym, IFNULL(SUM(d.excel_amount),0)
+		FROM allocate_orders o JOIN allocate_details d ON d.allocate_no = o.allocate_no
+		WHERE o.channel_key IN ('京东','猫超','朴朴')
+		  AND DATE_FORMAT(o.stat_date,'%Y-%m') BETWEEN ? AND ?
+		GROUP BY ym`, startMonth, endMonth)
+	if aErr == nil {
+		defer aRows.Close()
+		for aRows.Next() {
+			var ym string
+			var amt float64
+			if aRows.Scan(&ym, &amt) == nil {
+				allotByMonth[ym] = amt
+			}
+		}
+	}
+	for i := range list {
+		list[i].Value += allotByMonth[list[i].Month]
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"code": 200,
@@ -155,6 +178,32 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 
 	// v1.02: 6 KPI 全部加 10 品类白名单过滤, 跟"品类库存健康度"口径统一
 	cateCond, cateArgs := planCategoryGoodsCond("")
+
+	// v1.x: 钱侧并入特殊渠道(京东/猫超/朴朴)调拨当销售金额(GMV/趋势/渠道split/品类饼 一致)。
+	//   planAllot=本期[start,end], LM=上月同期, LY=去年同期(给渠道 MoM/YoY 公平对比), Trend=全历史按月(给趋势图)。
+	//   计划看板当前 GMV 不含这 3 渠道(它们销售挂自己平台仓, 不在计划 8 仓)→ 纯加法。详见 loadPlanAllot。
+	var planAllot, planAllotLM, planAllotLY planAllotAgg
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var e error
+		if planAllot, e = h.loadPlanAllot(start, end); e != nil {
+			setQueryErr(e)
+			return
+		}
+		if sT, e1 := time.Parse("2006-01-02", start); e1 == nil {
+			if eT, e2 := time.Parse("2006-01-02", end); e2 == nil {
+				if planAllotLM, e = h.loadPlanAllot(sT.AddDate(0, -1, 0).Format("2006-01-02"), eT.AddDate(0, -1, 0).Format("2006-01-02")); e != nil {
+					setQueryErr(e)
+					return
+				}
+				if planAllotLY, e = h.loadPlanAllot(sT.AddDate(-1, 0, 0).Format("2006-01-02"), eT.AddDate(-1, 0, 0).Format("2006-01-02")); e != nil {
+					setQueryErr(e)
+					return
+				}
+			}
+		}
+	}()
 
 	wg.Add(1)
 	go func() {
@@ -846,6 +895,22 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 		turnoverDays = stockCost / (dailyCost + allotDailyCost)
 	}
 
+	// v1.x: 钱侧并入特殊渠道调拨当销售金额。GMV 纯加法; 品类饼按品类并(保证同页 KPI/渠道split/饼 合计一致)。
+	//   月度趋势走独立端点 GetSupplyChainMonthlyTrend(前端 trendData 用那个), 在那边单独并, 不在此 embedded monthlySales。
+	salesGMV += planAllot.Total
+	for i := range cateSalesList {
+		cateSalesList[i].Sales += planAllot.ByCategory[cateSalesList[i].Category]
+	}
+	// 区间天数(给渠道 split 的日均重算)
+	allotDays := 1
+	if sT, e1 := time.Parse("2006-01-02", start); e1 == nil {
+		if eT, e2 := time.Parse("2006-01-02", end); e2 == nil {
+			if dd := int(eT.Sub(sT).Hours()/24) + 1; dd > 1 {
+				allotDays = dd
+			}
+		}
+	}
+
 	// 组装渠道环比数据
 	channels := []ChannelData{}
 	for _, key := range channelOrder {
@@ -857,6 +922,13 @@ func (h *DashboardHandler) GetSupplyChainDashboard(w http.ResponseWriter, r *htt
 			if ly, ok := lyMap.Load(key); ok {
 				d.LastYear = ly.(float64)
 			}
+			// v1.x: 并入该部门调拨当销售(本期/上月/去年同窗口), 保证 split 合计=GMV 且 MoM/YoY 公平对比
+			if a := planAllot.ByDept[key]; a != 0 {
+				d.Total += a
+				d.DailyAvg = d.Total / float64(allotDays)
+			}
+			d.LastMonth += planAllotLM.ByDept[key]
+			d.LastYear += planAllotLY.ByDept[key]
 			if d.LastMonth > 0 {
 				d.MomRate = (d.Total/d.LastMonth - 1) * 100
 			}
