@@ -17,6 +17,11 @@ var offlineForecastRegions = []string{
 	"西南大区", "西北大区", "东北大区", "山东大区", "重客",
 }
 
+// offlineForecastTotalRegion 业务只按"线下合计"填报 (不再分大区)。
+// 出数把 9 大区算出的建议/依据求和到此 key; 存储也用此 region 值存一行/SKU。
+// 算法内部仍按 SKU×大区 算 (大区增长/趋势需要), 只是展示与填报聚合到合计。
+const offlineForecastTotalRegion = "线下合计"
+
 // offlineForecastCateCond 仅看成品 — 复用 supply_chain.go 的 planCategories 10 品类白名单
 // (调味料/酱油/调味汁/干制面/素蚝油/酱类/醋/汤底/番茄沙司/糖)
 // 排除: 广宣品 / 快递包材 / 成品礼盒 / 半保产品 / 测试 等非成品品类
@@ -633,23 +638,23 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 		skuRows.Close()
 	}
 
-	// 3. 已保存的预测值
-	forecasts := map[cellKey]int{}
+	// 3. 已保存的预测值 (按 SKU 合计; SUM 兼容历史按大区填的多行)
+	forecastSum := map[string]int{}
 	fRows, ok3 := queryRowsOrWriteError(w, r, h.DB, `
-		SELECT sku_code, region, forecast_qty, goods_name
-		FROM offline_sales_forecast WHERE ym = ?`, ym)
+		SELECT sku_code, SUM(forecast_qty) AS total, MAX(goods_name) AS goods_name
+		FROM offline_sales_forecast WHERE ym = ? GROUP BY sku_code`, ym)
 	if !ok3 {
 		return
 	}
 	for fRows.Next() {
-		var sku, region string
+		var sku string
 		var qty int
 		var name sql.NullString
-		if writeDatabaseError(w, fRows.Scan(&sku, &region, &qty, &name)) {
+		if writeDatabaseError(w, fRows.Scan(&sku, &qty, &name)) {
 			fRows.Close()
 			return
 		}
-		forecasts[cellKey{sku, region}] = qty
+		forecastSum[sku] = qty
 		skuSet[sku] = struct{}{} // 已存预测的 SKU 也要进列表
 		if name.Valid && skuMeta[sku] == "" {
 			skuMeta[sku] = name.String
@@ -678,19 +683,25 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 			BaseAvgs:    map[string]float64{},
 			YoyQtys:     map[string]float64{},
 		}
+		// 9 大区求和 → 线下合计 (业务只填合计, 算法内部仍按大区算)
+		var sumSug int
+		var sumBase, sumYoy float64
 		for _, region := range offlineForecastRegions {
-			if v, ok := suggestions[cellKey{sku, region}]; ok && v > 0 {
-				it.Suggestions[region] = v
-			}
-			if v, ok := forecasts[cellKey{sku, region}]; ok {
-				it.Forecasts[region] = v
-			}
-			if v, ok := baseAvgMap[cellKey{sku, region}]; ok && v > 0 {
-				it.BaseAvgs[region] = math.Round(v*10) / 10
-			}
-			if v, ok := yoyMap[cellKey{sku, region}]; ok && v > 0 {
-				it.YoyQtys[region] = math.Round(v*10) / 10
-			}
+			sumSug += suggestions[cellKey{sku, region}]
+			sumBase += baseAvgMap[cellKey{sku, region}]
+			sumYoy += yoyMap[cellKey{sku, region}]
+		}
+		if sumSug > 0 {
+			it.Suggestions[offlineForecastTotalRegion] = sumSug
+		}
+		if sumBase > 0 {
+			it.BaseAvgs[offlineForecastTotalRegion] = math.Round(sumBase*10) / 10
+		}
+		if sumYoy > 0 {
+			it.YoyQtys[offlineForecastTotalRegion] = math.Round(sumYoy*10) / 10
+		}
+		if v, ok := forecastSum[sku]; ok {
+			it.Forecasts[offlineForecastTotalRegion] = v
 		}
 		items = append(items, it)
 	}
@@ -717,7 +728,7 @@ func (h *DashboardHandler) GetOfflineSalesForecast(w http.ResponseWriter, r *htt
 
 	writeJSON(w, map[string]interface{}{
 		"ym":               ym,
-		"regions":          offlineForecastRegions,
+		"regions":          []string{offlineForecastTotalRegion},
 		"items":            items,
 		"holiday_context":  holiday,
 		"region_growth":    growthOut,
@@ -776,11 +787,8 @@ func (h *DashboardHandler) SaveOfflineSalesForecast(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// 大区白名单校验
-	allowedRegion := map[string]bool{}
-	for _, r := range offlineForecastRegions {
-		allowedRegion[r] = true
-	}
+	// 只接受"线下合计"填报 (业务不再分大区)
+	allowedRegion := map[string]bool{offlineForecastTotalRegion: true}
 
 	operator := r.Header.Get("X-User-Name")
 	if operator == "" {
@@ -800,6 +808,11 @@ func (h *DashboardHandler) SaveOfflineSalesForecast(w http.ResponseWriter, r *ht
 		}
 		if it.ForecastQty < 0 {
 			it.ForecastQty = 0
+		}
+		// 清掉该 SKU 该月历史按大区填的行, 避免读取 SUM 时与合计行重复计
+		if _, err := tx.Exec(`DELETE FROM offline_sales_forecast WHERE ym=? AND sku_code=? AND region<>?`,
+			req.YM, it.SkuCode, offlineForecastTotalRegion); writeDatabaseError(w, err) {
+			return
 		}
 		_, err := tx.Exec(`
 			INSERT INTO offline_sales_forecast (ym, region, sku_code, goods_name, forecast_qty, operator)
