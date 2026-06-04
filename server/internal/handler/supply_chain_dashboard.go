@@ -41,13 +41,18 @@ func (h *DashboardHandler) GetSupplyChainMonthlyTrend(w http.ResponseWriter, r *
 	_ = startDate // 保留计算（未来可能复用）
 	_ = endDate
 	whCond, whArgs := buildPlanWarehouseFilter("warehouse_name")
-	args := []interface{}{startMonth, endMonth}
+	// v1.x: 趋势改按 10 核心品类(JOIN 品类派生表), 跟 GMV 卡/整页口径一致 —— 之前漏加品类过滤,
+	//   趋势是全品类而 KPI 是 10 品类, 导致同页"趋势末月柱 ≠ 销售GMV卡"对不上(差非核心品类+组套产品)。
+	catSub, catSubArgs := planCategoryGoodsSubquery()
+	args := append([]interface{}{}, catSubArgs...)
+	args = append(args, startMonth, endMonth)
 	args = append(args, whArgs...)
 	args = append(args, salesScopeArgs...)
 
 	rows, err := h.DB.Query(`
 		SELECT stat_month AS m, ROUND(SUM(local_goods_amt),2)
 		FROM sales_goods_summary_monthly
+		JOIN (`+catSub+`) gc ON gc.goods_no = sales_goods_summary_monthly.goods_no
 		WHERE stat_month BETWEEN ? AND ?`+whCond+salesScopeCond+`
 		GROUP BY stat_month ORDER BY stat_month`, args...)
 	if err != nil {
@@ -71,15 +76,18 @@ func (h *DashboardHandler) GetSupplyChainMonthlyTrend(w http.ResponseWriter, r *
 		list = append(list, d)
 	}
 
-	// v1.x: 月度趋势并入特殊渠道(京东/猫超/朴朴)调拨当销售(按月)。趋势是全品类口径(无 cateCond),
-	//   调拨同口径不筛品类; 调拨无仓维度(全公司), 这 3 渠道货从计划仓发故归入计划趋势。销售月份⊇调拨月份, 不补缺月。
+	// v1.x: 月度趋势并入特殊渠道(京东/猫超/朴朴)调拨当销售(按月), 同样按 10 核心品类筛(跟销售侧+GMV卡一致)。
+	//   调拨无仓维度(全公司), 这 3 渠道货从计划仓发故归入计划趋势。销售月份⊇调拨月份, 不补缺月。
+	catSub2, catSub2Args := planCategoryGoodsSubquery()
+	allotArgs := append([]interface{}{startMonth, endMonth}, catSub2Args...)
 	allotByMonth := map[string]float64{}
 	aRows, aErr := h.DB.Query(`
 		SELECT DATE_FORMAT(o.stat_date,'%Y-%m') AS ym, IFNULL(SUM(d.excel_amount),0)
 		FROM allocate_orders o JOIN allocate_details d ON d.allocate_no = o.allocate_no
 		WHERE o.channel_key IN ('京东','猫超','朴朴')
 		  AND DATE_FORMAT(o.stat_date,'%Y-%m') BETWEEN ? AND ?
-		GROUP BY ym`, startMonth, endMonth)
+		  AND d.goods_no IN (`+catSub2+`)
+		GROUP BY ym`, allotArgs...)
 	if aErr == nil {
 		defer aRows.Close()
 		for aRows.Next() {
