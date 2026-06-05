@@ -1056,7 +1056,7 @@ const ExpenseControl: React.FC = () => {
                   dataSource={detailData.invoices || []}
                   rowKey={(r: any) => r.invoiceId || r.invoiceNumber || `${r.invoiceCode}-${r.totalAmount}`}
                   pagination={false}
-                  scroll={{ x: 1400 }}
+                  scroll={{ x: 1310 }}
                   columns={[
                     {
                       title: '所属费用', dataIndex: 'feeTypeName', width: 150, fixed: 'left',
@@ -1132,14 +1132,6 @@ const ExpenseControl: React.FC = () => {
                       title: '验真', dataIndex: 'isVerified', width: 60, align: 'center',
                       render: (v: number) => v ? <Tag color="success">是</Tag> : <Tag>否</Tag>,
                     },
-                    {
-                      title: '发票原件', width: 90, align: 'center', fixed: 'right',
-                      render: (_: any, r: any) => {
-                        const file = findInvoiceFile(r);
-                        if (file) return <a onClick={() => setInvoicePreview({ visible: true, file, title: r.invoiceNumber || file.fileName || '发票原件' })}>查看</a>;
-                        return attachLoading ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>加载中…</Typography.Text> : <Typography.Text type="secondary">—</Typography.Text>;
-                      },
-                    },
                   ]}
                 />
               ),
@@ -1204,7 +1196,7 @@ const ExpenseControl: React.FC = () => {
           const lower = `${name} ${url}`.toLowerCase();
           const isImg = /\.(jpg|jpeg|png|gif|webp|bmp)(\?|#|$)/.test(lower);
           const isPdf = /\.pdf(\?|#|$)/.test(lower);
-          if (isImg) return <Image src={url} style={{ width: '100%' }} />;
+          if (isImg) return <div style={{ textAlign: 'center' }}><Image src={url} style={{ maxWidth: '100%', maxHeight: '72vh' }} /></div>;
           if (isPdf) return (
             <div>
               <iframe src={url} title={name} style={{ width: '100%', height: 620, border: '1px solid #eee', borderRadius: 6 }} />
