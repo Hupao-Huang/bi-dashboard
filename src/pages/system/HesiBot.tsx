@@ -4,18 +4,19 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Badge, Button, Card, DatePicker, Descriptions, Empty, Input, Modal,
-  Radio, Select, Statistic, Table, Tabs, Tag, Tooltip, Typography, message,
+  Alert, Badge, Button, Card, DatePicker, Empty, Input, Modal,
+  Radio, Select, Statistic, Table, Tag, Tooltip, message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  CheckCircleOutlined, CheckOutlined, ClockCircleOutlined, CloseOutlined,
-  EyeOutlined, FileImageOutlined, FileTextOutlined, PaperClipOutlined,
+  CheckOutlined, ClockCircleOutlined, CloseOutlined,
+  EyeOutlined, FileTextOutlined,
   ReloadOutlined, RobotOutlined, SearchOutlined, UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
 import HesiBotRules from './HesiBotRules';
+import HesiFlowDetailModal from '../../components/HesiFlowDetailModal';
 
 interface PendingItem {
   flowId: string;
@@ -90,14 +91,8 @@ const HesiBot: React.FC = () => {
   const [activeQueue, setActiveQueue] = useState<QueueItem[]>([]);
   // P1 乐观更新: 跑哥点完"通过/驳回"立即标该单为"已提交, 等生效", 不必等 worker 65s + 轮询 30s 后才看到反馈
   const [optimisticApproved, setOptimisticApproved] = useState<Set<string>>(new Set());
-  // 详情 Modal
+  // 详情 Modal (内容渲染交给共享组件 HesiFlowDetailModal)
   const [detailModal, setDetailModal] = useState<{ visible: boolean; flowId: string }>({ visible: false, flowId: '' });
-  const [detailData, setDetailData] = useState<any>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [attachUrls, setAttachUrls] = useState<any>(null);
-  const [attachLoading, setAttachLoading] = useState(false);
-  // v1.75.8: 凭证明细子弹窗
-  const [voucherModalOpen, setVoucherModalOpen] = useState(false);
 
   const selectedApproverRef = useRef(selectedApprover);
   useEffect(() => { selectedApproverRef.current = selectedApprover; }, [selectedApprover]);
@@ -256,79 +251,8 @@ const HesiBot: React.FC = () => {
     }
   };
 
-  const showDetail = async (flowId: string) => {
-    setDetailModal({ visible: true, flowId });
-    setDetailData(null);
-    setDetailLoading(true);
-    setAttachUrls(null);
-    try {
-      const res = await fetch(`${PROFILE_API}/hesi-flow-detail?flowId=${flowId}`, { credentials: 'include' });
-      const json = await res.json();
-      if (json.code === 200) {
-        setDetailData(json.data);
-      } else {
-        message.error(json.msg || '获取单据详情失败');
-      }
-    } catch (e) {
-      message.error('获取单据详情失败');
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  const loadAttachUrls = async (flowId: string) => {
-    setAttachLoading(true);
-    try {
-      const res = await fetch(`${PROFILE_API}/hesi-attachment-urls?flowId=${flowId}`, { credentials: 'include' });
-      const json = await res.json();
-      if (json.code === 200 && json.items) {
-        setAttachUrls(json);
-      } else {
-        message.error(json.msg || '获取附件链接失败');
-      }
-    } catch (e) {
-      message.error('获取附件链接失败');
-    } finally {
-      setAttachLoading(false);
-    }
-  };
-
-  const renderAttachments = () => {
-    if (!attachUrls?.items?.[0]?.attachmentList) return <div style={{ color: '#999' }}>无附件</div>;
-    const list = attachUrls.items[0].attachmentList;
-    const typeLabels: Record<string, string> = {
-      'flow.body': '单据附件',
-      'flow.free': '费用明细附件',
-      'flow.approving': '审批附件',
-      'flow.receipt': '回单',
-    };
-    return list.map((att: any, idx: number) => (
-      <div key={idx} style={{ marginBottom: 16 }}>
-        <h4 style={{ margin: '0 0 8px', color: '#06b6d4' }}>{typeLabels[att.type] || att.type}</h4>
-        {att.attachmentUrls?.map((f: any, i: number) => (
-          <div key={`a-${i}`} style={{ marginLeft: 16, marginBottom: 4 }}>
-            <PaperClipOutlined style={{ marginRight: 4 }} />
-            <a href={f.url} target="_blank" rel="noopener noreferrer">{f.fileName || f.key || '下载'}</a>
-          </div>
-        ))}
-        {att.invoiceUrls?.map((f: any, i: number) => (
-          <div key={`i-${i}`} style={{ marginLeft: 16, marginBottom: 4 }}>
-            <FileImageOutlined style={{ color: '#ff4d4f', marginRight: 4 }} />
-            <a href={f.url} target="_blank" rel="noopener noreferrer">
-              {f.fileName || f.key || '发票'}
-              {f.invoiceCode ? ` (${f.invoiceCode})` : ''}
-            </a>
-          </div>
-        ))}
-        {att.receiptUrls?.map((f: any, i: number) => (
-          <div key={`r-${i}`} style={{ marginLeft: 16, marginBottom: 4 }}>
-            <FileTextOutlined style={{ color: '#52c41a', marginRight: 4 }} />
-            <a href={f.url} target="_blank" rel="noopener noreferrer">{f.key || '回单'}</a>
-          </div>
-        ))}
-      </div>
-    ));
-  };
+  // 详情数据/附件加载都在 HesiFlowDetailModal 组件内部完成, 这里只负责打开弹窗
+  const showDetail = (flowId: string) => setDetailModal({ visible: true, flowId });
 
   const columns: ColumnsType<PendingItem> = [
     {
@@ -683,394 +607,15 @@ const HesiBot: React.FC = () => {
         )}
       </Modal>
 
-      {/* 详情 Modal (复用费控管理 4 Tab 布局) */}
-      <Modal
-        title={detailData?.flow?.code ? `${detailData.flow.code} - ${detailData.flow.title}` : '单据详情'}
+      {/* 单据详情弹窗 — 共享组件 HesiFlowDetailModal, 跟费控管理(finance/ExpenseControl)共用一套 */}
+      {/* 改一处两边同步 (跑哥要求"这两个一直保持一致") */}
+      <HesiFlowDetailModal
         open={detailModal.visible}
-        onCancel={() => {
-          setDetailModal({ visible: false, flowId: '' });
-          setDetailData(null);
-          setAttachUrls(null);
-        }}
-        footer={null}
-        width={900}
-        destroyOnHidden
-      >
-        {detailLoading ? <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div> : detailData && (
-          <Tabs defaultActiveKey="basic" items={[
-            // v1.75.2: Tab 自适应规则 (跟费控管理一致)
-            // 明细/附件 count>0 才显; 发票 count>0 才显, 例外 form_type=expense 即使 0 也显作业务警告
-            {
-              key: 'basic',
-              label: '基本信息',
-              children: (
-                <Descriptions bordered size="small" column={2} labelStyle={{ width: 140, whiteSpace: 'nowrap' }}>
-                  <Descriptions.Item label="单据编码">{detailData.flow.code}</Descriptions.Item>
-                  <Descriptions.Item label="单据类型">
-                    {formTypeMap[detailData.flow.formType]?.label || detailData.flow.formType}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="公司（法人实体）" span={2}>
-                    {detailData.flow.legalEntityName
-                      ? detailData.flow.legalEntityName
-                      : detailData.flow.legalEntityId
-                        ? <Typography.Text type="secondary">ID: {detailData.flow.legalEntityId}（字典未匹配）</Typography.Text>
-                        : '-'}
-                    {detailData.flow.entityCheck === 'ok' && (
-                      <Tooltip title={detailData.flow.entityCheckReason || '跟钉钉花名册的合同公司一致'}>
-                        <Tag color="success" icon={<CheckCircleOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
-                          已核对
-                        </Tag>
-                      </Tooltip>
-                    )}
-                    {detailData.flow.entityCheck === 'mismatch' && (
-                      <Tooltip title={detailData.flow.entityCheckReason || '与钉钉花名册不一致'}>
-                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
-                          主体可能选错 · 应为 {detailData.flow.entityCheckExpected}
-                        </Tag>
-                      </Tooltip>
-                    )}
-                    {detailData.flow.entityCheck === 'no_data' && (
-                      <Tooltip title={detailData.flow.entityCheckReason || '钉钉花名册无合同公司数据'}>
-                        <Tag color="default" style={{ marginLeft: 8, cursor: 'help' }}>
-                          无法核对
-                        </Tag>
-                      </Tooltip>
-                    )}
-                  </Descriptions.Item>
-                  <Descriptions.Item label={
-                    <Tooltip title="这笔费是谁的 / 谁来背 (单据所有者). 99% 跟提交人一样, 个别助理代提交时才会不同, 找费用责任人看这个.">
-                      <span style={{ cursor: 'help' }}>发起人</span>
-                    </Tooltip>
-                  }>
-                    {detailData.flow.ownerName || (detailData.flow.ownerId
-                      ? <Typography.Text type="secondary">未匹配</Typography.Text>
-                      : '-')}
-                  </Descriptions.Item>
-                  <Descriptions.Item label={
-                    <Tooltip title="实际在合思系统里点'提交'的那个人. 出差报销有时候会助理代提交, 这时跟发起人不同; 找操作单据的人看这个.">
-                      <span style={{ cursor: 'help' }}>提交人</span>
-                    </Tooltip>
-                  }>
-                    {detailData.flow.submitterName || (detailData.flow.submitterId
-                      ? <Typography.Text type="secondary">未匹配</Typography.Text>
-                      : '-')}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="发起人部门">
-                    {detailData.flow.ownerDepartmentName || '-'}
-                    {detailData.flow.ownerDepartmentCheck === 'non-leaf' && (
-                      <Tooltip title={detailData.flow.ownerDepartmentCheckReason || '该部门有下级'}>
-                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
-                          非末级部门
-                        </Tag>
-                      </Tooltip>
-                    )}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="报销/借款部门">
-                    {detailData.flow.departmentName || '-'}
-                    {detailData.flow.departmentCheck === 'non-leaf' && (
-                      <Tooltip title={detailData.flow.departmentCheckReason || '该部门有下级'}>
-                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
-                          非末级部门
-                        </Tag>
-                      </Tooltip>
-                    )}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="状态">
-                    <Tag color={stateMap[detailData.flow.state]?.color}>
-                      {stateMap[detailData.flow.state]?.label || detailData.flow.state}
-                    </Tag>
-                  </Descriptions.Item>
-                  {/* v1.75.5: 字段按 form_type 自适应, 跟费控管理一致 */}
-                  {(detailData.flow.formType === 'expense' || detailData.flow.payMoney) && (
-                    <Descriptions.Item label="支付金额">
-                      {detailData.flow.payMoney ? `¥${detailData.flow.payMoney.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-'}
-                    </Descriptions.Item>
-                  )}
-                  {(detailData.flow.formType === 'expense' || detailData.flow.expenseMoney) && (
-                    <Descriptions.Item label="报销金额">
-                      {detailData.flow.expenseMoney ? `¥${detailData.flow.expenseMoney.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-'}
-                    </Descriptions.Item>
-                  )}
-                  {(detailData.flow.formType === 'expense' || detailData.flow.voucherStatus) && (
-                    <Descriptions.Item label={
-                      <Tooltip title="财务做账状态. 已生成 = 合思生成会计凭证后自动同步到用友, 财务做完账; 未生成 = 还没做账(单据审批完了但财务那边还没记到账本).">
-                        <span style={{ cursor: 'help' }}>凭证状态</span>
-                      </Tooltip>
-                    }>
-                      {detailData.flow.voucherStatus || '-'}
-                      {detailData.voucherDetail && (
-                        <Button
-                          type="link"
-                          size="small"
-                          style={{ marginLeft: 8, padding: 0, height: 'auto' }}
-                          onClick={() => setVoucherModalOpen(true)}
-                        >
-                          查看凭证
-                        </Button>
-                      )}
-                    </Descriptions.Item>
-                  )}
-                  <Descriptions.Item label="创建时间" contentStyle={{ whiteSpace: 'nowrap' }}>{formatTime(detailData.flow.createTime)}</Descriptions.Item>
-                  <Descriptions.Item label="提交时间" contentStyle={{ whiteSpace: 'nowrap' }}>{formatTime(detailData.flow.submitDate)}</Descriptions.Item>
-                  {(detailData.flow.formType === 'expense' || detailData.flow.payDate) && (
-                    <Descriptions.Item label="支付时间" contentStyle={{ whiteSpace: 'nowrap' }}>{formatTime(detailData.flow.payDate)}</Descriptions.Item>
-                  )}
-                  <Descriptions.Item label="完成时间" contentStyle={{ whiteSpace: 'nowrap' }}>{formatTime(detailData.flow.flowEndTime)}</Descriptions.Item>
-                  <Descriptions.Item label="单据模板" span={2}>
-                    {(() => {
-                      const sid: string | null = detailData.flow.specificationId;
-                      const sname: string | null = detailData.flow.specificationName;
-                      if (!sid) return '-';
-                      return (
-                        <Tooltip title={sid}>
-                          <Tag color="blue" style={{ cursor: 'help' }}>
-                            {sname || '未匹配字典'}
-                          </Tag>
-                          <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }} copyable={{ text: sid }}>
-                            ID: {sid.length > 40 ? sid.slice(0, 40) + '...' : sid}
-                          </Typography.Text>
-                        </Tooltip>
-                      );
-                    })()}
-                  </Descriptions.Item>
-                  {detailData.flow.payeeId && (
-                    <>
-                      <Descriptions.Item label="收款户名">{detailData.flow.payeeName || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="收款方式">
-                        {(() => {
-                          const m: Record<string, { label: string; color: string }> = {
-                            BANK: { label: '银行账户', color: 'success' },
-                            OVERSEABANK: { label: '海外银行', color: 'blue' },
-                            ALIPAY: { label: '支付宝', color: 'warning' },
-                            WALLET: { label: '微信/钉钉钱包', color: 'warning' },
-                            CHECK: { label: '支票', color: 'default' },
-                            ACCEPTANCEBILL: { label: '承兑汇票', color: 'default' },
-                            OTHER: { label: '其他', color: 'warning' },
-                          };
-                          const s = detailData.flow.payeeSort;
-                          const cfg = m[s] || { label: s || '-', color: 'default' };
-                          return <Tag color={cfg.color}>{cfg.label}</Tag>;
-                        })()}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="开户行" span={2}>{detailData.flow.payeeBank || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="收款账号" span={2}>{detailData.flow.payeeCardNo || '-'}</Descriptions.Item>
-                    </>
-                  )}
-                </Descriptions>
-              ),
-            },
-            ...((detailData.details?.length || 0) > 0 ? [{
-              key: 'details',
-              label: `费用明细 (${detailData.details?.length || 0})`,
-              children: (
-                <Table
-                  size="small"
-                  dataSource={detailData.details || []}
-                  rowKey={(r: any) => r.detailId || `${r.detailNo}-${r.amount}-${r.feeDate}`}
-                  pagination={false}
-                  scroll={{ y: 480 }}
-                  sticky
-                  columns={[
-                    {
-                      title: '行号', width: 60,
-                      render: (_: any, __: any, idx: number) => idx + 1,
-                    },
-                    {
-                      title: '费用类型', dataIndex: 'feeTypeName', width: 140, ellipsis: true,
-                      render: (v: string) => v || <Typography.Text type="secondary">-</Typography.Text>,
-                    },
-                    {
-                      title: '金额', dataIndex: 'amount', width: 120, align: 'right',
-                      render: (v: number) => v ? `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
-                    },
-                    {
-                      title: '消费时间', dataIndex: 'feeDate', width: 120,
-                      render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD') : '-',
-                    },
-                    {
-                      title: '发票', dataIndex: 'invoiceStatus', width: 100,
-                      render: (v: string, r: any) => v === 'exist'
-                        ? <Tag icon={<CheckCircleOutlined />} color="success">{r.invoiceCount > 0 ? `${r.invoiceCount} 张` : '有'}</Tag>
-                        : <Tag icon={<WarningOutlined />} color="error">无</Tag>,
-                    },
-                    { title: '消费原因', dataIndex: 'consumptionReasons', ellipsis: true },
-                  ]}
-                />
-              ),
-            }] : []),
-            ...(((detailData.invoices?.length || 0) > 0 || detailData.flow.formType === 'expense') ? [{
-              key: 'invoices',
-              label: `发票 (${detailData.invoices?.length || 0})`,
-              children: (
-                <Table
-                  size="small"
-                  dataSource={detailData.invoices || []}
-                  rowKey={(r: any) => r.invoiceId || r.invoiceNumber || `${r.invoiceCode}-${r.totalAmount}`}
-                  pagination={false}
-                  scroll={{ x: 1200 }}
-                  columns={[
-                    {
-                      title: '发票号码', dataIndex: 'invoiceNumber', width: 200,
-                      render: (v: string) => v || <Tag color="warning">未识别</Tag>,
-                    },
-                    {
-                      title: '发票日期', dataIndex: 'invoiceDate', width: 110,
-                      render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD') : '-',
-                    },
-                    {
-                      title: '价税合计', dataIndex: 'totalAmount', width: 120, align: 'right',
-                      render: (v: number, r: any) => {
-                        if (v) return `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
-                        if (r.detailAmount) return <Typography.Text type="secondary">¥{r.detailAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</Typography.Text>;
-                        return '-';
-                      },
-                    },
-                    {
-                      title: '税额', dataIndex: 'taxAmount', width: 100, align: 'right',
-                      render: (v: number) => v ? `¥${v.toFixed(2)}` : '-',
-                    },
-                    {
-                      title: '发票类型', dataIndex: 'invoiceType', width: 140,
-                      render: (v: string) => {
-                        const m: Record<string, string> = {
-                          'FULL_DIGITAl_SPECIAL': '全电专票',
-                          'FULL_DIGITAl_NORMAL': '全电普票',
-                          'SPECIAL_VAT': '增值税专票',
-                          'NORMAL_VAT': '增值税普票',
-                          'NORMAL_ELECTRONIC': '电子普票',
-                          'SPECIAL_ELECTRONIC': '电子专票',
-                        };
-                        return m[v] || v || '-';
-                      },
-                    },
-                    {
-                      title: '销售方/明细原因', dataIndex: 'sellerName', width: 200, ellipsis: true,
-                      render: (v: string, r: any) => v || (r.detailReason ? <Typography.Text type="secondary">{r.detailReason}</Typography.Text> : '-'),
-                    },
-                    {
-                      title: '验真', dataIndex: 'isVerified', width: 60, align: 'center',
-                      render: (v: number) => v ? <Tag color="success">是</Tag> : <Tag>否</Tag>,
-                    },
-                  ]}
-                />
-              ),
-            }] : []),
-            ...((detailData.attachments?.length || 0) > 0 ? [{
-              key: 'attachments',
-              label: `附件 (${detailData.attachments?.length || 0})`,
-              children: (
-                <div>
-                  <Button
-                    type="primary" size="small" icon={<PaperClipOutlined />}
-                    loading={attachLoading}
-                    onClick={() => loadAttachUrls(detailModal.flowId)}
-                    style={{ marginBottom: 16 }}
-                  >
-                    获取附件下载链接（1小时有效）
-                  </Button>
-                  {attachUrls ? renderAttachments() : (
-                    <Table
-                      size="small"
-                      dataSource={detailData.attachments || []}
-                      rowKey={(r: any) => r.fileId || `${r.attachmentType}-${r.fileName}`}
-                      pagination={false}
-                      columns={[
-                        {
-                          title: '类型', dataIndex: 'attachmentType', width: 120,
-                          render: (v: string) => {
-                            const m: Record<string, string> = { 'flow.body': '单据附件', 'flow.free': '费用明细', 'flow.approving': '审批附件', 'flow.receipt': '回单' };
-                            return m[v] || v;
-                          },
-                        },
-                        { title: '文件名', dataIndex: 'fileName' },
-                        {
-                          title: '发票', dataIndex: 'isInvoice', width: 60, align: 'center',
-                          render: (v: number) => v ? <Tag color="blue">是</Tag> : null,
-                        },
-                        { title: '发票号码', dataIndex: 'invoiceCode', width: 150 },
-                      ]}
-                    />
-                  )}
-                </div>
-              ),
-            }] : []),
-          ]} />
-        )}
-      </Modal>
-
-      {/* v1.75.8: 凭证明细子弹窗 */}
-      <Modal
-        title={detailData?.voucherDetail?.header?.displayname
-          ? `凭证明细 - ${detailData.voucherDetail.header.displayname}`
-          : '凭证明细'}
-        open={voucherModalOpen}
-        onCancel={() => setVoucherModalOpen(false)}
-        footer={null}
-        width={1400}
-        destroyOnHidden
-      >
-        {detailData?.voucherDetail && (
-          <div>
-            <Descriptions bordered size="small" column={2} style={{ marginBottom: 12 }}>
-              <Descriptions.Item label="凭证号">
-                <Tag color="purple">{detailData.voucherDetail.header?.displayname || '-'}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="会计期间">{detailData.voucherDetail.header?.period || '-'}</Descriptions.Item>
-              <Descriptions.Item label="账簿">{detailData.voucherDetail.header?.accbook?.name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="凭证类型">{detailData.voucherDetail.header?.vouchertype?.name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="制单人">{detailData.voucherDetail.header?.maker?.name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="制单日期">{detailData.voucherDetail.header?.maketime || '-'}</Descriptions.Item>
-              <Descriptions.Item label="借方合计">
-                <Typography.Text strong>{detailData.voucherDetail.header?.totaldebit_org != null
-                  ? `¥${Number(detailData.voucherDetail.header.totaldebit_org).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`
-                  : '-'}</Typography.Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="贷方合计">
-                <Typography.Text strong>{detailData.voucherDetail.header?.totalcredit_org != null
-                  ? `¥${Number(detailData.voucherDetail.header.totalcredit_org).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`
-                  : '-'}</Typography.Text>
-              </Descriptions.Item>
-            </Descriptions>
-            <Table
-              size="small"
-              dataSource={detailData.voucherDetail.body || []}
-              rowKey={(r: any, i: number = 0) => r.id || `${r.recordnumber}-${i}`}
-              pagination={false}
-              columns={[
-                { title: '行', dataIndex: 'recordnumber', width: 50, align: 'center' },
-                {
-                  title: '摘要', dataIndex: 'description', width: 400, ellipsis: true,
-                  render: (v: string) => v
-                    ? <Tooltip title={v}><span style={{ cursor: 'help' }}>{v}</span></Tooltip>
-                    : '-',
-                },
-                {
-                  title: '科目', width: 260, ellipsis: true,
-                  render: (_: any, row: any) => row.accsubject
-                    ? <Tooltip title={`${row.accsubject.code} ${row.accsubject.name}`}>
-                        <span style={{ cursor: 'help' }}>{row.accsubject.code} {row.accsubject.name}</span>
-                      </Tooltip>
-                    : '-',
-                },
-                {
-                  title: '借方', dataIndex: 'debit_org', width: 120, align: 'right',
-                  render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
-                },
-                {
-                  title: '贷方', dataIndex: 'credit_org', width: 120, align: 'right',
-                  render: (v: number) => v ? `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-',
-                },
-                {
-                  title: '辅助核算', dataIndex: 'auxiliaryShow', width: 320, ellipsis: true,
-                  render: (v: string) => v
-                    ? <Tooltip title={v}><span style={{ cursor: 'help' }}>{v}</span></Tooltip>
-                    : <Typography.Text type="secondary">-</Typography.Text>,
-                },
-              ]}
-            />
-          </div>
-        )}
-      </Modal>
+        flowId={detailModal.flowId}
+        onClose={() => setDetailModal({ visible: false, flowId: '' })}
+        flowDetailUrl={(id) => `${PROFILE_API}/hesi-flow-detail?flowId=${id}`}
+        attachmentUrlsUrl={(id) => `${PROFILE_API}/hesi-attachment-urls?flowId=${id}`}
+      />
     </div>
   );
 };
