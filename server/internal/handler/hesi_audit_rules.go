@@ -250,10 +250,23 @@ func (h *DashboardHandler) ruleCorpMatch(raw map[string]interface{}) string {
 		return "" // 法人实体反查失败 (字典未同步), 跳过
 	}
 
-	if legalEntityName != contractCompany.String {
-		return "所属公司「" + legalEntityName + "」≠ 合同公司「" + contractCompany.String + "」(规则 4)"
+	// 完全一致, 或"合同公司是所属公司的分公司"(分公司非独立法人, 报销可用主公司主体) → 通过
+	if legalEntityName == contractCompany.String || isBranchOfLegalEntity(contractCompany.String, legalEntityName) {
+		return ""
 	}
-	return ""
+	return "所属公司「" + legalEntityName + "」≠ 合同公司「" + contractCompany.String + "」(规则 4)"
+}
+
+// isBranchOfLegalEntity 合同公司是否为所属公司的分公司。
+// 分公司不是独立法人, 报销主体可用主公司; 分公司全名 = 主公司全名 + "XX分公司"。
+// 触发场景(跑哥 2026-06-05): 浙江松鲜鲜世创食品科技有限公司 + 7 家分公司(杭州/北京/重庆/南京/东北/山东/西北),
+// 分公司员工合同公司是分公司, 报销所属公司填主公司, 应放行。
+// 通用判定(不硬编码公司名): 合同公司以所属公司全名开头 且 以"分公司"结尾。
+func isBranchOfLegalEntity(contractCompany, legalEntityName string) bool {
+	if legalEntityName == "" || contractCompany == "" {
+		return false
+	}
+	return strings.HasPrefix(contractCompany, legalEntityName) && strings.HasSuffix(contractCompany, "分公司")
 }
 
 // ruleRequisitionLink 通用规则: 费用明细含某类 fee_type → 关联指定申请单 + 金额不超
