@@ -951,9 +951,6 @@ const ExpenseControl: React.FC = () => {
                           <Tag color="blue" style={{ cursor: 'help' }}>
                             {sname || '未匹配字典'}
                           </Tag>
-                          <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }} copyable={{ text: sid }}>
-                            ID: {sid.length > 40 ? sid.slice(0, 40) + '...' : sid}
-                          </Typography.Text>
                         </Tooltip>
                       );
                     })()}
