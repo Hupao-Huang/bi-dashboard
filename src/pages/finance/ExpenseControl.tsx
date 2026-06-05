@@ -600,7 +600,7 @@ const ExpenseControl: React.FC = () => {
     if (isPdf) {
       return (
         <div key={key} style={{ width: 280 }}>
-          <iframe src={url} title={name} style={{ width: '100%', height: 360, border: '1px solid #eee', borderRadius: 6 }} />
+          <iframe src={`${url}#toolbar=0&navpanes=0&view=FitH`} title={name} style={{ width: '100%', height: 360, border: '1px solid #eee', borderRadius: 6 }} />
           <div style={{ fontSize: 11, marginTop: 2, wordBreak: 'break-all' }}>
             <a href={url} target="_blank" rel="noopener noreferrer">{name} ↗ 新窗口打开</a>
           </div>
@@ -1199,7 +1199,7 @@ const ExpenseControl: React.FC = () => {
           if (isImg) return <div style={{ textAlign: 'center' }}><Image src={url} preview={false} style={{ maxWidth: '100%', maxHeight: '72vh' }} /></div>;
           if (isPdf) return (
             <div>
-              <iframe src={url} title={name} style={{ width: '100%', height: 620, border: '1px solid #eee', borderRadius: 6 }} />
+              <iframe src={`${url}#toolbar=0&navpanes=0&view=FitH`} title={name} style={{ width: '100%', height: 620, border: '1px solid #eee', borderRadius: 6 }} />
               <div style={{ marginTop: 8, textAlign: 'center' }}>
                 <a href={url} target="_blank" rel="noopener noreferrer">PDF 显示不全？点此在新窗口打开 ↗</a>
               </div>
