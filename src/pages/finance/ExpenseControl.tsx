@@ -201,6 +201,8 @@ const ExpenseControl: React.FC = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [attachUrls, setAttachUrls] = useState<any>(null);
   const [attachLoading, setAttachLoading] = useState(false);
+  // 单张发票原件预览弹窗
+  const [invoicePreview, setInvoicePreview] = useState<{ visible: boolean; file: any; title: string }>({ visible: false, file: null, title: '' });
   // v1.75.8: 凭证明细从 Tab 改子弹窗
   const [voucherModalOpen, setVoucherModalOpen] = useState(false);
 
@@ -601,6 +603,23 @@ const ExpenseControl: React.FC = () => {
         <a href={url} target="_blank" rel="noopener noreferrer"><PaperClipOutlined style={{ marginRight: 4 }} />{name} ↗</a>
       </div>
     );
+  };
+
+  // 从在线附件链接里找某张发票的原件 (按 fileId=invoiceId 或 invoiceCode=发票号 匹配)
+  const findInvoiceFile = (row: any) => {
+    const list = attachUrls?.items?.[0]?.attachmentList || [];
+    for (const att of list) {
+      for (const f of (att.invoiceUrls || [])) {
+        if (
+          (row.invoiceId && f.fileId === row.invoiceId) ||
+          (row.invoiceNumber && (f.invoiceCode === row.invoiceNumber || f.invoiceNumber === row.invoiceNumber)) ||
+          (row.invoiceCode && f.invoiceCode === row.invoiceCode)
+        ) {
+          return f;
+        }
+      }
+    }
+    return null;
   };
 
   const renderAttachments = () => {
@@ -1012,7 +1031,7 @@ const ExpenseControl: React.FC = () => {
                   dataSource={detailData.invoices || []}
                   rowKey={(r: any) => r.invoiceId || r.invoiceNumber || `${r.invoiceCode}-${r.totalAmount}`}
                   pagination={false}
-                  scroll={{ x: 1420 }}
+                  scroll={{ x: 1510 }}
                   columns={[
                     {
                       title: '发票号码', dataIndex: 'invoiceNumber', width: 200,
@@ -1072,6 +1091,14 @@ const ExpenseControl: React.FC = () => {
                       title: '验真', dataIndex: 'isVerified', width: 60, align: 'center',
                       render: (v: number) => v ? <Tag color="success">是</Tag> : <Tag>否</Tag>,
                     },
+                    {
+                      title: '发票原件', width: 90, align: 'center', fixed: 'right',
+                      render: (_: any, r: any) => {
+                        const file = findInvoiceFile(r);
+                        if (file) return <a onClick={() => setInvoicePreview({ visible: true, file, title: r.invoiceNumber || file.fileName || '发票原件' })}>查看</a>;
+                        return attachLoading ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>加载中…</Typography.Text> : <Typography.Text type="secondary">—</Typography.Text>;
+                      },
+                    },
                   ]}
                 />
               ),
@@ -1117,6 +1144,34 @@ const ExpenseControl: React.FC = () => {
             },
           ]} />
         )}
+      </Modal>
+
+      {/* 单张发票原件预览弹窗 (发票 tab 行内"查看"触发) */}
+      <Modal
+        open={invoicePreview.visible}
+        title={`发票原件 · ${invoicePreview.title}`}
+        footer={null}
+        width={760}
+        onCancel={() => setInvoicePreview({ visible: false, file: null, title: '' })}
+      >
+        {invoicePreview.file && (() => {
+          const f = invoicePreview.file;
+          const url: string = f.url || '';
+          const name: string = f.fileName || '';
+          const lower = `${name} ${url}`.toLowerCase();
+          const isImg = /\.(jpg|jpeg|png|gif|webp|bmp)(\?|#|$)/.test(lower);
+          const isPdf = /\.pdf(\?|#|$)/.test(lower);
+          if (isImg) return <Image src={url} style={{ width: '100%' }} />;
+          if (isPdf) return (
+            <div>
+              <iframe src={url} title={name} style={{ width: '100%', height: 620, border: '1px solid #eee', borderRadius: 6 }} />
+              <div style={{ marginTop: 8, textAlign: 'center' }}>
+                <a href={url} target="_blank" rel="noopener noreferrer">PDF 显示不全？点此在新窗口打开 ↗</a>
+              </div>
+            </div>
+          );
+          return <a href={url} target="_blank" rel="noopener noreferrer">{name || '打开文件'} ↗</a>;
+        })()}
       </Modal>
 
       {/* v1.75.8: 凭证明细子弹窗 (从详情 Modal 的"凭证状态"行的"查看凭证"按钮触发) */}
