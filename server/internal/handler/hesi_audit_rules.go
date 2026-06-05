@@ -488,11 +488,11 @@ func (h *DashboardHandler) isBrandCenterDept(deptID string) bool {
 // ruleDriveAndReasons 规则 12-1: 自驾 manual 提示 + 12-2: 消费事由长度审核
 // 12-1: 自驾报销 (fee_type=ID01Fr2mX8KP2T) → 转人工 (合思后台无车型/KM 结构化字段)
 //       跑哥规则: 油车 ¥0.7/KM, 电车 ¥0.6/KM
-// 12-2: consumptionReasons 长度 ≤10字 agree / 10-50字 manual / >50字 reject (跑哥说"控制在10字, 放宽到50")
+// 12-2: consumptionReasons 长度 ≤50字 agree / >50字 reject (跑哥 2026-06-05 改: 50字以内都通过, 去掉10-50字人工核档)
 //       字数按 rune 计 (中文 1 字)
 func ruleDriveAndReasons(raw map[string]interface{}) (string, string) {
 	details, _ := raw["details"].([]interface{})
-	var driveDetails, longReasons, midReasons []int
+	var driveDetails, longReasons []int
 
 	for _, d := range details {
 		dm, _ := d.(map[string]interface{})
@@ -514,13 +514,10 @@ func ruleDriveAndReasons(raw map[string]interface{}) (string, string) {
 			driveDetails = append(driveDetails, no)
 		}
 
-		// 12-2: 消费事由长度 (rune 计数, 中文 1 字)
+		// 12-2: 消费事由长度 (rune 计数, 中文 1 字) — 50 字以内通过, 超过 50 字驳回
 		reason, _ := form["consumptionReasons"].(string)
-		runeLen := len([]rune(reason))
-		if runeLen > 50 {
+		if len([]rune(reason)) > 50 {
 			longReasons = append(longReasons, no)
-		} else if runeLen > 10 {
-			midReasons = append(midReasons, no)
 		}
 	}
 
@@ -530,9 +527,6 @@ func ruleDriveAndReasons(raw map[string]interface{}) (string, string) {
 	}
 	if len(driveDetails) > 0 {
 		warnings = append(warnings, fmt.Sprintf("明细 %v 自驾, 需人工核行车记录 KM × 车型单价 (油 ¥0.7/KM, 电 ¥0.6/KM, 规则 12-1)", uniqueInts(driveDetails)))
-	}
-	if len(midReasons) > 0 {
-		warnings = append(warnings, fmt.Sprintf("明细 %v 消费事由 10-50 字, 需酌情核 (规则 12-2)", uniqueInts(midReasons)))
 	}
 	return strings.Join(rejects, "; "), strings.Join(warnings, "; ")
 }
