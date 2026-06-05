@@ -10,8 +10,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import {
   CheckOutlined, ClockCircleOutlined, CloseOutlined,
-  EyeOutlined, FileTextOutlined,
-  ReloadOutlined, RobotOutlined, SearchOutlined, UserOutlined, WarningOutlined,
+  EyeOutlined,
+  ReloadOutlined, SearchOutlined, UserOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
@@ -400,29 +400,7 @@ const HesiBot: React.FC = () => {
         .hesi-row-pending-approve:hover td { background-color: #e2e8f0 !important; }
       `}</style>
 
-      {/* 顶部说明 + 后续路线 */}
       <HesiBotRules />
-
-      <Alert
-        type="info"
-        showIcon
-        icon={<RobotOutlined />}
-        message="合思机器人 — 我的待审批"
-        description={
-          <div>
-            <div>
-              {isAdmin && queryName !== realName
-                ? <span>正在查看 <strong>{queryName}</strong> 的待审批单据 (管理员视角)</span>
-                : <span>当前显示<strong>等你审批</strong>的合思单据 (按你的真实姓名"{realName || '未设置'}"模糊匹配)</span>
-              }
-            </div>
-            <div style={{ marginTop: 6, color: '#666', fontSize: 12 }}>
-              路线图: v1.60 加规则编辑器 → v1.61 干跑模式(匹配但不审批, 看效果) → v1.62 真自动审批(需财务/合规批准).
-            </div>
-          </div>
-        }
-        style={{ marginBottom: 16 }}
-      />
 
       {/* 管理员视角切换 */}
       {isAdmin && (
