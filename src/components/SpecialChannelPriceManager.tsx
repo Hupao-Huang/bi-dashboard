@@ -49,7 +49,7 @@ interface Props {
 
 const DEPT_CHANNELS: Record<string, string[]> = {
   ecommerce: ['京东', '猫超'],
-  instant_retail: ['朴朴'],
+  instant_retail: ['朴朴', '小象', '叮咚'], // 2026-06-05 加小象/叮咚 (跟后端 priceChannelsByDept 一致)
 };
 
 const keyOf = (r: { channelKey: string; goodsNo: string }) => r.channelKey + '|' + r.goodsNo;
@@ -181,7 +181,7 @@ const SpecialChannelPriceManager: React.FC<Props> = ({ dept, missing, onSaved })
           showIcon
           style={{ marginBottom: 12 }}
           message={canEdit
-            ? '同一个货品在京东 / 猫超 / 朴朴可以填不同的价,各渠道分开互不影响。填上单价点保存(需二次确认),这商品已发的调拨单销售额会当场重算,综合 / 部门 / 计划看板也跟着更新。'
+            ? `同一个货品在各渠道(${channels.join(' / ')})可以填不同的价,各渠道分开互不影响。填上单价点保存(需二次确认),这商品已发的调拨单销售额会当场重算,综合 / 部门 / 计划看板也跟着更新。`
             : '只读:你没有改价权限。如需改价请联系管理员。'}
         />
         <Tabs
