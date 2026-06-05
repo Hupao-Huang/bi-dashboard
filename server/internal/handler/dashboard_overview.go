@@ -101,13 +101,16 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		applyEcommerceAllotAdjustment(deptList, salesExcluded, allotAmt, qtyExcluded, allotQty)
 	}
 
-	// v1.74.3-2 (跑哥 5/25 收工前追加): 即时零售部门合并朴朴调拨
-	// 朴朴没销售单 (shop_name 不在 sales_goods_summary, fact 5/1-5/24 = 0 单), 简化: 只加调拨, 不排除
+	// v1.74.3-2 (跑哥 5/25) + 2026-06-05 拓: 即时零售部门合并调拨当销售 (朴朴/小象/叮咚)
+	// 朴朴无销售单(纯加调拨), 小象/叮咚有销售单(d.Sales已含其销售单, 这里纯加调拨, 不重复)
+	// 仅纳入已配价格表的渠道, 没价格表的暂不进(金额+件数都不污染), 价格表到位后自动生效
+	// instantAllotChans 本请求只算一次, 部门合并 + 下方趋势图共用 (避免重复查 channel_special_price)
+	instantAllotChans := h.instantRetailAllotChannels()
 	var puAllotAmt, puAllotQty float64
 	_ = h.DB.QueryRowContext(r.Context(), `SELECT IFNULL(SUM(d.excel_amount), 0), IFNULL(SUM(d.sku_count), 0)
 		FROM allocate_orders o
 		JOIN allocate_details d ON d.allocate_no = o.allocate_no
-		WHERE o.channel_key = '朴朴' AND o.stat_date BETWEEN ? AND ?`, start, end).Scan(&puAllotAmt, &puAllotQty)
+		WHERE o.channel_key IN (`+allotChannelsInClause(instantAllotChans)+`) AND o.stat_date BETWEEN ? AND ?`, start, end).Scan(&puAllotAmt, &puAllotQty)
 	if puAllotAmt > 0 {
 		for i, d := range deptList {
 			if d.Department != "instant_retail" {
@@ -163,7 +166,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	// v1.74.3-3 拓范: 趋势图即时零售部门加日级朴朴调拨
 	// 兜底: 失败 → log + 不阻塞, 即时零售趋势 = 仅销售单 (朴朴不在销售单, 缺失会"显瘦")
 	if puDailyAllot, puErr := h.loadInstantRetailDailyAllot(
-		r.Context(), trendStart, trendEnd); puErr != nil {
+		r.Context(), trendStart, trendEnd, instantAllotChans); puErr != nil {
 		log.Printf("[overview] 朴朴日级调拨加载失败, 即时零售趋势缺朴朴黄柱: %v", puErr)
 	} else {
 		applyInstantRetailDailyAllot(trend, puDailyAllot)
@@ -662,11 +665,11 @@ func (h *DashboardHandler) loadEcommerceDailyAllot(
 	return out, nil
 }
 
-// loadInstantRetailDailyAllot v1.74.3-3 拓范: 即时零售部门日级朴朴调拨
-// 朴朴在 allocate_orders.channel_key='朴朴', 没销售单 (不在 sales_goods_summary)
+// loadInstantRetailDailyAllot v1.74.3-3 + 2026-06-05 拓: 即时零售部门日级调拨 (朴朴/小象/叮咚)
+// 仅纳入已配价格表的渠道(没价格表的金额+件数都不进, 价格表到位后自动生效)
 // 只查 allotAmt/allotQty, salesExcluded/qtyExcluded 留 0
 func (h *DashboardHandler) loadInstantRetailDailyAllot(
-	ctx context.Context, start, end string,
+	ctx context.Context, start, end string, chans []string,
 ) (map[string]ecomDailyAllot, error) {
 	out := make(map[string]ecomDailyAllot)
 	rows, err := h.DB.QueryContext(ctx, `
@@ -676,10 +679,10 @@ func (h *DashboardHandler) loadInstantRetailDailyAllot(
 		FROM allocate_orders o
 		JOIN allocate_details d ON d.allocate_no = o.allocate_no
 		WHERE o.stat_date BETWEEN ? AND ?
-		  AND o.channel_key = '朴朴'
+		  AND o.channel_key IN (`+allotChannelsInClause(chans)+`)
 		GROUP BY o.stat_date`, start, end)
 	if err != nil {
-		return nil, fmt.Errorf("查朴朴日级调拨失败: %w", err)
+		return nil, fmt.Errorf("查即时零售日级调拨失败: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {

@@ -1,6 +1,6 @@
 // import-channel-price.exe: 从 价格体系.xlsx 导入特殊渠道价格表
 // 用法: import-channel-price.exe [--xlsx=path] [--config=path]
-// 默认读 桌面/价格体系.xlsx 的 3 个 sheet (京东/猫超/朴朴) → channel_special_price 表
+// 默认读 桌面/价格体系.xlsx 的 5 个 sheet (京东/猫超/朴朴/小象/叮咚) → channel_special_price 表
 package main
 
 import (
@@ -49,7 +49,7 @@ func main() {
 	}
 	defer f.Close()
 
-	allowedSheets := map[string]bool{"京东": true, "猫超": true, "朴朴": true}
+	allowedSheets := map[string]bool{"京东": true, "猫超": true, "朴朴": true, "小象": true, "叮咚": true}
 	totalImported := 0
 	for _, sheetName := range f.GetSheetList() {
 		if !allowedSheets[sheetName] {
