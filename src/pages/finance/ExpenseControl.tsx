@@ -1196,7 +1196,7 @@ const ExpenseControl: React.FC = () => {
           const lower = `${name} ${url}`.toLowerCase();
           const isImg = /\.(jpg|jpeg|png|gif|webp|bmp)(\?|#|$)/.test(lower);
           const isPdf = /\.pdf(\?|#|$)/.test(lower);
-          if (isImg) return <div style={{ textAlign: 'center' }}><Image src={url} style={{ maxWidth: '100%', maxHeight: '72vh' }} /></div>;
+          if (isImg) return <div style={{ textAlign: 'center' }}><Image src={url} preview={false} style={{ maxWidth: '100%', maxHeight: '72vh' }} /></div>;
           if (isPdf) return (
             <div>
               <iframe src={url} title={name} style={{ width: '100%', height: 620, border: '1px solid #eee', borderRadius: 6 }} />
