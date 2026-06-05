@@ -323,14 +323,25 @@ func saveInvoiceDetails(db *sql.DB, items []map[string]interface{}) int {
 			taxAmount = pickFirstMoney(inv, "_税额")
 		}
 
+		// 火车票出行信息 (合思发票主体 OCR, 用于规则 7-2 座位等级自动判 + 发票 tab 展示)
+		seatType := pickFirstStr(inv, "_座位类型")
+		trainNo := pickFirstStr(inv, "_车次")
+		carriage := pickFirstStr(inv, "_车厢")
+		seatNo := pickFirstStr(inv, "_席位")
+		fromStation := pickFirstStr(inv, "_上车车站")
+		toStation := pickFirstStr(inv, "_下车车站")
+		passenger := pickFirstStr(inv, "_乘车人姓名")
+
 		result, err := db.Exec(`UPDATE hesi_flow_invoice SET
 			invoice_number=?, invoice_code=?, invoice_date=?, invoice_amount=?, total_amount=?,
 			tax_amount=?, invoice_status=?, invoice_type=?,
-			buyer_name=?, buyer_tax_no=?, seller_name=?, seller_tax_no=?, is_verified=?
+			buyer_name=?, buyer_tax_no=?, seller_name=?, seller_tax_no=?, is_verified=?,
+			seat_type=?, train_no=?, carriage=?, seat_no=?, from_station=?, to_station=?, passenger=?
 			WHERE invoice_id=?`,
 			nullStr(invNumber), nullStr(invCode), nullInt64(invDate), invAmount, totalAmount,
 			taxAmount, nullStr(invStatus), nullStr(invType),
 			nullStr(buyerName), nullStr(buyerTaxNo), nullStr(sellerName), nullStr(sellerTaxNo), verified,
+			nullStr(seatType), nullStr(trainNo), nullStr(carriage), nullStr(seatNo), nullStr(fromStation), nullStr(toStation), nullStr(passenger),
 			invId)
 		if err == nil {
 			if n, _ := result.RowsAffected(); n > 0 {

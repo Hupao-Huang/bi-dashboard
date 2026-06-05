@@ -439,9 +439,17 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		SellerName    *string  `json:"sellerName"`
 		SellerTaxNo   *string  `json:"sellerTaxNo"`
 		IsVerified    *int     `json:"isVerified"`
+		// 火车票出行信息 (合思发票主体 OCR): 座位类型/车次/区间/车厢席位/乘车人
+		SeatType    *string `json:"seatType"`
+		TrainNo     *string `json:"trainNo"`
+		FromStation *string `json:"fromStation"`
+		ToStation   *string `json:"toStation"`
+		Carriage    *string `json:"carriage"`
+		SeatNo      *string `json:"seatNo"`
+		Passenger   *string `json:"passenger"`
 		// v1.76.0: 从关联 detail 兜底 (合思 OCR 失败时 invoice 字段全 NULL, 但 detail 有金额+原因)
-		DetailAmount  *float64 `json:"detailAmount"`
-		DetailReason  *string  `json:"detailReason"`
+		DetailAmount *float64 `json:"detailAmount"`
+		DetailReason *string  `json:"detailReason"`
 	}
 	var invoices []InvoiceItem
 	// v1.76.0: 只保留有发票的 detail 关联的 invoice 行 + 关联 detail.amount/reason 兜底显示
@@ -450,6 +458,7 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	irows, err := h.DB.Query(`SELECT i.invoice_id, i.invoice_number, i.invoice_code,
 		i.invoice_date, i.invoice_amount, i.total_amount, i.tax_amount, i.approve_amount,
 		i.invoice_status, i.invoice_type, i.buyer_name, i.buyer_tax_no, i.seller_name, i.seller_tax_no, i.is_verified,
+		i.seat_type, i.train_no, i.from_station, i.to_station, i.carriage, i.seat_no, i.passenger,
 		d.amount AS detail_amount, d.consumption_reasons AS detail_reason
 		FROM hesi_flow_invoice i
 		LEFT JOIN hesi_flow_detail d ON i.detail_id = d.detail_id AND i.flow_id = d.flow_id
@@ -464,6 +473,7 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 			if writeDatabaseError(w, irows.Scan(&inv.InvoiceId, &inv.InvoiceNumber, &inv.InvoiceCode,
 				&inv.InvoiceDate, &inv.InvoiceAmount, &inv.TotalAmount, &inv.TaxAmount, &inv.ApproveAmount,
 				&inv.InvoiceStatus, &inv.InvoiceType, &inv.BuyerName, &inv.BuyerTaxNo, &inv.SellerName, &inv.SellerTaxNo, &inv.IsVerified,
+				&inv.SeatType, &inv.TrainNo, &inv.FromStation, &inv.ToStation, &inv.Carriage, &inv.SeatNo, &inv.Passenger,
 				&inv.DetailAmount, &inv.DetailReason)) {
 				return
 			}

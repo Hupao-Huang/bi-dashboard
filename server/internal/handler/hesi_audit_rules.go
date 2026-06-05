@@ -66,13 +66,23 @@ const reqTripSpecPrefix = "ID01FfMgoeP7cz:PRESET_REQUISITION_TRIP"
 
 // 需人工核座位等级的 fee_type (规则 7-2)
 // 跑哥规则: 汽车/火车/高铁/动车二等座及以下, 飞机经济舱
-// 合思后台未存舱位字段, 合思订票时源头按职级卡座位; 凭票报销时无字段判定, 给审批人 manual 提示
+// 火车票: 合思发票主体已 OCR 出"座位类型", 改为自动判 (见 ruleTrainSeatClass), 不在此 manual 名单。
+// 飞机/客车/汽车/其他交通: 合思未存结构化舱位, 仍给审批人 manual 提示。
 var seatReviewFeeTypes = map[string]string{
 	"ID01Fk0IZFCaJx": "飞机 (经济舱)",
-	"ID01Fk0IZFCb03": "火车 (二等座及以下)",
 	"ID01Fk0IZFCbgz": "客车",
 	"ID01Fk0IZFCbx5": "其他交通",
 	"ID01KhLSijR88T": "汽车 (二等座及以下)",
+}
+
+// 火车座位类型分类 (规则 7-2, 跑哥 2026-06-05 拍板: 二等座及以下合规)
+// 数据驱动: 全库火车票实查 12 种座位类型, 按此分三档。其余(二等座/硬座/硬卧/软座/二等卧/
+// 卧代二等座/硬卧代硬座/无座等)视为"二等座及以下"自动通过。
+var trainSeatOverStandard = map[string]bool{ // 明显高于二等座 → 驳回
+	"一等座": true, "商务座": true, "特等座": true, "优选一等座": true, "一等卧": true,
+}
+var trainSeatNeedReview = map[string]bool{ // 卧铺类 → 人工核(可能合理也可能超标)
+	"软卧": true, "高级软卧": true, "动卧": true,
 }
 
 // 住宿费 fee_type (规则 7-3 触发 + 单晚价提取)
@@ -162,9 +172,19 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		rejectReasons = append(rejectReasons, r)
 	}
 
-	// 规则 7-2: 飞机/火车/汽车明细需人工核座位等级 (合思未存舱位字段, manual 提示)
+	// 规则 7-2: 飞机/客车/汽车明细需人工核座位等级 (合思未存舱位字段, manual 提示)
 	if w := ruleSeatManualReview(raw); w != "" {
 		warnings = append(warnings, w)
+	}
+
+	// 规则 7-2 (火车): 用发票主体 OCR 的座位类型自动判 (二等座及以下过 / 一等座·商务座超标驳回 / 卧铺人工核)
+	if rejMsg, warnMsg := h.ruleTrainSeatClass(flowID); rejMsg != "" || warnMsg != "" {
+		if rejMsg != "" {
+			rejectReasons = append(rejectReasons, rejMsg)
+		}
+		if warnMsg != "" {
+			warnings = append(warnings, warnMsg)
+		}
 	}
 
 	// 规则 7-3: 住宿费单晚价 ≤ 城市×职级标准 (同住上浮 20%)
@@ -1044,4 +1064,71 @@ func ruleSeatManualReview(raw map[string]interface{}) string {
 		return ""
 	}
 	return "含" + strings.Join(hits, "/") + ", 需人工核座位等级 (规则 7-2)"
+}
+
+// classifyTrainSeat 火车座位等级分类: "over"超标驳回 / "review"人工核(卧铺或未识别) / "ok"通过(二等座及以下)
+func classifyTrainSeat(seat string) string {
+	switch {
+	case seat == "":
+		return "review"
+	case trainSeatOverStandard[seat]:
+		return "over"
+	case trainSeatNeedReview[seat]:
+		return "review"
+	default:
+		return "ok"
+	}
+}
+
+// ruleTrainSeatClass 规则 7-2 火车票座位等级自动判 (跑哥 2026-06-05: 二等座及以下合规)
+// 数据来源: 合思发票主体 OCR 出的"座位类型"(回填进 hesi_flow_invoice.seat_type)。
+//   - 一等座/商务座/特等座/一等卧 → 超标驳回
+//   - 软卧/动卧等卧铺 → 人工核
+//   - 座位类型识别不到(空) → 人工核
+//   - 其余(二等座/硬座/硬卧/软座/二等卧/卧代二等座…)= 二等座及以下 → 通过(不记)
+// 返回 (rejectMsg, warnMsg)
+func (h *DashboardHandler) ruleTrainSeatClass(flowID string) (string, string) {
+	if flowID == "" {
+		return "", ""
+	}
+	rows, err := h.DB.Query(`SELECT IFNULL(seat_type,''), IFNULL(train_no,''), IFNULL(from_station,''), IFNULL(to_station,'')
+		FROM hesi_flow_invoice WHERE flow_id = ? AND invoice_type LIKE '%TRAIN%'`, flowID)
+	if err != nil {
+		return "", ""
+	}
+	defer rows.Close()
+
+	var over, review []string
+	for rows.Next() {
+		var seat, train, from, to string
+		if rows.Scan(&seat, &train, &from, &to) != nil {
+			continue
+		}
+		label := train
+		if from != "" || to != "" {
+			label = strings.TrimSpace(train + " " + from + "→" + to)
+		}
+		if label == "" {
+			label = "火车票"
+		}
+		switch classifyTrainSeat(seat) {
+		case "over":
+			over = append(over, label+" "+seat)
+		case "review":
+			if seat == "" {
+				review = append(review, label+" 座位类型未识别")
+			} else {
+				review = append(review, label+" "+seat)
+			}
+		}
+	}
+
+	var rej, warn string
+	if len(over) > 0 {
+		rej = "火车票超「二等座及以下」标准: " + strings.Join(over, "; ") + " (规则 7-2)"
+	}
+	if len(review) > 0 {
+		warn = "火车票卧铺/座位未识别需人工核: " + strings.Join(review, "; ") + " (规则 7-2)"
+	}
+	return rej, warn
 }

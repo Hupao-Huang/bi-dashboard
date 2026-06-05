@@ -73,3 +73,34 @@ func TestIsBranchOfLegalEntity(t *testing.T) {
 		}
 	}
 }
+
+// 规则 7-2 火车座位等级分类 (跑哥 2026-06-05: 二等座及以下合规) — 覆盖全库实查 12 种座位类型
+func TestClassifyTrainSeat(t *testing.T) {
+	cases := map[string]string{
+		// 超标 → 驳回
+		"一等座":  "over",
+		"商务座":  "over",
+		"特等座":  "over",
+		"一等卧":  "over",
+		"优选一等座": "over",
+		// 卧铺 → 人工核
+		"软卧": "review",
+		"动卧": "review",
+		// 未识别 → 人工核
+		"": "review",
+		// 二等座及以下 → 通过
+		"二等座":   "ok",
+		"硬座":    "ok",
+		"硬卧":    "ok",
+		"软座":    "ok",
+		"二等卧":   "ok",
+		"卧代二等座": "ok",
+		"硬卧代硬座": "ok",
+		"无座":    "ok",
+	}
+	for seat, want := range cases {
+		if got := classifyTrainSeat(seat); got != want {
+			t.Errorf("座位类型 %q: classifyTrainSeat=%q 期望 %q", seat, got, want)
+		}
+	}
+}
