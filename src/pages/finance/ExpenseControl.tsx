@@ -1033,8 +1033,17 @@ const ExpenseControl: React.FC = () => {
                   dataSource={detailData.invoices || []}
                   rowKey={(r: any) => r.invoiceId || r.invoiceNumber || `${r.invoiceCode}-${r.totalAmount}`}
                   pagination={false}
-                  scroll={{ x: 1510 }}
+                  scroll={{ x: 1660 }}
                   columns={[
+                    {
+                      title: '所属费用', dataIndex: 'feeTypeName', width: 150, fixed: 'left',
+                      filters: Array.from(new Set((detailData.invoices || []).map((i: any) => i.feeTypeName).filter(Boolean)))
+                        .map((n: any) => ({ text: n, value: n })),
+                      onFilter: (val: any, r: any) => r.feeTypeName === val,
+                      render: (v: string, r: any) => v
+                        ? <span>{r.detailNo ? <Tag>#{r.detailNo}</Tag> : null}{v}</span>
+                        : <Typography.Text type="secondary">—</Typography.Text>,
+                    },
                     {
                       title: '发票号码', dataIndex: 'invoiceNumber', width: 200,
                       render: (v: string) => v || <Tag color="warning">未识别</Tag>,
