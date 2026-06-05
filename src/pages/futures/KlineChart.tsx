@@ -319,10 +319,11 @@ const KlineChart: React.FC<KlineChartProps> = ({
         top: 4, left: 60, textStyle: { color: COLOR.text, fontSize: 12 },
       },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
+      // 竖向布局: 三图收到 90%, 给日期轴留干净一条(90~93%), 滑块紧跟其下(留小空隙), 避免日期被滑块挤压
       grid: [
-        { left: 60, right: 30, top: 36, height: '56%' },     // 主图
-        { left: 60, right: 30, top: '64%', height: '14%' },   // 成交量
-        { left: 60, right: 30, top: '80%', height: '14%' },   // 指标
+        { left: 60, right: 30, top: 36, height: '53%' },     // 主图  (bottom ~58%)
+        { left: 60, right: 30, top: '61%', height: '14%' },   // 成交量 (bottom 75%)
+        { left: 60, right: 30, top: '77%', height: '13%' },   // 指标   (bottom 90%)
       ],
       xAxis: [
         // 主图
@@ -377,7 +378,7 @@ const KlineChart: React.FC<KlineChartProps> = ({
       ],
       dataZoom: [
         { type: 'inside', xAxisIndex: [0, 1, 2], start: Math.max(0, 100 - (200 / aggBars.length) * 100), end: 100 },
-        { show: true, xAxisIndex: [0, 1, 2], type: 'slider', bottom: 4, height: 18, borderColor: COLOR.grid },
+        { show: true, xAxisIndex: [0, 1, 2], type: 'slider', bottom: 10, height: 18, borderColor: COLOR.grid },
       ],
       series: [
         // 主图：蜡烛
