@@ -36,7 +36,7 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 		TotalOrders      int     `json:"totalOrders"`
 		TotalSales       float64 `json:"totalSales"`
 	}
-	// 按部门拆分: 朴朴归即时零售, 京东+猫超归电商
+	// 按部门拆分: 朴朴/小象/叮咚归即时零售, 京东+猫超归电商
 	channelMapByDept := map[string]map[string]string{
 		"ecommerce": {
 			"京东": "ds-京东-清心湖自营",
@@ -44,6 +44,8 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 		},
 		"instant_retail": {
 			"朴朴": "js-即时零售事业一部（世创）-朴朴",
+			"小象": "js-即时零售事业一部（世创）-小象",
+			"叮咚": "js-即时零售事业一部（杭州松鲜鲜）-叮咚",
 		},
 	}
 	// 按 dept 过滤 channelMap, 空 dept 返回全部(向后兼容老调用)
@@ -56,7 +58,7 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 		}
 	}
 	if dept == "" || dept == "instant_retail" {
-		for _, k := range []string{"朴朴"} {
+		for _, k := range []string{"朴朴", "小象", "叮咚"} {
 			channelMap[k] = channelMapByDept["instant_retail"][k]
 			channelOrder = append(channelOrder, k)
 		}

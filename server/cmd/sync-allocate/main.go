@@ -1,5 +1,5 @@
 // sync-allocate.exe: 拉吉客云调拨单 → allocate_orders + allocate_details
-// 只拉 3 个外仓 (0019/0057/0110) 对应京东自营/天猫超市寄售/朴朴
+// 只拉 5 个外仓 (0019/0057/0110/0112/0111) 对应京东自营/天猫超市寄售/朴朴/小象/叮咚
 // 用法: sync-allocate.exe [--start=YYYY-MM-DD] [--end=YYYY-MM-DD] [--days=N]
 package main
 
@@ -39,15 +39,18 @@ type Config struct {
 	} `json:"webhook"`
 }
 
-// 3 个外仓 → 渠道映射
+// 5 个外仓 → 渠道映射
 var warehouseMap = map[string]struct {
 	Code        string
-	ChannelKey  string // 京东/猫超/朴朴
+	ChannelKey  string // 京东/猫超/朴朴/小象/叮咚
 	ChannelName string // 渠道全称
 }{
 	"0057": {"0057", "京东", "ds-京东-清心湖自营"},
 	"0019": {"0019", "猫超", "ds-天猫超市-寄售"},
 	"0110": {"0110", "朴朴", "js-即时零售事业一部（世创）-朴朴"},
+	// 2026-06-05 跑哥追加: 即时零售部小象/叮咚 也走调拨当销售 (销售单+调拨, 价格表后续给, 暂无价→金额算0)
+	"0112": {"0112", "小象", "js-即时零售事业一部（世创）-小象"},
+	"0111": {"0111", "叮咚", "js-即时零售事业一部（杭州松鲜鲜）-叮咚"},
 }
 
 type AllocateQuery struct {
