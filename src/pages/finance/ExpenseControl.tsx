@@ -1033,7 +1033,7 @@ const ExpenseControl: React.FC = () => {
                   dataSource={detailData.invoices || []}
                   rowKey={(r: any) => r.invoiceId || r.invoiceNumber || `${r.invoiceCode}-${r.totalAmount}`}
                   pagination={false}
-                  scroll={{ x: 1660 }}
+                  scroll={{ x: 1400 }}
                   columns={[
                     {
                       title: '所属费用', dataIndex: 'feeTypeName', width: 150, fixed: 'left',
