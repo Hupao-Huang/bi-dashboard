@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Tag, Select, Input, DatePicker, Row, Col, Statistic, Button, Modal, Descriptions, Tabs, Typography, Badge, Tooltip, message } from 'antd';
+import { Card, Table, Tag, Select, Input, DatePicker, Row, Col, Statistic, Button, Modal, Descriptions, Tabs, Typography, Badge, Tooltip, message, Image } from 'antd';
 import {
   FileTextOutlined, DollarOutlined, WarningOutlined,
   CheckCircleOutlined, ClockCircleOutlined, SearchOutlined,
@@ -357,6 +357,10 @@ const ExpenseControl: React.FC = () => {
       const json = await res.json();
       if (json.code === 200) {
         setDetailData(json.data);
+        // 自动拉附件下载链接, 详情里直接看发票 (有附件才拉)
+        if ((json.data?.attachments?.length || 0) > 0) {
+          void loadAttachUrls(flowId);
+        }
       } else {
         message.error(json.msg || '获取单据详情失败');
       }
@@ -569,6 +573,38 @@ const ExpenseControl: React.FC = () => {
   ];
 
   // 附件弹窗中的附件列表渲染
+  // 单个文件预览: 图片→缩略图(点击放大), PDF→内嵌预览, 其它→点击打开
+  const renderFilePreview = (f: any, key: string, fallbackName: string) => {
+    const url: string = f.url || '';
+    const name: string = f.fileName || f.key || (f.invoiceCode ? `发票 ${f.invoiceCode}` : fallbackName);
+    const lower = `${name} ${url}`.toLowerCase();
+    const isImg = /\.(jpg|jpeg|png|gif|webp|bmp)(\?|#|$)/.test(lower);
+    const isPdf = /\.pdf(\?|#|$)/.test(lower);
+    if (isImg) {
+      return (
+        <div key={key} style={{ width: 150 }}>
+          <Image src={url} width={150} height={200} style={{ objectFit: 'cover', borderRadius: 6, border: '1px solid #eee' }} />
+          <div style={{ fontSize: 11, color: '#888', marginTop: 2, wordBreak: 'break-all' }}>{name}</div>
+        </div>
+      );
+    }
+    if (isPdf) {
+      return (
+        <div key={key} style={{ width: 280 }}>
+          <iframe src={url} title={name} style={{ width: '100%', height: 360, border: '1px solid #eee', borderRadius: 6 }} />
+          <div style={{ fontSize: 11, marginTop: 2, wordBreak: 'break-all' }}>
+            <a href={url} target="_blank" rel="noopener noreferrer">{name} ↗ 新窗口打开</a>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div key={key} style={{ width: 280 }}>
+        <a href={url} target="_blank" rel="noopener noreferrer"><PaperClipOutlined style={{ marginRight: 4 }} />{name} ↗</a>
+      </div>
+    );
+  };
+
   const renderAttachments = () => {
     if (!attachUrls?.items?.[0]?.attachmentList) return <div style={{ color: '#999' }}>无附件</div>;
     const list = attachUrls.items[0].attachmentList;
@@ -578,32 +614,22 @@ const ExpenseControl: React.FC = () => {
       'flow.approving': '审批附件',
       'flow.receipt': '回单',
     };
-    return list.map((att: any, idx: number) => (
-      <div key={idx} style={{ marginBottom: 16 }}>
-        <h4 style={{ margin: '0 0 8px', color: '#06b6d4' }}>{typeLabels[att.type] || att.type}</h4>
-        {att.attachmentUrls?.map((f: any, i: number) => (
-          <div key={`a-${i}`} style={{ marginLeft: 16, marginBottom: 4 }}>
-            <PaperClipOutlined style={{ marginRight: 4 }} />
-            <a href={f.url} target="_blank" rel="noopener noreferrer">{f.fileName || f.key || '下载'}</a>
+    return list.map((att: any, idx: number) => {
+      const files = [
+        ...(att.invoiceUrls || []).map((f: any) => ({ f, kind: 'i', fallback: '发票' })),
+        ...(att.attachmentUrls || []).map((f: any) => ({ f, kind: 'a', fallback: '附件' })),
+        ...(att.receiptUrls || []).map((f: any) => ({ f, kind: 'r', fallback: '回单' })),
+      ];
+      if (files.length === 0) return null;
+      return (
+        <div key={idx} style={{ marginBottom: 20 }}>
+          <h4 style={{ margin: '0 0 10px', color: '#06b6d4' }}>{typeLabels[att.type] || att.type}</h4>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+            {files.map(({ f, kind, fallback }, i: number) => renderFilePreview(f, `${idx}-${kind}-${i}`, fallback))}
           </div>
-        ))}
-        {att.invoiceUrls?.map((f: any, i: number) => (
-          <div key={`i-${i}`} style={{ marginLeft: 16, marginBottom: 4 }}>
-            <FileImageOutlined style={{ color: '#ff4d4f', marginRight: 4 }} />
-            <a href={f.url} target="_blank" rel="noopener noreferrer">
-              {f.fileName || f.key || '发票'}
-              {f.invoiceCode ? ` (${f.invoiceCode})` : ''}
-            </a>
-          </div>
-        ))}
-        {att.receiptUrls?.map((f: any, i: number) => (
-          <div key={`r-${i}`} style={{ marginLeft: 16, marginBottom: 4 }}>
-            <FileTextOutlined style={{ color: '#52c41a', marginRight: 4 }} />
-            <a href={f.url} target="_blank" rel="noopener noreferrer">{f.key || '回单'}</a>
-          </div>
-        ))}
-      </div>
-    ));
+        </div>
+      );
+    });
   };
 
   return (
@@ -1058,12 +1084,12 @@ const ExpenseControl: React.FC = () => {
               children: (
                 <div>
                   <Button
-                    type="primary" size="small" icon={<PaperClipOutlined />}
+                    size="small" icon={<PaperClipOutlined />}
                     loading={attachLoading}
                     onClick={() => loadAttachUrls(detailModal.flowId)}
                     style={{ marginBottom: 16 }}
                   >
-                    获取附件下载链接（1小时有效）
+                    {attachUrls ? '刷新链接（1小时有效）' : '加载发票/附件'}
                   </Button>
                   {attachUrls ? renderAttachments() : (
                     <Table
