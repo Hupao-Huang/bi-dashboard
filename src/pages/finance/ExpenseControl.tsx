@@ -1096,11 +1096,21 @@ const ExpenseControl: React.FC = () => {
                         const m: Record<string, string> = {
                           'FULL_DIGITAl_SPECIAL': '全电专票',
                           'FULL_DIGITAl_NORMAL': '全电普票',
+                          'FULL_DIGITAl_PAPER': '全电纸质发票',
+                          'FULL_DIGITAl_PAPER_NORMAL': '全电纸质普票',
+                          'DIGITAL_NORMAL': '电子普通发票',
                           'SPECIAL_VAT': '增值税专票',
                           'NORMAL_VAT': '增值税普票',
                           'NORMAL_ELECTRONIC': '电子普票',
                           'SPECIAL_ELECTRONIC': '电子专票',
+                          'PAPER_NORMAL': '纸质普票',
+                          'PAPER_SPECIAL': '纸质专票',
+                          'PAPER_FEE': '通行费发票',
+                          'ELECTRONIC_PAPER_FEE': '通行费电子发票',
+                          'ELECTRONIC_PAPER_CAR': '机动车销售发票(电子)',
                           'ELECTRONIC_TRAIN_INVOICE': '电子火车票',
+                          'ELECTRONIC_AIRCRAFT_INVOICE': '电子机票行程单',
+                          'BLOCK_CHAIN': '区块链电子发票',
                         };
                         return m[v] || v || '-';
                       },
