@@ -111,7 +111,7 @@ function labelOfHesiField(key: string): string {
   return HESI_FIELD_LABELS[key] || key;
 }
 
-function renderHesiValue(key: string, v: any): React.ReactNode {
+function renderHesiValue(key: string, v: any, ctx?: { resolve?: (n: string) => any; preview?: (f: any) => void }): React.ReactNode {
   if (v === null || v === undefined || v === '') return '-';
   // 合思金额对象 (有 standard + standardSymbol)
   if (typeof v === 'object' && !Array.isArray(v) && 'standard' in v) {
@@ -142,7 +142,13 @@ function renderHesiValue(key: string, v: any): React.ReactNode {
     if (typeof v[0] === 'object' && (v[0].fileName || v[0].fileId)) {
       return (
         <ul style={{ margin: 0, paddingLeft: 18 }}>
-          {v.map((f: any, i: number) => <li key={i}>{f.fileName || f.fileId}</li>)}
+          {v.map((f: any, i: number) => {
+            const label = f.fileName || f.fileId;
+            const file = ctx?.resolve?.(f.fileName || f.fileId);
+            return <li key={i}>{file && ctx?.preview
+              ? <a onClick={() => ctx.preview!(file)}>{label}</a>
+              : label}</li>;
+          })}
         </ul>
       );
     }
@@ -153,25 +159,28 @@ function renderHesiValue(key: string, v: any): React.ReactNode {
     const s = JSON.stringify(v);
     return <Typography.Text type="secondary" copyable={{ text: s }}>{s.length > 80 ? s.slice(0, 80) + '...' : s}</Typography.Text>;
   }
-  // 纯合思 ID (ID01 开头, 用户不友好, 加 Tag 提示是字典 ID)
+  // 纯合思 ID (ID01 开头, 字典未匹配) — 对用户无意义, 不显示原始 ID, 留空
   if (typeof v === 'string' && /^ID0[0-9A-Za-z]{8,}$/.test(v)) {
-    return <Tooltip title="合思字典 ID, 未匹配本地字典"><Tag color="default">{v}</Tag></Tooltip>;
+    return <Typography.Text type="secondary">-</Typography.Text>;
   }
   return String(v);
 }
 
-function renderHesiDetailExpand(record: any): React.ReactNode {
+function renderHesiDetailExpand(record: any, ctx?: { resolve?: (n: string) => any; preview?: (f: any) => void }): React.ReactNode {
   const raw = record.rawJson;
   if (!raw) return <Typography.Text type="secondary">老数据未存原始字段</Typography.Text>;
   const form = raw.feeTypeForm || raw;
   if (!form || typeof form !== 'object') return <Typography.Text type="secondary">无更多信息</Typography.Text>;
-  const entries = Object.entries(form).filter(([k]) => !HESI_DETAIL_HIDDEN_KEYS.has(k));
+  // 隐藏: 已展示字段 + 值是未匹配字典 ID 的字段(对用户无意义, 如预算费用 ID)
+  const entries = Object.entries(form).filter(([k, v]) =>
+    !HESI_DETAIL_HIDDEN_KEYS.has(k) && !(typeof v === 'string' && /^ID0[0-9A-Za-z]{8,}$/.test(v))
+  );
   if (entries.length === 0) return <Typography.Text type="secondary">无更多明细字段</Typography.Text>;
   return (
     <Descriptions size="small" column={2} bordered>
       {entries.map(([k, v]) => (
         <Descriptions.Item key={k} label={labelOfHesiField(k)}>
-          {renderHesiValue(k, v)}
+          {renderHesiValue(k, v, ctx)}
         </Descriptions.Item>
       ))}
     </Descriptions>
@@ -622,6 +631,20 @@ const ExpenseControl: React.FC = () => {
     return null;
   };
 
+  // 按文件名/fileId 从在线附件里找文件 (付款截图等明细附件用)
+  const resolveAttachFile = (nameOrId: string) => {
+    const list = attachUrls?.items?.[0]?.attachmentList || [];
+    for (const att of list) {
+      for (const grp of [att.invoiceUrls, att.attachmentUrls, att.receiptUrls]) {
+        for (const f of (grp || [])) {
+          if (f.fileId === nameOrId || f.fileName === nameOrId) return f;
+        }
+      }
+    }
+    return null;
+  };
+  const openFilePreview = (f: any) => setInvoicePreview({ visible: true, file: f, title: f.fileName || f.invoiceCode || '附件' });
+
   const renderAttachments = () => {
     if (!attachUrls?.items?.[0]?.attachmentList) return <div style={{ color: '#999' }}>无附件</div>;
     const list = attachUrls.items[0].attachmentList;
@@ -973,7 +996,7 @@ const ExpenseControl: React.FC = () => {
                   scroll={{ y: 480 }}
                   sticky
                   expandable={{
-                    expandedRowRender: renderHesiDetailExpand,
+                    expandedRowRender: (record: any) => renderHesiDetailExpand(record, { resolve: resolveAttachFile, preview: openFilePreview }),
                     rowExpandable: (r: any) => {
                       const form = r.rawJson?.feeTypeForm || r.rawJson;
                       if (!form || typeof form !== 'object') return false;
@@ -1046,7 +1069,13 @@ const ExpenseControl: React.FC = () => {
                     },
                     {
                       title: '发票号码', dataIndex: 'invoiceNumber', width: 200,
-                      render: (v: string) => v || <Tag color="warning">未识别</Tag>,
+                      render: (v: string, r: any) => {
+                        if (!v) return <Tag color="warning">未识别</Tag>;
+                        const file = findInvoiceFile(r);
+                        return file
+                          ? <a onClick={() => setInvoicePreview({ visible: true, file, title: v })}>{v}</a>
+                          : v;
+                      },
                     },
                     {
                       title: '发票日期', dataIndex: 'invoiceDate', width: 110,
