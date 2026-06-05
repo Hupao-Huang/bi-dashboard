@@ -357,10 +357,8 @@ const ExpenseControl: React.FC = () => {
       const json = await res.json();
       if (json.code === 200) {
         setDetailData(json.data);
-        // 自动拉附件下载链接, 详情里直接看发票 (有附件才拉)
-        if ((json.data?.attachments?.length || 0) > 0) {
-          void loadAttachUrls(flowId);
-        }
+        // 总是自动拉在线附件链接 — 同步的附件表可能为空, 以合思在线接口为准
+        void loadAttachUrls(flowId);
       } else {
         message.error(json.msg || '获取单据详情失败');
       }
@@ -1078,9 +1076,9 @@ const ExpenseControl: React.FC = () => {
                 />
               ),
             }] : []),
-            ...((detailData.attachments?.length || 0) > 0 ? [{
+            {
               key: 'attachments',
-              label: `附件 (${detailData.attachments?.length || 0})`,
+              label: '发票原件 / 附件',
               children: (
                 <div>
                   <Button
@@ -1091,7 +1089,7 @@ const ExpenseControl: React.FC = () => {
                   >
                     {attachUrls ? '刷新链接（1小时有效）' : '加载发票/附件'}
                   </Button>
-                  {attachUrls ? renderAttachments() : (
+                  {attachLoading && !attachUrls ? <div style={{ color: '#999' }}>正在加载发票/附件…</div> : attachUrls ? renderAttachments() : (
                     <Table
                       size="small"
                       dataSource={detailData.attachments || []}
@@ -1116,7 +1114,7 @@ const ExpenseControl: React.FC = () => {
                   )}
                 </div>
               ),
-            }] : []),
+            },
           ]} />
         )}
       </Modal>
