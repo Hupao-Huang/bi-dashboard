@@ -1069,17 +1069,18 @@ const ExpenseControl: React.FC = () => {
                       },
                     },
                     {
-                      title: '出行/座位', dataIndex: 'seatType', width: 220,
+                      title: '出行/座位', dataIndex: 'seatType', width: 230, ellipsis: true,
                       render: (v: string, r: any) => {
                         if (!v && !r.trainNo) return '-';
                         const over = ['一等座', '商务座', '特等座', '一等卧', '优选一等座'].includes(v);
                         const review = ['软卧', '动卧', '高级软卧'].includes(v);
-                        const route = [r.trainNo, (r.fromStation || r.toStation) ? `${r.fromStation || ''}→${r.toStation || ''}` : '', r.passenger].filter(Boolean).join(' · ');
+                        const route = [r.trainNo, (r.fromStation || r.toStation) ? `${r.fromStation || ''}→${r.toStation || ''}` : ''].filter(Boolean).join(' ');
+                        const full = `${v || ''} ${route}${r.passenger ? ' · ' + r.passenger : ''}`.trim();
                         return (
-                          <span>
-                            {v && <Tag color={over ? 'error' : review ? 'warning' : 'success'}>{v}</Tag>}
+                          <div title={full} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {v && <Tag color={over ? 'error' : review ? 'warning' : 'success'} style={{ marginInlineEnd: 4 }}>{v}</Tag>}
                             {route && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{route}</Typography.Text>}
-                          </span>
+                          </div>
                         );
                       },
                     },
