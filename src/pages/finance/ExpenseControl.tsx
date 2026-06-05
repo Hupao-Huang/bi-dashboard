@@ -1154,7 +1154,9 @@ const ExpenseControl: React.FC = () => {
         open={invoicePreview.visible}
         title={`发票原件 · ${invoicePreview.title}`}
         footer={null}
-        width={760}
+        width="70%"
+        style={{ top: 24, maxWidth: 1100 }}
+        zIndex={1100}
         onCancel={() => setInvoicePreview({ visible: false, file: null, title: '' })}
       >
         {invoicePreview.file && (() => {
