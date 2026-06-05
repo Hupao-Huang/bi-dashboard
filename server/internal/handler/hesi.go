@@ -447,6 +447,9 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		Carriage    *string `json:"carriage"`
 		SeatNo      *string `json:"seatNo"`
 		Passenger   *string `json:"passenger"`
+		// 所属费用明细 (这张发票挂在哪条费用下, 例: 明细#3 过路费)
+		DetailNo    *int   `json:"detailNo"`
+		FeeTypeName string `json:"feeTypeName"`
 		// v1.76.0: 从关联 detail 兜底 (合思 OCR 失败时 invoice 字段全 NULL, 但 detail 有金额+原因)
 		DetailAmount *float64 `json:"detailAmount"`
 		DetailReason *string  `json:"detailReason"`
@@ -459,6 +462,7 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		i.invoice_date, i.invoice_amount, i.total_amount, i.tax_amount, i.approve_amount,
 		i.invoice_status, i.invoice_type, i.buyer_name, i.buyer_tax_no, i.seller_name, i.seller_tax_no, i.is_verified,
 		i.seat_type, i.train_no, i.from_station, i.to_station, i.carriage, i.seat_no, i.passenger,
+		d.detail_no, d.fee_type_id,
 		d.amount AS detail_amount, d.consumption_reasons AS detail_reason
 		FROM hesi_flow_invoice i
 		LEFT JOIN hesi_flow_detail d ON i.detail_id = d.detail_id AND i.flow_id = d.flow_id
@@ -469,15 +473,16 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	if irows != nil {
 		defer irows.Close()
 		for irows.Next() {
-			var inv InvoiceItem
+			var inv InvoiceItem; var feeTypeId *string
 			if writeDatabaseError(w, irows.Scan(&inv.InvoiceId, &inv.InvoiceNumber, &inv.InvoiceCode,
 				&inv.InvoiceDate, &inv.InvoiceAmount, &inv.TotalAmount, &inv.TaxAmount, &inv.ApproveAmount,
 				&inv.InvoiceStatus, &inv.InvoiceType, &inv.BuyerName, &inv.BuyerTaxNo, &inv.SellerName, &inv.SellerTaxNo, &inv.IsVerified,
-				&inv.SeatType, &inv.TrainNo, &inv.FromStation, &inv.ToStation, &inv.Carriage, &inv.SeatNo, &inv.Passenger,
+				&inv.SeatType, &inv.TrainNo, &inv.FromStation, &inv.ToStation, &inv.Carriage, &inv.SeatNo, &inv.Passenger, &inv.DetailNo, &feeTypeId,
 				&inv.DetailAmount, &inv.DetailReason)) {
 				return
 			}
-			invoices = append(invoices, inv)
+			if feeTypeId != nil && *feeTypeId != "" { inv.FeeTypeName = h.LookupFeeTypeName(*feeTypeId) }
+				invoices = append(invoices, inv)
 		}
 		if writeDatabaseError(w, irows.Err()) {
 			return
