@@ -788,7 +788,9 @@ const ExpenseControl: React.FC = () => {
           setAttachUrls(null);
         }}
         footer={null}
-        width={900}
+        width="90%"
+        style={{ top: 24, maxWidth: 1600 }}
+        styles={{ body: { maxHeight: 'calc(100vh - 140px)', overflowY: 'auto' } }}
         destroyOnHidden
       >
         {detailLoading ? <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div> : detailData && (
