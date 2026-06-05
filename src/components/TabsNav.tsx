@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Tabs, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { pageTitleMap, deptLabelMap } from '../navigation';
+import { pageTitleMap, deptLabelMap, deptShortMap } from '../navigation';
 
 // 浏览器式多页签: 打开过的页面排成一行标签, 可切换 / 关闭 / 关其他 / 关全部, 刷新后保持。
 // 不做 keep-alive (BI 看板满屏 ECharts, display:none 缓存会让图表尺寸错乱), 切换=正常路由重渲染。
@@ -26,10 +26,14 @@ const TABS_CSS = `
 }
 `;
 
+// 标签名 = 「短部门名·页面名」, 跨部门同名页(店铺看板/货品看板等)靠部门前缀区分。
+// 模块落地页本身(path===根)和无部门归属的页(综合看板/个人中心)不加前缀, 用自己的名字。
 function titleOf(path: string): string {
-  if (pageTitleMap[path]) return pageTitleMap[path];
-  const dept = Object.keys(deptLabelMap).find((p) => path === p || path.startsWith(p + '/'));
-  return dept ? deptLabelMap[dept] : '页面';
+  const root = Object.keys(deptShortMap).find((p) => path === p || path.startsWith(p + '/'));
+  const leaf = pageTitleMap[path];
+  if (!root) return leaf || '页面';
+  if (path === root) return leaf || deptLabelMap[root] || deptShortMap[root];
+  return `${deptShortMap[root]}·${leaf || '页面'}`;
 }
 
 const TabsNav: React.FC = () => {
@@ -41,7 +45,10 @@ const TabsNav: React.FC = () => {
   const [tabs, setTabs] = useState<TabItem[]>(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
-      if (Array.isArray(saved) && saved.length) return saved;
+      // 标签名按当前路径重算(不信存档里的旧 title), 改了命名规则后已开标签也立即生效
+      if (Array.isArray(saved) && saved.length) {
+        return saved.filter((t) => t && t.path).map((t) => ({ path: t.path, title: titleOf(t.path) }));
+      }
     } catch { /* ignore */ }
     return [{ path: HOME_PATH, title: titleOf(HOME_PATH) }];
   });

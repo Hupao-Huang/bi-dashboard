@@ -321,6 +321,22 @@ export const deptLabelMap: Record<string, string> = {
   '/system': '系统设置',
 };
 
+// deptShortMap 短部门名: 多标签页标签前缀用 (电商·店铺看板, 而非 电商部门·店铺看板)
+// 覆盖所有一级模块根, 子页面标签统一带"短部门名·"前缀, 解决跨部门同名页(店铺看板/货品看板等)撞名分不清
+export const deptShortMap: Record<string, string> = {
+  '/ecommerce': '电商',
+  '/social': '社媒',
+  '/offline': '线下',
+  '/distribution': '分销',
+  '/instant-retail': '即时零售',
+  '/finance': '财务',
+  '/customer': '客服',
+  '/supply-chain': '供应链',
+  '/brand': '心智',
+  '/futures': '原料',
+  '/system': '系统',
+};
+
 export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/overview', permission: 'overview:view' },
   { path: '/brand', permission: 'brand:view' },
