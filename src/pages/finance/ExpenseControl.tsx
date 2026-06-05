@@ -988,7 +988,7 @@ const ExpenseControl: React.FC = () => {
                   dataSource={detailData.invoices || []}
                   rowKey={(r: any) => r.invoiceId || r.invoiceNumber || `${r.invoiceCode}-${r.totalAmount}`}
                   pagination={false}
-                  scroll={{ x: 1200 }}
+                  scroll={{ x: 1420 }}
                   columns={[
                     {
                       title: '发票号码', dataIndex: 'invoiceNumber', width: 200,
@@ -1020,8 +1020,24 @@ const ExpenseControl: React.FC = () => {
                           'NORMAL_VAT': '增值税普票',
                           'NORMAL_ELECTRONIC': '电子普票',
                           'SPECIAL_ELECTRONIC': '电子专票',
+                          'ELECTRONIC_TRAIN_INVOICE': '电子火车票',
                         };
                         return m[v] || v || '-';
+                      },
+                    },
+                    {
+                      title: '出行/座位', dataIndex: 'seatType', width: 220,
+                      render: (v: string, r: any) => {
+                        if (!v && !r.trainNo) return '-';
+                        const over = ['一等座', '商务座', '特等座', '一等卧', '优选一等座'].includes(v);
+                        const review = ['软卧', '动卧', '高级软卧'].includes(v);
+                        const route = [r.trainNo, (r.fromStation || r.toStation) ? `${r.fromStation || ''}→${r.toStation || ''}` : '', r.passenger].filter(Boolean).join(' · ');
+                        return (
+                          <span>
+                            {v && <Tag color={over ? 'error' : review ? 'warning' : 'success'}>{v}</Tag>}
+                            {route && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{route}</Typography.Text>}
+                          </span>
+                        );
                       },
                     },
                     {
