@@ -176,6 +176,7 @@ export const menuDefinitions: MenuDefinition[] = [
     permission: 'customer:view',
     children: [
       { key: '/customer/overview', icon: <DashboardOutlined />, label: '客服总览', permission: 'customer.overview:view' },
+      { key: '/customer/comment', icon: <FileTextOutlined />, label: '评论数据', permission: 'customer.comment:view' },
     ],
   },
   {
@@ -274,6 +275,7 @@ export const pageTitleMap: Record<string, string> = {
   '/finance/report': '财务报表',
   '/customer': '客服部门',
   '/customer/overview': '客服总览',
+  '/customer/comment': '评论数据',
   '/supply-chain': '供应链管理',
   '/supply-chain/plan-dashboard': '计划看板',
   '/supply-chain/purchase-plan': '采购计划',
@@ -382,6 +384,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/finance/product-profit', permission: 'finance.product_profit:view' },
   { path: '/finance/expense-control', permission: 'finance.expense:view' },
   { path: '/customer/overview', permission: 'customer.overview:view' },
+  { path: '/customer/comment', permission: 'customer.comment:view' },
   { path: '/supply-chain/plan-dashboard', permission: 'supply_chain.plan_dashboard:view' },
   { path: '/supply-chain/purchase-plan', permission: 'supply_chain.plan_dashboard:view' },
   { path: '/supply-chain/inventory-warning', permission: 'supply_chain.inventory_warning:view' },

@@ -50,6 +50,7 @@ const FinanceProductProfit = lazy(() => import('./pages/finance/ProductProfit'))
 const FinanceExpenseControl = lazy(() => import('./pages/finance/ExpenseControl'));
 const FinanceReport = lazy(() => import('./pages/finance/Report'));
 const CustomerOverview = lazy(() => import('./pages/customer/Overview'));
+const CommentData = lazy(() => import('./pages/customer/CommentData'));
 const InventoryWarning = lazy(() => import('./pages/supply-chain/InventoryWarning'));
 const PlanDashboard = lazy(() => import('./pages/supply-chain/PlanDashboard'));
 const PurchasePlan = lazy(() => import('./pages/supply-chain/PurchasePlan'));
@@ -182,6 +183,7 @@ const App: React.FC = () => (
               <Route path="/finance/expense-control" element={guard('finance.expense:view', <FinanceExpenseControl />)} />
               <Route path="/finance/report" element={guard('finance.report:view', <FinanceReport />)} />
               <Route path="/customer/overview" element={guard('customer.overview:view', <CustomerOverview />)} />
+              <Route path="/customer/comment" element={guard('customer.comment:view', <CommentData />)} />
 
               <Route path="/supply-chain/inventory-warning" element={guard('supply_chain.inventory_warning:view', <InventoryWarning />)} />
               <Route path="/supply-chain/plan-dashboard" element={guard('supply_chain.plan_dashboard:view', <PlanDashboard />)} />
