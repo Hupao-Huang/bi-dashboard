@@ -320,9 +320,9 @@ func ybPlanExport(queryStock func(orgID, productCode string) []yonsuite.StockRow
 							Qty: use, ProductskuID: r.ProductskuID, UnitID: r.UnitID, StockUnitID: r.StockUnitID,
 							StockStatusDoc: r.StockStatusDoc,
 						}},
-						ProductCode:    productCode,
-						ProductName:    ybFirstNonEmpty(r.ProductName, productName),
-						ProductskuID:   r.ProductskuID, UnitID: r.UnitID, StockUnitID: r.StockUnitID,
+						ProductCode:  productCode,
+						ProductName:  ybFirstNonEmpty(r.ProductName, productName),
+						ProductskuID: r.ProductskuID, UnitID: r.UnitID, StockUnitID: r.StockUnitID,
 						StockStatusDoc: r.StockStatusDoc,
 						OutBatch:       targetBatch,
 						OutProducedate: r.Producedate, OutInvaliddate: r.Invaliddate,
@@ -361,8 +361,8 @@ type ybShipLog struct {
 	OutDocCode    string      `json:"out_doc_code"`
 	OutDocID      string      `json:"out_doc_id"`
 	AuditOk       bool        `json:"audit_ok"`
-	OutSkipped    bool        `json:"out_skipped,omitempty"`  // 防重: 同一张出库单10分钟内已提交过, 本次跳过
-	Uncertain     bool        `json:"uncertain,omitempty"`    // 出库单保存传输层失败: 单据可能已建成, 重做前必须核对
+	OutSkipped    bool        `json:"out_skipped,omitempty"` // 防重: 同一张出库单10分钟内已提交过, 本次跳过
+	Uncertain     bool        `json:"uncertain,omitempty"`   // 出库单保存传输层失败: 单据可能已建成, 重做前必须核对
 	Error         string      `json:"error,omitempty"`
 	skipOut       bool        // 内部: 批次转换失败则跳过出库
 }
@@ -371,8 +371,28 @@ type ybIdx struct{ pi, si int }
 
 // ybExecute 三阶段执行: ①批次转换 save+审核 ②按(组织,仓库,类别)合并出库单 save+审核 ③回填结果。
 // ctx: 客户端断开(超时/关页)即停手, 不再往用友写; 防重: 同一笔10分钟内已提交过则跳过, 不重复建单。
-func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plans []ybPlan, groupByBill bool) []map[string]interface{} {
+func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plans []ybPlan, groupByBill bool, phase string, onProgress func(done, total int, label string)) []map[string]interface{} {
 	h.ybEnsureSubmitLog()
+	// phase: "convert"只做批次转换 / "out"只做出库 / "all"或空=两步连做(兼容旧调用)。
+	// 拆两步是为了中间人工复查目标批次是否到货(见 handler + 前端三步向导)。
+	doConvert := phase != "out"
+	doOut := phase != "convert"
+	// 进度: convert 阶段按转换笔数计, out 阶段按出库单张数计(Phase2 分组后补进 total)。
+	// onProgress 非空才回调(SSE 流式推前端); 每处理一笔 done+1。
+	done, total := 0, 0
+	if doConvert {
+		for pi := range plans {
+			for si := range plans[pi].Shipments {
+				total += len(plans[pi].Shipments[si].ConvertSources)
+			}
+		}
+	}
+	emit := func(label string) {
+		done++
+		if onProgress != nil {
+			onProgress(done, total, label)
+		}
+	}
 	logs := map[ybIdx]*ybShipLog{}
 	for pi := range plans {
 		for si := range plans[pi].Shipments {
@@ -384,217 +404,228 @@ func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plan
 		}
 	}
 
-	// ---- 阶段 1: 批次转换 ----
-	for pi := range plans {
-		targetBatch := strings.TrimSpace(plans[pi].Row.TargetBatch)
-		for si := range plans[pi].Shipments {
-			sh := plans[pi].Shipments[si]
-			lg := logs[ybIdx{pi, si}]
-			for _, cs := range sh.ConvertSources {
-				convLog := ybConvLog{FromBatch: cs.FromBatch, Qty: cs.Qty}
+	if doConvert {
+		// ---- 阶段 1: 批次转换 ----
+		for pi := range plans {
+			targetBatch := strings.TrimSpace(plans[pi].Row.TargetBatch)
+			for si := range plans[pi].Shipments {
+				sh := plans[pi].Shipments[si]
+				lg := logs[ybIdx{pi, si}]
+				for _, cs := range sh.ConvertSources {
+					convLog := ybConvLog{FromBatch: cs.FromBatch, Qty: cs.Qty}
 
-				// 客户端断了(超时/关页)立即停手: 本条及后续不再写用友。已写的已落流水, 重发会跳过。
-				if ctx.Err() != nil {
-					convLog.Error = "连接中断，未执行（已执行的请去用友核对，重新提交不会重复建单）"
-					lg.Conversions = append(lg.Conversions, convLog)
-					lg.Error = convLog.Error
-					lg.skipOut = true
-					break
-				}
+					// 客户端断了(超时/关页)立即停手: 本条及后续不再写用友。已写的已落流水, 重发会跳过。
+					if ctx.Err() != nil {
+						convLog.Error = "连接中断，未执行（已执行的请去用友核对，重新提交不会重复建单）"
+						lg.Conversions = append(lg.Conversions, convLog)
+						lg.Error = convLog.Error
+						lg.skipOut = true
+						break
+					}
 
-				// 防重: 同一笔批次转换10分钟内已提交过 → 跳过, 不重复建单。
-				// 跳过≠失败: 库存上次已转好, 出库照常继续(出库另有自己的防重)。
-				// 指纹须覆盖 ybBuildConversionBody 写入的全部字段(状态/产日/到期/sku), 漏字段会误挡不同业务。
-				fp := ybFingerprint("conv_out", ybResolveOrg(sh.OrgID), sh.WarehouseCode,
-					sh.ProductCode, ybFirstNonEmpty(cs.ProductskuID, sh.ProductskuID),
-					ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc),
-					cs.FromBatch, targetBatch, cs.FromProducedate, cs.FromInvaliddate,
-					strconv.Itoa(cs.Qty), vouchdate)
-				if dup, prevDoc := h.ybRecentSubmit(fp); dup {
-					// 跳过=上次已建单, 但审核状态以用友为准(上次可能审核失败), 不谎报已审核。
-					convLog.Skipped = true
-					convLog.DocCode = prevDoc
-					convLog.Error = "10分钟内已提交过，已自动跳过防止重复建单（审核状态以用友为准）"
-					lg.Conversions = append(lg.Conversions, convLog)
-					continue
-				}
+					emit("批次转换 " + cs.FromBatch + "→" + targetBatch)
 
-				body := ybBuildConversionBody(sh, vouchdate, cs, targetBatch)
-				wr, err := h.YS.MorphologyConversionSave(body)
-				if err != nil {
-					convLog.Error = ybErrMsg(wr, err, "批次转换保存失败")
-					convLog.Uncertain = wr == nil // 传输层失败: 转换单可能已建成, 重做前必须核对
-					lg.Conversions = append(lg.Conversions, convLog)
-					lg.Error = "批次转换失败: " + convLog.Error
-					lg.Uncertain = convLog.Uncertain
-					lg.skipOut = true
-					break
-				}
-				var sd struct {
-					Infos []struct {
-						ID   json.Number `json:"id"`
-						Code string      `json:"code"`
-					} `json:"infos"`
-				}
-				_ = ybDecodeData(wr, &sd)
-				if len(sd.Infos) > 0 {
-					convLog.DocCode = sd.Infos[0].Code
-					// 单据已在用友建成(不可逆) → 立即落防重流水。
-					h.ybRecordSubmit(fp, "conv_out", convLog.DocCode, vouchdate)
-					if cvID, _ := sd.Infos[0].ID.Int64(); cvID != 0 {
-						awr, aerr := h.YS.MorphologyConversionBatchAudit([]int64{cvID})
-						convLog.AuditOk = aerr == nil && ybAuditOK(awr)
-						if !convLog.AuditOk {
-							convLog.Error = ybErrMsg(awr, aerr, "批次转换审核失败")
+					// 防重: 同一笔批次转换10分钟内已提交过 → 跳过, 不重复建单。
+					// 跳过≠失败: 库存上次已转好, 出库照常继续(出库另有自己的防重)。
+					// 指纹须覆盖 ybBuildConversionBody 写入的全部字段(状态/产日/到期/sku), 漏字段会误挡不同业务。
+					fp := ybFingerprint("conv_out", ybResolveOrg(sh.OrgID), sh.WarehouseCode,
+						sh.ProductCode, ybFirstNonEmpty(cs.ProductskuID, sh.ProductskuID),
+						ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc),
+						cs.FromBatch, targetBatch, cs.FromProducedate, cs.FromInvaliddate,
+						strconv.Itoa(cs.Qty), vouchdate)
+					if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+						// 跳过=上次已建单, 但审核状态以用友为准(上次可能审核失败), 不谎报已审核。
+						convLog.Skipped = true
+						convLog.DocCode = prevDoc
+						convLog.Error = "10分钟内已提交过，已自动跳过防止重复建单（审核状态以用友为准）"
+						lg.Conversions = append(lg.Conversions, convLog)
+						continue
+					}
+
+					body := ybBuildConversionBody(sh, vouchdate, cs, targetBatch)
+					wr, err := h.YS.MorphologyConversionSave(body)
+					if err != nil {
+						convLog.Error = ybErrMsg(wr, err, "批次转换保存失败")
+						convLog.Uncertain = wr == nil // 传输层失败: 转换单可能已建成, 重做前必须核对
+						lg.Conversions = append(lg.Conversions, convLog)
+						lg.Error = "批次转换失败: " + convLog.Error
+						lg.Uncertain = convLog.Uncertain
+						lg.skipOut = true
+						break
+					}
+					var sd struct {
+						Infos []struct {
+							ID   json.Number `json:"id"`
+							Code string      `json:"code"`
+						} `json:"infos"`
+					}
+					_ = ybDecodeData(wr, &sd)
+					if len(sd.Infos) > 0 {
+						convLog.DocCode = sd.Infos[0].Code
+						// 单据已在用友建成(不可逆) → 立即落防重流水。
+						h.ybRecordSubmit(fp, "conv_out", convLog.DocCode, vouchdate)
+						if cvID, _ := sd.Infos[0].ID.Int64(); cvID != 0 {
+							awr, aerr := h.YS.MorphologyConversionBatchAudit([]int64{cvID})
+							convLog.AuditOk = aerr == nil && ybAuditOK(awr)
+							if !convLog.AuditOk {
+								convLog.Error = ybErrMsg(awr, aerr, "批次转换审核失败")
+							}
+						} else {
+							// 保存返回 code 200 但无单据 id (YS 异常响应): 无法自动审核, 明确报出别闷着
+							convLog.Error = "批次转换已保存但用友未返回单据id，无法自动审核，请去用友手动核对"
 						}
 					} else {
-						// 保存返回 code 200 但无单据 id (YS 异常响应): 无法自动审核, 明确报出别闷着
-						convLog.Error = "批次转换已保存但用友未返回单据id，无法自动审核，请去用友手动核对"
+						convLog.Error = "批次转换已保存但用友未返回单据信息，无法自动审核，请去用友手动核对"
 					}
-				} else {
-					convLog.Error = "批次转换已保存但用友未返回单据信息，无法自动审核，请去用友手动核对"
-				}
-				lg.Conversions = append(lg.Conversions, convLog)
-				if convLog.Error != "" {
-					lg.Error = convLog.Error
-					lg.skipOut = true
-					break
+					lg.Conversions = append(lg.Conversions, convLog)
+					if convLog.Error != "" {
+						lg.Error = convLog.Error
+						lg.skipOut = true
+						break
+					}
 				}
 			}
 		}
-	}
 
-	// ---- 阶段 2: 按 (组织,仓库,bustype,category[,bill]) 合并 → 每组一张其他出库单 ----
-	type grpKey struct{ org, wh, bustype, category, bill string }
-	groups := map[grpKey][]ybIdx{}
-	groupOrder := []grpKey{}
-	for pi := range plans {
-		row := plans[pi].Row
-		bustype := ybFirstNonEmpty(strings.TrimSpace(row.Bustype), "A10001")
-		category := ybNormalizeCategory(row.Category)
-		for si := range plans[pi].Shipments {
-			sh := plans[pi].Shipments[si]
-			lg := logs[ybIdx{pi, si}]
-			if lg.skipOut || sh.Qty <= 0 {
+	} // ← if doConvert 结束
+
+	if doOut {
+		// ---- 阶段 2: 按 (组织,仓库,bustype,category[,bill]) 合并 → 每组一张其他出库单 ----
+		type grpKey struct{ org, wh, bustype, category, bill string }
+		groups := map[grpKey][]ybIdx{}
+		groupOrder := []grpKey{}
+		for pi := range plans {
+			row := plans[pi].Row
+			bustype := ybFirstNonEmpty(strings.TrimSpace(row.Bustype), "A10001")
+			category := ybNormalizeCategory(row.Category)
+			for si := range plans[pi].Shipments {
+				sh := plans[pi].Shipments[si]
+				lg := logs[ybIdx{pi, si}]
+				if lg.skipOut || sh.Qty <= 0 {
+					continue
+				}
+				k := grpKey{sh.OrgID, sh.WarehouseCode, bustype, category, ""}
+				if groupByBill {
+					k.bill = row.BillNo
+				}
+				if _, ok := groups[k]; !ok {
+					groupOrder = append(groupOrder, k)
+				}
+				groups[k] = append(groups[k], ybIdx{pi, si})
+			}
+		}
+
+		total += len(groupOrder) // 进度: 出库单张数补进总数
+		for _, k := range groupOrder {
+			grp := groups[k]
+
+			// 客户端断了: 本组及后续出库单不再写用友, 标注中断。
+			if ctx.Err() != nil {
+				for _, gi := range grp {
+					if logs[gi].Error == "" {
+						logs[gi].Error = "连接中断，本出库单未执行（已执行的请去用友核对，重新提交不会重复建单）"
+					}
+				}
 				continue
 			}
-			k := grpKey{sh.OrgID, sh.WarehouseCode, bustype, category, ""}
-			if groupByBill {
-				k.bill = row.BillNo
-			}
-			if _, ok := groups[k]; !ok {
-				groupOrder = append(groupOrder, k)
-			}
-			groups[k] = append(groups[k], ybIdx{pi, si})
-		}
-	}
 
-	for _, k := range groupOrder {
-		grp := groups[k]
+			emit("出库单 " + plans[grp[0].pi].Shipments[grp[0].si].WarehouseName)
 
-		// 客户端断了: 本组及后续出库单不再写用友, 标注中断。
-		if ctx.Err() != nil {
+			items := make([]map[string]interface{}, 0, len(grp))
+			itemSigs := make([]string, 0, len(grp)) // 出库单内容签名(防重指纹用), 与明细一一对应
+			billNos := []string{}
+			seenBill := map[string]bool{}
 			for _, gi := range grp {
-				if logs[gi].Error == "" {
-					logs[gi].Error = "连接中断，本出库单未执行（已执行的请去用友核对，重新提交不会重复建单）"
+				sh := plans[gi.pi].Shipments[gi.si]
+				row := plans[gi.pi].Row
+				outBatch := ybFirstNonEmpty(sh.OutBatch, strings.TrimSpace(row.TargetBatch))
+				prod, inv := sh.OutProducedate, sh.OutInvaliddate
+				if (prod == "" || inv == "") && len(sh.ConvertSources) > 0 {
+					cs0 := sh.ConvertSources[0]
+					prod = ybFirstNonEmpty(prod, cs0.FromProducedate)
+					inv = ybFirstNonEmpty(inv, cs0.FromInvaliddate)
+				}
+				items = append(items, ybBuildOutItem(sh, outBatch, prod, inv))
+				// 签名须覆盖 ybBuildOutItem 写入的全部字段(状态/产日/到期/sku), 漏字段会把不同出库误判成重复。
+				itemSigs = append(itemSigs, strings.Join([]string{
+					sh.ProductCode, strconv.Itoa(sh.Qty), outBatch,
+					sh.StockStatusDoc, prod, inv, sh.ProductskuID,
+				}, "#"))
+				if row.BillNo != "" && !seenBill[row.BillNo] {
+					seenBill[row.BillNo] = true
+					billNos = append(billNos, row.BillNo)
 				}
 			}
-			continue
-		}
-
-		items := make([]map[string]interface{}, 0, len(grp))
-		itemSigs := make([]string, 0, len(grp)) // 出库单内容签名(防重指纹用), 与明细一一对应
-		billNos := []string{}
-		seenBill := map[string]bool{}
-		for _, gi := range grp {
-			sh := plans[gi.pi].Shipments[gi.si]
-			row := plans[gi.pi].Row
-			outBatch := ybFirstNonEmpty(sh.OutBatch, strings.TrimSpace(row.TargetBatch))
-			prod, inv := sh.OutProducedate, sh.OutInvaliddate
-			if (prod == "" || inv == "") && len(sh.ConvertSources) > 0 {
-				cs0 := sh.ConvertSources[0]
-				prod = ybFirstNonEmpty(prod, cs0.FromProducedate)
-				inv = ybFirstNonEmpty(inv, cs0.FromInvaliddate)
+			memo := ""
+			if len(billNos) > 0 {
+				memo = "来自吉客云出库单 " + strings.Join(billNos, ", ")
 			}
-			items = append(items, ybBuildOutItem(sh, outBatch, prod, inv))
-			// 签名须覆盖 ybBuildOutItem 写入的全部字段(状态/产日/到期/sku), 漏字段会把不同出库误判成重复。
-			itemSigs = append(itemSigs, strings.Join([]string{
-				sh.ProductCode, strconv.Itoa(sh.Qty), outBatch,
-				sh.StockStatusDoc, prod, inv, sh.ProductskuID,
-			}, "#"))
-			if row.BillNo != "" && !seenBill[row.BillNo] {
-				seenBill[row.BillNo] = true
-				billNos = append(billNos, row.BillNo)
-			}
-		}
-		memo := ""
-		if len(billNos) > 0 {
-			memo = "来自吉客云出库单 " + strings.Join(billNos, ", ")
-		}
 
-		// 防重: 同一张出库单(组织+仓库+类型+类别+单号+明细内容)10分钟内已提交过 → 跳过, 不重复建单。
-		sort.Strings(itemSigs)
-		fp := ybFingerprint("out", k.org, k.wh, k.bustype, k.category, k.bill, vouchdate,
-			strings.Join(itemSigs, ","))
-		if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+			// 防重: 同一张出库单(组织+仓库+类型+类别+单号+明细内容)10分钟内已提交过 → 跳过, 不重复建单。
+			sort.Strings(itemSigs)
+			fp := ybFingerprint("out", k.org, k.wh, k.bustype, k.category, k.bill, vouchdate,
+				strings.Join(itemSigs, ","))
+			if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+				for _, gi := range grp {
+					lg := logs[gi]
+					// 跳过=上次已建单, 审核状态以用友为准, 不谎报已审核。
+					lg.OutSkipped = true
+					lg.OutDocCode = prevDoc
+					if lg.Error == "" {
+						lg.Error = "10分钟内已提交过，已自动跳过防止重复建单（审核状态以用友为准）"
+					}
+				}
+				continue
+			}
+
+			body := ybBuildOtherOutBody(k.org, vouchdate, k.bustype, k.wh, memo, k.category, items)
+			wr, err := h.YS.OtherOutSave(body)
+			if err != nil {
+				em := ybErrMsg(wr, err, "其他出库单保存失败")
+				uncertain := wr == nil // 传输层失败: 出库单可能已建成, 重做前必须核对
+				for _, gi := range grp {
+					if logs[gi].Error == "" {
+						logs[gi].Error = em
+						logs[gi].Uncertain = uncertain
+					}
+				}
+				continue
+			}
+			var od struct {
+				ID   json.Number `json:"id"`
+				Code string      `json:"code"`
+			}
+			_ = ybDecodeData(wr, &od)
+			docCode := od.Code
+			outID, _ := od.ID.Int64()
+			// 出库单已在用友建成(不可逆) → 立即落防重流水, 即便后续审核失败/连接断, 重发也不会再建。
+			h.ybRecordSubmit(fp, "out", docCode, vouchdate)
+			auditOk := false
+			auditErr := ""
+			if outID != 0 {
+				awr, aerr := h.YS.OtherOutBatchAudit([]int64{outID})
+				auditOk = aerr == nil && ybAuditOK(awr)
+				if !auditOk {
+					auditErr = ybErrMsg(awr, aerr, "其他出库审核失败")
+				}
+			} else {
+				// 保存返回 code 200 但无单据 id (YS 异常响应): 单已建但无法自动审核, 明确报出
+				auditErr = "其他出库单已保存但用友未返回单据id，无法自动审核，请去用友手动审核"
+			}
 			for _, gi := range grp {
 				lg := logs[gi]
-				// 跳过=上次已建单, 审核状态以用友为准, 不谎报已审核。
-				lg.OutSkipped = true
-				lg.OutDocCode = prevDoc
-				if lg.Error == "" {
-					lg.Error = "10分钟内已提交过，已自动跳过防止重复建单（审核状态以用友为准）"
+				lg.OutDocCode = docCode
+				if outID != 0 {
+					lg.OutDocID = strconv.FormatInt(outID, 10)
+				}
+				lg.AuditOk = auditOk
+				if auditErr != "" && lg.Error == "" {
+					lg.Error = auditErr
 				}
 			}
-			continue
 		}
 
-		body := ybBuildOtherOutBody(k.org, vouchdate, k.bustype, k.wh, memo, k.category, items)
-		wr, err := h.YS.OtherOutSave(body)
-		if err != nil {
-			em := ybErrMsg(wr, err, "其他出库单保存失败")
-			uncertain := wr == nil // 传输层失败: 出库单可能已建成, 重做前必须核对
-			for _, gi := range grp {
-				if logs[gi].Error == "" {
-					logs[gi].Error = em
-					logs[gi].Uncertain = uncertain
-				}
-			}
-			continue
-		}
-		var od struct {
-			ID   json.Number `json:"id"`
-			Code string      `json:"code"`
-		}
-		_ = ybDecodeData(wr, &od)
-		docCode := od.Code
-		outID, _ := od.ID.Int64()
-		// 出库单已在用友建成(不可逆) → 立即落防重流水, 即便后续审核失败/连接断, 重发也不会再建。
-		h.ybRecordSubmit(fp, "out", docCode, vouchdate)
-		auditOk := false
-		auditErr := ""
-		if outID != 0 {
-			awr, aerr := h.YS.OtherOutBatchAudit([]int64{outID})
-			auditOk = aerr == nil && ybAuditOK(awr)
-			if !auditOk {
-				auditErr = ybErrMsg(awr, aerr, "其他出库审核失败")
-			}
-		} else {
-			// 保存返回 code 200 但无单据 id (YS 异常响应): 单已建但无法自动审核, 明确报出
-			auditErr = "其他出库单已保存但用友未返回单据id，无法自动审核，请去用友手动审核"
-		}
-		for _, gi := range grp {
-			lg := logs[gi]
-			lg.OutDocCode = docCode
-			if outID != 0 {
-				lg.OutDocID = strconv.FormatInt(outID, 10)
-			}
-			lg.AuditOk = auditOk
-			if auditErr != "" && lg.Error == "" {
-				lg.Error = auditErr
-			}
-		}
-	}
+	} // ← if doOut 结束
 
 	// ---- 阶段 3: 构造返回 ----
 	out := make([]map[string]interface{}, 0, len(plans))
@@ -771,6 +802,7 @@ func (h *DashboardHandler) YonbipExportExecute(w http.ResponseWriter, r *http.Re
 		Vouchdate   string   `json:"vouchdate"`
 		Plans       []ybPlan `json:"plans"`
 		GroupByBill bool     `json:"group_by_bill"`
+		Phase       string   `json:"phase"` // convert只转换 / out只出库 / all|空=两步连做(兼容)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "请求解析失败: "+err.Error())
@@ -780,11 +812,37 @@ func (h *DashboardHandler) YonbipExportExecute(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "无计划可执行")
 		return
 	}
+	if req.Phase != "" && req.Phase != "convert" && req.Phase != "out" && req.Phase != "all" {
+		writeError(w, http.StatusBadRequest, "phase 只能是 convert/out/all")
+		return
+	}
 	// 大批量出库会跑很久(每笔多次用友调用 × 1.1s 限流), 默认 120s WriteTimeout 会半路掐断连接,
 	// 导致后端还在写用友、前端却收到"失败"→用户重发→重复建单。这里单独清掉本请求的写超时。
-	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
 
-	results := h.ybExecute(r.Context(), ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill)
+	// stream=1: SSE 流式推执行进度(每处理一笔推一条 progress, 最后推一条 result)。
+	// 靠 statusRecorder.Unwrap() 让 Flush 能穿透访问日志包装层(见 main.go)。
+	if r.URL.Query().Get("stream") == "1" {
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no")
+		writeSSE := func(event string, payload interface{}) {
+			b, _ := json.Marshal(payload)
+			_, _ = w.Write([]byte("event: " + event + "\ndata: "))
+			_, _ = w.Write(b)
+			_, _ = w.Write([]byte("\n\n"))
+			_ = rc.Flush()
+		}
+		onProgress := func(done, total int, label string) {
+			writeSSE("progress", map[string]interface{}{"done": done, "total": total, "label": label})
+		}
+		results := h.ybExecute(r.Context(), ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill, req.Phase, onProgress)
+		writeSSE("result", map[string]interface{}{"results": results})
+		return
+	}
+
+	results := h.ybExecute(r.Context(), ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill, req.Phase, nil)
 	writeJSON(w, map[string]interface{}{"results": results})
 }
 
