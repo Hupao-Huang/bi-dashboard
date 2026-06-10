@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"bi-dashboard/internal/yonsuite"
 )
@@ -140,14 +141,30 @@ type ybConvResult struct {
 	From    string `json:"from"` // 批次转换=源批次; 状态转换=源状态名
 	To      string `json:"to"`   // 批次转换=目标批次; 状态转换=目标状态名
 	Qty     string `json:"qty"`
-	DocCode string `json:"doc_code"`
-	AuditOk bool   `json:"audit_ok"`
-	Error   string `json:"error,omitempty"`
+	DocCode   string `json:"doc_code"`
+	AuditOk   bool   `json:"audit_ok"`
+	Skipped   bool   `json:"skipped,omitempty"`   // 防重: 同一笔10分钟内已提交过, 本次跳过未重复建单
+	Uncertain bool   `json:"uncertain,omitempty"` // 保存传输层失败: 单据可能已在用友建成, 重做前必须核对(防丢响应重复)
+	Error     string `json:"error,omitempty"`
+}
+
+// ybConvFingerprint 一条转换的内容指纹 (防重复提交用)。
+// 必须覆盖所有"决定建出哪张单"的字段(与 ybBuildMorphConvBody 写入的字段对齐),
+// 漏字段会把不同业务误判成重复而跳过(漏建单)。
+func ybConvFingerprint(it ybConvItem, vouchdate string) string {
+	return ybFingerprint(
+		"conv", it.Type, ybResolveOrg(it.OrgID), it.WarehouseCode, it.ProductCode,
+		it.ProductskuID, it.Batchno, it.StockStatusDoc, it.ToBatch, it.ToStatusDoc,
+		it.Producedate, it.Invaliddate,
+		strconv.Itoa(int(ybConvQtyNum(it.Qty))), vouchdate,
+	)
 }
 
 // ybExecuteConvert 逐条建转换单 + 自动审核 (写真用友, 不可逆)。
-func (h *DashboardHandler) ybExecuteConvert(vouchdate string, items []ybConvItem) []ybConvResult {
+// ctx: 客户端断开(超时/关页)即停手, 不再往用友写; 防重: 同一笔10分钟内已提交过则跳过。
+func (h *DashboardHandler) ybExecuteConvert(ctx context.Context, vouchdate string, items []ybConvItem) []ybConvResult {
 	results := make([]ybConvResult, 0, len(items))
+	h.ybEnsureSubmitLog()
 	for _, it := range items {
 		res := ybConvResult{Type: it.Type, Product: it.ProductCode, Qty: it.Qty}
 		if it.Type == "status" {
@@ -158,10 +175,30 @@ func (h *DashboardHandler) ybExecuteConvert(vouchdate string, items []ybConvItem
 			res.To = it.ToBatch
 		}
 
+		// 客户端断了(超时/关页/切走)立即停手: 本条及后续不再写用友。已写的上面已落流水, 重发会被跳过。
+		if ctx.Err() != nil {
+			res.Error = "连接中断，本条及后续未执行（已执行的请去用友核对，重新提交不会重复建单）"
+			results = append(results, res)
+			continue
+		}
+
+		// 防重: 同一笔转换在防重窗口内已提交过 → 跳过, 不重复建单。
+		fp := ybConvFingerprint(it, vouchdate)
+		if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+			res.Skipped = true
+			res.DocCode = prevDoc
+			res.Error = "10分钟内已提交过，已自动跳过防止重复建单"
+			results = append(results, res)
+			continue
+		}
+
 		body := ybBuildMorphConvBody(it, vouchdate)
 		wr, err := h.YS.MorphologyConversionSave(body)
 		if err != nil {
 			res.Error = ybErrMsg(wr, err, "转换单保存失败")
+			// wr==nil = 传输层失败(没拿到用友应答): 单据可能已建成。标记不确定, 让前端提示去核对,
+			// 别盲目重做(否则就是原 bug 的"丢响应→重发→重复"). wr!=nil = 用友明确拒单, 没建, 可放心重做。
+			res.Uncertain = wr == nil
 			results = append(results, res)
 			continue
 		}
@@ -178,6 +215,8 @@ func (h *DashboardHandler) ybExecuteConvert(vouchdate string, items []ybConvItem
 			continue
 		}
 		res.DocCode = sd.Infos[0].Code
+		// 单据已在用友建成(不可逆) → 立即落防重流水, 即便后面审核失败/连接断, 重发也不会再建。
+		h.ybRecordSubmit(fp, "conv", res.DocCode, vouchdate)
 		cvID, _ := sd.Infos[0].ID.Int64()
 		if cvID == 0 {
 			res.Error = "转换单已保存但用友未返回单据id，无法自动审核，请去用友手动核对"
@@ -288,7 +327,11 @@ func (h *DashboardHandler) YonbipConvertExecute(w http.ResponseWriter, r *http.R
 			}
 		}
 	}
-	results := h.ybExecuteConvert(ybFmtDate(req.Vouchdate), req.Items)
+	// 大批量转换会跑很久(每笔2次用友调用 × 1.1s 限流), 默认 120s WriteTimeout 会半路掐断连接,
+	// 导致后端还在写用友、前端却收到"失败"→用户重发→重复建单。这里单独清掉本请求的写超时。
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
+	results := h.ybExecuteConvert(r.Context(), ybFmtDate(req.Vouchdate), req.Items)
 	writeJSON(w, map[string]interface{}{"results": results})
 }
 

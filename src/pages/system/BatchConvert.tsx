@@ -72,6 +72,8 @@ interface ConvResult {
   qty: string;
   doc_code: string;
   audit_ok: boolean;
+  skipped?: boolean; // 防重: 10分钟内已提交过, 本次跳过未重复建单
+  uncertain?: boolean; // 保存时网络中断没拿到用友应答, 单据可能已建成, 重做前必须核对
   error?: string;
 }
 
@@ -246,18 +248,42 @@ const BatchConvertPage: React.FC = () => {
       });
       const json = await res.json();
       if (res.ok && json.data?.results) {
-        setResults(json.data.results);
-        const fail = (json.data.results as ConvResult[]).filter((r) => r.error).length;
-        // 执行完即清空清单: 转换单无幂等键, 防止再点"全部执行"把已成功的重发→重复建单、不可逆重复移库存。
-        // 有失败的看下方结果, 需要重做的重新查现货再加。
-        setItems([]);
-        if (fail > 0) message.warning(`执行完成，${fail} 笔有问题，请看下方结果；清单已清空，需重做的请重新加`);
-        else message.success('执行完成，全部成功');
+        const rs = json.data.results as ConvResult[];
+        setResults(rs);
+        const uncertain = rs.filter((r) => r.uncertain).length;
+        const skip = rs.filter((r) => r.skipped).length;
+        const fail = rs.filter((r) => r.error && !r.skipped && !r.uncertain).length;
+        if (uncertain === 0 && fail === 0) {
+          setItems([]); // 全部成功(或防重跳过), 清空清单
+          if (skip > 0) message.warning(`执行完成，其中 ${skip} 笔10分钟内已提交过、已自动跳过防重复；清单已清空`);
+          else message.success('执行完成，全部成功');
+        } else if (uncertain > 0) {
+          // 有"结果未知": 保留清单, 强提示去核对, 别盲目重做(可能已建单→重复)。
+          Modal.error({
+            title: `⚠ ${uncertain} 笔结果未知，可能已在用友建单`,
+            content: '这几笔保存时网络中断、没拿到用友应答，单据可能已经建成。请先去用友核对（下方标红“可能已建单”的就是），确认没有再重做，否则会重复建单！',
+            okText: '我去核对',
+          });
+        } else {
+          // 仅业务失败(用友明确拒单, 没建): 保留清单可修正重做; 已成功的再点会自动跳过防重。
+          message.warning(`执行完成，${fail} 笔失败（已保留清单，可修正后再点执行；已成功的会自动跳过防重）`);
+        }
       } else {
-        message.error(json.msg || json.error || '执行失败');
+        // 非2xx(超时/服务器错误): 同样可能已部分提交到用友, 不谎报"失败"诱导重复操作。
+        Modal.warning({
+          title: '结果未知，请去用友核对',
+          content: '服务器没返回正常结果，但本次可能已部分提交到用友。请先去用友核对，不要凭“失败”重复手工建单；如确需补提交，10分钟内系统会自动跳过已提交的。',
+          okText: '我知道了',
+        });
       }
     } catch {
-      message.error('网络错误，执行失败');
+      // 连接中断/超时: 后端可能已部分或全部提交到用友(后端不会因前端断开而回滚)。
+      // 不谎报"失败"误导用户重复操作; 后端有10分钟防重, 重发也不会重复建单。
+      Modal.warning({
+        title: '连接中断，结果未知',
+        content: '执行可能已部分或全部提交到用友。请先去用友核对，不要凭“失败”重复手工建单。如确需补提交，10分钟内系统会自动跳过已提交的，不会重复。',
+        okText: '我知道了',
+      });
     } finally {
       setExecuting(false);
     }
@@ -324,9 +350,12 @@ const BatchConvertPage: React.FC = () => {
     { title: '转换', key: 'conv', render: (_, r) => <span>{r.from} → {r.to}（{r.qty}）</span> },
     {
       title: '结果', key: 'res',
-      render: (_, r) => r.error
-        ? <Tag color="red">失败: {r.error}</Tag>
-        : <Tag color={r.audit_ok ? 'green' : 'gold'}>{r.doc_code || '已建单'} {r.audit_ok ? '已审核' : '未审核'}</Tag>,
+      render: (_, r) => {
+        if (r.uncertain) return <Tag color="red"><b>⚠ 可能已建单，去用友核对后再重做</b></Tag>;
+        if (r.skipped) return <Tag color="orange">已跳过（10分钟内已提交{r.doc_code ? `，单号 ${r.doc_code}` : ''}）</Tag>;
+        if (r.error) return <Tag color="red">失败: {r.error}</Tag>;
+        return <Tag color={r.audit_ok ? 'green' : 'gold'}>{r.doc_code || '已建单'} {r.audit_ok ? '已审核' : '未审核'}</Tag>;
+      },
     },
   ];
 

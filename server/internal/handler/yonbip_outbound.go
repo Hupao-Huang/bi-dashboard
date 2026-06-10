@@ -9,11 +9,13 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"bi-dashboard/internal/yonsuite"
 )
@@ -346,6 +348,8 @@ type ybConvLog struct {
 	Qty       int    `json:"qty"`
 	DocCode   string `json:"doc_code"`
 	AuditOk   bool   `json:"audit_ok"`
+	Skipped   bool   `json:"skipped,omitempty"`   // 防重: 同一笔批次转换10分钟内已提交过, 本次跳过
+	Uncertain bool   `json:"uncertain,omitempty"` // 保存传输层失败: 单据可能已建成, 重做前必须核对
 	Error     string `json:"error,omitempty"`
 }
 
@@ -357,6 +361,8 @@ type ybShipLog struct {
 	OutDocCode    string      `json:"out_doc_code"`
 	OutDocID      string      `json:"out_doc_id"`
 	AuditOk       bool        `json:"audit_ok"`
+	OutSkipped    bool        `json:"out_skipped,omitempty"`  // 防重: 同一张出库单10分钟内已提交过, 本次跳过
+	Uncertain     bool        `json:"uncertain,omitempty"`    // 出库单保存传输层失败: 单据可能已建成, 重做前必须核对
 	Error         string      `json:"error,omitempty"`
 	skipOut       bool        // 内部: 批次转换失败则跳过出库
 }
@@ -364,7 +370,9 @@ type ybShipLog struct {
 type ybIdx struct{ pi, si int }
 
 // ybExecute 三阶段执行: ①批次转换 save+审核 ②按(组织,仓库,类别)合并出库单 save+审核 ③回填结果。
-func (h *DashboardHandler) ybExecute(vouchdate string, plans []ybPlan, groupByBill bool) []map[string]interface{} {
+// ctx: 客户端断开(超时/关页)即停手, 不再往用友写; 防重: 同一笔10分钟内已提交过则跳过, 不重复建单。
+func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plans []ybPlan, groupByBill bool) []map[string]interface{} {
+	h.ybEnsureSubmitLog()
 	logs := map[ybIdx]*ybShipLog{}
 	for pi := range plans {
 		for si := range plans[pi].Shipments {
@@ -384,12 +392,41 @@ func (h *DashboardHandler) ybExecute(vouchdate string, plans []ybPlan, groupByBi
 			lg := logs[ybIdx{pi, si}]
 			for _, cs := range sh.ConvertSources {
 				convLog := ybConvLog{FromBatch: cs.FromBatch, Qty: cs.Qty}
+
+				// 客户端断了(超时/关页)立即停手: 本条及后续不再写用友。已写的已落流水, 重发会跳过。
+				if ctx.Err() != nil {
+					convLog.Error = "连接中断，未执行（已执行的请去用友核对，重新提交不会重复建单）"
+					lg.Conversions = append(lg.Conversions, convLog)
+					lg.Error = convLog.Error
+					lg.skipOut = true
+					break
+				}
+
+				// 防重: 同一笔批次转换10分钟内已提交过 → 跳过, 不重复建单。
+				// 跳过≠失败: 库存上次已转好, 出库照常继续(出库另有自己的防重)。
+				// 指纹须覆盖 ybBuildConversionBody 写入的全部字段(状态/产日/到期/sku), 漏字段会误挡不同业务。
+				fp := ybFingerprint("conv_out", ybResolveOrg(sh.OrgID), sh.WarehouseCode,
+					sh.ProductCode, ybFirstNonEmpty(cs.ProductskuID, sh.ProductskuID),
+					ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc),
+					cs.FromBatch, targetBatch, cs.FromProducedate, cs.FromInvaliddate,
+					strconv.Itoa(cs.Qty), vouchdate)
+				if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+					// 跳过=上次已建单, 但审核状态以用友为准(上次可能审核失败), 不谎报已审核。
+					convLog.Skipped = true
+					convLog.DocCode = prevDoc
+					convLog.Error = "10分钟内已提交过，已自动跳过防止重复建单（审核状态以用友为准）"
+					lg.Conversions = append(lg.Conversions, convLog)
+					continue
+				}
+
 				body := ybBuildConversionBody(sh, vouchdate, cs, targetBatch)
 				wr, err := h.YS.MorphologyConversionSave(body)
 				if err != nil {
 					convLog.Error = ybErrMsg(wr, err, "批次转换保存失败")
+					convLog.Uncertain = wr == nil // 传输层失败: 转换单可能已建成, 重做前必须核对
 					lg.Conversions = append(lg.Conversions, convLog)
 					lg.Error = "批次转换失败: " + convLog.Error
+					lg.Uncertain = convLog.Uncertain
 					lg.skipOut = true
 					break
 				}
@@ -402,6 +439,8 @@ func (h *DashboardHandler) ybExecute(vouchdate string, plans []ybPlan, groupByBi
 				_ = ybDecodeData(wr, &sd)
 				if len(sd.Infos) > 0 {
 					convLog.DocCode = sd.Infos[0].Code
+					// 单据已在用友建成(不可逆) → 立即落防重流水。
+					h.ybRecordSubmit(fp, "conv_out", convLog.DocCode, vouchdate)
 					if cvID, _ := sd.Infos[0].ID.Int64(); cvID != 0 {
 						awr, aerr := h.YS.MorphologyConversionBatchAudit([]int64{cvID})
 						convLog.AuditOk = aerr == nil && ybAuditOK(awr)
@@ -452,7 +491,19 @@ func (h *DashboardHandler) ybExecute(vouchdate string, plans []ybPlan, groupByBi
 
 	for _, k := range groupOrder {
 		grp := groups[k]
+
+		// 客户端断了: 本组及后续出库单不再写用友, 标注中断。
+		if ctx.Err() != nil {
+			for _, gi := range grp {
+				if logs[gi].Error == "" {
+					logs[gi].Error = "连接中断，本出库单未执行（已执行的请去用友核对，重新提交不会重复建单）"
+				}
+			}
+			continue
+		}
+
 		items := make([]map[string]interface{}, 0, len(grp))
+		itemSigs := make([]string, 0, len(grp)) // 出库单内容签名(防重指纹用), 与明细一一对应
 		billNos := []string{}
 		seenBill := map[string]bool{}
 		for _, gi := range grp {
@@ -466,6 +517,11 @@ func (h *DashboardHandler) ybExecute(vouchdate string, plans []ybPlan, groupByBi
 				inv = ybFirstNonEmpty(inv, cs0.FromInvaliddate)
 			}
 			items = append(items, ybBuildOutItem(sh, outBatch, prod, inv))
+			// 签名须覆盖 ybBuildOutItem 写入的全部字段(状态/产日/到期/sku), 漏字段会把不同出库误判成重复。
+			itemSigs = append(itemSigs, strings.Join([]string{
+				sh.ProductCode, strconv.Itoa(sh.Qty), outBatch,
+				sh.StockStatusDoc, prod, inv, sh.ProductskuID,
+			}, "#"))
 			if row.BillNo != "" && !seenBill[row.BillNo] {
 				seenBill[row.BillNo] = true
 				billNos = append(billNos, row.BillNo)
@@ -475,13 +531,33 @@ func (h *DashboardHandler) ybExecute(vouchdate string, plans []ybPlan, groupByBi
 		if len(billNos) > 0 {
 			memo = "来自吉客云出库单 " + strings.Join(billNos, ", ")
 		}
+
+		// 防重: 同一张出库单(组织+仓库+类型+类别+单号+明细内容)10分钟内已提交过 → 跳过, 不重复建单。
+		sort.Strings(itemSigs)
+		fp := ybFingerprint("out", k.org, k.wh, k.bustype, k.category, k.bill, vouchdate,
+			strings.Join(itemSigs, ","))
+		if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+			for _, gi := range grp {
+				lg := logs[gi]
+				// 跳过=上次已建单, 审核状态以用友为准, 不谎报已审核。
+				lg.OutSkipped = true
+				lg.OutDocCode = prevDoc
+				if lg.Error == "" {
+					lg.Error = "10分钟内已提交过，已自动跳过防止重复建单（审核状态以用友为准）"
+				}
+			}
+			continue
+		}
+
 		body := ybBuildOtherOutBody(k.org, vouchdate, k.bustype, k.wh, memo, k.category, items)
 		wr, err := h.YS.OtherOutSave(body)
 		if err != nil {
 			em := ybErrMsg(wr, err, "其他出库单保存失败")
+			uncertain := wr == nil // 传输层失败: 出库单可能已建成, 重做前必须核对
 			for _, gi := range grp {
 				if logs[gi].Error == "" {
 					logs[gi].Error = em
+					logs[gi].Uncertain = uncertain
 				}
 			}
 			continue
@@ -493,6 +569,8 @@ func (h *DashboardHandler) ybExecute(vouchdate string, plans []ybPlan, groupByBi
 		_ = ybDecodeData(wr, &od)
 		docCode := od.Code
 		outID, _ := od.ID.Int64()
+		// 出库单已在用友建成(不可逆) → 立即落防重流水, 即便后续审核失败/连接断, 重发也不会再建。
+		h.ybRecordSubmit(fp, "out", docCode, vouchdate)
 		auditOk := false
 		auditErr := ""
 		if outID != 0 {
@@ -702,7 +780,11 @@ func (h *DashboardHandler) YonbipExportExecute(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "无计划可执行")
 		return
 	}
-	results := h.ybExecute(ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill)
+	// 大批量出库会跑很久(每笔多次用友调用 × 1.1s 限流), 默认 120s WriteTimeout 会半路掐断连接,
+	// 导致后端还在写用友、前端却收到"失败"→用户重发→重复建单。这里单独清掉本请求的写超时。
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
+	results := h.ybExecute(r.Context(), ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill)
 	writeJSON(w, map[string]interface{}{"results": results})
 }
 
