@@ -359,6 +359,8 @@ func main() {
 	// 批次转换 / 库存状态转换工具 (同权限)。convert-stock 只读查现存量; convert-execute 真写用友 (建转换单+审核, 不可逆)。
 	mux.HandleFunc("/api/yonbip/convert-stock", pageProtected("system.yonbip:use", h.YonbipConvertStock))
 	mux.HandleFunc("/api/yonbip/convert-execute", pageProtected("system.yonbip:use", h.YonbipConvertExecute))
+	// convert-options 只读: 给货品/仓库可搜下拉提供选项 (取本地 ys_stock, 不调用友)。
+	mux.HandleFunc("/api/yonbip/convert-options", pageProtected("system.yonbip:use", h.YonbipConvertOptions))
 
 	// T-1 数据看板：昨天/前天/上月数据永远不变，缓存 24 小时
 	// 同步脚本完成后会调 ClearCacheByPrefix 主动清除（详见 supply_chain.go / stock.go）

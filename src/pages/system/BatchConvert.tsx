@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Card, Input, InputNumber, Select, DatePicker, Button, Table, Tag, Space, Alert, Typography, message, Modal,
 } from 'antd';
@@ -79,11 +79,16 @@ const BatchConvertPage: React.FC = () => {
   // 查现货条件
   const [org, setOrg] = useState(YS_ORGS[0].id);
   const [productCode, setProductCode] = useState('');
-  const [warehouseCode, setWarehouseCode] = useState('');
+  const [warehouseCodes, setWarehouseCodes] = useState<string[]>([]);
   const [batchno, setBatchno] = useState('');
   const [statusDoc, setStatusDoc] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [stockRows, setStockRows] = useState<StockRow[] | null>(null);
+
+  // 货品 / 仓库下拉选项 (取本地 ys_stock, 跟着所选组织联动)
+  const [warehouses, setWarehouses] = useState<{ code: string; name: string }[]>([]);
+  const [products, setProducts] = useState<{ code: string; name: string }[]>([]);
+  const [optLoading, setOptLoading] = useState(false);
 
   // 待执行清单
   const [items, setItems] = useState<ConvItem[]>([]);
@@ -99,9 +104,59 @@ const BatchConvertPage: React.FC = () => {
   const [toStatus, setToStatus] = useState('');
   const [convQty, setConvQty] = useState<number | null>(null);
 
+  // 下拉显示「编码 名字」，按编码或名字都能搜；选中后值=编码
+  const productOptions = useMemo(
+    () => products.map((p) => ({ value: p.code, label: `${p.code} ${p.name}` })),
+    [products],
+  );
+  const warehouseOptions = useMemo(
+    () => warehouses.map((wh) => ({ value: wh.code, label: `${wh.code} ${wh.name}` })),
+    [warehouses],
+  );
+
+  // 拉某组织的仓库 / 货品清单（本地 ys_stock，不调用友）
+  const loadOptions = async (orgId: string) => {
+    setOptLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/yonbip/convert-options`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ org_id: orgId }),
+      });
+      const json = await res.json();
+      if (res.ok && json.data) {
+        setWarehouses(json.data.warehouses || []);
+        setProducts(json.data.products || []);
+      } else {
+        message.error(json.msg || json.error || '加载货品/仓库清单失败');
+        setWarehouses([]);
+        setProducts([]);
+      }
+    } catch {
+      message.error('网络错误，加载货品/仓库清单失败');
+    } finally {
+      setOptLoading(false);
+    }
+  };
+
+  // 进页面先按默认组织加载一次
+  useEffect(() => {
+    loadOptions(org);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 切组织：清空已选货品/仓库（防止串公司编码），重新加载选项
+  const handleOrgChange = (v: string) => {
+    setOrg(v);
+    setProductCode('');
+    setWarehouseCodes([]);
+    loadOptions(v);
+  };
+
   const handleSearch = async () => {
-    if (!productCode.trim() && !warehouseCode.trim()) {
-      message.warning('至少填货品编码或仓库编码再查，避免全量拉取');
+    if (!productCode.trim() && warehouseCodes.length === 0) {
+      message.warning('至少填货品或选仓库再查，避免全量拉取');
       return;
     }
     setLoading(true);
@@ -114,7 +169,7 @@ const BatchConvertPage: React.FC = () => {
         body: JSON.stringify({
           org_id: org,
           product_code: productCode.trim(),
-          warehouse_code: warehouseCode.trim(),
+          warehouse_codes: warehouseCodes,
           batchno: batchno.trim(),
           status_doc: statusDoc,
         }),
@@ -288,9 +343,31 @@ const BatchConvertPage: React.FC = () => {
 
         {/* 查现货 */}
         <Space wrap style={{ marginBottom: 12 }}>
-          <Select value={org} onChange={setOrg} style={{ width: 280 }} options={YS_ORGS.map((o) => ({ value: o.id, label: o.name }))} />
-          <Input placeholder="货品编码" value={productCode} onChange={(e) => setProductCode(e.target.value)} style={{ width: 150 }} allowClear />
-          <Input placeholder="仓库编码（可选）" value={warehouseCode} onChange={(e) => setWarehouseCode(e.target.value)} style={{ width: 160 }} allowClear />
+          <Select value={org} onChange={handleOrgChange} style={{ width: 280 }} options={YS_ORGS.map((o) => ({ value: o.id, label: o.name }))} />
+          <Select
+            showSearch
+            options={productOptions}
+            value={productCode || undefined}
+            onChange={(v) => setProductCode(v ?? '')}
+            style={{ width: 260 }}
+            placeholder="货品（编码/名字搜）"
+            allowClear
+            loading={optLoading}
+            filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+          />
+          <Select
+            mode="multiple"
+            showSearch
+            options={warehouseOptions}
+            value={warehouseCodes}
+            onChange={(v) => setWarehouseCodes(v)}
+            style={{ minWidth: 240, maxWidth: 460 }}
+            placeholder="仓库（可多选，编码/名字搜）"
+            allowClear
+            loading={optLoading}
+            maxTagCount="responsive"
+            filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+          />
           <Input placeholder="批次（可选）" value={batchno} onChange={(e) => setBatchno(e.target.value)} style={{ width: 140 }} allowClear />
           <Select
             placeholder="状态（可选）"
