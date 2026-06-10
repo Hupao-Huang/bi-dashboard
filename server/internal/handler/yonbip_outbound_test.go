@@ -241,21 +241,61 @@ func TestYbPlanHasUnconverted(t *testing.T) {
 	}
 }
 
-// 形态转换单: after 状态固定合格, before 用来源状态; 批次 B1→B2。
-func TestYbBuildConversionBody_StatusToQualified(t *testing.T) {
+// 形态转换单拆分(用友不允许一张单批次+状态同时改):
+func ybDetail(doc map[string]interface{}) (before, after map[string]interface{}) {
+	d := doc["data"].(map[string]interface{})["morphologyconversiondetail"].([]map[string]interface{})
+	return d[0], d[1]
+}
+
+// 不合格 B1 → 合格 B2: 批次+状态都变 → 拆 2 张(先状态B1不合格→B1合格, 再批次B1合格→B2合格)。
+func TestYbBuildConversionDocs_StatusAndBatch_SplitsTwo(t *testing.T) {
 	sh := ybShipment{OrgID: ybDefaultOrgID, WarehouseCode: "W1", ProductCode: "P1", StockStatusDoc: ybQualifiedStatusDoc}
 	cs := ybConvertSource{FromBatch: "B1", Qty: 20, StockStatusDoc: ybTestDefect}
-	data := ybBuildConversionBody(sh, "2026-06-10", cs, "B2")["data"].(map[string]interface{})
-	detail := data["morphologyconversiondetail"].([]map[string]interface{})
-	before, after := detail[0], detail[1]
-	if before["stockStatusDoc"] != ybTestDefect {
-		t.Fatalf("before 应为来源不合格, got %v", before["stockStatusDoc"])
+	docs := ybBuildConversionDocs(sh, "2026-06-10", cs, "B2")
+	if len(docs) != 2 {
+		t.Fatalf("批次+状态都变应拆 2 张, got %d", len(docs))
 	}
-	if after["stockStatusDoc"] != ybQualifiedStatusDoc {
-		t.Fatalf("after 应为合格, got %v", after["stockStatusDoc"])
+	// ①状态转换: B1不合格 → B1合格 (批次不变)
+	b1, a1 := ybDetail(docs[0])
+	if b1["batchno"] != "B1" || a1["batchno"] != "B1" || b1["stockStatusDoc"] != ybTestDefect || a1["stockStatusDoc"] != ybQualifiedStatusDoc {
+		t.Fatalf("①应状态转换 B1不合格→B1合格: before=%v/%v after=%v/%v", b1["batchno"], b1["stockStatusDoc"], a1["batchno"], a1["stockStatusDoc"])
 	}
-	if before["batchno"] != "B1" || after["batchno"] != "B2" {
-		t.Fatalf("批次应 B1→B2, got before=%v after=%v", before["batchno"], after["batchno"])
+	// ②批次转换: B1合格 → B2合格 (状态不变)
+	b2, a2 := ybDetail(docs[1])
+	if b2["batchno"] != "B1" || a2["batchno"] != "B2" || b2["stockStatusDoc"] != ybQualifiedStatusDoc || a2["stockStatusDoc"] != ybQualifiedStatusDoc {
+		t.Fatalf("②应批次转换 B1合格→B2合格: before=%v/%v after=%v/%v", b2["batchno"], b2["stockStatusDoc"], a2["batchno"], a2["stockStatusDoc"])
+	}
+}
+
+// 只改一样 → 1 张。合格 B1→B2(纯批次); 不合格 B1→B1(纯状态, 目标批次空)。
+func TestYbBuildConversionDocs_SingleChange_OneDoc(t *testing.T) {
+	sh := ybShipment{OrgID: ybDefaultOrgID, WarehouseCode: "W1", ProductCode: "P1", StockStatusDoc: ybQualifiedStatusDoc}
+	// 纯批次转换: 来源合格
+	if d := ybBuildConversionDocs(sh, "2026-06-10", ybConvertSource{FromBatch: "B1", Qty: 5, StockStatusDoc: ybTestQualified}, "B2"); len(d) != 1 {
+		t.Fatalf("纯批次转换应 1 张, got %d", len(d))
+	}
+	// 纯状态转换: 目标批次空 → 批次不变
+	d := ybBuildConversionDocs(sh, "2026-06-10", ybConvertSource{FromBatch: "B1", Qty: 5, StockStatusDoc: ybTestDefect}, "")
+	if len(d) != 1 {
+		t.Fatalf("纯状态转换应 1 张, got %d", len(d))
+	}
+	b, a := ybDetail(d[0])
+	if b["batchno"] != "B1" || a["batchno"] != "B1" || a["stockStatusDoc"] != ybQualifiedStatusDoc {
+		t.Fatalf("纯状态转换应 B1不合格→B1合格: %v/%v → %v/%v", b["batchno"], b["stockStatusDoc"], a["batchno"], a["stockStatusDoc"])
+	}
+}
+
+// 进度计数: 拆 2 张的源算 2, 拆 1 张的算 1。
+func TestYbConvDocCount(t *testing.T) {
+	sh := ybShipment{StockStatusDoc: ybQualifiedStatusDoc}
+	if n := ybConvDocCount(sh, ybConvertSource{FromBatch: "B1", StockStatusDoc: ybTestDefect}, "B2"); n != 2 {
+		t.Fatalf("不合格+换批次应 2, got %d", n)
+	}
+	if n := ybConvDocCount(sh, ybConvertSource{FromBatch: "B1", StockStatusDoc: ybTestQualified}, "B2"); n != 1 {
+		t.Fatalf("合格换批次应 1, got %d", n)
+	}
+	if n := ybConvDocCount(sh, ybConvertSource{FromBatch: "B1", StockStatusDoc: ybTestDefect}, "B1"); n != 1 {
+		t.Fatalf("不合格同批次(只改状态)应 1, got %d", n)
 	}
 }
 

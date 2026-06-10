@@ -376,8 +376,11 @@ func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plan
 	done, total := 0, 0
 	if doConvert {
 		for pi := range plans {
+			tb := strings.TrimSpace(plans[pi].Row.TargetBatch)
 			for si := range plans[pi].Shipments {
-				total += len(plans[pi].Shipments[si].ConvertSources)
+				for _, cs := range plans[pi].Shipments[si].ConvertSources {
+					total += ybConvDocCount(plans[pi].Shipments[si], cs, tb) // 一条源可能拆 2 张单
+				}
 			}
 		}
 	}
@@ -417,63 +420,70 @@ func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plan
 						break
 					}
 
-					emit("批次转换 " + cs.FromBatch + "→" + targetBatch)
+					// 一条转换源可能拆 1~2 张形态转换单(批次+状态都变=拆两张:先状态后批次, 见 ybBuildConversionDocs)。
+					// 逐张 save+审核; 防重指纹按"每张单"算(带 di), doc1 成功 doc2 失败时重做只补 doc2。
+					docs := ybBuildConversionDocs(sh, vouchdate, cs, targetBatch)
+					convLog.AuditOk = true // 乐观: 任一张失败置 false
+					convLog.Skipped = true // 乐观: 任一张真执行置 false
+					for di, body := range docs {
+						if ctx.Err() != nil {
+							convLog.Error = "连接中断，未执行（已执行的请去用友核对，重新提交不会重复建单）"
+							convLog.AuditOk = false
+							break
+						}
+						emit("批次/状态转换 " + cs.FromBatch + "→" + ybConvTargetBatch(cs, targetBatch))
 
-					// 防重: 同一笔批次转换10分钟内已提交过 → 跳过, 不重复建单。
-					// 跳过≠失败: 库存上次已转好, 出库照常继续(出库另有自己的防重)。
-					// 指纹须覆盖 ybBuildConversionBody 写入的全部字段(状态/产日/到期/sku), 漏字段会误挡不同业务。
-					fp := ybFingerprint("conv_out", ybResolveOrg(sh.OrgID), sh.WarehouseCode,
-						sh.ProductCode, ybFirstNonEmpty(cs.ProductskuID, sh.ProductskuID),
-						ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc),
-						cs.FromBatch, targetBatch, cs.FromProducedate, cs.FromInvaliddate,
-						strconv.Itoa(cs.Qty), vouchdate)
-					if dup, prevDoc := h.ybRecentSubmit(fp); dup {
-						// 跳过=上次已建单, 但审核状态以用友为准(上次可能审核失败), 不谎报已审核。
-						convLog.Skipped = true
-						convLog.DocCode = prevDoc
-						convLog.Error = "10分钟内已提交过，已自动跳过防止重复建单（审核状态以用友为准）"
-						lg.Conversions = append(lg.Conversions, convLog)
-						continue
-					}
+						// 指纹覆盖该张单内容 + di(区分两张), 漏字段会误挡不同业务。
+						fp := ybFingerprint("conv_out", ybResolveOrg(sh.OrgID), sh.WarehouseCode,
+							sh.ProductCode, ybFirstNonEmpty(cs.ProductskuID, sh.ProductskuID),
+							ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc),
+							cs.FromBatch, targetBatch, cs.FromProducedate, cs.FromInvaliddate,
+							strconv.Itoa(cs.Qty), vouchdate, strconv.Itoa(di))
+						if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+							convLog.DocCode = prevDoc // 这张已提交过, 跳过看下一张
+							continue
+						}
+						convLog.Skipped = false
 
-					body := ybBuildConversionBody(sh, vouchdate, cs, targetBatch)
-					wr, err := h.YS.MorphologyConversionSave(body)
-					if err != nil {
-						convLog.Error = ybErrMsg(wr, err, "批次转换保存失败")
-						convLog.Uncertain = wr == nil // 传输层失败: 转换单可能已建成, 重做前必须核对
-						lg.Conversions = append(lg.Conversions, convLog)
-						lg.Error = "批次转换失败: " + convLog.Error
-						lg.Uncertain = convLog.Uncertain
-						lg.skipOut = true
-						break
-					}
-					var sd struct {
-						Infos []struct {
-							ID   json.Number `json:"id"`
-							Code string      `json:"code"`
-						} `json:"infos"`
-					}
-					_ = ybDecodeData(wr, &sd)
-					if len(sd.Infos) > 0 {
+						wr, err := h.YS.MorphologyConversionSave(body)
+						if err != nil {
+							convLog.Error = ybErrMsg(wr, err, "转换保存失败")
+							convLog.Uncertain = wr == nil // 传输层失败: 转换单可能已建成, 重做前必须核对
+							convLog.AuditOk = false
+							break
+						}
+						var sd struct {
+							Infos []struct {
+								ID   json.Number `json:"id"`
+								Code string      `json:"code"`
+							} `json:"infos"`
+						}
+						_ = ybDecodeData(wr, &sd)
+						if len(sd.Infos) == 0 {
+							convLog.Error = "转换已保存但用友未返回单据信息，无法自动审核，请去用友手动核对"
+							convLog.AuditOk = false
+							break
+						}
 						convLog.DocCode = sd.Infos[0].Code
 						// 单据已在用友建成(不可逆) → 立即落防重流水。
 						h.ybRecordSubmit(fp, "conv_out", convLog.DocCode, vouchdate)
-						if cvID, _ := sd.Infos[0].ID.Int64(); cvID != 0 {
-							awr, aerr := h.YS.MorphologyConversionBatchAudit([]int64{cvID})
-							convLog.AuditOk = aerr == nil && ybAuditOK(awr)
-							if !convLog.AuditOk {
-								convLog.Error = ybErrMsg(awr, aerr, "批次转换审核失败")
-							}
-						} else {
-							// 保存返回 code 200 但无单据 id (YS 异常响应): 无法自动审核, 明确报出别闷着
-							convLog.Error = "批次转换已保存但用友未返回单据id，无法自动审核，请去用友手动核对"
+						cvID, _ := sd.Infos[0].ID.Int64()
+						if cvID == 0 {
+							convLog.Error = "转换已保存但用友未返回单据id，无法自动审核，请去用友手动核对"
+							convLog.AuditOk = false
+							break
 						}
-					} else {
-						convLog.Error = "批次转换已保存但用友未返回单据信息，无法自动审核，请去用友手动核对"
+						awr, aerr := h.YS.MorphologyConversionBatchAudit([]int64{cvID})
+						if !(aerr == nil && ybAuditOK(awr)) {
+							convLog.Error = ybErrMsg(awr, aerr, "转换审核失败")
+							convLog.AuditOk = false
+							break // 本张(如状态转换)审核失败→库存未真转, 不继续下一张(批次转换)
+						}
 					}
 					lg.Conversions = append(lg.Conversions, convLog)
 					if convLog.Error != "" {
-						lg.Error = convLog.Error
+						lg.Error = "批次/状态转换失败: " + convLog.Error
+						lg.Uncertain = convLog.Uncertain
 						lg.skipOut = true
 						break
 					}
@@ -641,15 +651,12 @@ func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plan
 
 // ---------------- YS 报文构造 ----------------
 
-// ybBuildConversionBody 出库前的形态转换单报文 (before lineType=1 → after lineType=2)。
-// 出库一律出合格品, 所以 after 状态固定「合格」, before 状态用来源(合格/不合格/废品)。
-// 一张单可同时改批次(FromBatch→toBatch)和状态(来源→合格): 批次转换 = 同状态(合格→合格)只改批次;
-// 状态转换 = 不合格/废品→合格(批次相同则只改状态, 不同则批次+状态一起改)。
-func ybBuildConversionBody(sh ybShipment, vouchdate string, cs ybConvertSource, toBatch string) map[string]interface{} {
+// ybBuildMorphDoc 一张形态转换单报文 (before lineType=1 → after lineType=2)。
+// before/after 的批次、状态各自可控; 日期沿用来源 cs。
+func ybBuildMorphDoc(sh ybShipment, vouchdate string, cs ybConvertSource, beforeBatch, afterBatch, beforeStatus, afterStatus string) map[string]interface{} {
 	vd := ybFmtDate(vouchdate) + " 00:00:00"
 	unitID := ybFirstNonEmpty(cs.UnitID, sh.UnitID)
 	stockUnit := ybFirstNonEmpty(cs.StockUnitID, cs.UnitID, sh.StockUnitID, sh.UnitID)
-	fromStatus := ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc) // 来源状态
 
 	base := func() map[string]interface{} {
 		m := map[string]interface{}{
@@ -665,32 +672,26 @@ func ybBuildConversionBody(sh ybShipment, vouchdate string, cs ybConvertSource, 
 		if sku := ybFirstNonEmpty(cs.ProductskuID, sh.ProductskuID); sku != "" && sku != "0" {
 			m["productsku"] = sku
 		}
+		if cs.FromProducedate != "" {
+			m["producedate"] = ybFmtDate(cs.FromProducedate) + " 00:00:00"
+		}
+		if cs.FromInvaliddate != "" {
+			m["invaliddate"] = ybFmtDate(cs.FromInvaliddate) + " 00:00:00"
+		}
 		return m
 	}
 
 	before := base()
 	before["groupNumber"] = "1"
 	before["lineType"] = "1"
-	before["batchno"] = cs.FromBatch
-	before["stockStatusDoc"] = fromStatus // 来源状态(可能不合格/废品)
-	if cs.FromProducedate != "" {
-		before["producedate"] = ybFmtDate(cs.FromProducedate) + " 00:00:00"
-	}
-	if cs.FromInvaliddate != "" {
-		before["invaliddate"] = ybFmtDate(cs.FromInvaliddate) + " 00:00:00"
-	}
+	before["batchno"] = beforeBatch
+	before["stockStatusDoc"] = beforeStatus
 
 	after := base()
 	after["groupNumber"] = "1"
 	after["lineType"] = "2"
-	after["batchno"] = toBatch
-	after["stockStatusDoc"] = ybQualifiedStatusDoc // 出库一律合格
-	if cs.FromProducedate != "" {
-		after["producedate"] = ybFmtDate(cs.FromProducedate) + " 00:00:00"
-	}
-	if cs.FromInvaliddate != "" {
-		after["invaliddate"] = ybFmtDate(cs.FromInvaliddate) + " 00:00:00"
-	}
+	after["batchno"] = afterBatch
+	after["stockStatusDoc"] = afterStatus
 
 	return map[string]interface{}{
 		"data": map[string]interface{}{
@@ -705,6 +706,44 @@ func ybBuildConversionBody(sh ybShipment, vouchdate string, cs ybConvertSource, 
 			"morphologyconversiondetail": []map[string]interface{}{before, after},
 		},
 	}
+}
+
+// ybConvTargetBatch 转换后落到哪个批次 (空目标批次=不改批次, 同来源批次)。
+func ybConvTargetBatch(cs ybConvertSource, targetBatch string) string {
+	return ybFirstNonEmpty(targetBatch, cs.FromBatch)
+}
+
+// ybBuildConversionDocs 把一条转换源拆成 1 或 2 张形态转换单。
+// 用友限制: 一张形态转换单只能"只改批次"或"只改状态", 不能批次+状态同时改
+//   (一张单里货品状态没变化才能做批次转换; 状态变化时不能同时变批次)。
+// 所以批次和状态都要变时拆两张: ①先状态转换(同批次, 来源状态→合格) ②再批次转换(同合格, 来源批次→目标批次)。
+// 只改一样时一张: 纯批次转换(合格→合格只改批次) 或 纯状态转换(不合格/废品→合格, 批次不变)。
+func ybBuildConversionDocs(sh ybShipment, vouchdate string, cs ybConvertSource, targetBatch string) []map[string]interface{} {
+	fromStatus := ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc)
+	fromBatch := cs.FromBatch
+	toBatch := ybConvTargetBatch(cs, targetBatch)
+	statusChanges := fromStatus != ybQualifiedStatusDoc
+	batchChanges := toBatch != fromBatch
+
+	if statusChanges && batchChanges {
+		return []map[string]interface{}{
+			ybBuildMorphDoc(sh, vouchdate, cs, fromBatch, fromBatch, fromStatus, ybQualifiedStatusDoc),   // ①状态转换(同批次)
+			ybBuildMorphDoc(sh, vouchdate, cs, fromBatch, toBatch, ybQualifiedStatusDoc, ybQualifiedStatusDoc), // ②批次转换(同合格)
+		}
+	}
+	// 一张: 只改批次(状态不变) 或 只改状态(批次不变)
+	return []map[string]interface{}{
+		ybBuildMorphDoc(sh, vouchdate, cs, fromBatch, toBatch, fromStatus, ybQualifiedStatusDoc),
+	}
+}
+
+// ybConvDocCount 一条转换源会拆成几张形态转换单(1 或 2)。批次+状态都变=2, 否则=1。
+func ybConvDocCount(sh ybShipment, cs ybConvertSource, targetBatch string) int {
+	fromStatus := ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc)
+	if fromStatus != ybQualifiedStatusDoc && ybConvTargetBatch(cs, targetBatch) != cs.FromBatch {
+		return 2
+	}
+	return 1
 }
 
 // ybBuildOutItem 其他出库单单行明细。
