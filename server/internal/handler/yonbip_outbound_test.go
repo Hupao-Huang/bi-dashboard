@@ -226,6 +226,54 @@ func TestYbPlanExport_UnknownStatus_NotConsumed(t *testing.T) {
 	}
 }
 
+// 单据级缺货: 同一单号一行齐、一行缺 → 整号两行都标 BillShort(整单不出)。
+func TestYbPlanExport_BillShort_WholeBillNotOut(t *testing.T) {
+	org := ybDefaultOrgID
+	stock := map[string][]yonsuite.StockRow{
+		org + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 100, StockStatusDoc: ybTestQualified}},
+		org + "|P2": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P2", Batchno: "B1", AvailableQty: 5, StockStatusDoc: ybTestQualified}}, // 不够
+	}
+	rows := []ybRow{
+		{ProductCode: "P1", Qty: "30", TargetBatch: "B1", WarehouseName: "仓A", BillNo: "CRK001"}, // 齐
+		{ProductCode: "P2", Qty: "30", TargetBatch: "B1", WarehouseName: "仓A", BillNo: "CRK001"}, // 缺25
+	}
+	plans := ybPlanExport(ybFakeStock(stock), rows)
+	if !plans[0].BillShort || !plans[1].BillShort {
+		t.Fatalf("同单号一行缺→整号两行都该 BillShort: p0=%v p1=%v", plans[0].BillShort, plans[1].BillShort)
+	}
+}
+
+// 不同单号互不牵连: A 单齐全不受 B 单缺货影响。
+func TestYbPlanExport_BillShort_OtherBillUnaffected(t *testing.T) {
+	org := ybDefaultOrgID
+	stock := map[string][]yonsuite.StockRow{
+		org + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 100, StockStatusDoc: ybTestQualified}},
+		org + "|P2": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P2", Batchno: "B1", AvailableQty: 5, StockStatusDoc: ybTestQualified}},
+	}
+	rows := []ybRow{
+		{ProductCode: "P1", Qty: "30", TargetBatch: "B1", WarehouseName: "仓A", BillNo: "CRK_A"}, // 齐
+		{ProductCode: "P2", Qty: "30", TargetBatch: "B1", WarehouseName: "仓A", BillNo: "CRK_B"}, // 缺
+	}
+	plans := ybPlanExport(ybFakeStock(stock), rows)
+	if plans[0].BillShort {
+		t.Fatalf("CRK_A 齐全不该被 CRK_B 牵连: %+v", plans[0])
+	}
+	if !plans[1].BillShort {
+		t.Fatalf("CRK_B 缺货应 BillShort")
+	}
+}
+
+// BillShort 单的转换不算"待转换"(否则永远挡住②出库)。
+func TestYbPlanHasUnconverted_ExcludesBillShort(t *testing.T) {
+	shortWithConv := []ybPlan{{
+		BillShort: true,
+		Shipments: []ybShipment{{Qty: 5, ConvertSources: []ybConvertSource{{FromBatch: "B1", Qty: 5}}}},
+	}}
+	if ybPlanHasUnconverted(shortWithConv) {
+		t.Fatal("缺货单的转换不该算待转换(它整单不出/不转)")
+	}
+}
+
 // phase=out 防呆: 计划里还有 ConvertSources(未转) 就该被挡。
 func TestYbPlanHasUnconverted(t *testing.T) {
 	noConv := []ybPlan{{Shipments: []ybShipment{{Qty: 5, ConvertSources: []ybConvertSource{}}}}}
