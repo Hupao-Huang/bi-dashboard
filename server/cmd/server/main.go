@@ -84,6 +84,13 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 	return r.ResponseWriter.Write(b)
 }
 
+// Unwrap 暴露底层 ResponseWriter, 让 http.NewResponseController 能穿透本包装层
+// 拿到真正的连接 (否则 SetWriteDeadline/Flush/Hijack 全部 ErrNotSupported)。
+// 用友批量出库/转换接口靠它清掉 120s WriteTimeout, 大批量才不会被半路掐断 → 防重复提交。
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 func main() {
 	initStructuredLogging()
 

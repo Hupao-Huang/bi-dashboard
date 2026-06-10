@@ -36,7 +36,7 @@ interface YbPlan {
   remaining_qty: number;
   shipments: YbShipment[];
 }
-interface YbConvLog { from_batch: string; qty: number; doc_code: string; audit_ok: boolean; error?: string; }
+interface YbConvLog { from_batch: string; qty: number; doc_code: string; audit_ok: boolean; skipped?: boolean; uncertain?: boolean; error?: string; }
 interface YbShipLog {
   org_name: string;
   warehouse_name: string;
@@ -44,6 +44,8 @@ interface YbShipLog {
   conversions: YbConvLog[];
   out_doc_code: string;
   audit_ok: boolean;
+  out_skipped?: boolean; // 防重: 同一张出库单10分钟内已提交过, 本次跳过
+  uncertain?: boolean; // 出库单保存时网络中断没拿到应答, 单据可能已建成, 重做前必须核对
   error?: string;
 }
 interface YbResult {
@@ -184,14 +186,42 @@ const YonbipOutboundPage: React.FC = () => {
       const json = await res.json();
       if (res.ok && json.data?.results) {
         setResults(json.data.results);
-        const fail = (json.data.results as YbResult[]).flatMap((r) => r.shipments).filter((s) => s.error).length;
-        if (fail > 0) message.warning(`执行完成，但有 ${fail} 笔有问题，请看下方结果`);
-        else message.success('执行完成，全部成功');
+        const ships = (json.data.results as YbResult[]).flatMap((r) => r.shipments);
+        const shipUncertain = (s: YbShipLog) => !!s.uncertain || s.conversions.some((c) => c.uncertain);
+        const uncertain = ships.filter(shipUncertain).length;
+        const skip = ships.filter((s) => s.out_skipped).length;
+        const fail = ships.filter((s) => s.error && !s.out_skipped && !shipUncertain(s)).length;
+        if (uncertain === 0 && fail === 0) {
+          setPlans(null); // 全部成功(或防重跳过), 清空计划
+          if (skip > 0) message.warning(`执行完成，其中 ${skip} 笔10分钟内已提交过、已自动跳过防重复；计划已清空`);
+          else message.success('执行完成，全部成功');
+        } else if (uncertain > 0) {
+          // 有"结果未知": 保留计划, 强提示去核对, 别盲目重做(可能已建单→重复)。
+          Modal.error({
+            title: `⚠ ${uncertain} 笔结果未知，可能已在用友建单`,
+            content: '这几笔保存时网络中断、没拿到用友应答，出库单可能已经建成。请先去用友核对（下方标红“可能已建单”的就是），确认没有再重做，否则会重复出库！',
+            okText: '我去核对',
+          });
+        } else {
+          // 仅业务失败(用友明确拒单, 没建): 保留计划可修正重做; 已成功的再点会自动跳过防重。
+          message.warning(`执行完成，${fail} 笔失败（已保留计划，可修正后再点执行；已成功的会自动跳过防重）`);
+        }
       } else {
-        message.error(json.msg || json.error || '执行失败');
+        // 非2xx(超时/服务器错误): 同样可能已部分提交到用友, 不谎报"失败"诱导重复操作。
+        Modal.warning({
+          title: '结果未知，请去用友核对',
+          content: '服务器没返回正常结果，但本次可能已部分提交到用友。请先去用友核对，不要凭“失败”重复手工建单；如确需补提交，10分钟内系统会自动跳过已提交的。',
+          okText: '我知道了',
+        });
       }
     } catch (e) {
-      message.error('网络错误，执行失败');
+      // 连接中断/超时: 后端可能已部分或全部提交到用友(不会因前端断开而回滚)。
+      // 不谎报"失败"误导用户重复手工建单; 后端有10分钟防重, 重发也不会重复建单。
+      Modal.warning({
+        title: '连接中断，结果未知',
+        content: '出库执行可能已部分或全部提交到用友。请先去用友核对，不要凭“失败”重复手工建单。如确需补提交，10分钟内系统会自动跳过已提交的，不会重复。',
+        okText: '我知道了',
+      });
     } finally {
       setExecuting(false);
     }
@@ -260,12 +290,16 @@ const YonbipOutboundPage: React.FC = () => {
         <div>
           {r.shipments.map((s, i) => (
             <div key={i}>
-              {s.error
-                ? <Tag color="red">失败: {s.error}</Tag>
-                : <Tag color={s.audit_ok ? 'green' : 'gold'}>{s.out_doc_code || '已建单'} {s.audit_ok ? '已审核' : '未审核'} 出{s.qty}</Tag>}
+              {s.uncertain
+                ? <Tag color="red"><b>⚠ 可能已建单，去用友核对后再重做</b> 出{s.qty}</Tag>
+                : s.out_skipped
+                  ? <Tag color="orange">已跳过（10分钟内已提交{s.out_doc_code ? `，单号 ${s.out_doc_code}` : ''}）出{s.qty}</Tag>
+                  : s.error
+                    ? <Tag color="red">失败: {s.error}</Tag>
+                    : <Tag color={s.audit_ok ? 'green' : 'gold'}>{s.out_doc_code || '已建单'} {s.audit_ok ? '已审核' : '未审核'} 出{s.qty}</Tag>}
               {s.conversions.map((c, j) => (
-                <Tag key={j} color={c.error ? 'red' : 'blue'} style={{ marginLeft: 4 }}>
-                  转{c.from_batch} {c.audit_ok ? '✓' : (c.error || '?')}
+                <Tag key={j} color={c.uncertain ? 'red' : (c.skipped ? 'orange' : (c.error ? 'red' : 'blue'))} style={{ marginLeft: 4 }}>
+                  转{c.from_batch} {c.uncertain ? '⚠可能已建单' : (c.skipped ? '已跳过' : (c.audit_ok ? '✓' : (c.error || '?')))}
                 </Tag>
               ))}
             </div>
