@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Card, Input, DatePicker, Button, Table, Tag, Space, Alert, Typography, message, Modal, Tabs, Row, Col,
+  Card, Input, DatePicker, Button, Table, Tag, Space, Alert, Typography, message, Modal, Tabs, Row, Col, Progress,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { Dayjs } from 'dayjs';
@@ -123,19 +123,27 @@ const YonbipOutboundPage: React.FC = () => {
   const [vouchdate, setVouchdate] = useState<Dayjs>(dayjs());
   const [flat, setFlat] = useState('');
   const [plans, setPlans] = useState<YbPlan[] | null>(null);
-  const [results, setResults] = useState<YbResult[] | null>(null);
+  const [results, setResults] = useState<YbResult[] | null>(null); // ②出库结果
+  const [convResults, setConvResults] = useState<YbResult[] | null>(null); // ①批次转换结果
   const [planning, setPlanning] = useState(false);
   const [executing, setExecuting] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null); // 执行实时进度(SSE)
   const [mode, setMode] = useState<'flat' | 'grouped'>('flat');
   const [groups, setGroups] = useState<YbGroup[]>([{ id: 1, head: '', details: '' }]);
 
-  const addGroup = () => setGroups((gs) => [...gs, { id: Math.max(0, ...gs.map((x) => x.id)) + 1, head: '', details: '' }]);
-  const removeGroup = (id: number) => setGroups((gs) => {
+  // 改了录入(=开始新一批)就清掉上一批的转换/出库结果; 复查(不改录入只点刷新)则保留。
+  // setState 同为 null 时 React 自动 bail out, 频繁调用无害。
+  const clearResults = () => { setConvResults(null); setResults(null); };
+
+  const addGroup = () => { clearResults(); setGroups((gs) => [...gs, { id: Math.max(0, ...gs.map((x) => x.id)) + 1, head: '', details: '' }]); };
+  const removeGroup = (id: number) => { clearResults(); setGroups((gs) => {
     const n = gs.filter((x) => x.id !== id);
     return n.length ? n : [{ id: 1, head: '', details: '' }];
-  });
-  const updateGroup = (id: number, field: 'head' | 'details', val: string) =>
+  }); };
+  const updateGroup = (id: number, field: 'head' | 'details', val: string) => {
+    clearResults();
     setGroups((gs) => gs.map((x) => (x.id === id ? { ...x, [field]: val } : x)));
+  };
 
   const billCount = (rs: { bill_no: string }[]) => new Set(rs.map((r) => r.bill_no)).size;
 
@@ -169,11 +177,14 @@ const YonbipOutboundPage: React.FC = () => {
     }
   };
 
-  const doExecute = async () => {
+  // phase='convert' 只做批次转换; phase='out' 只做出库。中间靠【刷新计划】复查目标批次是否到货。
+  // 走 SSE 流式(?stream=1): 后端每处理一笔推一条进度, 前端实时显示进度条; 最后一条 result 拿结果。
+  const doExecute = async (phase: 'convert' | 'out') => {
     if (!plans) return;
     setExecuting(true);
+    setProgress({ done: 0, total: 0, label: '连接中…' });
     try {
-      const res = await fetch(`${API_BASE}/api/yonbip/export-execute`, {
+      const res = await fetch(`${API_BASE}/api/yonbip/export-execute?stream=1`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -181,70 +192,144 @@ const YonbipOutboundPage: React.FC = () => {
           vouchdate: vouchdate.format('YYYY-MM-DD'),
           plans,
           group_by_bill: true,
+          phase,
         }),
       });
-      const json = await res.json();
-      if (res.ok && json.data?.results) {
-        setResults(json.data.results);
-        const ships = (json.data.results as YbResult[]).flatMap((r) => r.shipments);
-        const shipUncertain = (s: YbShipLog) => !!s.uncertain || s.conversions.some((c) => c.uncertain);
-        const uncertain = ships.filter(shipUncertain).length;
-        const skip = ships.filter((s) => s.out_skipped).length;
-        const fail = ships.filter((s) => s.error && !s.out_skipped && !shipUncertain(s)).length;
-        if (uncertain === 0 && fail === 0) {
-          setPlans(null); // 全部成功(或防重跳过), 清空计划
-          if (skip > 0) message.warning(`执行完成，其中 ${skip} 笔10分钟内已提交过、已自动跳过防重复；计划已清空`);
-          else message.success('执行完成，全部成功');
-        } else if (uncertain > 0) {
-          // 有"结果未知": 保留计划, 强提示去核对, 别盲目重做(可能已建单→重复)。
-          Modal.error({
-            title: `⚠ ${uncertain} 笔结果未知，可能已在用友建单`,
-            content: '这几笔保存时网络中断、没拿到用友应答，出库单可能已经建成。请先去用友核对（下方标红“可能已建单”的就是），确认没有再重做，否则会重复出库！',
-            okText: '我去核对',
-          });
-        } else {
-          // 仅业务失败(用友明确拒单, 没建): 保留计划可修正重做; 已成功的再点会自动跳过防重。
-          message.warning(`执行完成，${fail} 笔失败（已保留计划，可修正后再点执行；已成功的会自动跳过防重）`);
-        }
-      } else {
-        // 非2xx(超时/服务器错误): 同样可能已部分提交到用友, 不谎报"失败"诱导重复操作。
+      if (!res.ok || !res.body) {
         Modal.warning({
           title: '结果未知，请去用友核对',
           content: '服务器没返回正常结果，但本次可能已部分提交到用友。请先去用友核对，不要凭“失败”重复手工建单；如确需补提交，10分钟内系统会自动跳过已提交的。',
           okText: '我知道了',
         });
+        return;
+      }
+      // 读 SSE: progress 事件实时更新进度, result 事件拿最终结果
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let rs: YbResult[] | null = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          let ev = 'message';
+          let data = '';
+          block.split('\n').forEach((ln) => {
+            if (ln.startsWith('event:')) ev = ln.slice(6).trim();
+            else if (ln.startsWith('data:')) data += ln.slice(5).trim();
+          });
+          if (!data) continue;
+          if (ev === 'progress') { try { setProgress(JSON.parse(data)); } catch { /* 忽略半包 */ } }
+          else if (ev === 'result') { try { rs = (JSON.parse(data).results ?? []) as YbResult[]; } catch { /* 忽略 */ } }
+        }
+      }
+      if (!rs) {
+        Modal.warning({
+          title: '结果未知，请去用友核对',
+          content: '没收到完整执行结果，但本次可能已部分提交到用友。请先去用友核对，不要重复手工建单；如确需补提交，10分钟内系统会自动跳过已提交的。',
+          okText: '我知道了',
+        });
+        return;
+      }
+      {
+        if (phase === 'convert') {
+          // 第①步: 批次转换。不清计划——接着要点【刷新计划】复查。
+          setConvResults(rs);
+          const convs = rs.flatMap((r) => r.shipments).flatMap((s) => s.conversions);
+          const cUncertain = convs.filter((c) => c.uncertain).length;
+          const cFail = convs.filter((c) => c.error && !c.skipped && !c.uncertain).length;
+          if (cUncertain > 0) {
+            Modal.error({
+              title: `⚠ ${cUncertain} 笔转换结果未知，可能已在用友建单`,
+              content: '这几笔保存时网络中断、没拿到用友应答，转换单可能已建成。请先去用友核对（下方标红的就是），别盲目重做，否则会重复建单。',
+              okText: '我去核对',
+            });
+          } else if (cFail > 0) {
+            message.warning(`批次转换完成，${cFail} 笔失败（看下方转换结果，修正后可再点①）`);
+          } else {
+            Modal.success({
+              title: '批次转换完成',
+              content: '请点【生成 / 刷新计划】复查目标批次是否都到货了。用友库存刷新可能要等几秒，没立刻到货可稍等再刷新；计划里橙色"批次转换"行消失，就能点②出库。',
+              okText: '知道了',
+            });
+          }
+        } else {
+          // 第②步: 出库。
+          setResults(rs);
+          const ships = rs.flatMap((r) => r.shipments);
+          const shipUncertain = (s: YbShipLog) => !!s.uncertain || s.conversions.some((c) => c.uncertain);
+          const uncertain = ships.filter(shipUncertain).length;
+          const skip = ships.filter((s) => s.out_skipped).length;
+          const fail = ships.filter((s) => s.error && !s.out_skipped && !shipUncertain(s)).length;
+          if (uncertain === 0 && fail === 0) {
+            setPlans(null); // 出库全成功, 收尾清空计划(转换结果留着可看)
+            if (skip > 0) message.warning(`出库完成，其中 ${skip} 笔10分钟内已提交过、已自动跳过防重复；计划已清空`);
+            else message.success('出库完成，全部成功');
+          } else if (uncertain > 0) {
+            Modal.error({
+              title: `⚠ ${uncertain} 笔出库结果未知，可能已在用友建单`,
+              content: '这几笔保存时网络中断、没拿到用友应答，出库单可能已经建成。请先去用友核对（下方标红“可能已建单”的就是），确认没有再重做，否则会重复出库！',
+              okText: '我去核对',
+            });
+          } else {
+            message.warning(`出库完成，${fail} 笔失败（已保留计划，可修正后再点②；已成功的会自动跳过防重）`);
+          }
+        }
       }
     } catch (e) {
       // 连接中断/超时: 后端可能已部分或全部提交到用友(不会因前端断开而回滚)。
       // 不谎报"失败"误导用户重复手工建单; 后端有10分钟防重, 重发也不会重复建单。
       Modal.warning({
         title: '连接中断，结果未知',
-        content: '出库执行可能已部分或全部提交到用友。请先去用友核对，不要凭“失败”重复手工建单。如确需补提交，10分钟内系统会自动跳过已提交的，不会重复。',
+        content: '执行可能已部分或全部提交到用友。请先去用友核对，不要凭“失败”重复手工建单。如确需补提交，10分钟内系统会自动跳过已提交的，不会重复。',
         okText: '我知道了',
       });
     } finally {
       setExecuting(false);
+      setProgress(null);
     }
   };
 
-  const handleExecute = () => {
+  // 第①步: 只做批次转换 (不出库)。
+  const handleExecuteConvert = () => {
+    if (!plans || plans.length === 0) return;
+    const convCount = plans.reduce(
+      (n, p) => n + p.shipments.reduce((m, s) => m + (s.convert_sources?.length ?? 0), 0), 0);
+    Modal.confirm({
+      title: '确认执行批次转换（不可逆）',
+      content: (
+        <div>
+          <p>第①步：在用友提交 <b>{convCount}</b> 笔批次转换 + 自动审核（把别的批次转成目标批次）。<b>本步不出库。</b></p>
+          <p>单据日期：<b>{vouchdate.format('YYYY-MM-DD')}</b></p>
+          <p><Text type="danger">会真改库存，不可撤回。转换后请点【生成 / 刷新计划】复查再出库。</Text></p>
+        </div>
+      ),
+      okText: '确认转换', cancelText: '取消', okButtonProps: { danger: true },
+      onOk: () => { void doExecute('convert'); }, // 不 return promise: 确认框立即关, 交给进度弹窗
+    });
+  };
+
+  // 第②步: 只做出库 (复查确认目标批次都到货后)。
+  const handleExecuteOut = () => {
     if (!plans || plans.length === 0) return;
     const lineCount = plans.length;
     const shortfall = plans.filter((p) => p.remaining_qty > 0).length;
     Modal.confirm({
-      title: '确认执行（不可逆）',
+      title: '确认执行出库（不可逆）',
       content: (
         <div>
-          <p>即将真实在用友提交 <b>{billCount(plans.map((p) => p.row))}</b> 张其他出库单（共 {lineCount} 行明细）的批次转换 + 出库单 + 自动审核。</p>
+          <p>第②步：在用友提交 <b>{billCount(plans.map((p) => p.row))}</b> 张其他出库单（共 {lineCount} 行明细）+ 自动审核。<b>本步不再转换。</b></p>
           <p>单据日期：<b>{vouchdate.format('YYYY-MM-DD')}</b></p>
           {shortfall > 0 && <p><Text type="warning">注意：有 {shortfall} 行存在缺口，只会出能凑齐的部分。</Text></p>}
-          <p><Text type="danger">会真扣库存，不可撤回。确认执行？</Text></p>
+          <p><Text type="danger">会真扣库存，不可撤回。确认出库？</Text></p>
         </div>
       ),
-      okText: '确认执行',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
-      onOk: doExecute,
+      okText: '确认出库', cancelText: '取消', okButtonProps: { danger: true },
+      onOk: () => { void doExecute('out'); }, // 不 return promise: 确认框立即关, 交给进度弹窗
     });
   };
 
@@ -280,7 +365,30 @@ const YonbipOutboundPage: React.FC = () => {
     { title: '缺口', dataIndex: 'remaining_qty', key: 'rem', width: 70, render: (v) => v > 0 ? <Text type="danger">{v}</Text> : <Text type="success">0</Text> },
   ];
 
-  const resultColumns: ColumnsType<YbResult> = [
+  // ①批次转换结果: 只看每个 shipment 的 conversions
+  const convResultColumns: ColumnsType<YbResult> = [
+    { title: '单号', dataIndex: ['row', 'bill_no'], key: 'bill', width: 150 },
+    { title: '货品', dataIndex: ['row', 'product_code'], key: 'product', width: 120 },
+    {
+      title: '批次转换结果', key: 'conv',
+      render: (_, r) => {
+        const convs = r.shipments.flatMap((s) => s.conversions);
+        if (!convs.length) return <Text type="secondary">无需转换</Text>;
+        return (
+          <div>
+            {convs.map((c, j) => (
+              <Tag key={j} color={c.uncertain ? 'red' : (c.skipped ? 'orange' : (c.error ? 'red' : 'green'))} style={{ marginBottom: 2 }}>
+                转{c.from_batch} {c.qty}：{c.uncertain ? '⚠可能已建单,去核对' : (c.skipped ? '已跳过(10分钟内已提交)' : (c.error ? `失败 ${c.error}` : `${c.doc_code || '已建单'} ${c.audit_ok ? '已审核' : '未审核'}`))}
+              </Tag>
+            ))}
+          </div>
+        );
+      },
+    },
+  ];
+
+  // ②出库结果: 只看每个 shipment 的出库单(out)
+  const outResultColumns: ColumnsType<YbResult> = [
     { title: '单号', dataIndex: ['row', 'bill_no'], key: 'bill', width: 150 },
     { title: '货品', dataIndex: ['row', 'product_code'], key: 'product', width: 120 },
     { title: '需出', dataIndex: 'needed_qty', key: 'need', width: 70 },
@@ -297,17 +405,15 @@ const YonbipOutboundPage: React.FC = () => {
                   : s.error
                     ? <Tag color="red">失败: {s.error}</Tag>
                     : <Tag color={s.audit_ok ? 'green' : 'gold'}>{s.out_doc_code || '已建单'} {s.audit_ok ? '已审核' : '未审核'} 出{s.qty}</Tag>}
-              {s.conversions.map((c, j) => (
-                <Tag key={j} color={c.uncertain ? 'red' : (c.skipped ? 'orange' : (c.error ? 'red' : 'blue'))} style={{ marginLeft: 4 }}>
-                  转{c.from_batch} {c.uncertain ? '⚠可能已建单' : (c.skipped ? '已跳过' : (c.audit_ok ? '✓' : (c.error || '?')))}
-                </Tag>
-              ))}
             </div>
           ))}
         </div>
       ),
     },
   ];
+
+  // 计划里还有"批次转换"行=目标批次没凑齐→锁住出库, 逼先转换+复查。
+  const hasConvert = !!plans && plans.some((p) => p.shipments.some((s) => (s.convert_sources?.length ?? 0) > 0));
 
   return (
     <div style={{ padding: 16 }}>
@@ -317,7 +423,7 @@ const YonbipOutboundPage: React.FC = () => {
           showIcon
           style={{ marginBottom: 16 }}
           message="吉客云出库单 → 用友其他出库单（跨组织拆单 + 批次转换 + 自动审核）"
-          description="实时查用友库存，量大时较慢；点「全部执行」会真在用友建单、扣库存、自动审核，不可撤回。"
+          description="两步走：①先执行批次转换 → 点【生成 / 刷新计划】复查目标批次到货没 → ②再执行出库。实时查用友库存，量大时较慢；执行会真在用友建单、扣库存、自动审核，不可撤回。"
         />
 
         <Space style={{ marginBottom: 16 }} wrap>
@@ -341,7 +447,7 @@ const YonbipOutboundPage: React.FC = () => {
                   <TextArea
                     rows={8}
                     value={flat}
-                    onChange={(e) => setFlat(e.target.value)}
+                    onChange={(e) => { clearResults(); setFlat(e.target.value); }}
                     placeholder={'CRK2026053120566\t其他出库\t南京委外成品仓-公司仓-委外\t03030207\t3\t20251114HT'}
                   />
                 </>
@@ -389,10 +495,42 @@ const YonbipOutboundPage: React.FC = () => {
           ]}
         />
 
-        <Space style={{ marginTop: 12 }}>
-          <Button type="primary" loading={planning} onClick={handlePlan}>生成拆单计划</Button>
-          <Button danger disabled={!plans || plans.length === 0} loading={executing} onClick={handleExecute}>全部执行</Button>
+        <Space style={{ marginTop: 12 }} wrap>
+          <Button type="primary" loading={planning} onClick={handlePlan}>生成 / 刷新计划（复查）</Button>
+          <Button danger disabled={!plans || !hasConvert || executing} loading={executing} onClick={handleExecuteConvert}>① 执行批次转换</Button>
+          <Button danger disabled={!plans || hasConvert || executing} loading={executing} onClick={handleExecuteOut}>② 执行出库</Button>
         </Space>
+        {plans && (
+          <Alert
+            style={{ marginTop: 12 }}
+            type={hasConvert ? 'warning' : 'success'}
+            showIcon
+            message={hasConvert
+              ? '目标批次还差货：先点①执行批次转换 → 再点【生成 / 刷新计划】复查 → 计划里橙色"批次转换"行消失后，②出库才会解锁'
+              : '目标批次都够了：可以点②执行出库'}
+          />
+        )}
+
+        {/* 执行中: 居中进度弹窗(挡住操作, 防止误点; 跑完自动关) */}
+        <Modal
+          open={executing}
+          title="正在执行，请勿关闭页面"
+          closable={false}
+          maskClosable={false}
+          keyboard={false}
+          footer={null}
+        >
+          <Progress
+            percent={progress && progress.total ? Math.round((progress.done / progress.total) * 100) : 0}
+            status="active"
+          />
+          <div style={{ marginTop: 8 }}>
+            <Text>{progress ? `正在执行 ${progress.done}/${progress.total || '?'}：${progress.label}` : '连接中…'}</Text>
+          </div>
+          <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+            用友限流每笔约 1 秒，大批量需要等一会儿，请勿关闭或刷新页面。
+          </Paragraph>
+        </Modal>
 
         {plans && (
           <Table
@@ -406,13 +544,27 @@ const YonbipOutboundPage: React.FC = () => {
           />
         )}
 
+        {convResults && (
+          <>
+            <Typography.Title level={5} style={{ marginTop: 20 }}>① 批次转换结果</Typography.Title>
+            <Table
+              size="small"
+              rowKey={(_, i) => `c${i}`}
+              columns={convResultColumns}
+              dataSource={convResults}
+              pagination={false}
+              scroll={{ y: 300 }}
+            />
+          </>
+        )}
+
         {results && (
           <>
-            <Typography.Title level={5} style={{ marginTop: 20 }}>执行结果</Typography.Title>
+            <Typography.Title level={5} style={{ marginTop: 20 }}>② 出库结果</Typography.Title>
             <Table
               size="small"
               rowKey={(_, i) => `r${i}`}
-              columns={resultColumns}
+              columns={outResultColumns}
               dataSource={results}
               pagination={false}
               scroll={{ y: 420 }}
