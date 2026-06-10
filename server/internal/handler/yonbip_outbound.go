@@ -43,6 +43,9 @@ var ybStatusPriority = map[string]int{
 	"2448706971278246082": 2, // 废品
 }
 
+// ybQualifiedStatusDoc 合格状态 doc。出库一律出合格品: 不合格/废品库存出库前先状态转换成合格。
+const ybQualifiedStatusDoc = "2448706971278246078"
+
 func ybStatusPri(sd string) int {
 	if p, ok := ybStatusPriority[sd]; ok {
 		return p
@@ -238,36 +241,47 @@ func ybPlanExport(queryStock func(orgID, productCode string) []yonsuite.StockRow
 				poolOf := func(r yonsuite.StockRow) int {
 					return stockPool[poolKey(oid, whCode, productCode, r.Batchno, r.StockStatusDoc)]
 				}
-				sortByStatusPool := func(rs []yonsuite.StockRow) {
-					sort.SliceStable(rs, func(i, j int) bool {
-						pi, pj := ybStatusPri(rs[i].StockStatusDoc), ybStatusPri(rs[j].StockStatusDoc)
-						if pi != pj {
-							return pi < pj
-						}
-						return poolOf(rs[i]) > poolOf(rs[j])
-					})
-				}
 
-				var directRows, transferRows []yonsuite.StockRow
-				if targetBatch == "" {
-					directRows = append(directRows, whRows...)
-					sortByStatusPool(directRows)
-				} else {
-					for _, r := range whRows {
-						if r.Batchno == targetBatch {
-							directRows = append(directRows, r)
-						} else {
-							transferRows = append(transferRows, r)
-						}
+				// 一律凑成「合格 + 目标批次」。每行按需要的处理分 3 档, 档内不合格优先于废品、池量大优先:
+				//   档1 合格且就在目标批次 → 直出(不转)
+				//   档2 合格但在别批次     → 批次转换 → 目标批次
+				//   档3 不合格/废品(任意批次) → 状态转换成合格(顺带并到目标批次, 一张形态转换单同时改批次+状态)
+				// 消费按档序: 合格优先, 坏的最后才动(档3 内不合格先于废品)。
+				tierOf := func(r yonsuite.StockRow) int {
+					// 未知状态(非 合格/不合格/废品, 如冻结/在途/质押/未来新状态): 业务含义不明, 不碰、不自动转、不消费。
+					if ybStatusPri(r.StockStatusDoc) == 99 {
+						return 9
 					}
-					sortByStatusPool(directRows)
-					sortByStatusPool(transferRows)
+					isQ := r.StockStatusDoc == ybQualifiedStatusDoc
+					isTarget := targetBatch == "" || r.Batchno == targetBatch
+					switch {
+					case isQ && isTarget:
+						return 1
+					case isQ:
+						return 2
+					default:
+						return 3 // 不合格/废品 → 状态转换成合格
+					}
 				}
+				ordered := append([]yonsuite.StockRow{}, whRows...)
+				sort.SliceStable(ordered, func(i, j int) bool {
+					ti, tj := tierOf(ordered[i]), tierOf(ordered[j])
+					if ti != tj {
+						return ti < tj
+					}
+					pi, pj := ybStatusPri(ordered[i].StockStatusDoc), ybStatusPri(ordered[j].StockStatusDoc)
+					if pi != pj {
+						return pi < pj // 档内: 不合格(1) 先于 废品(2)
+					}
+					return poolOf(ordered[i]) > poolOf(ordered[j])
+				})
 
-				// 1) 直出: 每个 (batchno,status) 一个 shipment
-				for _, r := range directRows {
+				for _, r := range ordered {
 					if remaining <= 0 {
 						break
+					}
+					if tierOf(r) >= 9 {
+						continue // 未知状态不消费(留库存, 计入缺口让人工处理)
 					}
 					av := poolOf(r)
 					if av <= 0 {
@@ -282,51 +296,31 @@ func ybPlanExport(queryStock func(orgID, productCode string) []yonsuite.StockRow
 					if outBatch == "" {
 						outBatch = r.Batchno
 					}
-					shipments = append(shipments, ybShipment{
+					sh := ybShipment{
 						OrgID: oid, OrgName: org.Name,
 						WarehouseCode: whCode, WarehouseName: whRealName,
-						Qty: use, TargetQtyDirect: use, ConvertQty: 0,
-						ConvertSources: []ybConvertSource{},
+						Qty:            use,
 						ProductCode:    productCode,
 						ProductName:    ybFirstNonEmpty(r.ProductName, productName),
 						ProductskuID:   r.ProductskuID, UnitID: r.UnitID, StockUnitID: r.StockUnitID,
-						StockStatusDoc: r.StockStatusDoc,
+						StockStatusDoc: ybQualifiedStatusDoc, // 出库一律合格(转换后即合格)
 						OutBatch:       outBatch,
 						OutProducedate: r.Producedate, OutInvaliddate: r.Invaliddate,
-					})
-					remaining -= use
-				}
-
-				// 2) 批次转换补齐: 每个转换源 (batchno,status) 一个 shipment (自带 1 个 convert_source)
-				for _, r := range transferRows {
-					if remaining <= 0 {
-						break
 					}
-					av := poolOf(r)
-					if av <= 0 {
-						continue
-					}
-					use := av
-					if remaining < use {
-						use = remaining
-					}
-					stockPool[poolKey(oid, whCode, productCode, r.Batchno, r.StockStatusDoc)] = av - use
-					shipments = append(shipments, ybShipment{
-						OrgID: oid, OrgName: org.Name,
-						WarehouseCode: whCode, WarehouseName: whRealName,
-						Qty: use, TargetQtyDirect: 0, ConvertQty: use,
-						ConvertSources: []ybConvertSource{{
+					if tierOf(r) == 1 {
+						// 档1 直出: 现成合格 + 目标批次, 不转
+						sh.TargetQtyDirect = use
+						sh.ConvertSources = []ybConvertSource{}
+					} else {
+						// 档2 批次转换 / 档3 状态转换(可能+批次): 都记一个转换源, 转换后= 合格 + 目标批次
+						sh.ConvertQty = use
+						sh.ConvertSources = []ybConvertSource{{
 							FromBatch: r.Batchno, FromProducedate: r.Producedate, FromInvaliddate: r.Invaliddate,
 							Qty: use, ProductskuID: r.ProductskuID, UnitID: r.UnitID, StockUnitID: r.StockUnitID,
-							StockStatusDoc: r.StockStatusDoc,
-						}},
-						ProductCode:  productCode,
-						ProductName:  ybFirstNonEmpty(r.ProductName, productName),
-						ProductskuID: r.ProductskuID, UnitID: r.UnitID, StockUnitID: r.StockUnitID,
-						StockStatusDoc: r.StockStatusDoc,
-						OutBatch:       targetBatch,
-						OutProducedate: r.Producedate, OutInvaliddate: r.Invaliddate,
-					})
+							StockStatusDoc: r.StockStatusDoc, // 来源状态(合格/不合格/废品), 转换 before 用它
+						}}
+					}
+					shipments = append(shipments, sh)
 					remaining -= use
 				}
 			}
@@ -647,11 +641,15 @@ func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plan
 
 // ---------------- YS 报文构造 ----------------
 
-// ybBuildConversionBody 批次转换单报文 (before lineType=1 → after lineType=2)。
+// ybBuildConversionBody 出库前的形态转换单报文 (before lineType=1 → after lineType=2)。
+// 出库一律出合格品, 所以 after 状态固定「合格」, before 状态用来源(合格/不合格/废品)。
+// 一张单可同时改批次(FromBatch→toBatch)和状态(来源→合格): 批次转换 = 同状态(合格→合格)只改批次;
+// 状态转换 = 不合格/废品→合格(批次相同则只改状态, 不同则批次+状态一起改)。
 func ybBuildConversionBody(sh ybShipment, vouchdate string, cs ybConvertSource, toBatch string) map[string]interface{} {
 	vd := ybFmtDate(vouchdate) + " 00:00:00"
 	unitID := ybFirstNonEmpty(cs.UnitID, sh.UnitID)
 	stockUnit := ybFirstNonEmpty(cs.StockUnitID, cs.UnitID, sh.StockUnitID, sh.UnitID)
+	fromStatus := ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc) // 来源状态
 
 	base := func() map[string]interface{} {
 		m := map[string]interface{}{
@@ -661,7 +659,6 @@ func ybBuildConversionBody(sh ybShipment, vouchdate string, cs ybConvertSource, 
 			"stockUnitId":      stockUnit,
 			"invExchRate":      "1",
 			"unitExchangeType": 0,
-			"stockStatusDoc":   ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc),
 			"qty":              cs.Qty,
 			"subQty":           cs.Qty,
 		}
@@ -675,6 +672,7 @@ func ybBuildConversionBody(sh ybShipment, vouchdate string, cs ybConvertSource, 
 	before["groupNumber"] = "1"
 	before["lineType"] = "1"
 	before["batchno"] = cs.FromBatch
+	before["stockStatusDoc"] = fromStatus // 来源状态(可能不合格/废品)
 	if cs.FromProducedate != "" {
 		before["producedate"] = ybFmtDate(cs.FromProducedate) + " 00:00:00"
 	}
@@ -686,6 +684,7 @@ func ybBuildConversionBody(sh ybShipment, vouchdate string, cs ybConvertSource, 
 	after["groupNumber"] = "1"
 	after["lineType"] = "2"
 	after["batchno"] = toBatch
+	after["stockStatusDoc"] = ybQualifiedStatusDoc // 出库一律合格
 	if cs.FromProducedate != "" {
 		after["producedate"] = ybFmtDate(cs.FromProducedate) + " 00:00:00"
 	}
@@ -816,6 +815,13 @@ func (h *DashboardHandler) YonbipExportExecute(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "phase 只能是 convert/out/all")
 		return
 	}
+	// 防呆: phase=out 时计划里若还有未执行的转换(批次/状态), 拒绝 —— 否则会出"还没转出来"的合格库存。
+	// 正常流程: 执行①转换 → 点【生成/刷新计划】重查, 转换好的会变成直出(无 ConvertSources)才放行②。
+	// 后端硬挡, 不只靠前端按钮 disable(防绕过/重放)。
+	if req.Phase == "out" && ybPlanHasUnconverted(req.Plans) {
+		writeError(w, http.StatusBadRequest, "计划里还有未执行的转换（批次/状态），请先执行①转换并点【生成/刷新计划】复查，再出库")
+		return
+	}
 	// 大批量出库会跑很久(每笔多次用友调用 × 1.1s 限流), 默认 120s WriteTimeout 会半路掐断连接,
 	// 导致后端还在写用友、前端却收到"失败"→用户重发→重复建单。这里单独清掉本请求的写超时。
 	rc := http.NewResponseController(w)
@@ -847,6 +853,19 @@ func (h *DashboardHandler) YonbipExportExecute(w http.ResponseWriter, r *http.Re
 }
 
 // ---------------- 小助手 ----------------
+
+// ybPlanHasUnconverted 计划里是否还有未执行的转换(批次/状态)。
+// phase=out 前用它挡: 有 ConvertSources = 还没转, 直接出会拉到不存在的合格库存。
+func ybPlanHasUnconverted(plans []ybPlan) bool {
+	for _, p := range plans {
+		for _, sh := range p.Shipments {
+			if len(sh.ConvertSources) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func ybResolveOrg(orgID string) string {
 	if strings.TrimSpace(orgID) == "" {

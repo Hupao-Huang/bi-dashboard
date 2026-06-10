@@ -66,8 +66,8 @@ func TestYbPlanExport_CrossOrg(t *testing.T) {
 	o1 := ybOrgPriority[0].ID
 	o2 := ybOrgPriority[1].ID
 	stock := map[string][]yonsuite.StockRow{
-		o1 + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 5, StockStatusDoc: "s0"}},
-		o2 + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B9", AvailableQty: 100, StockStatusDoc: "s0"}},
+		o1 + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 5, StockStatusDoc: "2448706971278246078"}},
+		o2 + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B9", AvailableQty: 100, StockStatusDoc: "2448706971278246078"}},
 	}
 	rows := []ybRow{{ProductCode: "P1", Qty: "30", WarehouseName: "仓A"}}
 	plans := ybPlanExport(ybFakeStock(stock), rows)
@@ -90,7 +90,7 @@ func TestYbPlanExport_CrossOrg(t *testing.T) {
 func TestYbPlanExport_Shortfall(t *testing.T) {
 	org := ybDefaultOrgID
 	stock := map[string][]yonsuite.StockRow{
-		org + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 10, StockStatusDoc: "s0"}},
+		org + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 10, StockStatusDoc: "2448706971278246078"}},
 	}
 	rows := []ybRow{{ProductCode: "P1", Qty: "30", WarehouseName: "仓A"}}
 	plans := ybPlanExport(ybFakeStock(stock), rows)
@@ -103,7 +103,7 @@ func TestYbPlanExport_Shortfall(t *testing.T) {
 func TestYbPlanExport_PoolSharedAcrossRows(t *testing.T) {
 	org := ybDefaultOrgID
 	stock := map[string][]yonsuite.StockRow{
-		org + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 30, StockStatusDoc: "s0"}},
+		org + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 30, StockStatusDoc: "2448706971278246078"}},
 	}
 	rows := []ybRow{
 		{ProductCode: "P1", Qty: "20", TargetBatch: "B1", WarehouseName: "仓A"},
@@ -131,6 +131,131 @@ func TestYbPlanExport_StatusPriority(t *testing.T) {
 	plans := ybPlanExport(ybFakeStock(stock), rows)
 	if len(plans[0].Shipments) == 0 || plans[0].Shipments[0].StockStatusDoc != "2448706971278246078" {
 		t.Fatalf("status priority wrong, first ship: %+v", plans[0].Shipments)
+	}
+}
+
+const (
+	ybTestQualified = "2448706971278246078" // 合格
+	ybTestDefect    = "2448706971278246081" // 不合格
+	ybTestScrap     = "2448706971278246082" // 废品
+)
+
+// 不合格货就在目标批次: 不能直出, 要状态转换成合格(出库一律合格)。
+func TestYbPlanExport_StatusConvert_DefectInTargetBatch(t *testing.T) {
+	org := ybDefaultOrgID
+	stock := map[string][]yonsuite.StockRow{
+		org + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 50, StockStatusDoc: ybTestDefect}},
+	}
+	rows := []ybRow{{ProductCode: "P1", Qty: "20", TargetBatch: "B1", WarehouseName: "仓A"}}
+	sh := ybPlanExport(ybFakeStock(stock), rows)[0].Shipments
+	if len(sh) != 1 || sh[0].ConvertQty != 20 || len(sh[0].ConvertSources) != 1 {
+		t.Fatalf("不合格目标批次应走状态转换(非直出): %+v", sh)
+	}
+	if sh[0].StockStatusDoc != ybQualifiedStatusDoc {
+		t.Fatalf("出库状态应为合格, got %s", sh[0].StockStatusDoc)
+	}
+	if sh[0].ConvertSources[0].StockStatusDoc != ybTestDefect {
+		t.Fatalf("转换来源状态应为不合格, got %s", sh[0].ConvertSources[0].StockStatusDoc)
+	}
+}
+
+// 合格优先: 合格够时直出, 不合格库存不动。
+func TestYbPlanExport_QualifiedFirst_DefectUntouched(t *testing.T) {
+	org := ybDefaultOrgID
+	stock := map[string][]yonsuite.StockRow{
+		org + "|P1": {
+			{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 100, StockStatusDoc: ybTestQualified},
+			{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 100, StockStatusDoc: ybTestDefect},
+		},
+	}
+	rows := []ybRow{{ProductCode: "P1", Qty: "30", TargetBatch: "B1", WarehouseName: "仓A"}}
+	sh := ybPlanExport(ybFakeStock(stock), rows)[0].Shipments
+	if len(sh) != 1 || sh[0].Qty != 30 || len(sh[0].ConvertSources) != 0 {
+		t.Fatalf("合格够时应直出30不转, got %+v", sh)
+	}
+}
+
+// 合格不够: 先直出合格, 再状态转换不合格补齐。
+func TestYbPlanExport_QualifiedThenDefect(t *testing.T) {
+	org := ybDefaultOrgID
+	stock := map[string][]yonsuite.StockRow{
+		org + "|P1": {
+			{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 10, StockStatusDoc: ybTestQualified},
+			{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 100, StockStatusDoc: ybTestDefect},
+		},
+	}
+	rows := []ybRow{{ProductCode: "P1", Qty: "30", TargetBatch: "B1", WarehouseName: "仓A"}}
+	p := ybPlanExport(ybFakeStock(stock), rows)[0]
+	if p.RemainingQty != 0 || len(p.Shipments) != 2 {
+		t.Fatalf("应凑齐(合格10+不合格20), got rem=%d ships=%+v", p.RemainingQty, p.Shipments)
+	}
+	if p.Shipments[0].Qty != 10 || len(p.Shipments[0].ConvertSources) != 0 {
+		t.Fatalf("第一张应直出合格10: %+v", p.Shipments[0])
+	}
+	if p.Shipments[1].Qty != 20 || p.Shipments[1].ConvertSources[0].StockStatusDoc != ybTestDefect {
+		t.Fatalf("第二张应状态转换不合格20: %+v", p.Shipments[1])
+	}
+}
+
+// 档内不合格优先于废品: 两者都够时全用不合格。
+func TestYbPlanExport_DefectBeforeScrap(t *testing.T) {
+	org := ybDefaultOrgID
+	stock := map[string][]yonsuite.StockRow{
+		org + "|P1": {
+			{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 100, StockStatusDoc: ybTestScrap},
+			{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 100, StockStatusDoc: ybTestDefect},
+		},
+	}
+	rows := []ybRow{{ProductCode: "P1", Qty: "30", TargetBatch: "B1", WarehouseName: "仓A"}}
+	sh := ybPlanExport(ybFakeStock(stock), rows)[0].Shipments
+	if len(sh) != 1 || sh[0].ConvertSources[0].StockStatusDoc != ybTestDefect {
+		t.Fatalf("应优先用不合格(非废品), got %+v", sh)
+	}
+}
+
+// 未知状态(非合格/不合格/废品)不消费、不自动转 —— 业务含义不明的库存(冻结/在途/质押)留着算缺口。
+func TestYbPlanExport_UnknownStatus_NotConsumed(t *testing.T) {
+	org := ybDefaultOrgID
+	stock := map[string][]yonsuite.StockRow{
+		org + "|P1": {{WarehouseCode: "W1", WarehouseName: "仓A", ProductCode: "P1", Batchno: "B1", AvailableQty: 100, StockStatusDoc: "9999999999999999999"}}, // 未知状态
+	}
+	rows := []ybRow{{ProductCode: "P1", Qty: "30", TargetBatch: "B1", WarehouseName: "仓A"}}
+	p := ybPlanExport(ybFakeStock(stock), rows)[0]
+	if len(p.Shipments) != 0 || p.RemainingQty != 30 {
+		t.Fatalf("未知状态不该被消费/转换, 应全缺口30: ships=%+v rem=%d", p.Shipments, p.RemainingQty)
+	}
+}
+
+// phase=out 防呆: 计划里还有 ConvertSources(未转) 就该被挡。
+func TestYbPlanHasUnconverted(t *testing.T) {
+	noConv := []ybPlan{{Shipments: []ybShipment{{Qty: 5, ConvertSources: []ybConvertSource{}}}}}
+	if ybPlanHasUnconverted(noConv) {
+		t.Fatal("无转换的计划不该被判为未转")
+	}
+	withConv := []ybPlan{{Shipments: []ybShipment{
+		{Qty: 5, ConvertSources: []ybConvertSource{}},
+		{Qty: 5, ConvertSources: []ybConvertSource{{FromBatch: "B1", Qty: 5}}},
+	}}}
+	if !ybPlanHasUnconverted(withConv) {
+		t.Fatal("有转换的计划应被判为未转, 挡住直接出库")
+	}
+}
+
+// 形态转换单: after 状态固定合格, before 用来源状态; 批次 B1→B2。
+func TestYbBuildConversionBody_StatusToQualified(t *testing.T) {
+	sh := ybShipment{OrgID: ybDefaultOrgID, WarehouseCode: "W1", ProductCode: "P1", StockStatusDoc: ybQualifiedStatusDoc}
+	cs := ybConvertSource{FromBatch: "B1", Qty: 20, StockStatusDoc: ybTestDefect}
+	data := ybBuildConversionBody(sh, "2026-06-10", cs, "B2")["data"].(map[string]interface{})
+	detail := data["morphologyconversiondetail"].([]map[string]interface{})
+	before, after := detail[0], detail[1]
+	if before["stockStatusDoc"] != ybTestDefect {
+		t.Fatalf("before 应为来源不合格, got %v", before["stockStatusDoc"])
+	}
+	if after["stockStatusDoc"] != ybQualifiedStatusDoc {
+		t.Fatalf("after 应为合格, got %v", after["stockStatusDoc"])
+	}
+	if before["batchno"] != "B1" || after["batchno"] != "B2" {
+		t.Fatalf("批次应 B1→B2, got before=%v after=%v", before["batchno"], after["batchno"])
 	}
 }
 
