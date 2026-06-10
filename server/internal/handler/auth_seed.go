@@ -90,6 +90,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "requirement.manage", Name: "需求管理", Type: "action"},
 	{Code: "data:export", Name: "数据导出", Type: "action"},
 	{Code: "profile.hesi_bot:view", Name: "个人中心-合思机器人", Type: "page"},
+	{Code: "system.yonbip:use", Name: "YS工具(批量出库/批次转换,写用友不可逆)", Type: "action"},
 }
 
 var roleSeeds = []roleSeed{
@@ -99,6 +100,7 @@ var roleSeeds = []roleSeed{
 	{Code: "operator", Name: "运营", Description: "查看分配的平台和店铺"},
 	{Code: "finance", Name: "财务", Description: "查看财务与利润数据"},
 	{Code: "supply_chain", Name: "供应链", Description: "查看供应链相关数据"},
+	{Code: "ys_tool", Name: "YS工具操作员", Description: "可用批量出库/批次转换(写用友不可逆)工具"},
 }
 
 var roleDefaultPermissions = map[string][]string{
@@ -146,6 +148,9 @@ var roleDefaultPermissions = map[string][]string{
 	"supply_chain": {
 		"brand:view", "brand.overview:view", "brand.awareness:view", "brand.affinity:view", "brand.binding:view",
 		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view", "supply_chain.qc_alert:view",
+	},
+	"ys_tool": {
+		"system.yonbip:use",
 	},
 }
 
