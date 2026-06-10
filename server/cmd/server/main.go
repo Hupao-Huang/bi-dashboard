@@ -407,6 +407,14 @@ func main() {
 	mux.HandleFunc("/api/douyin-dist/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinDistOps)))
 	mux.HandleFunc("/api/marketing-cost", pageProtected("ecommerce.marketing_cost:view", cache24h(h.GetMarketingCost)))
 	mux.HandleFunc("/api/customer/overview", pageProtected("customer.overview:view", cache24h(h.GetCustomerOverview)))
+	mux.HandleFunc("/api/customer/comments", pageProtected("customer.comment:view", h.CommentList))
+	mux.HandleFunc("/api/customer/comment-options", pageProtected("customer.comment:view", h.CommentOptions))
+	mux.HandleFunc("/api/customer/comments/export", pageProtected("customer.comment:view", h.CommentExport))
+	// 改名/删除: 客服(view)都能做; 恢复改名/恢复删除: 仅管理员(edit)
+	mux.HandleFunc("/api/customer/comments/rename", pageProtected("customer.comment:view", h.CommentRename))
+	mux.HandleFunc("/api/customer/comments/delete", pageProtected("customer.comment:view", h.CommentDelete))
+	mux.HandleFunc("/api/customer/comments/restore", pageProtected("customer.comment:edit", h.CommentRestore))
+	mux.HandleFunc("/api/customer/comments/undelete", pageProtected("customer.comment:edit", h.CommentUndelete))
 	mux.HandleFunc("/api/s-products", pageAnyProtected(cache24h(h.GetSProducts),
 		"ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view",
 		"social.store_dashboard:view", "social.product_dashboard:view",
