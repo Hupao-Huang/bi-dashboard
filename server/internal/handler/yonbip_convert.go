@@ -11,10 +11,15 @@ package handler
 // ybErrMsg/ybAuditOK/ybDecodeData) 与常量。
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"bi-dashboard/internal/yonsuite"
 )
 
 // ybStatusDocName 库存状态 doc → 中文名 (与 yonbip_outbound.go ybStatusPriority 对齐)。
@@ -198,24 +203,51 @@ func (h *DashboardHandler) YonbipConvertStock(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var req struct {
-		OrgID         string `json:"org_id"`
-		ProductCode   string `json:"product_code"`
-		WarehouseCode string `json:"warehouse_code"`
-		Batchno       string `json:"batchno"`
-		StatusDoc     string `json:"status_doc"`
+		OrgID          string   `json:"org_id"`
+		ProductCode    string   `json:"product_code"`
+		WarehouseCode  string   `json:"warehouse_code"`  // 兼容旧单仓库
+		WarehouseCodes []string `json:"warehouse_codes"` // 多选仓库
+		Batchno        string   `json:"batchno"`
+		StatusDoc      string   `json:"status_doc"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "请求解析失败: "+err.Error())
 		return
 	}
-	if strings.TrimSpace(req.ProductCode) == "" && strings.TrimSpace(req.WarehouseCode) == "" {
-		writeError(w, http.StatusBadRequest, "请至少填货品编码或仓库编码再查，避免全量拉取")
+	// 汇总仓库(多选优先, 兼容单个 warehouse_code), 去空去重
+	whSeen := map[string]bool{}
+	warehouses := make([]string, 0, len(req.WarehouseCodes)+1)
+	for _, wh := range append(req.WarehouseCodes, req.WarehouseCode) {
+		wh = strings.TrimSpace(wh)
+		if wh != "" && !whSeen[wh] {
+			whSeen[wh] = true
+			warehouses = append(warehouses, wh)
+		}
+	}
+	if strings.TrimSpace(req.ProductCode) == "" && len(warehouses) == 0 {
+		writeError(w, http.StatusBadRequest, "请至少填货品或仓库再查，避免全量拉取")
 		return
 	}
-	rows, err := h.YS.QueryStockByCondition(ybResolveOrg(req.OrgID), req.ProductCode, req.WarehouseCode, req.Batchno, req.StatusDoc)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "查用友库存失败: "+err.Error())
-		return
+	org := ybResolveOrg(req.OrgID)
+	// 仓库多选: 逐仓库精确查再合并(用友只回该仓库行, 量小; 转换按现货行自己的 warehouse_code 走,
+	// 多仓库混合不会串单)。没选仓库则不限仓库查一次(靠货品过滤)。
+	rows := make([]yonsuite.StockRow, 0)
+	if len(warehouses) == 0 {
+		r0, err := h.YS.QueryStockByCondition(org, req.ProductCode, "", req.Batchno, req.StatusDoc)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "查用友库存失败: "+err.Error())
+			return
+		}
+		rows = r0
+	} else {
+		for _, wh := range warehouses {
+			r0, err := h.YS.QueryStockByCondition(org, req.ProductCode, wh, req.Batchno, req.StatusDoc)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, "查仓库 "+wh+" 库存失败: "+err.Error())
+				return
+			}
+			rows = append(rows, r0...)
+		}
 	}
 	writeJSON(w, map[string]interface{}{"rows": rows})
 }
@@ -258,4 +290,73 @@ func (h *DashboardHandler) YonbipConvertExecute(w http.ResponseWriter, r *http.R
 	}
 	results := h.ybExecuteConvert(ybFmtDate(req.Vouchdate), req.Items)
 	writeJSON(w, map[string]interface{}{"results": results})
+}
+
+// ybOrgInWhitelist 校验组织是否在批次/状态转换允许的白名单内 (守 ybOrgPriority 3 家,
+// 与前端 YS_ORGS 对齐; 防止前端传任意 org 把本地 ys_stock 全量拉出来)。
+func ybOrgInWhitelist(orgID string) bool {
+	for _, o := range ybOrgPriority {
+		if o.ID == orgID {
+			return true
+		}
+	}
+	return false
+}
+
+// ybOption 下拉选项 (编码 + 名字)。
+type ybOption struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+// ybQueryStockOptions 从本地 ys_stock 按组织取某列(仓库/货品)的去重选项。
+// codeCol/nameCol 是固定的内部列名(非用户输入), 用 fmt 拼; org 走占位符防注入。
+// 同一编码可能对应多条名字, 用 MAX 收敛成一行, 保证前端下拉 value 唯一不撞 key。
+func ybQueryStockOptions(ctx context.Context, db *sql.DB, orgID, codeCol, nameCol string) ([]ybOption, error) {
+	q := fmt.Sprintf(
+		"SELECT %s AS code, MAX(%s) AS name FROM ys_stock WHERE org=? AND %s<>'' GROUP BY %s ORDER BY %s",
+		codeCol, nameCol, codeCol, codeCol, codeCol)
+	rows, err := db.QueryContext(ctx, q, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	opts := make([]ybOption, 0, 128)
+	for rows.Next() {
+		var o ybOption
+		if err := rows.Scan(&o.Code, &o.Name); err != nil {
+			return nil, err
+		}
+		opts = append(opts, o)
+	}
+	return opts, rows.Err()
+}
+
+// YonbipConvertOptions POST /api/yonbip/convert-options — 给批次/状态转换工具的货品、仓库下拉提供选项。
+// 数据取本地 ys_stock (用友每日同步, T+1, 编码与用友一致), 不调用友实时接口、不占限流。
+// 只服务 ybOrgPriority 白名单内的 3 个组织。
+func (h *DashboardHandler) YonbipConvertOptions(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OrgID string `json:"org_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求解析失败: "+err.Error())
+		return
+	}
+	orgID := ybResolveOrg(req.OrgID)
+	if !ybOrgInWhitelist(orgID) {
+		writeError(w, http.StatusBadRequest, "组织不在允许范围内")
+		return
+	}
+	warehouses, err := ybQueryStockOptions(r.Context(), h.DB, orgID, "warehouse_code", "warehouse_name")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "查仓库清单失败: "+err.Error())
+		return
+	}
+	products, err := ybQueryStockOptions(r.Context(), h.DB, orgID, "product_code", "product_name")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "查货品清单失败: "+err.Error())
+		return
+	}
+	writeJSON(w, map[string]interface{}{"warehouses": warehouses, "products": products})
 }
