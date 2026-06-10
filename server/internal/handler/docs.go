@@ -96,6 +96,8 @@ func (h *DashboardHandler) GetRPAMapping(w http.ResponseWriter, r *http.Request)
 		{"小红书", "op_xhs_cs_analysis_daily", "客服数据_客服分析", "json", "import-customer"},
 		{"小红书", "op_xhs_cs_trend_daily", "从客服分析json解析", "json", "import-customer"},
 		{"小红书", "op_xhs_cs_excellent_trend_daily", "从客服分析json解析", "json", "import-customer"},
+		// 评论数据（全平台店铺后台评价，明细表）
+		{"全平台(客服)", "op_customer_comment", "店铺后台评价抓取_评论数据", "xlsx", "import-comment"},
 		// 飞瓜
 		{"飞瓜", "fg_creator_daily", "飞瓜_{抖音/快手/小红书}_达人数据", "xlsx", "import-feigua"},
 		{"飞瓜", "fg_creator_roster", "飞瓜_{抖音/快手/小红书}_达人归属", "xlsx", "import-feigua"},
