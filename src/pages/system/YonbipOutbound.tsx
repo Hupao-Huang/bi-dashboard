@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Card, Input, DatePicker, Button, Table, Tag, Space, Alert, Typography, message, Modal, Tabs, Row, Col, Progress,
 } from 'antd';
@@ -43,6 +43,7 @@ interface YbPlan {
   fulfilled_qty: number;
   remaining_qty: number;
   shipments: YbShipment[];
+  bill_short?: boolean; // 所在单号缺货 → 整单不出
 }
 interface YbConvLog { from_batch: string; qty: number; doc_code: string; audit_ok: boolean; skipped?: boolean; uncertain?: boolean; error?: string; }
 interface YbShipLog {
@@ -54,6 +55,7 @@ interface YbShipLog {
   audit_ok: boolean;
   out_skipped?: boolean; // 防重: 同一张出库单10分钟内已提交过, 本次跳过
   uncertain?: boolean; // 出库单保存时网络中断没拿到应答, 单据可能已建成, 重做前必须核对
+  bill_short?: boolean; // 所在单据缺货, 整单不出
   error?: string;
 }
 interface YbResult {
@@ -290,8 +292,9 @@ const YonbipOutboundPage: React.FC = () => {
           const shipUncertain = (s: YbShipLog) => !!s.uncertain || s.conversions.some((c) => c.uncertain);
           const uncertain = ships.filter(shipUncertain).length;
           const skip = ships.filter((s) => s.out_skipped).length;
-          const fail = ships.filter((s) => s.error && !s.out_skipped && !shipUncertain(s)).length;
-          if (uncertain === 0 && fail === 0) {
+          const short = ships.filter((s) => s.bill_short).length; // 缺货整单未出, 不算失败
+          const fail = ships.filter((s) => s.error && !s.out_skipped && !s.bill_short && !shipUncertain(s)).length;
+          if (uncertain === 0 && fail === 0 && short === 0) {
             // 出库全成功: 清空计划 + 录入草稿(避免这批残留给下一次/同机下一人), 转换结果留着可看
             setPlans(null);
             setFlat('');
@@ -305,8 +308,11 @@ const YonbipOutboundPage: React.FC = () => {
               content: '这几笔保存时网络中断、没拿到用友应答，出库单可能已经建成。请先去用友核对（下方标红“可能已建单”的就是），确认没有再重做，否则会重复出库！',
               okText: '我去核对',
             });
-          } else {
+          } else if (fail > 0) {
             message.warning(`出库完成，${fail} 笔失败（已保留计划，可修正后再点②；已成功的会自动跳过防重）`);
+          } else {
+            // 只有缺货单据没出, 齐全的已出
+            message.warning(`齐全单据已出库；有缺货单据整单未出（已保留计划，补齐库存后重新【生成 / 刷新计划】）`);
           }
         }
       }
@@ -399,7 +405,12 @@ const YonbipOutboundPage: React.FC = () => {
       },
     },
     { title: '已凑', dataIndex: 'fulfilled_qty', key: 'ful', width: 70, render: (v, p) => <Text type={p.remaining_qty === 0 ? 'success' : 'warning'}>{v}</Text> },
-    { title: '缺口', dataIndex: 'remaining_qty', key: 'rem', width: 70, render: (v) => v > 0 ? <Text type="danger">{v}</Text> : <Text type="success">0</Text> },
+    {
+      title: '缺口/出库', dataIndex: 'remaining_qty', key: 'rem', width: 110,
+      render: (v, p) => p.bill_short
+        ? <Text type="danger"><b>整单缺货不出</b></Text>
+        : (v > 0 ? <Text type="danger">缺 {v}</Text> : <Text type="success">可出</Text>),
+    },
   ];
 
   // ①批次转换结果: 只看每个 shipment 的 conversions
@@ -435,13 +446,15 @@ const YonbipOutboundPage: React.FC = () => {
         <div>
           {r.shipments.map((s, i) => (
             <div key={i}>
-              {s.uncertain
-                ? <Tag color="red"><b>⚠ 可能已建单，去用友核对后再重做</b> 出{s.qty}</Tag>
-                : s.out_skipped
-                  ? <Tag color="orange">已跳过（10分钟内已提交{s.out_doc_code ? `，单号 ${s.out_doc_code}` : ''}）出{s.qty}</Tag>
-                  : s.error
-                    ? <Tag color="red">失败: {s.error}</Tag>
-                    : <Tag color={s.audit_ok ? 'green' : 'gold'}>{s.out_doc_code || '已建单'} {s.audit_ok ? '已审核' : '未审核'} 出{s.qty}</Tag>}
+              {s.bill_short
+                ? <Tag color="red">整单缺货，未出库</Tag>
+                : s.uncertain
+                  ? <Tag color="red"><b>⚠ 可能已建单，去用友核对后再重做</b> 出{s.qty}</Tag>
+                  : s.out_skipped
+                    ? <Tag color="orange">已跳过（10分钟内已提交{s.out_doc_code ? `，单号 ${s.out_doc_code}` : ''}）出{s.qty}</Tag>
+                    : s.error
+                      ? <Tag color="red">失败: {s.error}</Tag>
+                      : <Tag color={s.audit_ok ? 'green' : 'gold'}>{s.out_doc_code || '已建单'} {s.audit_ok ? '已审核' : '未审核'} 出{s.qty}</Tag>}
             </div>
           ))}
         </div>
@@ -450,7 +463,21 @@ const YonbipOutboundPage: React.FC = () => {
   ];
 
   // 计划里还有"批次转换"行=目标批次没凑齐→锁住出库, 逼先转换+复查。
-  const hasConvert = !!plans && plans.some((p) => p.shipments.some((s) => (s.convert_sources?.length ?? 0) > 0));
+  // 缺货单整单不出, 它的转换不算"待转换"(否则永远锁住②); 只看齐全单还有没有要转的。
+  const hasConvert = !!plans && plans.some((p) => !p.bill_short && p.shipments.some((s) => (s.convert_sources?.length ?? 0) > 0));
+
+  // 单据级缺货汇总(一眼看缺不缺, 不用下拉翻): 按单号聚合缺货量。
+  const shortBills = useMemo(() => {
+    if (!plans) return [];
+    const m = new Map<string, number>();
+    plans.forEach((p) => {
+      if (p.bill_short) {
+        const bn = p.row.bill_no || '(无单号)';
+        m.set(bn, (m.get(bn) ?? 0) + p.remaining_qty);
+      }
+    });
+    return Array.from(m.entries()).map(([bill, short]) => ({ bill, short }));
+  }, [plans]);
 
   return (
     <div style={{ padding: 16 }}>
@@ -537,6 +564,30 @@ const YonbipOutboundPage: React.FC = () => {
           <Button danger disabled={!plans || !hasConvert || executing} loading={executing} onClick={handleExecuteConvert}>① 执行转换（批次/状态）</Button>
           <Button danger disabled={!plans || hasConvert || executing} loading={executing} onClick={handleExecuteOut}>② 执行出库</Button>
         </Space>
+
+        {/* 缺货汇总: 生成计划后一眼看缺不缺, 不用下拉一行行翻 */}
+        {plans && shortBills.length > 0 && (
+          <Alert
+            style={{ marginTop: 12 }}
+            type="error"
+            showIcon
+            message={`🔴 ${shortBills.length} 个单据缺货，整单不出（缺一行，整张单都不出）`}
+            description={
+              <div>
+                {shortBills.map((s) => (
+                  <Tag color="red" key={s.bill} style={{ marginBottom: 4 }}>{s.bill}（缺 {s.short}）</Tag>
+                ))}
+                <div style={{ marginTop: 4 }}>
+                  <Text type="secondary">这些单据本次不会转换、也不会出库；补齐库存后重新【生成 / 刷新计划】即可。</Text>
+                </div>
+              </div>
+            }
+          />
+        )}
+        {plans && shortBills.length === 0 && (
+          <Alert style={{ marginTop: 12 }} type="success" showIcon message="✅ 全部单据齐全，无缺货" />
+        )}
+
         {plans && (
           <Alert
             style={{ marginTop: 12 }}
@@ -544,7 +595,7 @@ const YonbipOutboundPage: React.FC = () => {
             showIcon
             message={hasConvert
               ? '目标批次/状态还差货：先点①执行转换（橙色=批次转换，红色=不合格/废品转合格）→ 再点【生成 / 刷新计划】复查 → 转换行消失后，②出库才会解锁'
-              : '目标批次都够、且都是合格品：可以点②执行出库'}
+              : '齐全单据的目标批次都够、且都是合格品：可以点②执行出库'}
           />
         )}
 
@@ -578,6 +629,7 @@ const YonbipOutboundPage: React.FC = () => {
             dataSource={plans}
             pagination={false}
             scroll={{ y: 420 }}
+            onRow={(p) => (p.bill_short ? { style: { background: '#fff1f0' } } : {})}
           />
         )}
 

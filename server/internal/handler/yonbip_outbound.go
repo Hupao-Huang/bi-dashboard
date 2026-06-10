@@ -162,6 +162,7 @@ type ybPlan struct {
 	FulfilledQty int          `json:"fulfilled_qty"`
 	RemainingQty int          `json:"remaining_qty"`
 	Shipments    []ybShipment `json:"shipments"`
+	BillShort    bool         `json:"bill_short"` // 所在吉客云单号有任一行缺货 → 整单不出(连转换也不做)
 }
 
 // ---------------- 拆单算法 (纯逻辑, 注入库存查询) ----------------
@@ -332,6 +333,21 @@ func ybPlanExport(queryStock func(orgID, productCode string) []yonsuite.StockRow
 			Shipments: shipments,
 		})
 	}
+
+	// 单据级缺货: 同一吉客云单号下任一行有缺口 → 整号所有行标 BillShort(整单不出, 全有或全无)。
+	// 空单号视作各自独立(不会因别的空单号行牵连)。
+	shortBill := map[string]bool{}
+	for _, p := range plans {
+		if p.RemainingQty > 0 && strings.TrimSpace(p.Row.BillNo) != "" {
+			shortBill[p.Row.BillNo] = true
+		}
+	}
+	for i := range plans {
+		bn := strings.TrimSpace(plans[i].Row.BillNo)
+		if (bn != "" && shortBill[bn]) || (bn == "" && plans[i].RemainingQty > 0) {
+			plans[i].BillShort = true
+		}
+	}
 	return plans
 }
 
@@ -357,8 +373,9 @@ type ybShipLog struct {
 	AuditOk       bool        `json:"audit_ok"`
 	OutSkipped    bool        `json:"out_skipped,omitempty"` // 防重: 同一张出库单10分钟内已提交过, 本次跳过
 	Uncertain     bool        `json:"uncertain,omitempty"`   // 出库单保存传输层失败: 单据可能已建成, 重做前必须核对
+	BillShort     bool        `json:"bill_short,omitempty"`  // 所在单据缺货, 整单不出(转换也没做)
 	Error         string      `json:"error,omitempty"`
-	skipOut       bool        // 内部: 批次转换失败则跳过出库
+	skipOut       bool        // 内部: 批次转换失败 or 单据缺货 → 跳过出库
 }
 
 type ybIdx struct{ pi, si int }
@@ -376,6 +393,9 @@ func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plan
 	done, total := 0, 0
 	if doConvert {
 		for pi := range plans {
+			if plans[pi].BillShort {
+				continue // 缺货单整单不出, 转换不做, 不计进度
+			}
 			tb := strings.TrimSpace(plans[pi].Row.TargetBatch)
 			for si := range plans[pi].Shipments {
 				for _, cs := range plans[pi].Shipments[si].ConvertSources {
@@ -394,16 +414,26 @@ func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plan
 	for pi := range plans {
 		for si := range plans[pi].Shipments {
 			sh := plans[pi].Shipments[si]
-			logs[ybIdx{pi, si}] = &ybShipLog{
+			lg := &ybShipLog{
 				OrgName: sh.OrgName, WarehouseName: sh.WarehouseName, Qty: sh.Qty,
 				Conversions: []ybConvLog{},
 			}
+			// 单据缺货: 整单不出, 连转换都不做 → 预置 skipOut + 标记, Phase1/Phase2 都跳过它。
+			if plans[pi].BillShort {
+				lg.BillShort = true
+				lg.skipOut = true
+				lg.Error = "所在单据缺货，整单不出（转换也未做）"
+			}
+			logs[ybIdx{pi, si}] = lg
 		}
 	}
 
 	if doConvert {
-		// ---- 阶段 1: 批次转换 ----
+		// ---- 阶段 1: 批次/状态转换 ----
 		for pi := range plans {
+			if plans[pi].BillShort {
+				continue // 缺货单整单不出 → 转换也不做(已确认: 不白改库存)
+			}
 			targetBatch := strings.TrimSpace(plans[pi].Row.TargetBatch)
 			for si := range plans[pi].Shipments {
 				sh := plans[pi].Shipments[si]
@@ -897,6 +927,9 @@ func (h *DashboardHandler) YonbipExportExecute(w http.ResponseWriter, r *http.Re
 // phase=out 前用它挡: 有 ConvertSources = 还没转, 直接出会拉到不存在的合格库存。
 func ybPlanHasUnconverted(plans []ybPlan) bool {
 	for _, p := range plans {
+		if p.BillShort {
+			continue // 缺货单整单不出, 不转换, 不算待转换(否则永远挡住②出库)
+		}
 		for _, sh := range p.Shipments {
 			if len(sh.ConvertSources) > 0 {
 				return true
