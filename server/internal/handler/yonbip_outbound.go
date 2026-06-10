@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -849,14 +850,28 @@ func (h *DashboardHandler) YonbipExportPlan(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "未解析到任何出库行")
 		return
 	}
+	// 生成计划同样跑很久(每个编码 × 3 组织 × 1.1s 用友限流, 50 个编码 ≈ 3-4 分钟),
+	// 不清写超时的话超过 120s 算完也发不回去, 前端永远转圈最后"网络错误"。与 execute 同款处理。
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
+	// 用友查询失败必须显式报错, 不能吞掉当"缺货"——否则有货的单会被误标整单缺货跳过。
+	var ysErr error
 	queryStock := func(orgID, productCode string) []yonsuite.StockRow {
+		if ysErr != nil {
+			return nil
+		}
 		srs, err := h.YS.QueryStockByCondition(orgID, productCode, "", "", "")
 		if err != nil {
+			ysErr = fmt.Errorf("查用友库存失败（编码 %s）: %w", productCode, err)
 			return nil
 		}
 		return srs
 	}
 	plans := ybPlanExport(queryStock, req.Rows)
+	if ysErr != nil {
+		writeError(w, http.StatusBadGateway, ysErr.Error())
+		return
+	}
 	writeJSON(w, map[string]interface{}{"plans": plans})
 }
 
