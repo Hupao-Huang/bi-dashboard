@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Card, Table, Tabs, Typography, Empty, Modal, Tag, Statistic, Row, Col, Tooltip, Spin } from 'antd';
+import { Button, Card, Input, Table, Tabs, Typography, Empty, Modal, Tag, Statistic, Row, Col, Tooltip, Spin, message } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import DateFilter from '../../components/DateFilter';
 import Chart from '../../components/Chart';
 import { API_BASE } from '../../config';
+import { useAuth } from '../../auth/AuthContext';
 
 const { Text } = Typography;
 
@@ -22,6 +24,11 @@ interface ScoreItem {
   score3: number | null;
   score3Extra: number | null;
   target: number | null;
+  score1Raw?: string;
+  score2Raw?: string;
+  score3Raw?: string;
+  targetRaw?: string;
+  edited?: boolean; // 有人工修正
 }
 
 interface MetricDef {
@@ -82,6 +89,52 @@ const ServiceScore: React.FC = () => {
   const [trendShop, setTrendShop] = useState('');
   const [trendList, setTrendList] = useState<ScoreItem[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
+
+  // 修改弹窗 (点日期格子修正分数, 存对照表不动 RPA 原始)
+  const { hasPermission } = useAuth();
+  const isAdmin = hasPermission('user.manage');
+  const [editItem, setEditItem] = useState<ScoreItem | null>(null);
+  const [editVals, setEditVals] = useState<{ s1: string; s2: string; s3: string }>({ s1: '', s2: '', s3: '' });
+  const [editSaving, setEditSaving] = useState(false);
+
+  const openEdit = (it: ScoreItem) => {
+    setEditItem(it);
+    setEditVals({ s1: it.score1Raw || '', s2: it.score2Raw || '', s3: it.score3Raw || '' });
+  };
+
+  const saveEdit = async () => {
+    if (!editItem) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/customer/service-scores/edit`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: editItem.date, platform: editItem.platform, shop: editItem.shopName, score1Raw: editVals.s1, score2Raw: editVals.s2, score3Raw: editVals.s3 }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.code !== 200) throw new Error(json.msg || `HTTP ${res.status}`);
+      message.success('已保存修正 (原始数据保留, 可由管理员恢复)');
+      setEditItem(null);
+      fetchScores();
+    } catch (e) { message.error('保存失败: ' + (e instanceof Error ? e.message : String(e))); }
+    setEditSaving(false);
+  };
+
+  const restoreEdit = async () => {
+    if (!editItem) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/customer/service-scores/restore`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: editItem.date, platform: editItem.platform, shop: editItem.shopName }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.code !== 200) throw new Error(json.msg || `HTTP ${res.status}`);
+      message.success('已恢复为原始数据');
+      setEditItem(null);
+      fetchScores();
+    } catch (e) { message.error('恢复失败: ' + (e instanceof Error ? e.message : String(e))); }
+    setEditSaving(false);
+  };
 
   const fetchScores = useCallback(async () => {
     setLoading(true);
@@ -188,14 +241,20 @@ const ServiceScore: React.FC = () => {
             title: m.label,
             width: m.label.length >= 5 ? 96 : 76,
             onHeaderCell: () => ({ style: bg ? { background: bg, fontWeight: isFocus ? 600 : undefined } : {} }),
-            onCell: () => ({ style: bg ? { background: bg } : {} }),
+            onCell: (row: typeof shopRows[number]) => ({
+              style: { ...(bg ? { background: bg } : {}), cursor: row.byDate.get(d) ? 'pointer' : undefined },
+              onClick: () => { const it = row.byDate.get(d); if (it) openEdit(it); },
+            }),
             render: (_: unknown, row: typeof shopRows[number]) => {
               const it = row.byDate.get(d);
               const v = it ? it[m.key] : null;
               const below = m.isTarget && it && v !== null && it.target !== null && v < it.target;
               const text = fmtVal(v, m.pct);
-              if (below) return <Text type="danger" strong={isFocus}>{text}</Text>;
-              return isFocus ? <Text strong>{text}</Text> : text;
+              let node: React.ReactNode;
+              if (below) node = <Text type="danger" strong={isFocus}>{text}</Text>;
+              else if (it?.edited) node = <Text type="warning" strong={isFocus}>{text}</Text>;
+              else node = isFocus ? <Text strong>{text}</Text> : text;
+              return it ? <Tooltip title={it.edited ? '已人工修正 · 点击可再改' : '点击修改'}>{node}</Tooltip> : node;
             },
           };
         }),
@@ -262,7 +321,16 @@ const ServiceScore: React.FC = () => {
   return (
     <div>
       <Card className="bi-filter-card" size="small" style={{ marginBottom: 12 }}>
-        <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
+          <Button
+            icon={<DownloadOutlined />}
+            style={{ marginLeft: 'auto' }}
+            onClick={() => window.open(`${API_BASE}/api/customer/service-scores/export?date_from=${startDate}&date_to=${endDate}&platform=${encodeURIComponent(activePlatform)}`, '_blank')}
+          >
+            导出
+          </Button>
+        </div>
       </Card>
 
       <Card size="small" style={{ marginBottom: 12 }}>
@@ -308,6 +376,40 @@ const ServiceScore: React.FC = () => {
           />
         )}
       </Card>
+
+      {/* 修改弹窗: 修正值存对照表, RPA 重导不覆盖; 管理员可恢复原始 */}
+      <Modal
+        title={editItem ? `修改服务分 · ${editItem.shopName} · ${editItem.date}` : ''}
+        open={!!editItem}
+        onCancel={() => setEditItem(null)}
+        confirmLoading={editSaving}
+        onOk={saveEdit}
+        okText="保存修正"
+        destroyOnHidden
+        footer={undefined}
+      >
+        {editItem && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {metricDefs(editItem.platform).filter(m => !m.key.endsWith('Extra')).map((m, i) => {
+              const key = (['s1', 's2', 's3'] as const)[i];
+              return (
+                <div key={m.key}>
+                  <div style={{ marginBottom: 4, fontSize: 13, color: '#64748b' }}>
+                    {m.label}{editItem.platform === '拼多多' && i !== 1 ? ' (斜杠双值原样填, 如 4.4/2.6)' : ''}
+                  </div>
+                  <Input value={editVals[key]} onChange={e => setEditVals(v => ({ ...v, [key]: e.target.value }))} />
+                </div>
+              );
+            })}
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              修正只改看板展示, 不动每天自动同步的原始数据; 自动同步也不会覆盖你的修正。
+            </Text>
+            {editItem.edited && isAdmin && (
+              <Button danger loading={editSaving} onClick={restoreEdit}>恢复为原始数据 (管理员)</Button>
+            )}
+          </div>
+        )}
+      </Modal>
 
       <Modal
         title={`${trendShop} — 近30天走势`}
