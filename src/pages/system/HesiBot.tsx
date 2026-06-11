@@ -525,7 +525,8 @@ const HesiBot: React.FC = () => {
         .hesi-row-pending-approve:hover td { background-color: #e2e8f0 !important; }
       `}</style>
 
-      <HesiBotRules />
+      {/* 判定规则是樊雪娇日常报销单专属, 只在查看她的待审批时展示 (跑哥 6/11) */}
+      {((selectedApprover || '') + (queryName || '') + (realName || '')).includes('樊雪娇') && <HesiBotRules />}
 
       {/* 管理员视角切换 */}
       {isAdmin && (
