@@ -1233,7 +1233,8 @@ func (h *DashboardHandler) ruleCorpPaidDuplicate(raw map[string]interface{}, flo
 		return nil, nil
 	}
 
-	// 申请单下的企业支付车票订单 (火车/飞机才有车次; 退票=公司没掏成钱, 不算)
+	// 申请单下的企业支付车票订单 (火车/飞机才有车次; 退票/退订=公司没掏成钱, 不算)
+	// 状态实查 (2026-06-11): 确认订单/出票/已完成/改签/退订/退票 六种
 	type corpOrder struct {
 		tripNo, traveler, reqCode string
 		fare                      float64 // 票面价 (= 发票金额口径); 拿不到时退回企业支付金额
@@ -1242,7 +1243,7 @@ func (h *DashboardHandler) ruleCorpPaidDuplicate(raw map[string]interface{}, flo
 	ph := strings.TrimRight(strings.Repeat("?,", len(codes)), ",")
 	rows, err := h.DB.Query(`SELECT IFNULL(trip_no,''), IFNULL(traveler,''), IFNULL(req_code,''),
 		IFNULL(corp_pay,0), IFNULL(raw_json,'') FROM hesi_travel_order
-		WHERE req_code IN (`+ph+`) AND pay_method='企业支付' AND trip_no<>'' AND order_state<>'退票'`, codes...)
+		WHERE req_code IN (`+ph+`) AND pay_method='企业支付' AND trip_no<>'' AND order_state NOT IN ('退票','退订')`, codes...)
 	if err != nil {
 		log.Printf("[hesi-audit] 规则16 查商旅订单失败 flow=%s: %v", flowID, err)
 		return nil, nil
@@ -1267,6 +1268,9 @@ func (h *DashboardHandler) ruleCorpPaidDuplicate(raw map[string]interface{}, flo
 		if o.tripNo != "" {
 			orders = append(orders, &o)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[hesi-audit] 规则16 读商旅订单中断 flow=%s: %v", flowID, err)
 	}
 	rows.Close()
 	if len(orders) == 0 {
@@ -1311,10 +1315,12 @@ func (h *DashboardHandler) ruleCorpPaidDuplicate(raw map[string]interface{}, flo
 		if trainNo == "" || passenger == "" {
 			continue
 		}
+		// OCR 的乘车人可能带空格 ("郑 华坤"), 去空格再比
+		passenger = strings.ReplaceAll(passenger, " ", "")
 		// 找还没对上号的同车次+同乘车人企业支付订单, 票价一致的优先
 		var hit *corpOrder
 		for _, o := range orders {
-			if o.used || o.tripNo != trainNo || o.traveler != passenger {
+			if o.used || o.tripNo != trainNo || strings.ReplaceAll(o.traveler, " ", "") != passenger {
 				continue
 			}
 			if math.Abs(o.fare-amt) <= 0.005 {

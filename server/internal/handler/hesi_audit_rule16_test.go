@@ -49,8 +49,9 @@ func r16Raw() map[string]interface{} {
 
 func TestRule16ExactFareMatchRejects(t *testing.T) {
 	// 公司企业支付 G7581 票面价119 (企业付122含服务费), 发票同车次同人 ¥119 → 驳回
+	// 发票乘车人故意带 OCR 空格, 验证去空格比对
 	orders := r16OrderRows().AddRow("G7581", "郑华坤", "S26001802", 122.00, `{"票面价":{"standard":"119.00"}}`)
-	inv := r16InvRows().AddRow("D-train", "G7581", "郑华坤", 119.00)
+	inv := r16InvRows().AddRow("D-train", "G7581", "郑 华坤", 119.00)
 	h, done := mkR16Handler(t, orders, inv)
 	defer done()
 	rej, warn := h.ruleCorpPaidDuplicate(r16Raw(), "F16")
