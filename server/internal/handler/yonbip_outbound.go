@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -167,6 +168,17 @@ type ybPlan struct {
 }
 
 // ---------------- 拆单算法 (纯逻辑, 注入库存查询) ----------------
+
+// ybIndexStockByProduct 把一个组织的全量现存量按货品编码索引 (批量拆单用,
+// 替代逐编码调用友; 编码 TrimSpace 防制单粘贴带空格查不到)。
+func ybIndexStockByProduct(rows []yonsuite.StockRow) map[string][]yonsuite.StockRow {
+	idx := make(map[string][]yonsuite.StockRow, len(rows))
+	for _, r := range rows {
+		code := strings.TrimSpace(r.ProductCode)
+		idx[code] = append(idx[code], r)
+	}
+	return idx
+}
 
 // ybPlanExport 跨组织拆单。queryStock(oid, productCode) 返回该组织该货品的现存量行。
 // 多行明细共享一个库存池, 避免同仓同批次被重复占用。
@@ -855,28 +867,46 @@ func (h *DashboardHandler) YonbipExportPlan(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "未解析到任何出库行")
 		return
 	}
-	// 生成计划同样跑很久(每个编码 × 3 组织 × 1.1s 用友限流, 50 个编码 ≈ 3-4 分钟),
-	// 不清写超时的话超过 120s 算完也发不回去, 前端永远转圈最后"网络错误"。与 execute 同款处理。
+	// 保险: 极端大批量下算完也要能发回去。与 execute 同款清写超时。
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
-	// 用友查询失败必须显式报错, 不能吞掉当"缺货"——否则有货的单会被误标整单缺货跳过。
+	// 批量化 (2026-06-11): 每个组织只拉一次全量现存量, 内存按货品索引, 替代原来的
+	// 编码×组织 逐个查询 (50 编码 = 150 次 × 1.1s 限流 ≈ 3-4 分钟 → 现在 ≤3 次 ≈ 几秒)。
+	// 实测依据 (probe-ys-stock-full): 3 组织全量共 ~3900 行 / 约 5s, 接口不截断,
+	// 全量结果与按编码单查逐行一致。组织是懒加载: 第一家就凑齐货的批次只拉 1 次。
+	// 用友查询失败必须显式报错(自动重试 1 次), 不能吞掉当"缺货"——否则有货的单会被误标整单缺货。
+	t0 := time.Now()
+	ysCalls := 0
 	var ysErr error
+	orgStock := map[string]map[string][]yonsuite.StockRow{} // orgID → productCode → 现存量行
 	queryStock := func(orgID, productCode string) []yonsuite.StockRow {
 		if ysErr != nil {
 			return nil
 		}
-		srs, err := h.YS.QueryStockByCondition(orgID, productCode, "", "", "")
-		if err != nil {
-			ysErr = fmt.Errorf("查用友库存失败（编码 %s）: %w", productCode, err)
-			return nil
+		idx, ok := orgStock[orgID]
+		if !ok {
+			rows, err := h.YS.QueryStockByCondition(orgID, "", "", "", "")
+			ysCalls++
+			if err != nil {
+				// 网络抖动占多数, 重试一次 (限流器自动隔开间距)
+				rows, err = h.YS.QueryStockByCondition(orgID, "", "", "", "")
+				ysCalls++
+			}
+			if err != nil {
+				ysErr = fmt.Errorf("查用友库存失败（组织 %s，已自动重试 1 次）: %w", orgID, err)
+				return nil
+			}
+			idx = ybIndexStockByProduct(rows)
+			orgStock[orgID] = idx
 		}
-		return srs
+		return idx[strings.TrimSpace(productCode)]
 	}
 	plans := ybPlanExport(queryStock, req.Rows)
 	if ysErr != nil {
 		writeError(w, http.StatusBadGateway, ysErr.Error())
 		return
 	}
+	log.Printf("[yonbip] export-plan: %d 行, 用友 %d 次调用, 耗时 %.1fs", len(req.Rows), ysCalls, time.Since(t0).Seconds())
 	writeJSON(w, map[string]interface{}{"plans": plans})
 }
 
