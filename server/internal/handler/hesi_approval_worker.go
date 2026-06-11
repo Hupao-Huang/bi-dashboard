@@ -139,6 +139,15 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 		return
 	}
 
+	// 2.5 快照各单"审批前"的环节+审批人 — 合思批量审批是异步受理(应答 residue=1≠办完),
+	//     后面靠"状态跟快照不一样了"来判断真正流转完成 (B26003490 案例: 问早了会把旧状态写回去)
+	preStates := make(map[string][2]string, len(batch))
+	for _, it := range batch {
+		var st, ap sql.NullString
+		_ = h.DB.QueryRow(`SELECT IFNULL(current_stage_name,''), IFNULL(current_approver_id,'') FROM hesi_flow WHERE flow_id=?`, it.FlowID).Scan(&st, &ap)
+		preStates[it.FlowID] = [2]string{st.String, ap.String}
+	}
+
 	// 3. 调合思 batch API: [flowId1,flowId2,...] 用方括号包逗号分隔
 	flowIDs := make([]string, len(batch))
 	for i, it := range batch {
@@ -218,17 +227,60 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 	log.Printf("[hesi-worker] 批成功 单数=%d total=%d success=%d residue=%d",
 		len(batch), parsed.Value.Total, parsed.Value.Success, parsed.Value.Residue)
 
-	// 6. 批级通知: 被代审的审批人 (跑哥替樊雪娇审 → 通知樊雪娇, 一批一条汇总不刷屏)
-	h.notifyDelegatedApprover(batch, action)
-
-	// 7. 每单后处理: 刷新 hesi_flow + 钉钉通知操作人 + 钉钉通知下一环节审批人
+	// 6. 每单立即处理: 操作人回执 + 审计日志 (这两个只依赖"合思已受理")
 	for _, it := range batch {
-		stage, nextOps := h.refreshFlowAfterApproval(it.FlowID, action, token)
 		h.notifyApprovalDone(it, action)
-		if action == "agree" {
-			h.notifyNextApprover(it, stage, nextOps)
-		}
 		h.writeAuditLogForApproval(it, action)
+	}
+
+	// 7. 异步等合思真正办完(状态相对快照流转了)再: 刷新本地状态 + 通知被代审人 + 通知下一环节
+	//    合思受理后一般几秒~几十秒办完; 2 分钟没等到就放弃通知, 状态交给每小时同步纠正
+	go h.confirmAdvanceAndNotify(batch, action, token, preStates)
+}
+
+// confirmAdvanceAndNotify 轮询合思 approveStates 等单据真正流转, 确认后刷新本地 + 发通知。
+// 不能在审批应答后立刻问: 合思批量审批是异步的(residue=1=受理), 立刻问拿到的还是旧环节,
+// 会把旧状态写回本地(单子赖在列表里) + 给错的人发"已流转到您"。
+func (h *DashboardHandler) confirmAdvanceAndNotify(batch []approvalQueueItem, action, token string, preStates map[string][2]string) {
+	delays := []time.Duration{5 * time.Second, 10 * time.Second, 15 * time.Second, 20 * time.Second, 30 * time.Second, 30 * time.Second}
+	pending := make(map[string]approvalQueueItem, len(batch))
+	for _, it := range batch {
+		pending[it.FlowID] = it
+	}
+	advanced := make([]approvalQueueItem, 0, len(batch))
+
+	for _, d := range delays {
+		if len(pending) == 0 {
+			break
+		}
+		time.Sleep(d)
+		for fid, it := range pending {
+			stage, ops, ok := h.fetchApproveState(fid, token)
+			if !ok {
+				continue
+			}
+			pre := preStates[fid]
+			opID := ""
+			if len(ops) > 0 {
+				opID = ops[0].ID
+			}
+			if stage == pre[0] && opID == pre[1] {
+				continue // 合思还没办完, 下一轮再问
+			}
+			h.writeFlowStateAfterApproval(fid, action, stage, ops)
+			if action == "agree" {
+				h.notifyNextApprover(it, stage, ops)
+			}
+			advanced = append(advanced, it)
+			delete(pending, fid)
+		}
+	}
+
+	if len(advanced) > 0 {
+		h.notifyDelegatedApprover(advanced, action)
+	}
+	for fid := range pending {
+		log.Printf("[hesi-worker] flow=%s 等合思流转超时(~110s), 不发通知, 状态交每小时同步纠正", fid)
 	}
 }
 
@@ -300,15 +352,15 @@ func (h *DashboardHandler) failBatch(batch []approvalQueueItem, errMsg string) {
 type hesiNextOperator struct {
 	ID   string // 合思员工 ID (corp:innerId)
 	Name string
+	Code string
 }
 
-// refreshFlowAfterApproval 审批成功后调合思 approveStates 拉实时状态并 UPDATE hesi_flow
-// 返回下一环节名 + 操作人列表 (给 notifyNextApprover 用; 拉取/解析失败返回空)
-func (h *DashboardHandler) refreshFlowAfterApproval(flowID, action, token string) (string, []hesiNextOperator) {
+// fetchApproveState 调合思 approveStates 查单据当前环节+操作人 (只读, 不写库)
+func (h *DashboardHandler) fetchApproveState(flowID, token string) (string, []hesiNextOperator, bool) {
 	url := fmt.Sprintf("%s/api/openapi/v2/approveStates/%%5B%s%%5D?accessToken=%s", hesiAPIBase, flowID, token)
 	resp, err := hesiHTTP.Get(url)
 	if err != nil {
-		return "", nil
+		return "", nil, false
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
@@ -325,22 +377,31 @@ func (h *DashboardHandler) refreshFlowAfterApproval(flowID, action, token string
 	}
 	if err := json.Unmarshal(data, &rs); err != nil || len(rs.Items) == 0 {
 		if err != nil {
-			log.Printf("[hesi-worker] refreshFlow 解析失败 flow=%s: %v", flowID, err)
+			log.Printf("[hesi-worker] approveStates 解析失败 flow=%s: %v", flowID, err)
 		}
-		return "", nil
+		return "", nil, false
 	}
 	it := rs.Items[0]
+	ops := make([]hesiNextOperator, 0, len(it.Operators))
+	for _, op := range it.Operators {
+		ops = append(ops, hesiNextOperator{ID: op.ID, Name: op.Name, Code: op.Code})
+	}
+	return it.StageName, ops, true
+}
+
+// writeFlowStateAfterApproval 把确认流转后的环节/操作人写回本地 hesi_flow
+func (h *DashboardHandler) writeFlowStateAfterApproval(flowID, action, stageName string, ops []hesiNextOperator) {
 	var opID, opName, opCode string
-	if len(it.Operators) > 0 {
-		opID = it.Operators[0].ID
-		opName = it.Operators[0].Name
-		opCode = it.Operators[0].Code
-		for j := 1; j < len(it.Operators); j++ {
-			opName += "+" + it.Operators[j].Name
+	if len(ops) > 0 {
+		opID = ops[0].ID
+		opName = ops[0].Name
+		opCode = ops[0].Code
+		for j := 1; j < len(ops); j++ {
+			opName += "+" + ops[j].Name
 		}
 	}
 	newState := "approving"
-	if len(it.Operators) == 0 {
+	if len(ops) == 0 {
 		if action == "agree" {
 			newState = "paying"
 		} else {
@@ -350,16 +411,10 @@ func (h *DashboardHandler) refreshFlowAfterApproval(flowID, action, token string
 	// v1.71.0: 刷新 hesi_flow 失败 → BI 看板状态陈旧, 下次 sync-hesi 会修正, 只 log
 	if _, err := h.DB.Exec(
 		`UPDATE hesi_flow SET state=?, current_stage_name=?, current_approver_id=?, current_approver_name=?, current_approver_code=? WHERE flow_id=?`,
-		newState, nullableStr(it.StageName), nullableStr(opID), nullableStr(opName), nullableStr(opCode), flowID,
+		newState, nullableStr(stageName), nullableStr(opID), nullableStr(opName), nullableStr(opCode), flowID,
 	); err != nil {
-		log.Printf("[hesi-worker] refreshFlow UPDATE 失败 flow=%s: %v (BI 状态陈旧, 等下次 sync-hesi)", flowID, err)
+		log.Printf("[hesi-worker] 写流转状态失败 flow=%s: %v (BI 状态陈旧, 等下次 sync-hesi)", flowID, err)
 	}
-
-	ops := make([]hesiNextOperator, 0, len(it.Operators))
-	for _, op := range it.Operators {
-		ops = append(ops, hesiNextOperator{ID: op.ID, Name: op.Name})
-	}
-	return it.StageName, ops
 }
 
 // notifyNextApprover 审批同意后钉钉单聊通知下一环节操作人 (含出纳支付)
