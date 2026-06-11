@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Card, Input, InputNumber, Select, DatePicker, Button, Table, Tag, Space, Alert, Typography, message, Modal,
+  Card, Input, InputNumber, Select, DatePicker, Button, Table, Tag, Space, Alert, Typography, message, Modal, Checkbox,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { Dayjs } from 'dayjs';
@@ -97,6 +97,7 @@ const BatchConvertPage: React.FC = () => {
   const [vouchdate, setVouchdate] = useState<Dayjs>(dayjs());
   const [executing, setExecuting] = useState(false);
   const [results, setResults] = useState<ConvResult[] | null>(null);
+  const [force, setForce] = useState(false); // 强制重发: 跳过10分钟防重。一次性开关, 执行完自动弹回
 
   // 转换弹窗
   const [convOpen, setConvOpen] = useState(false);
@@ -244,7 +245,7 @@ const BatchConvertPage: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ vouchdate: vouchdate.format('YYYY-MM-DD'), items }),
+        body: JSON.stringify({ vouchdate: vouchdate.format('YYYY-MM-DD'), items, force }),
       });
       const json = await res.json();
       if (res.ok && json.data?.results) {
@@ -286,6 +287,7 @@ const BatchConvertPage: React.FC = () => {
       });
     } finally {
       setExecuting(false);
+      setForce(false); // 一次性: 不管成败都弹回, 防止常开变成没有防重
     }
   };
 
@@ -300,9 +302,10 @@ const BatchConvertPage: React.FC = () => {
           <p>即将在用友提交 <b>{items.length}</b> 笔转换并自动审核：批次转换 {nBatch} 笔、状态转换 {nStatus} 笔。</p>
           <p>单据日期：<b>{vouchdate.format('YYYY-MM-DD')}</b></p>
           <p><Text type="danger">会真改库存，不可撤回。确认执行？</Text></p>
+          {force && <p><Text type="danger"><b>⚠ 已勾选强制重发：10 分钟内提交过的也会再建一遍，用友里会出现第二份转换单。确定每一笔都要重复建？</b></Text></p>}
         </div>
       ),
-      okText: '确认执行',
+      okText: force ? '强制重发（再建一遍）' : '确认执行',
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: doExecute,
@@ -431,6 +434,9 @@ const BatchConvertPage: React.FC = () => {
               <DatePicker value={vouchdate} onChange={(d) => d && setVouchdate(d)} allowClear={false} />
               <Text type="secondary">跨月做账选当月最后一天，别用今天</Text>
               <Button danger loading={executing} onClick={handleExecute}>全部执行</Button>
+              <Checkbox checked={force} disabled={executing} onChange={(e) => setForce(e.target.checked)}>
+                <Text type={force ? 'danger' : 'secondary'}>强制重发（忽略 10 分钟防重，已建过的再建一遍；本次执行后自动关闭）</Text>
+              </Checkbox>
             </Space>
           </>
         ) : (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Card, Input, DatePicker, Button, Table, Tag, Space, Alert, Typography, message, Modal, Tabs, Row, Col, Progress,
+  Card, Input, DatePicker, Button, Table, Tag, Space, Alert, Typography, message, Modal, Tabs, Row, Col, Progress, Checkbox,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { Dayjs } from 'dayjs';
@@ -144,6 +144,7 @@ const YonbipOutboundPage: React.FC = () => {
   const [results, setResults] = useState<YbResult[] | null>((draft0.results as YbResult[]) ?? null); // ②出库结果
   const [convResults, setConvResults] = useState<YbResult[] | null>((draft0.convResults as YbResult[]) ?? null); // ①批次转换结果
   const [planning, setPlanning] = useState(false);
+  const [force, setForce] = useState(false); // 强制重发: 跳过10分钟防重。一次性开关, 执行完自动弹回
   const [executing, setExecuting] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null); // 执行实时进度(SSE)
   const [mode, setMode] = useState<'flat' | 'grouped'>((draft0.mode as 'flat' | 'grouped') || 'flat');
@@ -227,6 +228,7 @@ const YonbipOutboundPage: React.FC = () => {
           plans,
           group_by_bill: true,
           phase,
+          force, // 强制重发: 跳过10分钟防重(勾选确认过才为 true)
         }),
       });
       if (!res.ok || !res.body) {
@@ -333,6 +335,7 @@ const YonbipOutboundPage: React.FC = () => {
     } finally {
       setExecuting(false);
       setProgress(null);
+      setForce(false); // 一次性: 不管成败都弹回, 防止常开变成没有防重
     }
   };
 
@@ -348,9 +351,10 @@ const YonbipOutboundPage: React.FC = () => {
           <p>第①步：在用友提交 <b>{convCount}</b> 笔转换 + 自动审核（把别的批次转成目标批次、把不合格/废品转成合格）。<b>本步不出库。</b></p>
           <p>单据日期：<b>{vouchdate.format('YYYY-MM-DD')}</b></p>
           <p><Text type="danger">会真改库存（含废品/不合格转合格），不可撤回。转换后请点【生成 / 刷新计划】复查再出库。</Text></p>
+          {force && <p><Text type="danger"><b>⚠ 已勾选强制重发：10 分钟内提交过的也会再建一遍，用友里会出现第二份转换单。确定每一笔都要重复建？</b></Text></p>}
         </div>
       ),
-      okText: '确认转换', cancelText: '取消', okButtonProps: { danger: true },
+      okText: force ? '强制重发（再建一遍）' : '确认转换', cancelText: '取消', okButtonProps: { danger: true },
       onOk: () => { void doExecute('convert'); }, // 不 return promise: 确认框立即关, 交给进度弹窗
     });
   };
@@ -368,9 +372,10 @@ const YonbipOutboundPage: React.FC = () => {
           <p>单据日期：<b>{vouchdate.format('YYYY-MM-DD')}</b></p>
           {shortfall > 0 && <p><Text type="warning">注意：有 {shortfall} 行存在缺口，只会出能凑齐的部分。</Text></p>}
           <p><Text type="danger">会真扣库存，不可撤回。确认出库？</Text></p>
+          {force && <p><Text type="danger"><b>⚠ 已勾选强制重发：10 分钟内提交过的出库单也会再建一遍，库存会再扣一次。确定每一张都要重复建？</b></Text></p>}
         </div>
       ),
-      okText: '确认出库', cancelText: '取消', okButtonProps: { danger: true },
+      okText: force ? '强制重发（再建一遍）' : '确认出库', cancelText: '取消', okButtonProps: { danger: true },
       onOk: () => { void doExecute('out'); }, // 不 return promise: 确认框立即关, 交给进度弹窗
     });
   };
@@ -569,6 +574,9 @@ const YonbipOutboundPage: React.FC = () => {
           <Button type="primary" loading={planning} onClick={handlePlan}>生成 / 刷新计划（复查）</Button>
           <Button danger disabled={!plans || !hasConvert || executing} loading={executing} onClick={handleExecuteConvert}>① 执行转换（批次/状态）</Button>
           <Button danger disabled={!plans || hasConvert || executing} loading={executing} onClick={handleExecuteOut}>② 执行出库</Button>
+          <Checkbox checked={force} disabled={executing} onChange={(e) => setForce(e.target.checked)}>
+            <Text type={force ? 'danger' : 'secondary'}>强制重发（忽略 10 分钟防重，已建过的再建一遍；本次执行后自动关闭）</Text>
+          </Checkbox>
         </Space>
 
         {/* 缺货汇总: 生成计划后一眼看缺不缺, 不用下拉一行行翻 */}

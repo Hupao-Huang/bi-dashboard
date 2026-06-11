@@ -162,7 +162,8 @@ func ybConvFingerprint(it ybConvItem, vouchdate string) string {
 
 // ybExecuteConvert 逐条建转换单 + 自动审核 (写真用友, 不可逆)。
 // ctx: 客户端断开(超时/关页)即停手, 不再往用友写; 防重: 同一笔10分钟内已提交过则跳过。
-func (h *DashboardHandler) ybExecuteConvert(ctx context.Context, vouchdate string, items []ybConvItem) []ybConvResult {
+// force: 强制重发(前端勾选确认), 跳过防重检查仍正常落流水。
+func (h *DashboardHandler) ybExecuteConvert(ctx context.Context, vouchdate string, items []ybConvItem, force bool) []ybConvResult {
 	results := make([]ybConvResult, 0, len(items))
 	h.ybEnsureSubmitLog()
 	for _, it := range items {
@@ -182,14 +183,16 @@ func (h *DashboardHandler) ybExecuteConvert(ctx context.Context, vouchdate strin
 			continue
 		}
 
-		// 防重: 同一笔转换在防重窗口内已提交过 → 跳过, 不重复建单。
+		// 防重: 同一笔转换在防重窗口内已提交过 → 跳过, 不重复建单。force=强制重发时不查直接建。
 		fp := ybConvFingerprint(it, vouchdate)
-		if dup, prevDoc := h.ybRecentSubmit(fp); dup {
-			res.Skipped = true
-			res.DocCode = prevDoc
-			res.Error = "10分钟内已提交过，已自动跳过防止重复建单"
-			results = append(results, res)
-			continue
+		if !force {
+			if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+				res.Skipped = true
+				res.DocCode = prevDoc
+				res.Error = "10分钟内已提交过，已自动跳过防止重复建单"
+				results = append(results, res)
+				continue
+			}
 		}
 
 		body := ybBuildMorphConvBody(it, vouchdate)
@@ -300,6 +303,7 @@ func (h *DashboardHandler) YonbipConvertExecute(w http.ResponseWriter, r *http.R
 	var req struct {
 		Vouchdate string       `json:"vouchdate"`
 		Items     []ybConvItem `json:"items"`
+		Force     bool         `json:"force"` // 强制重发: 跳过10分钟防重(前端勾选确认才会带 true)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "请求解析失败: "+err.Error())
@@ -331,7 +335,7 @@ func (h *DashboardHandler) YonbipConvertExecute(w http.ResponseWriter, r *http.R
 	// 导致后端还在写用友、前端却收到"失败"→用户重发→重复建单。这里单独清掉本请求的写超时。
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
-	results := h.ybExecuteConvert(r.Context(), ybFmtDate(req.Vouchdate), req.Items)
+	results := h.ybExecuteConvert(r.Context(), ybFmtDate(req.Vouchdate), req.Items, req.Force)
 	writeJSON(w, map[string]interface{}{"results": results})
 }
 
