@@ -4,8 +4,31 @@ import (
 	"context"
 	"testing"
 
+	"bi-dashboard/internal/yonsuite"
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+// 批量化前提: 全量现存量按编码索引后, 查询语义必须与逐编码单查一致 (含空格容错/不存在编码)。
+func TestYbIndexStockByProduct(t *testing.T) {
+	rows := []yonsuite.StockRow{
+		{ProductCode: "P1", Batchno: "B1", AvailableQty: 10},
+		{ProductCode: " P1 ", Batchno: "B2", AvailableQty: 5}, // 编码带空格也归到 P1
+		{ProductCode: "P2", Batchno: "B1", AvailableQty: 3},
+	}
+	idx := ybIndexStockByProduct(rows)
+	if len(idx["P1"]) != 2 {
+		t.Fatalf("P1 应有 2 行(含空格归一), got %d", len(idx["P1"]))
+	}
+	if idx["P1"][0].Batchno != "B1" || idx["P1"][1].Batchno != "B2" {
+		t.Fatalf("P1 行序应保持原响应顺序, got %+v", idx["P1"])
+	}
+	if len(idx["P2"]) != 1 || idx["P2"][0].AvailableQty != 3 {
+		t.Fatalf("P2 索引错误: %+v", idx["P2"])
+	}
+	if rows := idx["不存在"]; rows != nil {
+		t.Fatalf("不存在的编码应返回 nil(语义=无库存), got %+v", rows)
+	}
+}
 
 // 防重指纹必须: 同一笔(同字段)→同指纹(重发能命中跳过); 任一关键字段变→指纹变(不误挡新业务)。
 func TestYbConvFingerprint_StableAndSensitive(t *testing.T) {

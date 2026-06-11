@@ -185,11 +185,8 @@ const YonbipOutboundPage: React.FC = () => {
     setPlanning(true);
     setResults(null);
     setPlans(null);
-    // 后端逐个编码 × 3 组织查用友库存, 每次调用受 1.1s 限流 → 量大时是分钟级, 给个预估别让人干等
-    const distinctCodes = new Set(rows.map((r) => r.product_code)).size;
-    const estSec = Math.ceil(distinctCodes * 3 * 1.4);
-    const estText = estSec >= 90 ? `约 ${Math.ceil(estSec / 60)} 分钟` : `约 ${Math.max(estSec, 5)} 秒`;
-    message.open({ key: 'yb-plan', type: 'loading', content: `正在查用友库存拆单（${distinctCodes} 个编码，预计${estText}），请别关页面…`, duration: 0 });
+    // 后端按组织批量拉全量库存(≤3 次调用), 通常几秒出结果
+    message.open({ key: 'yb-plan', type: 'loading', content: '正在查用友库存拆单（通常几秒），请别关页面…', duration: 0 });
     try {
       const res = await fetch(`${API_BASE}/api/yonbip/export-plan`, {
         method: 'POST',
