@@ -89,8 +89,9 @@ const HesiBot: React.FC = () => {
   // 异步审批队列
   type QueueItem = { id: number; flowId: string; flowCode: string; action: string; status: string; errorMsg?: string; createdAt: string; finishedAt?: string };
   const [activeQueue, setActiveQueue] = useState<QueueItem[]>([]);
-  // P1 乐观更新: 跑哥点完"通过/驳回"立即标该单为"已提交, 等生效", 不必等 worker 65s + 轮询 30s 后才看到反馈
-  const [optimisticApproved, setOptimisticApproved] = useState<Set<string>>(new Set());
+  // P1 乐观更新: 跑哥点完"通过/驳回"立即标该单为"已提交, 等生效" (flowId → 提交时间戳)
+  // 解除时机: 该单从后端列表消失(合思流转确认完成) 或 超 3 分钟兜底(防失败单永久卡"已提交")
+  const [optimisticApproved, setOptimisticApproved] = useState<Map<string, number>>(new Map());
   // 详情 Modal (内容渲染交给共享组件 HesiFlowDetailModal)
   const [detailModal, setDetailModal] = useState<{ visible: boolean; flowId: string }>({ visible: false, flowId: '' });
 
@@ -109,8 +110,17 @@ const HesiBot: React.FC = () => {
         setRealName(json.data.realName || '');
         setQueryName(json.data.queryName || '');
         setIsAdmin(!!json.data.isAdmin);
-        setItems(json.data.items || []);
+        const fetched: PendingItem[] = json.data.items || [];
+        setItems(fetched);
         setWarning(json.data.warning || '');
+        // 单子已从后端列表消失 = 合思流转确认完成 → 解除乐观标记 (顺带停掉加速轮询)
+        setOptimisticApproved(prev => {
+          if (prev.size === 0) return prev;
+          const present = new Set(fetched.map(i => i.flowId));
+          const out = new Map<string, number>();
+          prev.forEach((ts, fid) => { if (present.has(fid)) out.set(fid, ts); });
+          return out.size === prev.size ? prev : out;
+        });
       } else {
         message.error(json.msg || '加载失败');
       }
@@ -141,13 +151,16 @@ const HesiBot: React.FC = () => {
       if (json.code === 200 && json.data) {
         const next: QueueItem[] = json.data.active || [];
         setActiveQueue(next);
-        // P1 配套清理: activeQueue 已不含该 flowId 说明 worker 跑完了, 清掉 optimistic 残留
-        // 让 fetchPending 拿回的真实数据接管 (审批成功该单会从列表消失, 失败则恢复"审批"按钮)
+        // 乐观标记兜底清理: 队列跑完后合思还要异步流转几秒~2分钟(后端确认后单子才从列表消失),
+        // 这期间保留"已提交"; 超 3 分钟还没消失(大概率失败)恢复"审批"按钮可重试
         setOptimisticApproved(prev => {
           if (prev.size === 0) return prev;
           const stillActive = new Set(next.map(q => q.flowId));
-          const out = new Set<string>();
-          prev.forEach(fid => { if (stillActive.has(fid)) out.add(fid); });
+          const now = Date.now();
+          const out = new Map<string, number>();
+          prev.forEach((ts, fid) => {
+            if (stillActive.has(fid) || now - ts < 180000) out.set(fid, ts);
+          });
           return out.size === prev.size ? prev : out;
         });
       }
@@ -238,8 +251,8 @@ const HesiBot: React.FC = () => {
       // P1 乐观更新: 立即标该单"已提交", 不必等 worker + 轮询
       const submittedFlowId = approveTarget.flowId;
       setOptimisticApproved(prev => {
-        const next = new Set(prev);
-        next.add(submittedFlowId);
+        const next = new Map(prev);
+        next.set(submittedFlowId, Date.now());
         return next;
       });
       setApproveTarget(null);
