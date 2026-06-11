@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"strconv"
@@ -229,6 +230,11 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		warnings = append(warnings, warn...)
 	}
 
+	// 规则 14: 健康证及体检 — 金额 ≤100 且 发票开票 ≤6 个月才通过 (跑哥 2026-06-11)
+	if rej := h.ruleHealthExam(raw, flowID); len(rej) > 0 {
+		rejectReasons = append(rejectReasons, rej...)
+	}
+
 	// 优先级: reject > manual > agree
 	if len(rejectReasons) > 0 {
 		all := rejectReasons
@@ -439,6 +445,9 @@ var subsidyFeeTypes = map[string]string{
 
 // 私车公用 fee_type (规则 12-1 自驾报销)
 const driveFeeTypeID = "ID01Fr2mX8KP2T"
+
+// 健康证及体检 fee_type (规则 14, 合思 feeTypes API 2026-06-11 实查, 无子类)
+const healthExamFeeTypeID = "ID01KTruvX23pl"
 
 // ruleRequiredFields 规则 13: 必填字段校验
 // 13-① 备注 (description) — 跑哥说"选填", 不审
@@ -854,6 +863,10 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 			if iv.date == 0 {
 				continue
 			}
+			// 健康证及体检明细不走 3 个月通用线 (规则 14 单独给 6 个月)
+			if detailFeeTypeMap[iv.detailID] == healthExamFeeTypeID {
+				continue
+			}
 			diff := submitDate - iv.date
 			no := detailNoMap[iv.detailID]
 			if diff > 3*month {
@@ -876,6 +889,105 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 	}
 
 	return rejects, warnings
+}
+
+// ruleHealthExam 规则 14: 健康证及体检 (跑哥 2026-06-11)
+// 触发: detail.feeTypeId = 健康证及体检
+// 判定: ① 明细金额 ≤ ¥100  ② 发票开票时间距单据提交 ≤ 6 个月 (本类型不走规则 8-4 的 3 个月通用线)
+// 两条都满足通过, 否则建议驳回。无票场景由规则 10 兜底 (体检不在豁免清单)。
+func (h *DashboardHandler) ruleHealthExam(raw map[string]interface{}, flowID string) []string {
+	details, _ := raw["details"].([]interface{})
+	type hit struct {
+		id     string
+		no     int
+		amount float64
+	}
+	var hits []hit
+	for _, d := range details {
+		dm, _ := d.(map[string]interface{})
+		if dm == nil {
+			continue
+		}
+		if ft, _ := dm["feeTypeId"].(string); ft != healthExamFeeTypeID {
+			continue
+		}
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		if form == nil {
+			continue
+		}
+		did, _ := form["detailId"].(string)
+		no := 0
+		if n, ok := form["detailNo"].(float64); ok {
+			no = int(n)
+		}
+		var amt float64
+		if a, ok := form["amount"].(map[string]interface{}); ok {
+			if s, ok := a["standard"].(string); ok {
+				amt, _ = strconv.ParseFloat(s, 64)
+			}
+		}
+		hits = append(hits, hit{did, no, amt})
+	}
+	if len(hits) == 0 {
+		return nil
+	}
+
+	var rejects []string
+	for _, ht := range hits {
+		// 金额解析失败不静默放行 (沿用规则 5 二审定的"偏严"先例)
+		if ht.amount <= 0 {
+			rejects = append(rejects, fmt.Sprintf("明细#%d 健康证及体检金额无法识别 (规则 14)", ht.no))
+			continue
+		}
+		// 跑哥规则: ≤100 通过, 100.01 起驳回 (不留容差)
+		if ht.amount > 100 {
+			rejects = append(rejects, fmt.Sprintf("明细#%d 健康证及体检 ¥%.2f > 标准 ¥100 (规则 14)", ht.no, ht.amount))
+		}
+	}
+
+	// 发票开票时间 ≤ 6 个月 (距单据提交)
+	submitDate := int64(0)
+	if v, ok := raw["submitDate"].(float64); ok {
+		submitDate = int64(v)
+	}
+	if submitDate > 0 && flowID != "" {
+		idSet := map[string]int{}
+		for _, ht := range hits {
+			if ht.id != "" {
+				idSet[ht.id] = ht.no
+			}
+		}
+		if len(idSet) > 0 {
+			rows, err := h.DB.Query(`SELECT IFNULL(detail_id,''), IFNULL(invoice_date,0) FROM hesi_flow_invoice WHERE flow_id=?`, flowID)
+			if err != nil {
+				// 查库失败 → 6 个月检查跳过, 但留日志别静默 (今天的主题: 静默失败要吵出来)
+				log.Printf("[hesi-audit] 规则14 查发票失败 flow=%s: %v (开票时限检查跳过)", flowID, err)
+			}
+			if err == nil {
+				defer rows.Close()
+				const month = int64(30 * 24 * 3600 * 1000)
+				var stale []int
+				for rows.Next() {
+					var did string
+					var date int64
+					if rows.Scan(&did, &date) != nil {
+						continue
+					}
+					no, ok := idSet[did]
+					if !ok || date == 0 {
+						continue
+					}
+					if submitDate-date > 6*month {
+						stale = append(stale, no)
+					}
+				}
+				if len(stale) > 0 {
+					rejects = append(rejects, fmt.Sprintf("明细 %v 健康证及体检发票开票时间 > 6 个月 (规则 14)", uniqueInts(stale)))
+				}
+			}
+		}
+	}
+	return rejects
 }
 
 // uniqueInts 去重 + 升序排, 用于规则 8 提示里的"明细 [1 2 5]"
