@@ -268,9 +268,7 @@ func (h *DashboardHandler) confirmAdvanceAndNotify(batch []approvalQueueItem, ac
 				continue // 合思还没办完, 下一轮再问
 			}
 			h.writeFlowStateAfterApproval(fid, action, stage, ops)
-			if action == "agree" {
-				h.notifyNextApprover(it, stage, ops)
-			}
+			// 跑哥 6/11 拍板: 只通知被代审人(如樊雪娇), 下游环节审批人不打扰
 			advanced = append(advanced, it)
 			delete(pending, fid)
 		}
@@ -417,45 +415,7 @@ func (h *DashboardHandler) writeFlowStateAfterApproval(flowID, action, stageName
 	}
 }
 
-// notifyNextApprover 审批同意后钉钉单聊通知下一环节操作人 (含出纳支付)
-// 合思员工 → 钉钉 staffId 走花名册桥接表 hesi_employee_contract_company (优先 ID 精确, 兜底姓名)
-// 桥接不到/未配 Notifier 只 log 不阻塞 — 通知是锦上添花, 不是审批主流程
-func (h *DashboardHandler) notifyNextApprover(item approvalQueueItem, stageName string, ops []hesiNextOperator) {
-	if h.Notifier == nil || len(ops) == 0 {
-		return
-	}
-	seen := map[string]bool{}
-	staffIDs := []string{}
-	for _, op := range ops {
-		var dingID string
-		err := h.DB.QueryRow(
-			`SELECT dingtalk_userid FROM hesi_employee_contract_company
-			 WHERE hesi_staff_id = ? AND dingtalk_userid <> '' LIMIT 1`, op.ID).Scan(&dingID)
-		if err == sql.ErrNoRows && op.Name != "" {
-			err = h.DB.QueryRow(
-				`SELECT dingtalk_userid FROM hesi_employee_contract_company
-				 WHERE hesi_name = ? AND dingtalk_userid <> '' LIMIT 1`, op.Name).Scan(&dingID)
-		}
-		if err != nil || dingID == "" {
-			log.Printf("[hesi-worker] 下一审批人 %s(%s) 未桥接钉钉, 跳过通知 flow=%s", op.Name, op.ID, item.FlowID)
-			continue
-		}
-		if !seen[dingID] {
-			seen[dingID] = true
-			staffIDs = append(staffIDs, dingID)
-		}
-	}
-	if len(staffIDs) == 0 {
-		return
-	}
-	stageLabel := ""
-	if stageName != "" {
-		stageLabel = fmt.Sprintf(" (当前环节: %s)", stageName)
-	}
-	msg := fmt.Sprintf("【合思审批】单据 %s (%s) 已流转到您, 请及时处理%s", item.FlowCode, item.FlowTitle, stageLabel)
-	h.Notifier.SendTextToStaffIDsAsync(staffIDs, msg)
-	log.Printf("[hesi-worker] 已通知下一环节操作人 flow=%s stage=%s 人数=%d", item.FlowID, stageName, len(staffIDs))
-}
+// (原 notifyNextApprover "下一环节通知" 已删 — 跑哥 6/11 拍板只通知被代审人, 不打扰下游)
 
 // notifyApprovalDone 钉钉通知操作人
 func (h *DashboardHandler) notifyApprovalDone(item approvalQueueItem, action string) {
