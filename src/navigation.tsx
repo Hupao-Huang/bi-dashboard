@@ -37,6 +37,7 @@ import {
   RobotOutlined,
   TeamOutlined,
   TrademarkOutlined,
+  TrophyOutlined,
   UserOutlined,
   VideoCameraOutlined,
   WarningOutlined,
@@ -177,6 +178,7 @@ export const menuDefinitions: MenuDefinition[] = [
     children: [
       { key: '/customer/overview', icon: <DashboardOutlined />, label: '客服总览', permission: 'customer.overview:view' },
       { key: '/customer/comment', icon: <FileTextOutlined />, label: '评论数据', permission: 'customer.comment:view' },
+      { key: '/customer/service-score', icon: <TrophyOutlined />, label: '服务分管理', permission: 'customer.service_score:view' },
     ],
   },
   {
@@ -276,6 +278,7 @@ export const pageTitleMap: Record<string, string> = {
   '/customer': '客服部门',
   '/customer/overview': '客服总览',
   '/customer/comment': '评论数据',
+  '/customer/service-score': '服务分管理',
   '/supply-chain': '供应链管理',
   '/supply-chain/plan-dashboard': '计划看板',
   '/supply-chain/purchase-plan': '采购计划',
@@ -385,6 +388,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/finance/expense-control', permission: 'finance.expense:view' },
   { path: '/customer/overview', permission: 'customer.overview:view' },
   { path: '/customer/comment', permission: 'customer.comment:view' },
+  { path: '/customer/service-score', permission: 'customer.service_score:view' },
   { path: '/supply-chain/plan-dashboard', permission: 'supply_chain.plan_dashboard:view' },
   { path: '/supply-chain/purchase-plan', permission: 'supply_chain.plan_dashboard:view' },
   { path: '/supply-chain/inventory-warning', permission: 'supply_chain.inventory_warning:view' },
