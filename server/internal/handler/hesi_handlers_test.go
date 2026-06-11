@@ -59,28 +59,33 @@ func TestGetHesiFlowDetailHappyPath(t *testing.T) {
 	}
 	defer db.Close()
 
-	// 1. 主表
+	// 1. 主表 (v1.74.9 加 owner_department, v1.74.5 加 specification_id, 共 21 列)
+	// owner/dept/submitter/spec 给 NULL 跳过合思字典反查 (LookupStaffName 等会打真实 API)
 	mock.ExpectQuery(`FROM hesi_flow WHERE flow_id=\?`).
 		WillReturnRows(sqlmock.NewRows([]string{"flow_id", "code", "title", "form_type", "state",
-			"owner", "dept", "submitter", "pay", "expense", "loan",
-			"ct", "ut", "sd", "pd", "fet", "vno", "vstatus", "raw"}).
+			"owner", "dept", "owner_dept", "submitter", "pay", "expense", "loan",
+			"ct", "ut", "sd", "pd", "fet", "vno", "vstatus", "spec", "raw"}).
 			AddRow("F001", "EX-001", "差旅报销", "expense", "paid",
-				"u001", "d001", "u002", 100.0, 100.0, 0.0,
+				nil, nil, nil, nil, 100.0, 100.0, 0.0,
 				1234567890000, 1234567890000, 1234567890000, 1234567890000, 1234567890000,
-				"V001", "approved", "{}"))
+				"V001", "approved", nil, "{}"))
 
-	// 2. details
+	// 2. details (v1.74.5 加 specification_id + raw_json, 共 10 列; fee_type NULL 跳字典)
 	mock.ExpectQuery(`FROM hesi_flow_detail WHERE flow_id=\?`).
-		WillReturnRows(sqlmock.NewRows([]string{"detail_id", "detail_no", "fee_type", "amount", "fee_date", "ic", "is", "reasons"}).
-			AddRow("D001", 1, "T001", 100.0, 1234567890000, 1, "exist", "出差").
-			AddRow("D002", 2, "T002", 50.0, 1234567890000, 0, "noExist", ""))
+		WillReturnRows(sqlmock.NewRows([]string{"detail_id", "detail_no", "fee_type", "amount", "fee_date", "ic", "is", "reasons", "spec", "raw"}).
+			AddRow("D001", 1, nil, 100.0, 1234567890000, 1, "exist", "出差", nil, []byte("{}")).
+			AddRow("D002", 2, nil, 50.0, 1234567890000, 0, "noExist", "", nil, []byte("{}")))
 
-	// 3. invoices
-	mock.ExpectQuery(`FROM hesi_flow_invoice WHERE flow_id=\?`).
+	// 3. invoices (v1.76.4 加火车票 7 列 + LEFT JOIN detail 4 列, 共 26 列)
+	mock.ExpectQuery(`FROM hesi_flow_invoice i`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "num", "code", "date", "amt", "total", "tax", "approve",
-			"is", "type", "buyer", "buyer_tax", "seller", "seller_tax", "verified"}).
+			"is", "type", "buyer", "buyer_tax", "seller", "seller_tax", "verified",
+			"seat_type", "train_no", "from_station", "to_station", "carriage", "seat_no", "passenger",
+			"detail_no", "fee_type_id", "detail_amount", "detail_reason"}).
 			AddRow("I001", "12345678", "0001", 1234567890000, 100.0, 100.0, 13.0, 100.0,
-				"exist", "VAT", "我司", "TAX", "供应商", "TAX2", 1))
+				"exist", "VAT", "我司", "TAX", "供应商", "TAX2", 1,
+				nil, nil, nil, nil, nil, nil, nil,
+				1, nil, 100.0, "出差"))
 
 	// 4. attachments (源码 line 370/378: 6 列 attachment_type/file_id/file_name/is_invoice/invoice_number/invoice_code)
 	mock.ExpectQuery(`FROM hesi_flow_attachment WHERE flow_id=\?`).

@@ -28,9 +28,9 @@ func TestCreateSessionAndRespondHappyPath(t *testing.T) {
 	mock.ExpectExec(`UPDATE users SET last_login_at`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	// loadAuthPayload (super_admin shortcut, 2 SQL)
-	mock.ExpectQuery(`SELECT id, username, real_name, must_change_password FROM users WHERE id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}).
-			AddRow(int64(7), "alice", "Alice", false))
+	mock.ExpectQuery(`SELECT id, username, real_name, IFNULL\(dingtalk_real_name,''\), must_change_password FROM users WHERE id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}).
+			AddRow(int64(7), "alice", "Alice", "", false))
 	mock.ExpectQuery(`SELECT r\.id, r\.code\s+FROM roles r`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "code"}).
 			AddRow(int64(1), "super_admin"))
@@ -90,8 +90,8 @@ func TestCreateSessionAndRespondLoadPayloadError(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO user_sessions`).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(`UPDATE users SET last_login_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 	// loadAuthPayload users 查不到
-	mock.ExpectQuery(`SELECT id, username, real_name, must_change_password FROM users WHERE id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}))
+	mock.ExpectQuery(`SELECT id, username, real_name, IFNULL\(dingtalk_real_name,''\), must_change_password FROM users WHERE id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/dingtalk-login", nil)

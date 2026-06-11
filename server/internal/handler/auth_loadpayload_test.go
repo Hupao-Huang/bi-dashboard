@@ -21,9 +21,9 @@ func TestLoadAuthPayloadSuperAdminShortcut(t *testing.T) {
 	defer db.Close()
 
 	// 1. SELECT users
-	mock.ExpectQuery(`SELECT id, username, real_name, must_change_password FROM users WHERE id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}).
-			AddRow(int64(1), "admin", "Admin", false))
+	mock.ExpectQuery(`SELECT id, username, real_name, IFNULL\(dingtalk_real_name,''\), must_change_password FROM users WHERE id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}).
+			AddRow(int64(1), "admin", "Admin", "", false))
 	// 2. SELECT roles → super_admin
 	mock.ExpectQuery(`SELECT r\.id, r\.code\s+FROM roles r`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "code"}).
@@ -50,9 +50,9 @@ func TestLoadAuthPayloadRegularUser(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, username, real_name, must_change_password FROM users WHERE id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}).
-			AddRow(int64(2), "alice", "Alice", false))
+	mock.ExpectQuery(`SELECT id, username, real_name, IFNULL\(dingtalk_real_name,''\), must_change_password FROM users WHERE id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}).
+			AddRow(int64(2), "alice", "Alice", "", false))
 	mock.ExpectQuery(`SELECT r\.id, r\.code\s+FROM roles r`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "code"}).
 			AddRow(int64(3), "ops"))
@@ -89,7 +89,7 @@ func TestLoadAuthPayloadUserNotFound(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(`SELECT id, username.*FROM users WHERE id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}))
 
 	h := &DashboardHandler{DB: db}
 	_, err = h.loadAuthPayload(99)
@@ -106,8 +106,8 @@ func TestLoadAuthPayloadRolesError(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(`SELECT id, username.*FROM users`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}).
-			AddRow(int64(1), "x", "X", false))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}).
+			AddRow(int64(1), "x", "X", "", false))
 	mock.ExpectQuery(`SELECT r\.id, r\.code\s+FROM roles r`).
 		WillReturnError(errBoom)
 
@@ -126,8 +126,8 @@ func TestLoadAuthPayloadPermissionsError(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(`SELECT id, username.*FROM users`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}).
-			AddRow(int64(1), "x", "X", false))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}).
+			AddRow(int64(1), "x", "X", "", false))
 	mock.ExpectQuery(`FROM roles r`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "code"}).
 			AddRow(int64(2), "ops"))

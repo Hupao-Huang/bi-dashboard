@@ -151,9 +151,9 @@ func TestRequirePermissionSuperAdminHappy(t *testing.T) {
 			AddRow(int64(1), nowVal()))
 	mock.ExpectExec(`UPDATE user_sessions SET last_active_at`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`SELECT id, username, real_name, must_change_password FROM users`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}).
-			AddRow(int64(1), "admin", "Admin", false))
+	mock.ExpectQuery(`SELECT id, username, real_name, IFNULL\(dingtalk_real_name,''\), must_change_password FROM users`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}).
+			AddRow(int64(1), "admin", "Admin", "", false))
 	mock.ExpectQuery(`SELECT r\.id, r\.code\s+FROM roles r`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "code"}).AddRow(int64(1), "super_admin"))
 
@@ -191,9 +191,9 @@ func TestRequireAllPermissionsSuperAdminHappy(t *testing.T) {
 			AddRow(int64(1), nowVal()))
 	mock.ExpectExec(`UPDATE user_sessions SET last_active_at`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`SELECT id, username, real_name, must_change_password FROM users`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}).
-			AddRow(int64(1), "admin", "Admin", false))
+	mock.ExpectQuery(`SELECT id, username, real_name, IFNULL\(dingtalk_real_name,''\), must_change_password FROM users`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}).
+			AddRow(int64(1), "admin", "Admin", "", false))
 	mock.ExpectQuery(`SELECT r\.id, r\.code\s+FROM roles r`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "code"}).AddRow(int64(1), "super_admin"))
 
