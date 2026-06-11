@@ -168,7 +168,10 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 		},
 	}
 	if action == "reject" {
-		hesiBody["action"].(map[string]interface{})["resubmitMethod"] = "resubmit"
+		// resubmitMethod 合法值只有 FROM_START(重走全流程) / TO_REJECTOR(改完直回驳回人环节)。
+		// 之前传 "resubmit"(非法值) → 合思受理后静默丢弃, 驳回从未生效 (6/11 B26003612 案例)。
+		// 默认 TO_REJECTOR: 前面环节已审过, 提交人改完发票直接回到驳回人, 不折腾中间人
+		hesiBody["action"].(map[string]interface{})["resubmitMethod"] = "TO_REJECTOR"
 	}
 	bodyBytes, _ := json.Marshal(hesiBody)
 
