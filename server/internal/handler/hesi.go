@@ -681,6 +681,10 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		case flow.LegalEntityName == expectedCompany.String:
 			flow.EntityCheck = "ok"
 			flow.EntityCheckReason = "已核对: 跟钉钉花名册的合同公司一致"
+		case isBranchOfLegalEntity(expectedCompany.String, flow.LegalEntityName):
+			// 分公司签合同, 报销可用主公司主体 (跟审批规则 4 同口径, 跑哥 6/11: 不再误报)
+			flow.EntityCheck = "ok"
+			flow.EntityCheckReason = "已核对: 合同公司「" + expectedCompany.String + "」是该主体的分公司, 分公司合同可用主公司主体报销"
 		default:
 			flow.EntityCheck = "mismatch"
 			flow.EntityCheckExpected = expectedCompany.String
