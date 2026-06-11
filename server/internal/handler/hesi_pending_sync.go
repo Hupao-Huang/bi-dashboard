@@ -151,10 +151,14 @@ func (h *DashboardHandler) resolvePendingSyncTarget(payload *authPayload, r *htt
 			return sid, name, ""
 		}
 	}
-	// 看自己: 用绑定的合思工号
+	// 看自己: 优先用绑定的合思工号; 没绑定按真名查花名册兜底 (樊雪娇 6/11 撞过未绑定降级提示)
 	var hesiStaffID, realName string
 	_ = h.DB.QueryRow(`SELECT IFNULL(hesi_staff_id,''), IFNULL(real_name,'') FROM users WHERE id=?`, payload.User.ID).
 		Scan(&hesiStaffID, &realName)
+	if hesiStaffID == "" && realName != "" {
+		_ = h.DB.QueryRow(`SELECT hesi_staff_id FROM hesi_employee_contract_company
+			WHERE hesi_name=? AND hesi_staff_id<>'' LIMIT 1`, realName).Scan(&hesiStaffID)
+	}
 	if hesiStaffID == "" {
 		return "", "", "您的账号未绑定合思员工, 无法现场同步"
 	}
