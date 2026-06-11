@@ -443,23 +443,47 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                             )}
                           </div>
                           {Array.isArray(lr.orders) && lr.orders.length > 0 && (
-                            <div style={{ background: '#f8fafc', borderRadius: 4, padding: '6px 10px', marginTop: 4 }}>
+                            <div style={{ background: '#f8fafc', borderRadius: 6, padding: '6px 10px', marginTop: 4 }}>
                               <Typography.Text type="secondary" style={{ fontSize: 12 }}>行程消费信息 (合思商旅订单)</Typography.Text>
-                              {lr.orders.map((o: any, i: number) => (
-                                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13, marginTop: 2 }}>
-                                  <Tag>{o.entityName}</Tag>
-                                  {o.departTime && <span>{o.departTime}</span>}
-                                  {o.tripNo && <span>{o.tripNo}</span>}
-                                  {o.seat && <span>{o.seat}</span>}
-                                  <span>{o.departStation && o.arriveStation ? `${o.departStation} → ${o.arriveStation}` : o.name}</span>
-                                  {o.traveler && <span>{o.traveler}</span>}
-                                  {o.orderAmount != null && <span>¥{Number(o.orderAmount).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>}
-                                  <Tag color={o.payMethod === '企业支付' ? 'red' : 'blue'}>{o.payMethod}</Tag>
-                                  {o.reimburseStatus && <Tag color={o.reimburseStatus === '已报销' ? 'warning' : 'default'}>{o.reimburseStatus}</Tag>}
-                                  {o.overStandard === '是' && <Tag color="error">超标</Tag>}
-                                  {o.orderState && o.orderState !== '出票' && <Tag color="warning">{o.orderState}</Tag>}
-                                </div>
-                              ))}
+                              {lr.orders.map((o: any, i: number) => {
+                                const typeStyle: Record<string, { color: string; icon: string }> = {
+                                  火车: { color: 'green', icon: '🚄' },
+                                  飞机: { color: 'geekblue', icon: '✈️' },
+                                  酒店: { color: 'purple', icon: '🏨' },
+                                  用车: { color: 'cyan', icon: '🚗' },
+                                };
+                                const ts = typeStyle[o.entityName] || { color: 'default', icon: '' };
+                                const route = o.departStation && o.arriveStation ? `${o.departStation} → ${o.arriveStation}` : (o.name || '');
+                                return (
+                                  <div
+                                    key={i}
+                                    style={{
+                                      display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, padding: '4px 0',
+                                      borderBottom: i < lr.orders.length - 1 ? '1px dashed #e5e7eb' : undefined,
+                                    }}
+                                  >
+                                    <Tag color={ts.color} style={{ width: 62, textAlign: 'center', marginRight: 0, flexShrink: 0 }}>
+                                      {ts.icon} {o.entityName}
+                                    </Tag>
+                                    {o.departTime && <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{o.departTime}</Typography.Text>}
+                                    {o.tripNo && <Tag bordered={false} style={{ marginRight: 0, flexShrink: 0 }}>{o.tripNo}</Tag>}
+                                    {o.seat && <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{o.seat}</Typography.Text>}
+                                    <Typography.Text ellipsis={{ tooltip: route }} style={{ flex: 1, minWidth: 80 }}>{route}</Typography.Text>
+                                    {o.traveler && <Typography.Text type="secondary" style={{ flexShrink: 0 }}>{o.traveler}</Typography.Text>}
+                                    {o.orderAmount != null && (
+                                      <Typography.Text strong style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                        ¥{Number(o.orderAmount).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                      </Typography.Text>
+                                    )}
+                                    <span style={{ flexShrink: 0 }}>
+                                      <Tag color={o.payMethod === '企业支付' ? 'red' : 'blue'} style={{ marginRight: 0 }}>{o.payMethod}</Tag>
+                                      {o.reimburseStatus && <Tag color={o.reimburseStatus === '已报销' ? 'warning' : 'default'} style={{ marginLeft: 4, marginRight: 0 }}>{o.reimburseStatus}</Tag>}
+                                      {o.overStandard === '是' && <Tag color="error" style={{ marginLeft: 4, marginRight: 0 }}>超标</Tag>}
+                                      {o.orderState && o.orderState !== '出票' && <Tag color="warning" style={{ marginLeft: 4, marginRight: 0 }}>{o.orderState}</Tag>}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                                 标红"企业支付"= 公司已付钱, 报销明细里不应再出现同一笔
                               </Typography.Text>
