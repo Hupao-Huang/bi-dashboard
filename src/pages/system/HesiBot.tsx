@@ -154,15 +154,16 @@ const HesiBot: React.FC = () => {
     } catch { /* silent */ }
   }, []);
 
-  // P0 加速轮询: 队列里有未完成单时 5s 一次 (跑哥审批后最快 ~70s 看到刷掉), 空闲时回到 30s
+  // 跑哥 6/11: 去掉平时的 30s 自动刷新 (干扰浏览), 改手动"刷新"按钮
+  // 仅审批提交后队列未清空时短暂轮询 5s 一次 (等 worker 审完把单子从列表撤掉), 队列空即停
   const activeQueueHasFlows = activeQueue.length > 0 || optimisticApproved.size > 0;
   useEffect(() => {
     fetchQueue();
-    const interval = activeQueueHasFlows ? 5000 : 30000;
+    if (!activeQueueHasFlows) return;
     const t = setInterval(() => {
       fetchQueue();
       fetchPending(selectedApproverRef.current);
-    }, interval);
+    }, 5000);
     return () => clearInterval(t);
   }, [fetchQueue, fetchPending, activeQueueHasFlows]);
 
