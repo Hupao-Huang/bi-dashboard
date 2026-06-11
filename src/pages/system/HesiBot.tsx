@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Badge, Button, Card, DatePicker, Empty, Input, Modal,
-  Radio, Select, Statistic, Table, Tag, Tooltip, message,
+  Radio, Select, Space, Statistic, Table, Tag, Tooltip, message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -86,6 +86,13 @@ const HesiBot: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [formTypeFilter, setFormTypeFilter] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
+  const [suggestionFilter, setSuggestionFilter] = useState<string[]>([]); // AI 建议筛选 (agree/reject/manual/none)
+  // 批量审批: 多选行 → 一次提交 (跑哥 6/11 需求, 跟 AI 建议筛选连用: 筛"建议同意"→全选→批量同意)
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchAction, setBatchAction] = useState<'agree' | 'reject'>('agree');
+  const [batchComment, setBatchComment] = useState('');
+  const [batchLoading, setBatchLoading] = useState(false);
   // 异步审批队列
   type QueueItem = { id: number; flowId: string; flowCode: string; action: string; status: string; errorMsg?: string; createdAt: string; finishedAt?: string };
   const [activeQueue, setActiveQueue] = useState<QueueItem[]>([]);
@@ -143,6 +150,8 @@ const HesiBot: React.FC = () => {
 
   useEffect(() => { fetchPending(); }, [fetchPending]);
   useEffect(() => { if (isAdmin) fetchApproverOptions(); }, [isAdmin, fetchApproverOptions]);
+  // 切换查看的审批人时清空勾选 (跨人勾选没有意义且容易误提交)
+  useEffect(() => { setSelectedRowKeys([]); }, [selectedApprover]);
 
   const fetchQueue = useCallback(async () => {
     try {
@@ -201,6 +210,7 @@ const HesiBot: React.FC = () => {
         if (!matchCode && !matchTitle) return false;
       }
       if (formTypeFilter.length > 0 && !formTypeFilter.includes(it.formType)) return false;
+      if (suggestionFilter.length > 0 && !suggestionFilter.includes(it.suggestion?.action || 'none')) return false;
       if (dateRange && (dateRange[0] || dateRange[1]) && it.submitDate) {
         const ts = Number(it.submitDate);
         if (dateRange[0] && ts < dateRange[0].startOf('day').valueOf()) return false;
@@ -208,12 +218,58 @@ const HesiBot: React.FC = () => {
       }
       return true;
     });
-  }, [items, searchText, formTypeFilter, dateRange]);
+  }, [items, searchText, formTypeFilter, dateRange, suggestionFilter]);
 
   const totalAmount = filteredItems.reduce((sum, item) => sum + (getMoney(item) || 0), 0);
-  const hasFilter = !!searchText || formTypeFilter.length > 0 || (!!dateRange && !!(dateRange[0] || dateRange[1]));
+  const hasFilter = !!searchText || formTypeFilter.length > 0 || suggestionFilter.length > 0 || (!!dateRange && !!(dateRange[0] || dateRange[1]));
   // AI 建议规则当前仅适用于樊雪娇日常报销单 → 别人看到 items 无 suggestion → 列自动隐藏
   const showAuditCol = items.some(it => !!it.suggestion);
+
+  // 批量审批: 已勾选的单据 + 金额合计
+  const selectedSet = useMemo(() => new Set(selectedRowKeys.map(String)), [selectedRowKeys]);
+  const selectedItems = useMemo(() => items.filter(it => selectedSet.has(it.flowId)), [items, selectedSet]);
+  const selectedAmount = selectedItems.reduce((sum, it) => sum + (getMoney(it) || 0), 0);
+
+  const handleBatchSubmit = async () => {
+    if (batchAction === 'reject' && !batchComment.trim()) {
+      message.warning('驳回必须填写备注');
+      return;
+    }
+    setBatchLoading(true);
+    let ok = 0;
+    const fails: string[] = [];
+    for (const it of selectedItems) {
+      try {
+        const res = await fetch(`${API_BASE}/api/hesi-bot/approve`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ flowId: it.flowId, action: batchAction, comment: batchComment.trim() }),
+        });
+        const json = await res.json();
+        if (!res.ok || json.code !== 200) throw new Error(json.msg || `HTTP ${res.status}`);
+        ok += 1;
+        const fid = it.flowId;
+        setOptimisticApproved(prev => {
+          const next = new Map(prev);
+          next.set(fid, Date.now());
+          return next;
+        });
+      } catch (e) {
+        fails.push(`${it.code}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    setBatchLoading(false);
+    setBatchOpen(false);
+    setSelectedRowKeys([]);
+    if (fails.length === 0) {
+      message.success(`已批量提交 ${ok} 单, 机器人按合思限流分批处理(每分钟一批最多10单), 单子会陆续从列表消失`);
+    } else {
+      message.warning(`提交成功 ${ok} 单, 失败 ${fails.length} 单: ${fails[0]}${fails.length > 1 ? ' 等' : ''}`);
+    }
+    fetchQueue();
+    fetchPending(selectedApprover);
+  };
 
   const openApproveModal = (item: PendingItem) => {
     setApproveTarget(item);
@@ -478,8 +534,25 @@ const HesiBot: React.FC = () => {
               placeholder={['提交起', '提交止']}
               style={{ width: 280 }}
             />
+            {showAuditCol && (
+              <Select
+                mode="multiple"
+                placeholder="AI 建议"
+                value={suggestionFilter}
+                onChange={setSuggestionFilter}
+                style={{ minWidth: 160 }}
+                allowClear
+                maxTagCount="responsive"
+                options={[
+                  { value: 'agree', label: '建议同意' },
+                  { value: 'reject', label: '建议驳回' },
+                  { value: 'manual', label: '转人工' },
+                  { value: 'none', label: '无建议' },
+                ]}
+              />
+            )}
             {hasFilter && (
-              <Button size="small" onClick={() => { setSearchText(''); setFormTypeFilter([]); setDateRange(null); }}>
+              <Button size="small" onClick={() => { setSearchText(''); setFormTypeFilter([]); setDateRange(null); setSuggestionFilter([]); }}>
                 清空筛选
               </Button>
             )}
@@ -521,21 +594,52 @@ const HesiBot: React.FC = () => {
             }
           />
         ) : (
-          <Table<PendingItem>
-            columns={columns}
-            dataSource={filteredItems}
-            rowKey="flowId"
-            loading={loading}
-            pagination={{ pageSize: 20, showSizeChanger: false }}
-            size="middle"
-            scroll={{ x: 1500 }}
-            locale={{ emptyText: hasFilter ? '当前筛选下无匹配单据' : '暂无数据' }}
-            rowClassName={(record) => {
-              // P1 乐观更新: 已提交/队列中的单行整体置灰, 跑哥一眼看出"这单不必再点"
-              const inQueue = activeQueue.find(q => q.flowId === record.flowId);
-              return (inQueue || optimisticApproved.has(record.flowId)) ? 'hesi-row-pending-approve' : '';
-            }}
-          />
+          <>
+            {selectedRowKeys.length > 0 && (
+              <Alert
+                type="info"
+                style={{ marginBottom: 12 }}
+                message={
+                  <Space wrap>
+                    <span>已选 <strong>{selectedRowKeys.length}</strong> 单 · 金额合计 ¥{selectedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+                    <Button
+                      type="primary"
+                      size="small"
+                      onClick={() => { setBatchAction('agree'); setBatchComment(''); setBatchOpen(true); }}
+                    >
+                      批量审批
+                    </Button>
+                    <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+                  </Space>
+                }
+              />
+            )}
+            <Table<PendingItem>
+              columns={columns}
+              dataSource={filteredItems}
+              rowKey="flowId"
+              loading={loading}
+              pagination={{ pageSize: 20, showSizeChanger: false }}
+              size="middle"
+              scroll={{ x: 1500 }}
+              locale={{ emptyText: hasFilter ? '当前筛选下无匹配单据' : '暂无数据' }}
+              rowSelection={{
+                selectedRowKeys,
+                onChange: setSelectedRowKeys,
+                columnWidth: 42,
+                fixed: true,
+                // 排队中/已提交的单不可再勾 (跟单行"审批"按钮禁用口径一致)
+                getCheckboxProps: (record) => ({
+                  disabled: !!activeQueue.find(q => q.flowId === record.flowId) || optimisticApproved.has(record.flowId),
+                }),
+              }}
+              rowClassName={(record) => {
+                // P1 乐观更新: 已提交/队列中的单行整体置灰, 跑哥一眼看出"这单不必再点"
+                const inQueue = activeQueue.find(q => q.flowId === record.flowId);
+                return (inQueue || optimisticApproved.has(record.flowId)) ? 'hesi-row-pending-approve' : '';
+              }}
+            />
+          </>
         )}
       </Card>
 
@@ -597,6 +701,63 @@ const HesiBot: React.FC = () => {
             />
           </div>
         )}
+      </Modal>
+
+      {/* 批量审批 Modal */}
+      <Modal
+        title={`批量审批 · 已选 ${selectedItems.length} 单`}
+        open={batchOpen}
+        onCancel={() => setBatchOpen(false)}
+        onOk={handleBatchSubmit}
+        okText={`确定提交 ${selectedItems.length} 单`}
+        cancelText="取消"
+        confirmLoading={batchLoading}
+        width={560}
+        destroyOnHidden
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ background: '#f8fafc', padding: 10, borderRadius: 4, fontSize: 13, maxHeight: 160, overflowY: 'auto' }}>
+            <div style={{ marginBottom: 6, color: '#64748b' }}>
+              金额合计 ¥{selectedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+            </div>
+            {selectedItems.map(it => (
+              <div key={it.flowId} style={{ fontSize: 12, color: '#475569' }}>
+                {it.code} · {it.title}{(() => { const m = getMoney(it); return m ? ` · ¥${m.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : ''; })()}
+              </div>
+            ))}
+          </div>
+          <div>
+            <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>审批结果 (整批统一)</div>
+            <Radio.Group
+              value={batchAction}
+              onChange={(e) => setBatchAction(e.target.value)}
+              optionType="button"
+              buttonStyle="solid"
+            >
+              <Radio.Button value="agree"><CheckOutlined /> 同意</Radio.Button>
+              <Radio.Button value="reject"><CloseOutlined /> 驳回</Radio.Button>
+            </Radio.Group>
+          </div>
+          <div>
+            <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>
+              备注{batchAction === 'reject' ? <span style={{ color: '#ef4444' }}> (驳回必填, 整批共用)</span> : ' (可选, 整批共用)'}
+            </div>
+            <Input.TextArea
+              value={batchComment}
+              onChange={(e) => setBatchComment(e.target.value)}
+              rows={3}
+              maxLength={500}
+              showCount
+              placeholder={batchAction === 'reject' ? '请写明驳回理由(将提交到合思, 整批共用同一条)' : '可选, 会一同提交到合思'}
+            />
+          </div>
+          <Alert
+            type="warning"
+            showIcon
+            message="整批提交到合思后无法撤销; 机器人按合思限流分批处理(每分钟一批最多10单), 单子会陆续从列表消失"
+            style={{ fontSize: 12 }}
+          />
+        </div>
       </Modal>
 
       {/* 单据详情弹窗 — 共享组件 HesiFlowDetailModal, 跟费控管理(finance/ExpenseControl)共用一套 */}
