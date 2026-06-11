@@ -383,7 +383,8 @@ type ybIdx struct{ pi, si int }
 
 // ybExecute 三阶段执行: ①批次转换 save+审核 ②按(组织,仓库,类别)合并出库单 save+审核 ③回填结果。
 // ctx: 客户端断开(超时/关页)即停手, 不再往用友写; 防重: 同一笔10分钟内已提交过则跳过, 不重复建单。
-func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plans []ybPlan, groupByBill bool, phase string, onProgress func(done, total int, label string)) []map[string]interface{} {
+// force: 跑哥手动勾"强制重发"=明确要再建一遍 → 跳过防重检查(仍正常落流水), 防呆不防故意。
+func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plans []ybPlan, groupByBill bool, phase string, force bool, onProgress func(done, total int, label string)) []map[string]interface{} {
 	h.ybEnsureSubmitLog()
 	// phase: "convert"只做批次转换 / "out"只做出库 / "all"或空=两步连做(兼容旧调用)。
 	// 拆两步是为了中间人工复查目标批次是否到货(见 handler + 前端三步向导)。
@@ -470,9 +471,11 @@ func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plan
 							ybFirstNonEmpty(cs.StockStatusDoc, sh.StockStatusDoc),
 							cs.FromBatch, targetBatch, cs.FromProducedate, cs.FromInvaliddate,
 							strconv.Itoa(cs.Qty), vouchdate, strconv.Itoa(di))
-						if dup, prevDoc := h.ybRecentSubmit(fp); dup {
-							convLog.DocCode = prevDoc // 这张已提交过, 跳过看下一张
-							continue
+						if !force {
+							if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+								convLog.DocCode = prevDoc // 这张已提交过, 跳过看下一张
+								continue
+							}
 						}
 						convLog.Skipped = false
 
@@ -600,17 +603,19 @@ func (h *DashboardHandler) ybExecute(ctx context.Context, vouchdate string, plan
 			sort.Strings(itemSigs)
 			fp := ybFingerprint("out", k.org, k.wh, k.bustype, k.category, k.bill, vouchdate,
 				strings.Join(itemSigs, ","))
-			if dup, prevDoc := h.ybRecentSubmit(fp); dup {
-				for _, gi := range grp {
-					lg := logs[gi]
-					// 跳过=上次已建单, 审核状态以用友为准, 不谎报已审核。
-					lg.OutSkipped = true
-					lg.OutDocCode = prevDoc
-					if lg.Error == "" {
-						lg.Error = "10分钟内已提交过，已自动跳过防止重复建单（审核状态以用友为准）"
+			if !force {
+				if dup, prevDoc := h.ybRecentSubmit(fp); dup {
+					for _, gi := range grp {
+						lg := logs[gi]
+						// 跳过=上次已建单, 审核状态以用友为准, 不谎报已审核。
+						lg.OutSkipped = true
+						lg.OutDocCode = prevDoc
+						if lg.Error == "" {
+							lg.Error = "10分钟内已提交过，已自动跳过防止重复建单（审核状态以用友为准）"
+						}
 					}
+					continue
 				}
-				continue
 			}
 
 			body := ybBuildOtherOutBody(k.org, vouchdate, k.bustype, k.wh, memo, k.category, items)
@@ -886,6 +891,7 @@ func (h *DashboardHandler) YonbipExportExecute(w http.ResponseWriter, r *http.Re
 		Plans       []ybPlan `json:"plans"`
 		GroupByBill bool     `json:"group_by_bill"`
 		Phase       string   `json:"phase"` // convert只转换 / out只出库 / all|空=两步连做(兼容)
+		Force       bool     `json:"force"` // 强制重发: 跳过10分钟防重(前端勾选确认才会带 true)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "请求解析失败: "+err.Error())
@@ -927,12 +933,12 @@ func (h *DashboardHandler) YonbipExportExecute(w http.ResponseWriter, r *http.Re
 		onProgress := func(done, total int, label string) {
 			writeSSE("progress", map[string]interface{}{"done": done, "total": total, "label": label})
 		}
-		results := h.ybExecute(r.Context(), ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill, req.Phase, onProgress)
+		results := h.ybExecute(r.Context(), ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill, req.Phase, req.Force, onProgress)
 		writeSSE("result", map[string]interface{}{"results": results})
 		return
 	}
 
-	results := h.ybExecute(r.Context(), ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill, req.Phase, nil)
+	results := h.ybExecute(r.Context(), ybFmtDate(req.Vouchdate), req.Plans, req.GroupByBill, req.Phase, req.Force, nil)
 	writeJSON(w, map[string]interface{}{"results": results})
 }
 

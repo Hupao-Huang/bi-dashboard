@@ -66,7 +66,7 @@ func TestYbExecuteConvert_SkipsDuplicateWithoutCallingYS(t *testing.T) {
 		Qty: "30", Batchno: "B1", ToBatch: "B2", StockStatusDoc: "2448706971278246078",
 	}}
 
-	results := h.ybExecuteConvert(context.Background(), "2026-06-10", items)
+	results := h.ybExecuteConvert(context.Background(), "2026-06-10", items, false)
 	if len(results) != 1 {
 		t.Fatalf("want 1 result, got %d", len(results))
 	}
@@ -106,7 +106,7 @@ func TestYbExecute_PhaseConvertOnly_SkipsOutbound(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"doc_code"}).AddRow("CONV-EXIST"))
 
 	h := &DashboardHandler{DB: db} // YS=nil: 真去建单就 panic
-	out := h.ybExecute(context.Background(), "2026-06-10", ybOnePlanWithConvert(), true, "convert", nil)
+	out := h.ybExecute(context.Background(), "2026-06-10", ybOnePlanWithConvert(), true, "convert", false, nil)
 	if len(out) != 1 {
 		t.Fatalf("want 1 plan result, got %d", len(out))
 	}
@@ -134,7 +134,7 @@ func TestYbExecute_PhaseOutOnly_SkipsConvert(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"doc_code"}).AddRow("OUT-EXIST"))
 
 	h := &DashboardHandler{DB: db}
-	out := h.ybExecute(context.Background(), "2026-06-10", ybOnePlanWithConvert(), true, "out", nil)
+	out := h.ybExecute(context.Background(), "2026-06-10", ybOnePlanWithConvert(), true, "out", false, nil)
 	subs := out[0]["shipments"].([]*ybShipLog)
 	if len(subs[0].Conversions) != 0 {
 		t.Fatalf("phase=out 不该做批次转换, 实际有转换记录: %+v", subs[0].Conversions)
@@ -160,7 +160,7 @@ func TestYbExecute_EmitsProgress(t *testing.T) {
 
 	h := &DashboardHandler{DB: db}
 	var n, gotDone, gotTotal int
-	h.ybExecute(context.Background(), "2026-06-10", ybOnePlanWithConvert(), true, "convert",
+	h.ybExecute(context.Background(), "2026-06-10", ybOnePlanWithConvert(), true, "convert", false,
 		func(done, total int, _ string) { n++; gotDone = done; gotTotal = total })
 	if n != 1 || gotDone != 1 || gotTotal != 1 {
 		t.Fatalf("进度应回调1次 done=1 total=1(1笔转换), 实际 n=%d done=%d total=%d", n, gotDone, gotTotal)
@@ -186,11 +186,40 @@ func TestYbExecuteConvert_StopsOnCanceledContext(t *testing.T) {
 		Qty: "30", Batchno: "B1", ToBatch: "B2", StockStatusDoc: "2448706971278246078",
 	}}
 
-	results := h.ybExecuteConvert(ctx, "2026-06-10", items)
+	results := h.ybExecuteConvert(ctx, "2026-06-10", items, false)
 	if len(results) != 1 || results[0].Error == "" {
 		t.Fatalf("ctx 取消后应标注中断且不建单, 实际: %+v", results)
 	}
 	if results[0].Skipped {
 		t.Fatal("ctx 中断不是防重跳过, 不应置 Skipped")
 	}
+}
+
+// 强制重发: force=true 时不查防重直接建单。YS=nil 时"真去建单"会 panic ——
+// 这里 panic 恰是证明: 防重被绕过、真走到了用友建单那一步; 且全程没发防重查询(sqlmock 无该预期)。
+func TestYbExecuteConvert_ForceBypassesDedup(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	// 只预期建表, 不预期防重查询 —— force 时连查都不该查
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS yonbip_submit_log").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	h := &DashboardHandler{DB: db} // YS=nil: 走到建单必 panic
+	items := []ybConvItem{{
+		Type: "batch", OrgID: ybDefaultOrgID, WarehouseCode: "W1", ProductCode: "P1",
+		Qty: "30", Batchno: "B1", ToBatch: "B2", StockStatusDoc: "2448706971278246078",
+	}}
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("force=true 应绕过防重直接建单(YS=nil 必 panic), 没 panic 说明还是被防重挡了")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("sql 预期未满足: %v", err)
+		}
+	}()
+	h.ybExecuteConvert(context.Background(), "2026-06-10", items, true)
 }
