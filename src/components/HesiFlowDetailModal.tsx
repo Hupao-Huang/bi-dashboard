@@ -9,8 +9,8 @@
 // 所以接口地址用 props 传进来即可.
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Descriptions, Tabs, Tag, Table, Typography, Tooltip, Button, Image, message } from 'antd';
-import { CheckCircleOutlined, WarningOutlined, PaperClipOutlined } from '@ant-design/icons';
+import { Modal, Descriptions, Space, Tabs, Tag, Table, Typography, Tooltip, Button, Image, message } from 'antd';
+import { ArrowLeftOutlined, CheckCircleOutlined, WarningOutlined, PaperClipOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 const formTypeMap: Record<string, { label: string; color: string }> = {
@@ -162,6 +162,12 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
   const [invoicePreview, setInvoicePreview] = useState<{ visible: boolean; file: any; title: string }>({ visible: false, file: null, title: '' });
   // 凭证明细子弹窗
   const [voucherModalOpen, setVoucherModalOpen] = useState(false);
+  // 关联申请单钻取栈: 点关联单号在同一弹窗里打开那张申请单, 可逐级返回
+  const [drillStack, setDrillStack] = useState<string[]>([]);
+  const activeFlowId = drillStack.length > 0 ? drillStack[drillStack.length - 1] : flowId;
+
+  // 父组件换单/关弹窗时清空钻取栈
+  useEffect(() => { setDrillStack([]); }, [flowId, open]);
 
   const loadAttachUrls = async (fid: string) => {
     setAttachLoading(true);
@@ -180,9 +186,9 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
     }
   };
 
-  // open + flowId 变化时拉详情, 并自动拉在线附件链接(同步的附件表可能为空, 以合思在线接口为准)
+  // open + 当前查看的单 (含钻取) 变化时拉详情, 并自动拉在线附件链接(同步的附件表可能为空, 以合思在线接口为准)
   useEffect(() => {
-    if (!open || !flowId) {
+    if (!open || !activeFlowId) {
       setDetailData(null);
       setAttachUrls(null);
       return;
@@ -193,12 +199,12 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
     setDetailLoading(true);
     (async () => {
       try {
-        const res = await fetch(flowDetailUrl(flowId), { credentials: 'include' });
+        const res = await fetch(flowDetailUrl(activeFlowId), { credentials: 'include' });
         const json = await res.json();
         if (cancelled) return;
         if (json.code === 200) {
           setDetailData(json.data);
-          void loadAttachUrls(flowId);
+          void loadAttachUrls(activeFlowId);
         } else {
           message.error(json.msg || '获取单据详情失败');
         }
@@ -210,7 +216,7 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, flowId]);
+  }, [open, activeFlowId]);
 
   // 从在线附件链接里找某张发票的原件 (按 fileId=invoiceId 或 invoiceCode=发票号 匹配)
   const findInvoiceFile = (row: any) => {
@@ -306,7 +312,16 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
     <>
       {/* 详情弹窗 */}
       <Modal
-        title={detailData?.flow?.code ? `${detailData.flow.code} - ${detailData.flow.title}` : '单据详情'}
+        title={
+          <Space>
+            {drillStack.length > 0 && (
+              <Button size="small" icon={<ArrowLeftOutlined />} onClick={() => setDrillStack(s => s.slice(0, -1))}>
+                返回上一张
+              </Button>
+            )}
+            <span>{detailData?.flow?.code ? `${detailData.flow.code} - ${detailData.flow.title}` : '单据详情'}</span>
+          </Space>
+        }
         open={open}
         onCancel={onClose}
         footer={null}
@@ -402,6 +417,33 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                       {stateMap[detailData.flow.state]?.label || detailData.flow.state}
                     </Tag>
                   </Descriptions.Item>
+                  {Array.isArray(detailData.linkedRequisitions) && detailData.linkedRequisitions.length > 0 && (
+                    <Descriptions.Item label={
+                      <Tooltip title="先申请后报销的关联单 (出差申请单/招待费用申请单/固定资产申请单), 点单号可直接打开查看">
+                        <span style={{ cursor: 'help' }}>关联申请单</span>
+                      </Tooltip>
+                    } span={2}>
+                      {detailData.linkedRequisitions.map((lr: any) => (
+                        <div key={lr.flowId} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
+                          {lr.missing ? (
+                            <Typography.Text type="secondary">关联单还没同步到看板 (可去合思查看)</Typography.Text>
+                          ) : (
+                            <>
+                              <a onClick={() => setDrillStack(s => [...s, lr.flowId])}>{lr.code}</a>
+                              {lr.specName && <Tag color="green">{lr.specName}</Tag>}
+                              <span>{lr.title}</span>
+                              {lr.requisitionMoney != null && (
+                                <Typography.Text>申请额度 ¥{Number(lr.requisitionMoney).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</Typography.Text>
+                              )}
+                              {lr.state && (
+                                <Tag color={stateMap[lr.state]?.color}>{stateMap[lr.state]?.label || lr.state}</Tag>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </Descriptions.Item>
+                  )}
                   {/* 4 个金额/凭证/支付字段按 form_type 自适应
                       - expense 类 (报销) 始终显示 (即使空, 作为业务异常警告)
                       - 其他类 (申请/借款/商城) 仅 value 非空才显示 */}

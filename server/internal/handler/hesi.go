@@ -547,6 +547,52 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// v1.76.x: 关联申请单 (raw_json.expenseLinks) — 出差/招待/固定资产等"先申请后报销"的申请单
+	// 详情弹窗展示单号/模板/标题/申请额度/状态, 跑哥 6/11 需求 (审批时要能看到那张出差申请单)
+	type linkedReq struct {
+		FlowID           string   `json:"flowId"`
+		Code             string   `json:"code"`
+		Title            string   `json:"title"`
+		FormType         string   `json:"formType"`
+		State            string   `json:"state"`
+		SpecName         string   `json:"specName"`
+		RequisitionMoney *float64 `json:"requisitionMoney"`
+		Missing          bool     `json:"missing"` // 关联单还没同步到看板本地库
+	}
+	linkedReqs := []linkedReq{}
+	if m, ok := formData.(map[string]interface{}); ok {
+		if links, ok := m["expenseLinks"].([]interface{}); ok {
+			for _, l := range links {
+				lid, _ := l.(string)
+				if lid == "" {
+					continue
+				}
+				var lr linkedReq
+				var specID, lraw sql.NullString
+				err := h.DB.QueryRow(`SELECT flow_id, code, IFNULL(title,''), form_type, state,
+					IFNULL(specification_id,''), IFNULL(raw_json,'')
+					FROM hesi_flow WHERE flow_id=? LIMIT 1`, lid).
+					Scan(&lr.FlowID, &lr.Code, &lr.Title, &lr.FormType, &lr.State, &specID, &lraw)
+				if err != nil {
+					linkedReqs = append(linkedReqs, linkedReq{FlowID: lid, Missing: true})
+					continue
+				}
+				if specID.String != "" {
+					lr.SpecName = h.LookupSpecName(specID.String)
+				}
+				if lraw.Valid && lraw.String != "" {
+					var rm map[string]interface{}
+					if json.Unmarshal([]byte(lraw.String), &rm) == nil {
+						if v, ok := getStandardAmount(rm["requisitionMoney"]); ok {
+							lr.RequisitionMoney = &v
+						}
+					}
+				}
+				linkedReqs = append(linkedReqs, lr)
+			}
+		}
+	}
+
 	// v1.75.7: 凭证状态='已生成' → 调用友 YS 凭证查询拿借贷分录
 	// 合思 voucher_no 格式 "{vouchertype.code}-{billcode}" (例 "4-51"=付款凭证第51号)
 	// 合思法人实体 → 用友账簿 code (hesi_legal_entity_ys_accbook 映射表)
@@ -625,12 +671,13 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"flow":          flow,
-		"details":       details,
-		"invoices":      invoices,
-		"attachments":   attachments,
-		"formData":      formData,
-		"voucherDetail": voucherDetail, // v1.75.7: 用友凭证明细 (借贷分录), nil 时前端不显示
+		"flow":               flow,
+		"details":            details,
+		"invoices":           invoices,
+		"attachments":        attachments,
+		"formData":           formData,
+		"voucherDetail":      voucherDetail, // v1.75.7: 用友凭证明细 (借贷分录), nil 时前端不显示
+		"linkedRequisitions": linkedReqs,    // v1.76.x: 关联申请单 (出差/招待/固定资产)
 	})
 }
 
