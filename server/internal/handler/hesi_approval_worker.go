@@ -218,10 +218,13 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 	log.Printf("[hesi-worker] 批成功 单数=%d total=%d success=%d residue=%d",
 		len(batch), parsed.Value.Total, parsed.Value.Success, parsed.Value.Residue)
 
-	// 6. 每单后处理: 刷新 hesi_flow + 钉钉通知
+	// 6. 每单后处理: 刷新 hesi_flow + 钉钉通知操作人 + 钉钉通知下一环节审批人
 	for _, it := range batch {
-		h.refreshFlowAfterApproval(it.FlowID, action, token)
+		stage, nextOps := h.refreshFlowAfterApproval(it.FlowID, action, token)
 		h.notifyApprovalDone(it, action)
+		if action == "agree" {
+			h.notifyNextApprover(it, stage, nextOps)
+		}
 		h.writeAuditLogForApproval(it, action)
 	}
 }
@@ -241,12 +244,19 @@ func (h *DashboardHandler) failBatch(batch []approvalQueueItem, errMsg string) {
 	log.Printf("[hesi-worker] 批失败 单数=%d 错误=%s", len(batch), errMsg)
 }
 
+// hesiNextOperator 审批通过后下一环节的操作人 (通知用)
+type hesiNextOperator struct {
+	ID   string // 合思员工 ID (corp:innerId)
+	Name string
+}
+
 // refreshFlowAfterApproval 审批成功后调合思 approveStates 拉实时状态并 UPDATE hesi_flow
-func (h *DashboardHandler) refreshFlowAfterApproval(flowID, action, token string) {
+// 返回下一环节名 + 操作人列表 (给 notifyNextApprover 用; 拉取/解析失败返回空)
+func (h *DashboardHandler) refreshFlowAfterApproval(flowID, action, token string) (string, []hesiNextOperator) {
 	url := fmt.Sprintf("%s/api/openapi/v2/approveStates/%%5B%s%%5D?accessToken=%s", hesiAPIBase, flowID, token)
 	resp, err := hesiHTTP.Get(url)
 	if err != nil {
-		return
+		return "", nil
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
@@ -265,7 +275,7 @@ func (h *DashboardHandler) refreshFlowAfterApproval(flowID, action, token string
 		if err != nil {
 			log.Printf("[hesi-worker] refreshFlow 解析失败 flow=%s: %v", flowID, err)
 		}
-		return
+		return "", nil
 	}
 	it := rs.Items[0]
 	var opID, opName, opCode string
@@ -292,6 +302,52 @@ func (h *DashboardHandler) refreshFlowAfterApproval(flowID, action, token string
 	); err != nil {
 		log.Printf("[hesi-worker] refreshFlow UPDATE 失败 flow=%s: %v (BI 状态陈旧, 等下次 sync-hesi)", flowID, err)
 	}
+
+	ops := make([]hesiNextOperator, 0, len(it.Operators))
+	for _, op := range it.Operators {
+		ops = append(ops, hesiNextOperator{ID: op.ID, Name: op.Name})
+	}
+	return it.StageName, ops
+}
+
+// notifyNextApprover 审批同意后钉钉单聊通知下一环节操作人 (含出纳支付)
+// 合思员工 → 钉钉 staffId 走花名册桥接表 hesi_employee_contract_company (优先 ID 精确, 兜底姓名)
+// 桥接不到/未配 Notifier 只 log 不阻塞 — 通知是锦上添花, 不是审批主流程
+func (h *DashboardHandler) notifyNextApprover(item approvalQueueItem, stageName string, ops []hesiNextOperator) {
+	if h.Notifier == nil || len(ops) == 0 {
+		return
+	}
+	seen := map[string]bool{}
+	staffIDs := []string{}
+	for _, op := range ops {
+		var dingID string
+		err := h.DB.QueryRow(
+			`SELECT dingtalk_userid FROM hesi_employee_contract_company
+			 WHERE hesi_staff_id = ? AND dingtalk_userid <> '' LIMIT 1`, op.ID).Scan(&dingID)
+		if err == sql.ErrNoRows && op.Name != "" {
+			err = h.DB.QueryRow(
+				`SELECT dingtalk_userid FROM hesi_employee_contract_company
+				 WHERE hesi_name = ? AND dingtalk_userid <> '' LIMIT 1`, op.Name).Scan(&dingID)
+		}
+		if err != nil || dingID == "" {
+			log.Printf("[hesi-worker] 下一审批人 %s(%s) 未桥接钉钉, 跳过通知 flow=%s", op.Name, op.ID, item.FlowID)
+			continue
+		}
+		if !seen[dingID] {
+			seen[dingID] = true
+			staffIDs = append(staffIDs, dingID)
+		}
+	}
+	if len(staffIDs) == 0 {
+		return
+	}
+	stageLabel := ""
+	if stageName != "" {
+		stageLabel = fmt.Sprintf(" (当前环节: %s)", stageName)
+	}
+	msg := fmt.Sprintf("【合思审批】单据 %s (%s) 已流转到您, 请及时处理%s", item.FlowCode, item.FlowTitle, stageLabel)
+	h.Notifier.SendTextToStaffIDsAsync(staffIDs, msg)
+	log.Printf("[hesi-worker] 已通知下一环节操作人 flow=%s stage=%s 人数=%d", item.FlowID, stageName, len(staffIDs))
 }
 
 // notifyApprovalDone 钉钉通知操作人

@@ -177,7 +177,11 @@ func (n *Notifier) SendText(unionIDs []string, content string) error {
 	if len(staffIDs) == 0 {
 		return errors.New("无有效 staffId（UnionId 转换全部失败）")
 	}
+	return n.sendToStaffIDs(staffIDs, content)
+}
 
+// sendToStaffIDs 按 staffId 列表调机器人 batchSend (SendText 转换后 / SendTextToStaffIDs 直发 共用)
+func (n *Notifier) sendToStaffIDs(staffIDs []string, content string) error {
 	token, err := n.getAccessToken()
 	if err != nil {
 		return err
@@ -229,6 +233,33 @@ func (n *Notifier) SendTextAsync(userIds []string, content string) {
 	go func() {
 		if err := n.SendText(userIds, content); err != nil {
 			log.Printf("[dingtalk-notify] send failed: %v", err)
+		}
+	}()
+}
+
+// SendTextToStaffIDs 给指定 staffId(企业 userid) 列表直接推送, 跳过 unionId 转换
+// (合思审批人通知用: hesi_employee_contract_company.dingtalk_userid 存的就是 staffId)
+func (n *Notifier) SendTextToStaffIDs(staffIDs []string, content string) error {
+	valid := make([]string, 0, len(staffIDs))
+	for _, sid := range staffIDs {
+		if sid != "" {
+			valid = append(valid, sid)
+		}
+	}
+	if len(valid) == 0 {
+		return errors.New("staffIDs 为空")
+	}
+	if content == "" {
+		return errors.New("content 为空")
+	}
+	return n.sendToStaffIDs(valid, content)
+}
+
+// SendTextToStaffIDsAsync 异步版, 失败只打日志
+func (n *Notifier) SendTextToStaffIDsAsync(staffIDs []string, content string) {
+	go func() {
+		if err := n.SendTextToStaffIDs(staffIDs, content); err != nil {
+			log.Printf("[dingtalk-notify] send to staffIds failed: %v", err)
 		}
 	}()
 }
