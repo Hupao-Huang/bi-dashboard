@@ -424,6 +424,10 @@ func main() {
 	mux.HandleFunc("/api/customer/comments/undelete", pageProtected("customer.comment:edit", h.CommentUndelete))
 	// 服务分: 数据量小(每天32店)且每天只导一次, 不走 cache 避免 TTL 跟同步频率错位
 	mux.HandleFunc("/api/customer/service-scores", pageProtected("customer.service_score:view", h.GetServiceScores))
+	mux.HandleFunc("/api/customer/service-scores/export", pageProtected("customer.service_score:view", h.ServiceScoreExport))
+	// 修改: 客服(view)可改(存修正对照表不动RPA原始); 恢复原始: 仅管理员(handler内查 user.manage)
+	mux.HandleFunc("/api/customer/service-scores/edit", pageProtected("customer.service_score:view", h.ServiceScoreEdit))
+	mux.HandleFunc("/api/customer/service-scores/restore", pageProtected("customer.service_score:view", h.ServiceScoreRestore))
 	mux.HandleFunc("/api/s-products", pageAnyProtected(cache24h(h.GetSProducts),
 		"ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view",
 		"social.store_dashboard:view", "social.product_dashboard:view",
