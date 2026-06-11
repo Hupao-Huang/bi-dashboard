@@ -210,6 +210,8 @@ const ServiceScore: React.FC = () => {
         dataIndex: 'shop',
         fixed: 'left',
         width: 200,
+        onHeaderCell: () => (hasTarget ? {} : { style: { borderRight: '2px solid #bfbfbf' } }),
+        onCell: () => (hasTarget ? {} : { style: { borderRight: '2px solid #bfbfbf' } }),
         render: (v: string) => (
           <Tooltip title="点击查看近30天走势">
             <a onClick={() => setTrendShop(v)}>{v}</a>
@@ -223,26 +225,32 @@ const ServiceScore: React.FC = () => {
         dataIndex: 'target',
         width: 90,
         fixed: 'left',
+        onHeaderCell: () => ({ style: { borderRight: '2px solid #bfbfbf' } }),
+        onCell: () => ({ style: { borderRight: '2px solid #bfbfbf' } }),
         render: (v: number | null) => fmtVal(v),
       });
     }
-    // 日期组隔条纹背景 + 服务分列(各平台第3项主分)底色加粗, 让日期边界和重点列一眼可辨
-    const zebraBg = '#fafafa';
+    // 日期组隔条纹背景 + 组间粗分隔线 + 服务分列(各平台第3项主分)底色加粗, 让日期边界和重点列一眼可辨
+    const zebraBg = '#f5f5f5';
     const focusBg = '#e6f4ff';
+    // 每个日期组最后一列加深色右边框, 一天一格的边界跳出来 (跑哥 6/11: 每天的间隔不明显)
+    const groupSep = { borderRight: '2px solid #bfbfbf' };
     dates.forEach((d, gi) => {
       const groupBg = gi % 2 === 1 ? zebraBg : undefined;
       cols.push({
         title: dayjs(d).format('MM-DD'),
-        onHeaderCell: () => ({ style: groupBg ? { background: zebraBg } : {} }),
-        children: metrics.map((m) => {
+        onHeaderCell: () => ({ style: { ...(groupBg ? { background: zebraBg } : {}), ...groupSep } }),
+        children: metrics.map((m, mi) => {
           const isFocus = m.key === 'score3';
+          const isLastInGroup = mi === metrics.length - 1;
           const bg = isFocus ? focusBg : groupBg;
+          const sep = isLastInGroup ? groupSep : {};
           return {
             title: m.label,
             width: m.label.length >= 5 ? 96 : 76,
-            onHeaderCell: () => ({ style: bg ? { background: bg, fontWeight: isFocus ? 600 : undefined } : {} }),
+            onHeaderCell: () => ({ style: { ...(bg ? { background: bg, fontWeight: isFocus ? 600 : undefined } : {}), ...sep } }),
             onCell: (row: typeof shopRows[number]) => ({
-              style: { ...(bg ? { background: bg } : {}), cursor: row.byDate.get(d) ? 'pointer' : undefined },
+              style: { ...(bg ? { background: bg } : {}), ...sep, cursor: row.byDate.get(d) ? 'pointer' : undefined },
               onClick: () => { const it = row.byDate.get(d); if (it) openEdit(it); },
             }),
             render: (_: unknown, row: typeof shopRows[number]) => {
