@@ -187,9 +187,9 @@ func TestLoginHappyPathSuperAdmin(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// 5. loadAuthPayload: SELECT users (active) + roles
-	mock.ExpectQuery(`SELECT id, username, real_name, must_change_password FROM users WHERE id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "mcp"}).
-			AddRow(int64(7), "alice", "Alice", false))
+	mock.ExpectQuery(`SELECT id, username, real_name, IFNULL\(dingtalk_real_name,''\), must_change_password FROM users WHERE id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "u", "rn", "drn", "mcp"}).
+			AddRow(int64(7), "alice", "Alice", "", false))
 	mock.ExpectQuery(`FROM roles r\s+INNER JOIN user_roles ur`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "code"}).
 			AddRow(int64(1), "super_admin"))

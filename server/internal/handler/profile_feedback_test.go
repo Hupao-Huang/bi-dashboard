@@ -27,8 +27,8 @@ func TestGetProfileHappyPath(t *testing.T) {
 
 	loginAt := "2026-05-10 09:00"
 	mock.ExpectQuery(`SELECT IFNULL\(real_name,''\), IFNULL\(avatar,''\)`).
-		WillReturnRows(sqlmock.NewRows([]string{"rn", "av", "p", "e", "lat", "did", "ph"}).
-			AddRow("Alice", "/avatar/1.jpg", "13800000000", "a@b.com", &loginAt, "DT123", "$2a$..."))
+		WillReturnRows(sqlmock.NewRows([]string{"rn", "av", "p", "e", "lat", "did", "ph", "drn", "hrn"}).
+			AddRow("Alice", "/avatar/1.jpg", "13800000000", "a@b.com", &loginAt, "DT123", "$2a$...", "", ""))
 
 	payload := &authPayload{}
 	payload.User.ID = 1
