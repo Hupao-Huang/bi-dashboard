@@ -92,10 +92,10 @@ const hotelFeeTypeID = "ID01Fk0STRw3p5"
 // 住宿标准矩阵 (¥/晚, PDF V7.0 2026-01-23)
 // 城市分级 × 职级, 同住按职位高者标准上浮 20%
 var accommodationStandard = map[string]map[string]float64{
-	"总裁":      {"一线": 1200, "新一线": 1000, "二线": 1000, "其他": 800},
-	"副总裁":     {"一线": 1000, "新一线": 800, "二线": 800, "其他": 600},
-	"集团总监":    {"一线": 500, "新一线": 400, "二线": 400, "其他": 300},
-	"集团经理":    {"一线": 450, "新一线": 350, "二线": 350, "其他": 300},
+	"总裁":    {"一线": 1200, "新一线": 1000, "二线": 1000, "其他": 800},
+	"副总裁":   {"一线": 1000, "新一线": 800, "二线": 800, "其他": 600},
+	"集团总监":  {"一线": 500, "新一线": 400, "二线": 400, "其他": 300},
+	"集团经理":  {"一线": 450, "新一线": 350, "二线": 350, "其他": 300},
 	"主管和其他": {"一线": 400, "新一线": 300, "二线": 300, "其他": 300},
 }
 
@@ -141,6 +141,10 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	isOfflineFlow := false
 	if leID, _ := raw["法人实体"].(string); leID != "" {
 		leName := h.LookupLegalEntityName(leID)
+		if leName == "" {
+			// 字典临时拉不到 → 本单只能按集团口径审, 留痕别静默 (规则15二审)
+			log.Printf("[hesi-audit] 法人实体 %s 名称查不到 (字典故障或ID缺), flow=%s 按集团规则审", leID, flowID)
+		}
 		isOfflineFlow = strings.Contains(leName, "世创") || strings.Contains(leName, "世用")
 	}
 
@@ -545,9 +549,12 @@ func (h *DashboardHandler) isBrandCenterDept(deptID string) bool {
 
 // ruleDriveAndReasons 规则 12-1: 自驾 manual 提示 + 12-2: 消费事由长度审核
 // 12-1: 自驾报销 (fee_type=ID01Fr2mX8KP2T) → 转人工 (合思后台无车型/KM 结构化字段)
-//       跑哥规则: 油车 ¥0.7/KM, 电车 ¥0.6/KM
+//
+//	跑哥规则: 油车 ¥0.7/KM, 电车 ¥0.6/KM
+//
 // 12-2: consumptionReasons 长度 ≤50字 agree / >50字 reject (跑哥 2026-06-05 改: 50字以内都通过, 去掉10-50字人工核档)
-//       字数按 rune 计 (中文 1 字)
+//
+//	字数按 rune 计 (中文 1 字)
 func ruleDriveAndReasons(raw map[string]interface{}) (string, string) {
 	details, _ := raw["details"].([]interface{})
 	var driveDetails, longReasons []int
@@ -703,9 +710,9 @@ func (h *DashboardHandler) isResearchDept(deptID string) bool {
 // 8-3: 每个明细发票合计 (sum total_amount) ≥ 明细金额 (有票才校验)
 // 8-4: 开票时间 (invoice_date) 距单据提交 ≤1月 OK / 1-3月 manual / >3月 reject
 // 10:  每个明细必须有票, 除非属于豁免:
-//      - 豁免 A: 研发部门 (递归含"研发") + 样品 fee_type → 无票 OK
-//      - 豁免 B: 补贴 fee_type (出差补贴/市内补贴/餐费补贴) → 无票 OK
-//      - 豁免 C: u_无票原因截图说明 (实查 0 单, 当前不实现, 等合思后台加字段)
+//   - 豁免 A: 研发部门 (递归含"研发") + 样品 fee_type → 无票 OK
+//   - 豁免 B: 补贴 fee_type (出差补贴/市内补贴/餐费补贴) → 无票 OK
+//   - 豁免 C: u_无票原因截图说明 (实查 0 单, 当前不实现, 等合思后台加字段)
 //
 // 返回 (rejectReasons, warnings)
 func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDeptID, flowID string) ([]string, []string) {
@@ -1023,7 +1030,9 @@ var offlineAmountExempt = map[string]bool{
 // 15-1.2 非专票(含电子铁路票/行程单)的明细必须传"付款截图"附件
 // 15-2   除豁免类型外, 明细金额必须 = 该明细发票合计 (一分不差)
 // 15-3   出差补贴: 集团经理及以上(含集团总监) 120/天(50餐+70交通), 其他 100/天(50餐+50交通);
-//        当天有私车公用的, 该天只算 50 餐补 (花名册无"大区经理"档, 大区经理归集团经理档)
+//
+//	当天有私车公用的, 该天只算 50 餐补 (花名册无"大区经理"档, 大区经理归集团经理档)
+//
 // 15-4   私车公用: 该明细油费发票合计 ≥ 系统算出的报销金额, 否则驳回 (线下自动判, 不转人工)
 func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID, submitterID string) ([]string, []string) {
 	var rejects, warnings []string
@@ -1070,8 +1079,11 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 		if fp, ok := form["feeDatePeriod"].(map[string]interface{}); ok {
 			s, _ := fp["start"].(float64)
 			e, _ := fp["end"].(float64)
-			for t := int64(s); t <= int64(e) && s > 1e12; t += 86400000 {
-				dt.dates = append(dt.dates, time.UnixMilli(t).Format("2006-01-02"))
+			// 起止须是合法毫秒时间戳且区间 ≤370 天, 防脏数据把循环跑飞 (规则15二审)
+			if s > 1e12 && e >= s && e-s <= 370*86400000 {
+				for t := int64(s); t <= int64(e); t += 86400000 {
+					dt.dates = append(dt.dates, time.UnixMilli(t).Format("2006-01-02"))
+				}
 			}
 		}
 		if v, ok := form["u_天数"].(string); ok {
@@ -1155,7 +1167,18 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 		// 15-3 出差补贴线下口径
 		if dt.feeTypeID == "ID01Fk0MQBAAQ7" && dt.subsidyAmt > 0 && dt.days > 0 {
 			days := math.Ceil(dt.days)
+			// 私车公用日只剩餐补: 补贴明细自带日期时, 只数落在补贴期间内的私车日;
+			// 没填日期时退回全单私车日数 (单行程单据的旧行为) — 规则15二审修
 			driveDays := float64(len(driveDaySet))
+			if len(dt.dates) > 0 {
+				n := 0
+				for _, d := range dt.dates {
+					if driveDaySet[d] {
+						n++
+					}
+				}
+				driveDays = float64(n)
+			}
 			if driveDays > days {
 				driveDays = days
 			}
@@ -1382,6 +1405,7 @@ func classifyTrainSeat(seat string) string {
 //   - 软卧/动卧等卧铺 → 人工核
 //   - 座位类型识别不到(空) → 人工核
 //   - 其余(二等座/硬座/硬卧/软座/二等卧/卧代二等座…)= 二等座及以下 → 通过(不记)
+//
 // 返回 (rejectMsg, warnMsg)
 func (h *DashboardHandler) ruleTrainSeatClass(flowID string) (string, string) {
 	if flowID == "" {
