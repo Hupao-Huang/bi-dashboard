@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -74,8 +75,31 @@ func main() {
 		startDate = time.Now().AddDate(0, 0, -days).Format("2006-01-02 15:04:05")
 	}
 
-	total := 0
+	// 同步顺序: 笼统大类(订单/行程/通用)在前, 具体类型(火车/酒店/飞机...)在后 —
+	// 同一笔订单在大类和细分类里 data_id 相同, 后同步的覆盖 entity_name, 保证最终显示具体类型
+	type ent struct{ id, name string }
+	list := make([]ent, 0, len(entities))
 	for id, name := range entities {
+		list = append(list, ent{id, name})
+	}
+	generic := map[string]bool{"订单": true, "行程": true, "通用": true}
+	sort.Slice(list, func(i, j int) bool {
+		gi, gj := 0, 0
+		if !generic[list[i].name] {
+			gi = 1
+		}
+		if !generic[list[j].name] {
+			gj = 1
+		}
+		if gi != gj {
+			return gi < gj
+		}
+		return list[i].id < list[j].id
+	})
+
+	total := 0
+	for _, e := range list {
+		id, name := e.id, e.name
 		n, err := syncEntity(db, token, id, name, startDate)
 		if err != nil {
 			log.Printf("[%s] 同步失败: %v", name, err)
@@ -262,6 +286,7 @@ func saveOrder(db *sql.DB, entityID, entityName string, dl map[string]interface{
 		 traveler, order_state, order_type, book_platform, depart_time, arrive_time, raw_json)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON DUPLICATE KEY UPDATE
+		 entity_id=VALUES(entity_id), entity_name=VALUES(entity_name),
 		 pay_method=VALUES(pay_method), corp_pay=VALUES(corp_pay), personal_pay=VALUES(personal_pay),
 		 order_amount=VALUES(order_amount), reimburse_status=VALUES(reimburse_status),
 		 over_standard=VALUES(over_standard), order_state=VALUES(order_state), order_type=VALUES(order_type),
