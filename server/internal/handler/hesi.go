@@ -549,15 +549,54 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 
 	// v1.76.x: 关联申请单 (raw_json.expenseLinks) — 出差/招待/固定资产等"先申请后报销"的申请单
 	// 详情弹窗展示单号/模板/标题/申请额度/状态, 跑哥 6/11 需求 (审批时要能看到那张出差申请单)
+	// 行程消费信息: 该申请单下的合思商旅订单 (hesi_travel_order, 跑哥 6/11 要看支付方式)
+	type travelOrder struct {
+		EntityName      string   `json:"entityName"` // 火车/飞机/酒店/用车...
+		Name            string   `json:"name"`       // 出发-到达
+		TripNo          string   `json:"tripNo"`
+		Seat            string   `json:"seat"`
+		DepartStation   string   `json:"departStation"`
+		ArriveStation   string   `json:"arriveStation"`
+		Traveler        string   `json:"traveler"`
+		DepartTime      string   `json:"departTime"`
+		OrderAmount     *float64 `json:"orderAmount"`
+		PayMethod       string   `json:"payMethod"`       // 企业支付/个人支付
+		ReimburseStatus string   `json:"reimburseStatus"` // 未报销/已报销
+		OverStandard    string   `json:"overStandard"`
+		OrderState      string   `json:"orderState"` // 出票/退票/改签
+	}
 	type linkedReq struct {
-		FlowID           string   `json:"flowId"`
-		Code             string   `json:"code"`
-		Title            string   `json:"title"`
-		FormType         string   `json:"formType"`
-		State            string   `json:"state"`
-		SpecName         string   `json:"specName"`
-		RequisitionMoney *float64 `json:"requisitionMoney"`
-		Missing          bool     `json:"missing"` // 关联单还没同步到看板本地库
+		FlowID           string        `json:"flowId"`
+		Code             string        `json:"code"`
+		Title            string        `json:"title"`
+		FormType         string        `json:"formType"`
+		State            string        `json:"state"`
+		SpecName         string        `json:"specName"`
+		RequisitionMoney *float64      `json:"requisitionMoney"`
+		Missing          bool          `json:"missing"` // 关联单还没同步到看板本地库
+		Orders           []travelOrder `json:"orders"`  // 行程消费信息 (商旅订单)
+	}
+	loadOrders := func(reqCode string) []travelOrder {
+		out := []travelOrder{}
+		if reqCode == "" {
+			return out
+		}
+		// 只取"订单"类业务对象 (行程类无金额/支付方式, 是下单前的计划)
+		rows, err := h.DB.Query(`SELECT entity_name, name, trip_no, seat, depart_station, arrive_station,
+			traveler, depart_time, order_amount, pay_method, reimburse_status, over_standard, order_state
+			FROM hesi_travel_order WHERE req_code=? AND pay_method<>'' ORDER BY depart_time, id`, reqCode)
+		if err != nil {
+			return out
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var o travelOrder
+			if rows.Scan(&o.EntityName, &o.Name, &o.TripNo, &o.Seat, &o.DepartStation, &o.ArriveStation,
+				&o.Traveler, &o.DepartTime, &o.OrderAmount, &o.PayMethod, &o.ReimburseStatus, &o.OverStandard, &o.OrderState) == nil {
+				out = append(out, o)
+			}
+		}
+		return out
 	}
 	linkedReqs := []linkedReq{}
 	if m, ok := formData.(map[string]interface{}); ok {
@@ -588,6 +627,7 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 						}
 					}
 				}
+				lr.Orders = loadOrders(lr.Code)
 				linkedReqs = append(linkedReqs, lr)
 			}
 		}
