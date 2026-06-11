@@ -10,7 +10,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Modal, Descriptions, Space, Tabs, Tag, Table, Typography, Tooltip, Button, Image, message } from 'antd';
-import { ArrowLeftOutlined, CheckCircleOutlined, WarningOutlined, PaperClipOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, CheckCircleOutlined, WarningOutlined, PaperClipOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 const formTypeMap: Record<string, { label: string; color: string }> = {
@@ -341,6 +341,7 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
               key: 'basic',
               label: '基本信息',
               children: (
+                <>
                 <Descriptions bordered size="small" column={2} labelStyle={{ width: 140, whiteSpace: 'nowrap' }}>
                   <Descriptions.Item label="单据编码">{detailData.flow.code}</Descriptions.Item>
                   <Descriptions.Item label="单据类型">
@@ -417,82 +418,6 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                       {stateMap[detailData.flow.state]?.label || detailData.flow.state}
                     </Tag>
                   </Descriptions.Item>
-                  {Array.isArray(detailData.linkedRequisitions) && detailData.linkedRequisitions.length > 0 && (
-                    <Descriptions.Item label={
-                      <Tooltip title="先申请后报销的关联单 (出差申请单/招待费用申请单/固定资产申请单), 点单号可直接打开查看">
-                        <span style={{ cursor: 'help' }}>关联申请单</span>
-                      </Tooltip>
-                    } span={2}>
-                      {detailData.linkedRequisitions.map((lr: any) => (
-                        <div key={lr.flowId} style={{ marginBottom: 8 }}>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                            {lr.missing ? (
-                              <Typography.Text type="secondary">关联单还没同步到看板 (可去合思查看)</Typography.Text>
-                            ) : (
-                              <>
-                                <a onClick={() => setDrillStack(s => [...s, lr.flowId])}>{lr.code}</a>
-                                {lr.specName && <Tag color="green">{lr.specName}</Tag>}
-                                <span>{lr.title}</span>
-                                {lr.requisitionMoney != null && (
-                                  <Typography.Text>申请额度 ¥{Number(lr.requisitionMoney).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</Typography.Text>
-                                )}
-                                {lr.state && (
-                                  <Tag color={stateMap[lr.state]?.color}>{stateMap[lr.state]?.label || lr.state}</Tag>
-                                )}
-                              </>
-                            )}
-                          </div>
-                          {Array.isArray(lr.orders) && lr.orders.length > 0 && (
-                            <div style={{ background: '#f8fafc', borderRadius: 6, padding: '6px 10px', marginTop: 4 }}>
-                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>行程消费信息 (合思商旅订单)</Typography.Text>
-                              {lr.orders.map((o: any, i: number) => {
-                                const typeStyle: Record<string, { color: string; icon: string }> = {
-                                  火车: { color: 'green', icon: '🚄' },
-                                  飞机: { color: 'geekblue', icon: '✈️' },
-                                  酒店: { color: 'purple', icon: '🏨' },
-                                  用车: { color: 'cyan', icon: '🚗' },
-                                };
-                                const ts = typeStyle[o.entityName] || { color: 'default', icon: '' };
-                                const route = o.departStation && o.arriveStation ? `${o.departStation} → ${o.arriveStation}` : (o.name || '');
-                                return (
-                                  <div
-                                    key={i}
-                                    style={{
-                                      display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, padding: '4px 0',
-                                      borderBottom: i < lr.orders.length - 1 ? '1px dashed #e5e7eb' : undefined,
-                                    }}
-                                  >
-                                    <Tag color={ts.color} style={{ width: 62, textAlign: 'center', marginRight: 0, flexShrink: 0 }}>
-                                      {ts.icon} {o.entityName}
-                                    </Tag>
-                                    {o.departTime && <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{o.departTime}</Typography.Text>}
-                                    {o.tripNo && <Tag bordered={false} style={{ marginRight: 0, flexShrink: 0 }}>{o.tripNo}</Tag>}
-                                    {o.seat && <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{o.seat}</Typography.Text>}
-                                    <Typography.Text ellipsis={{ tooltip: route }} style={{ flex: 1, minWidth: 80 }}>{route}</Typography.Text>
-                                    {o.traveler && <Typography.Text type="secondary" style={{ flexShrink: 0 }}>{o.traveler}</Typography.Text>}
-                                    {o.orderAmount != null && (
-                                      <Typography.Text strong style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
-                                        ¥{Number(o.orderAmount).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                                      </Typography.Text>
-                                    )}
-                                    <span style={{ flexShrink: 0 }}>
-                                      <Tag color={o.payMethod === '企业支付' ? 'red' : 'blue'} style={{ marginRight: 0 }}>{o.payMethod}</Tag>
-                                      {o.reimburseStatus && <Tag color={o.reimburseStatus === '已报销' ? 'warning' : 'default'} style={{ marginLeft: 4, marginRight: 0 }}>{o.reimburseStatus}</Tag>}
-                                      {o.overStandard === '是' && <Tag color="error" style={{ marginLeft: 4, marginRight: 0 }}>超标</Tag>}
-                                      {o.orderState && o.orderState !== '出票' && <Tag color="warning" style={{ marginLeft: 4, marginRight: 0 }}>{o.orderState}</Tag>}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                                标红"企业支付"= 公司已付钱, 报销明细里不应再出现同一笔
-                              </Typography.Text>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </Descriptions.Item>
-                  )}
                   {/* 4 个金额/凭证/支付字段按 form_type 自适应
                       - expense 类 (报销) 始终显示 (即使空, 作为业务异常警告)
                       - 其他类 (申请/借款/商城) 仅 value 非空才显示 */}
@@ -569,6 +494,90 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                     </>
                   )}
                 </Descriptions>
+                {/* 关联申请单独立区块: 从 Descriptions 拆出, 长内容不再撑爆字段表 (跑哥 6/11 排版优化) */}
+                {Array.isArray(detailData.linkedRequisitions) && detailData.linkedRequisitions.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ marginBottom: 8 }}>
+                      <Typography.Text strong>关联申请单 ({detailData.linkedRequisitions.length})</Typography.Text>
+                      <Tooltip title="先申请后报销的关联单 (出差申请单/招待费用申请单/固定资产申请单), 点单号可直接打开查看">
+                        <QuestionCircleOutlined style={{ marginLeft: 6, color: '#94a3b8', cursor: 'help' }} />
+                      </Tooltip>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {detailData.linkedRequisitions.map((lr: any) => (
+                        <div key={lr.flowId} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px' }}>
+                          {lr.missing ? (
+                            <Typography.Text type="secondary">关联单还没同步到看板 (可去合思查看)</Typography.Text>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <a onClick={() => setDrillStack(s => [...s, lr.flowId])} style={{ fontWeight: 600, flexShrink: 0 }}>{lr.code}</a>
+                              {lr.specName && <Tag color="green" style={{ flexShrink: 0 }}>{lr.specName}</Tag>}
+                              <Typography.Text ellipsis={{ tooltip: lr.title }} style={{ flex: 1, minWidth: 60 }}>{lr.title}</Typography.Text>
+                              {lr.requisitionMoney != null && (
+                                <Typography.Text type="secondary" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                  申请额度 <Typography.Text strong>¥{Number(lr.requisitionMoney).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</Typography.Text>
+                                </Typography.Text>
+                              )}
+                              {lr.state && (
+                                <Tag color={stateMap[lr.state]?.color} style={{ marginRight: 0, flexShrink: 0 }}>{stateMap[lr.state]?.label || lr.state}</Tag>
+                              )}
+                            </div>
+                          )}
+                          {Array.isArray(lr.orders) && lr.orders.length > 0 && (
+                            <div style={{ background: '#f8fafc', borderRadius: 6, padding: '6px 10px', marginTop: 8 }}>
+                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>行程消费信息 (合思商旅订单)</Typography.Text>
+                              {lr.orders.map((o: any, i: number) => {
+                                const typeStyle: Record<string, { color: string; icon: string }> = {
+                                  火车: { color: 'green', icon: '🚄' },
+                                  飞机: { color: 'geekblue', icon: '✈️' },
+                                  酒店: { color: 'purple', icon: '🏨' },
+                                  用车: { color: 'cyan', icon: '🚗' },
+                                };
+                                const ts = typeStyle[o.entityName] || { color: 'default', icon: '' };
+                                const route = o.departStation && o.arriveStation ? `${o.departStation} → ${o.arriveStation}` : (o.name || '');
+                                return (
+                                  <div
+                                    key={i}
+                                    style={{
+                                      display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, padding: '4px 0',
+                                      borderBottom: i < lr.orders.length - 1 ? '1px dashed #e5e7eb' : undefined,
+                                    }}
+                                  >
+                                    <Tag color={ts.color} style={{ width: 62, textAlign: 'center', marginRight: 0, flexShrink: 0 }}>
+                                      {ts.icon} {o.entityName}
+                                    </Tag>
+                                    {o.departTime && <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{o.departTime}</Typography.Text>}
+                                    {o.tripNo && <Tag bordered={false} style={{ marginRight: 0, flexShrink: 0 }}>{o.tripNo}</Tag>}
+                                    {o.seat && <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{o.seat}</Typography.Text>}
+                                    <Typography.Text ellipsis={{ tooltip: route }} style={{ flex: 1, minWidth: 80 }}>{route}</Typography.Text>
+                                    {o.traveler && <Typography.Text type="secondary" style={{ flexShrink: 0 }}>{o.traveler}</Typography.Text>}
+                                    {o.orderAmount != null && (
+                                      <Typography.Text strong style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                        ¥{Number(o.orderAmount).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                      </Typography.Text>
+                                    )}
+                                    <span style={{ flexShrink: 0 }}>
+                                      <Tag color={o.payMethod === '企业支付' ? 'red' : 'blue'} style={{ marginRight: 0 }}>{o.payMethod}</Tag>
+                                      {o.reimburseStatus && <Tag color={o.reimburseStatus === '已报销' ? 'warning' : 'default'} style={{ marginLeft: 4, marginRight: 0 }}>{o.reimburseStatus}</Tag>}
+                                      {o.overStandard === '是' && <Tag color="error" style={{ marginLeft: 4, marginRight: 0 }}>超标</Tag>}
+                                      {o.orderState && o.orderState !== '出票' && <Tag color="warning" style={{ marginLeft: 4, marginRight: 0 }}>{o.orderState}</Tag>}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {detailData.linkedRequisitions.some((lr: any) => Array.isArray(lr.orders) && lr.orders.length > 0) && (
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                        标红"企业支付"= 公司已付钱, 报销明细里不应再出现同一笔
+                      </Typography.Text>
+                    )}
+                  </div>
+                )}
+                </>
               ),
             },
             ...((detailData.details?.length || 0) > 0 ? [{
