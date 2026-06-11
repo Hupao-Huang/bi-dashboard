@@ -93,6 +93,12 @@ const HesiBot: React.FC = () => {
   const [batchAction, setBatchAction] = useState<'agree' | 'reject'>('agree');
   const [batchComment, setBatchComment] = useState('');
   const [batchLoading, setBatchLoading] = useState(false);
+  // 驳回选项 (对应合思驳回弹窗两模块): 驳回节点(单据级, 仅单笔驳回可选; 空=提交人) + 重审路径
+  const [rejectTo, setRejectTo] = useState('');
+  const [resubmitMethod, setResubmitMethod] = useState<'TO_REJECTOR' | 'FROM_START'>('TO_REJECTOR');
+  const [batchResubmitMethod, setBatchResubmitMethod] = useState<'TO_REJECTOR' | 'FROM_START'>('TO_REJECTOR');
+  const [rejectNodes, setRejectNodes] = useState<{ id: string; name: string }[]>([]);
+  const [rejectNodesLoading, setRejectNodesLoading] = useState(false);
   // 异步审批队列
   type QueueItem = { id: number; flowId: string; flowCode: string; action: string; status: string; errorMsg?: string; createdAt: string; finishedAt?: string };
   const [activeQueue, setActiveQueue] = useState<QueueItem[]>([]);
@@ -244,7 +250,13 @@ const HesiBot: React.FC = () => {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ flowId: it.flowId, action: batchAction, comment: batchComment.trim() }),
+          body: JSON.stringify({
+            flowId: it.flowId,
+            action: batchAction,
+            comment: batchComment.trim(),
+            // 批量驳回: 节点是单据级没法跨单统一选, 固定驳回至提交人; 重审路径可选
+            ...(batchAction === 'reject' ? { rejectTo: '', resubmitMethod: batchResubmitMethod } : {}),
+          }),
         });
         const json = await res.json();
         if (!res.ok || json.code !== 200) throw new Error(json.msg || `HTTP ${res.status}`);
@@ -275,6 +287,16 @@ const HesiBot: React.FC = () => {
     setApproveTarget(item);
     setApproveAction('agree');
     setApproveComment('');
+    setRejectTo('');
+    setResubmitMethod('TO_REJECTOR');
+    setRejectNodes([]);
+    // 预拉该单已审过的节点 (驳回节点下拉选项; 失败只剩"提交人"默认项, 不挡审批)
+    setRejectNodesLoading(true);
+    fetch(`${API_BASE}/api/hesi-bot/reject-nodes?flowId=${encodeURIComponent(item.flowId)}`, { credentials: 'include' })
+      .then(res => res.json())
+      .then(json => { if (json.code === 200 && json.data) setRejectNodes(json.data.nodes || []); })
+      .catch(() => { /* 拉不到节点就只有提交人选项 */ })
+      .finally(() => setRejectNodesLoading(false));
   };
 
   const handleApproveSubmit = async () => {
@@ -293,6 +315,7 @@ const HesiBot: React.FC = () => {
           flowId: approveTarget.flowId,
           action: approveAction,
           comment: approveComment.trim(),
+          ...(approveAction === 'reject' ? { rejectTo, resubmitMethod } : {}),
         }),
       });
       const json = await res.json();
@@ -680,6 +703,30 @@ const HesiBot: React.FC = () => {
                 <Radio.Button value="reject"><CloseOutlined /> 驳回</Radio.Button>
               </Radio.Group>
             </div>
+            {approveAction === 'reject' && (
+              <>
+                <div>
+                  <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>驳回节点 (单子退给谁处理)</div>
+                  <Select
+                    value={rejectTo}
+                    onChange={setRejectTo}
+                    loading={rejectNodesLoading}
+                    style={{ width: '100%' }}
+                    options={[
+                      { value: '', label: '提交人 (默认)' },
+                      ...rejectNodes.map(n => ({ value: n.id, label: n.name })),
+                    ]}
+                  />
+                </div>
+                <div>
+                  <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>重审路径 (改完重新提交后从哪开始审)</div>
+                  <Radio.Group value={resubmitMethod} onChange={(e) => setResubmitMethod(e.target.value)}>
+                    <Radio value="TO_REJECTOR">从当前节点开始审批 (默认, 前面已审过的不重审)</Radio>
+                    <Radio value="FROM_START">从提交人节点开始审批 (重走完整流程)</Radio>
+                  </Radio.Group>
+                </div>
+              </>
+            )}
             <div>
               <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>
                 备注{approveAction === 'reject' ? <span style={{ color: '#ef4444' }}> (驳回必填)</span> : ' (可选)'}
@@ -738,6 +785,17 @@ const HesiBot: React.FC = () => {
               <Radio.Button value="reject"><CloseOutlined /> 驳回</Radio.Button>
             </Radio.Group>
           </div>
+          {batchAction === 'reject' && (
+            <div>
+              <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>
+                重审路径 (整批统一; 批量驳回固定退给各单提交人, 想退到指定环节请单笔驳回)
+              </div>
+              <Radio.Group value={batchResubmitMethod} onChange={(e) => setBatchResubmitMethod(e.target.value)}>
+                <Radio value="TO_REJECTOR">从当前节点开始审批 (默认, 前面已审过的不重审)</Radio>
+                <Radio value="FROM_START">从提交人节点开始审批 (重走完整流程)</Radio>
+              </Radio.Group>
+            </div>
+          )}
           <div>
             <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>
               备注{batchAction === 'reject' ? <span style={{ color: '#ef4444' }}> (驳回必填, 整批共用)</span> : ' (可选, 整批共用)'}
