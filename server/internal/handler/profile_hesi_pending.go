@@ -65,6 +65,8 @@ type myHesiPendingRow struct {
 	UpdateTime          *int64           `json:"updateTime"`
 	SubmitDate          *int64           `json:"submitDate"`
 	SubmitterId         *string          `json:"submitterId"`
+	OwnerId             *string          `json:"ownerId"`
+	OwnerName           string           `json:"ownerName"` // 发起人姓名 (合思字典反查, 内存缓存)
 	DepartmentId        *string          `json:"departmentId"`
 	OwnerDepartment     *string          `json:"ownerDepartmentId"` // v1.76.0: 发起人部门 (规则 1)
 	PreApprovedNode     *string          `json:"preApprovedNode"`
@@ -144,7 +146,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 	selectFields := `flow_id, code, IFNULL(title,''), form_type, state,
 			current_stage_name, current_approver_name, current_approver_code,
 			pay_money, expense_money, loan_money,
-			create_time, update_time, submit_date, submitter_id, department_id, owner_department,
+			create_time, update_time, submit_date, submitter_id, owner_id, department_id, owner_department,
 			JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.preApprovedNodeName')) AS pre_approved_node,
 			JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.preNodeApprovedTime')) AS pre_approved_time,
 			specification_id, IFNULL(raw_json,'')`
@@ -188,7 +190,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 			&row.StageName, &row.ApproverName, &row.CurrentApproverCode,
 			&row.PayMoney, &row.ExpenseMoney, &row.LoanMoney,
 			&row.CreateTime, &row.UpdateTime, &row.SubmitDate,
-			&row.SubmitterId, &row.DepartmentId, &row.OwnerDepartment,
+			&row.SubmitterId, &row.OwnerId, &row.DepartmentId, &row.OwnerDepartment,
 			&row.PreApprovedNode, &row.PreApprovedTime,
 			&row.SpecificationId, &rawJSON); err != nil {
 			writeServerError(w, 500, "扫描失败", err)
@@ -196,6 +198,13 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		}
 		if row.SpecificationId != nil && *row.SpecificationId != "" {
 			row.SpecificationName = h.LookupSpecName(*row.SpecificationId)
+		}
+		// 发起人姓名: 字典反查 (首次拉合思字典 ~800ms, 之后内存缓存); 发起人空兜底提交人
+		if row.OwnerId != nil && *row.OwnerId != "" {
+			row.OwnerName = h.LookupStaffName(*row.OwnerId)
+		}
+		if row.OwnerName == "" && row.SubmitterId != nil && *row.SubmitterId != "" {
+			row.OwnerName = h.LookupStaffName(*row.SubmitterId)
 		}
 		// AI 审批建议: 樊雪娇 + 日常报销单模板才跑
 		if isFanXuejiao && row.SpecificationId != nil && strings.HasPrefix(*row.SpecificationId, dailyExpenseSpecPrefix) {

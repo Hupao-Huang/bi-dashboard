@@ -21,6 +21,7 @@ import HesiFlowDetailModal from '../../components/HesiFlowDetailModal';
 interface PendingItem {
   flowId: string;
   code: string;
+  ownerName?: string; // 发起人姓名
   title: string;
   formType: string;
   state: string;
@@ -99,6 +100,7 @@ const HesiBot: React.FC = () => {
   const [batchResubmitMethod, setBatchResubmitMethod] = useState<'TO_REJECTOR' | 'FROM_START'>('TO_REJECTOR');
   const [rejectNodes, setRejectNodes] = useState<{ id: string; name: string }[]>([]);
   const [rejectNodesLoading, setRejectNodesLoading] = useState(false);
+  const [liveSyncing, setLiveSyncing] = useState(false); // 刷新=现场同步合思中
   // 异步审批队列
   type QueueItem = { id: number; flowId: string; flowCode: string; action: string; status: string; errorMsg?: string; createdAt: string; finishedAt?: string };
   const [activeQueue, setActiveQueue] = useState<QueueItem[]>([]);
@@ -213,7 +215,8 @@ const HesiBot: React.FC = () => {
       if (q) {
         const matchCode = (it.code || '').toLowerCase().includes(q);
         const matchTitle = (it.title || '').toLowerCase().includes(q);
-        if (!matchCode && !matchTitle) return false;
+        const matchOwner = (it.ownerName || '').toLowerCase().includes(q);
+        if (!matchCode && !matchTitle && !matchOwner) return false;
       }
       if (formTypeFilter.length > 0 && !formTypeFilter.includes(it.formType)) return false;
       if (suggestionFilter.length > 0 && !suggestionFilter.includes(it.suggestion?.action || 'none')) return false;
@@ -235,6 +238,29 @@ const HesiBot: React.FC = () => {
   const selectedSet = useMemo(() => new Set(selectedRowKeys.map(String)), [selectedRowKeys]);
   const selectedItems = useMemo(() => items.filter(it => selectedSet.has(it.flowId)), [items, selectedSet]);
   const selectedAmount = selectedItems.reduce((sum, it) => sum + (getMoney(it) || 0), 0);
+
+  // 刷新 = 先去合思现场拉当前审批人的实时待办对齐本地, 再重读列表
+  // 同步失败(如该审批人匹配不到合思员工)降级为只读本地, 给个提示不挡路
+  const handleLiveRefresh = async () => {
+    setLiveSyncing(true);
+    try {
+      const url = selectedApprover
+        ? `${PROFILE_API}/hesi-pending/sync?approver=${encodeURIComponent(selectedApprover)}`
+        : `${PROFILE_API}/hesi-pending/sync`;
+      const res = await fetch(url, { method: 'POST', credentials: 'include' });
+      const json = await res.json();
+      if (res.ok && json.code === 200 && json.data) {
+        const d = json.data;
+        message.success(`已对齐合思实时待办: ${d.pulled} 单在审${d.added ? `, 新到 ${d.added} 单` : ''}${d.removed ? `, 撤走 ${d.removed} 单` : ''}`);
+      } else {
+        message.info(`${json.msg || '现场同步失败'}, 已改为只刷新本地数据`);
+      }
+    } catch {
+      message.info('现场同步失败, 已改为只刷新本地数据');
+    }
+    setLiveSyncing(false);
+    fetchPending(selectedApprover);
+  };
 
   const handleBatchSubmit = async () => {
     if (batchAction === 'reject' && !batchComment.trim()) {
@@ -355,6 +381,10 @@ const HesiBot: React.FC = () => {
           {code}
         </Button>
       ),
+    },
+    {
+      title: '发起人', dataIndex: 'ownerName', width: 90,
+      render: (v: string | undefined) => v || '-',
     },
     {
       title: '标题', dataIndex: 'title', width: 260, ellipsis: true,
@@ -535,7 +565,7 @@ const HesiBot: React.FC = () => {
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <Input
               prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              placeholder="搜索 单据编码 / 标题"
+              placeholder="搜索 单据编码 / 标题 / 发起人"
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
               allowClear
@@ -597,8 +627,8 @@ const HesiBot: React.FC = () => {
               suffix="单"
             />
             <Statistic title="涉及金额合计" value={totalAmount} precision={2} prefix="¥" />
-            <Tooltip title="只从 BI 看板本地数据库重读一次清单, 不会去合思现拉. 想看合思最新状态请去 费控管理 → 立即同步合思.">
-              <Button icon={<ReloadOutlined />} onClick={() => fetchPending(selectedApprover)} loading={loading} style={{ marginLeft: 'auto' }}>
+            <Tooltip title="去合思现场拉取当前审批人的实时待办(新到的单/被别处审掉的单都会对齐), 然后刷新清单. 秒级完成.">
+              <Button icon={<ReloadOutlined />} onClick={handleLiveRefresh} loading={loading || liveSyncing} style={{ marginLeft: 'auto' }}>
                 刷新
               </Button>
             </Tooltip>
