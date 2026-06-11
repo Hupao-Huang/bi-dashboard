@@ -489,16 +489,18 @@ const HesiBot: React.FC = () => {
         const inQueue = activeQueue.find(q => q.flowId === record.flowId);
         const isOptimistic = optimisticApproved.has(record.flowId);
         // 状态优先级: 乐观提交瞬间 → 队列处理中 → 可审批
-        let statusTag: React.ReactNode = null;
+        // 排队/提交/等生效 对用户是同一件事"在办", 统一一个标签, 悬停看具体阶段 (跑哥 6/11 反馈样式不统一)
+        let phase = '';
         if (inQueue) {
-          statusTag = (
-            <Tag color={inQueue.status === 'running' ? 'processing' : 'default'}>
-              {inQueue.status === 'running' ? '处理中' : '排队中'}
-            </Tag>
-          );
+          phase = inQueue.status === 'running' ? '正在提交合思' : '排队等提交 (合思 60s 限流)';
         } else if (isOptimistic) {
-          statusTag = <Tag color="processing">已提交,等生效</Tag>;
+          phase = '已提交合思, 等流转生效 (约 1-2 分钟)';
         }
+        const statusTag: React.ReactNode = phase ? (
+          <Tooltip title={phase}>
+            <Tag color="processing" icon={<ClockCircleOutlined />}>处理中</Tag>
+          </Tooltip>
+        ) : null;
         return (
           <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
             <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => showDetail(record.flowId)}>
