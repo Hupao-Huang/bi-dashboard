@@ -4,9 +4,78 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
+
+// HesiRejectNodes GET /api/hesi-bot/reject-nodes?flowId=
+// 返回该单据"当前这轮"已审批通过的节点清单, 给驳回弹窗的"驳回节点"下拉用
+// (对应合思自家驳回弹窗的节点选项; "提交人"默认项由前端兜底, 不在返回里)
+// 数据源: 合思单据详情 logs — 取最后一次提交之后的同意记录 (撤回重提的旧轮次不算)
+func (h *DashboardHandler) HesiRejectNodes(w http.ResponseWriter, r *http.Request) {
+	flowID := strings.TrimSpace(r.URL.Query().Get("flowId"))
+	if flowID == "" {
+		writeError(w, 400, "flowId 不能为空")
+		return
+	}
+	token, err := h.getHesiToken()
+	if err != nil {
+		writeServerError(w, 500, "获取合思授权失败", err)
+		return
+	}
+	resp, err := hesiHTTP.Get(fmt.Sprintf("%s/api/openapi/v1.1/flowDetails?flowId=%s&accessToken=%s", hesiAPIBase, flowID, token))
+	if err != nil {
+		writeServerError(w, 500, "查询合思单据失败", err)
+		return
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	var parsed struct {
+		Value struct {
+			Logs []struct {
+				Action     string `json:"action"`
+				Attributes struct {
+					NodeID   string `json:"nodeId"`
+					NodeName string `json:"nodeName"`
+				} `json:"attributes"`
+			} `json:"logs"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		writeServerError(w, 500, "解析合思单据失败", err)
+		return
+	}
+
+	lastSubmit := -1
+	for i, lg := range parsed.Value.Logs {
+		if lg.Action == "freeflow.submit" {
+			lastSubmit = i
+		}
+	}
+	type nodeItem struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	nodes := []nodeItem{}
+	seen := map[string]bool{}
+	for i := lastSubmit + 1; i >= 0 && i < len(parsed.Value.Logs); i++ {
+		lg := parsed.Value.Logs[i]
+		if lg.Action != "freeflow.agree" {
+			continue
+		}
+		id, name := lg.Attributes.NodeID, lg.Attributes.NodeName
+		if !strings.HasPrefix(id, "FLOW:") || name == "" || seen[id] {
+			continue
+		}
+		if strings.Contains(name, "抄送") {
+			continue // 抄送节点是自动通过的知会节点, 不能当驳回目标 (合思自家弹窗也不列)
+		}
+		seen[id] = true
+		nodes = append(nodes, nodeItem{ID: id, Name: name})
+	}
+	writeJSON(w, map[string]interface{}{"nodes": nodes})
+}
 
 // nullableStr 空字符串转 SQL NULL (用于 hesi_flow.current_* 字段)
 func nullableStr(s string) sql.NullString {
@@ -35,6 +104,11 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 		FlowID  string `json:"flowId"`
 		Action  string `json:"action"`
 		Comment string `json:"comment"`
+		// v1.76.x 驳回选项 (对应合思驳回弹窗的两个模块):
+		// RejectTo: 驳回目标节点ID(FLOW:x:y), 空=驳回至提交人
+		// ResubmitMethod: TO_REJECTOR=重审从当前节点开始(默认) / FROM_START=重审从提交人重新走全流程
+		RejectTo       string `json:"rejectTo"`
+		ResubmitMethod string `json:"resubmitMethod"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, 400, "无效请求")
@@ -42,6 +116,8 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	req.FlowID = strings.TrimSpace(req.FlowID)
 	req.Action = strings.TrimSpace(req.Action)
+	req.RejectTo = strings.TrimSpace(req.RejectTo)
+	req.ResubmitMethod = strings.TrimSpace(req.ResubmitMethod)
 	if req.FlowID == "" {
 		writeError(w, 400, "flowId 不能为空")
 		return
@@ -53,6 +129,17 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 	if req.Action == "reject" && strings.TrimSpace(req.Comment) == "" {
 		writeError(w, 400, "驳回必须填写备注理由")
 		return
+	}
+	if req.Action == "reject" {
+		if req.ResubmitMethod == "" {
+			req.ResubmitMethod = "TO_REJECTOR"
+		}
+		if req.ResubmitMethod != "TO_REJECTOR" && req.ResubmitMethod != "FROM_START" {
+			writeError(w, 400, "重审路径只能是 TO_REJECTOR(从当前节点) 或 FROM_START(重走全流程)")
+			return
+		}
+	} else {
+		req.RejectTo, req.ResubmitMethod = "", "" // 同意不带驳回参数
 	}
 
 	// 1. 查 hesi_flow 拿单据信息 + 审批人 ID
@@ -97,10 +184,11 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 	// 3. INSERT 入队列
 	res, err := h.DB.Exec(`
 		INSERT INTO hesi_approval_queue
-			(user_id, username, real_name, flow_id, flow_code, flow_title, action, comment, approve_id, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
+			(user_id, username, real_name, flow_id, flow_code, flow_title, action, comment, approve_id, reject_to, resubmit_method, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
 		payload.User.ID, payload.User.Username, payload.User.RealName,
 		req.FlowID, flowCode, title, req.Action, req.Comment, currentApproverID.String,
+		req.RejectTo, req.ResubmitMethod,
 	)
 	if err != nil {
 		writeServerError(w, 500, "入队列失败", err)

@@ -20,16 +20,18 @@ const (
 )
 
 type approvalQueueItem struct {
-	ID        int64
-	UserID    int64
-	Username  string
-	RealName  string
-	FlowID    string
-	FlowCode  string
-	FlowTitle string
-	ApproveID string
-	Action    string
-	Comment   string
+	ID             int64
+	UserID         int64
+	Username       string
+	RealName       string
+	FlowID         string
+	FlowCode       string
+	FlowTitle      string
+	ApproveID      string
+	Action         string
+	Comment        string
+	RejectTo       string // 驳回目标节点ID (空=提交人)
+	ResubmitMethod string // TO_REJECTOR / FROM_START (仅驳回)
 }
 
 // StartHesiApprovalWorker bi-server 启动时拉起的合思审批队列 worker (单 goroutine)
@@ -72,13 +74,14 @@ func (h *DashboardHandler) StartHesiApprovalWorker(stopCh <-chan struct{}) {
 	}
 }
 
-// fetchNextApprovalBatch 取下一批待处理: 最早的 queued 为锚, 同 approve_id+action 最多 10 单
+// fetchNextApprovalBatch 取下一批待处理: 最早的 queued 为锚, 同 approve_id+action+驳回参数 最多 10 单
+// (驳回参数进分组键: 合思 batch 调用整批共用一个 action 体; 选了具体驳回节点的单 ID 是单据级的, 自然单独成批)
 func (h *DashboardHandler) fetchNextApprovalBatch() ([]approvalQueueItem, error) {
 	// 1. 取最早的 queued 当锚
-	var anchorApproveID, anchorAction string
+	var anchorApproveID, anchorAction, anchorRejectTo, anchorResubmit string
 	err := h.DB.QueryRow(`
-		SELECT approve_id, action FROM hesi_approval_queue
-		WHERE status='queued' ORDER BY created_at LIMIT 1`).Scan(&anchorApproveID, &anchorAction)
+		SELECT approve_id, action, IFNULL(reject_to,''), IFNULL(resubmit_method,'') FROM hesi_approval_queue
+		WHERE status='queued' ORDER BY created_at LIMIT 1`).Scan(&anchorApproveID, &anchorAction, &anchorRejectTo, &anchorResubmit)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -86,13 +89,13 @@ func (h *DashboardHandler) fetchNextApprovalBatch() ([]approvalQueueItem, error)
 		return nil, err
 	}
 
-	// 2. 取同 approve_id+action FIFO 最多 10 单
+	// 2. 取同组 FIFO 最多 10 单
 	rows, err := h.DB.Query(`
 		SELECT id, user_id, username, real_name, flow_id, IFNULL(flow_code,''), IFNULL(flow_title,''),
-		       approve_id, action, IFNULL(comment,'')
+		       approve_id, action, IFNULL(comment,''), IFNULL(reject_to,''), IFNULL(resubmit_method,'')
 		FROM hesi_approval_queue
-		WHERE status='queued' AND approve_id=? AND action=?
-		ORDER BY created_at LIMIT ?`, anchorApproveID, anchorAction, hesiBatchMaxFlows)
+		WHERE status='queued' AND approve_id=? AND action=? AND IFNULL(reject_to,'')=? AND IFNULL(resubmit_method,'')=?
+		ORDER BY created_at LIMIT ?`, anchorApproveID, anchorAction, anchorRejectTo, anchorResubmit, hesiBatchMaxFlows)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +105,7 @@ func (h *DashboardHandler) fetchNextApprovalBatch() ([]approvalQueueItem, error)
 	for rows.Next() {
 		var it approvalQueueItem
 		if err := rows.Scan(&it.ID, &it.UserID, &it.Username, &it.RealName, &it.FlowID,
-			&it.FlowCode, &it.FlowTitle, &it.ApproveID, &it.Action, &it.Comment); err != nil {
+			&it.FlowCode, &it.FlowTitle, &it.ApproveID, &it.Action, &it.Comment, &it.RejectTo, &it.ResubmitMethod); err != nil {
 			return nil, err
 		}
 		batch = append(batch, it)
@@ -168,10 +171,17 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 		},
 	}
 	if action == "reject" {
-		// resubmitMethod 合法值只有 FROM_START(重走全流程) / TO_REJECTOR(改完直回驳回人环节)。
+		// resubmitMethod 合法值只有 FROM_START(重走全流程) / TO_REJECTOR(重审从当前节点开始)。
 		// 之前传 "resubmit"(非法值) → 合思受理后静默丢弃, 驳回从未生效 (6/11 B26003612 案例)。
-		// 默认 TO_REJECTOR: 前面环节已审过, 提交人改完发票直接回到驳回人, 不折腾中间人
-		hesiBody["action"].(map[string]interface{})["resubmitMethod"] = "TO_REJECTOR"
+		am := hesiBody["action"].(map[string]interface{})
+		rm := batch[0].ResubmitMethod
+		if rm == "" {
+			rm = "TO_REJECTOR"
+		}
+		am["resubmitMethod"] = rm
+		if batch[0].RejectTo != "" {
+			am["rejectTo"] = batch[0].RejectTo // 不传=驳回至提交人
+		}
 	}
 	bodyBytes, _ := json.Marshal(hesiBody)
 
