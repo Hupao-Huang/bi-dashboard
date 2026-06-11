@@ -511,6 +511,7 @@ func main() {
 	// 需求管理（v1.62.0 新增）
 	mux.HandleFunc("/api/hesi-bot/approve", protected(h.HesiApprove))
 	mux.HandleFunc("/api/hesi-bot/reject-nodes", protected(h.HesiRejectNodes))
+	mux.HandleFunc("/api/profile/hesi-pending/sync", protected(h.HesiPendingSync))
 	mux.HandleFunc("/api/hesi-bot/approve/queue", protected(h.HesiApprovalQueue))
 	mux.HandleFunc("/api/hesi-bot/approve/queue/", protected(h.HesiApprovalQueueItem))
 	mux.HandleFunc("/api/requirements", protected(h.SubmitRequirement))
