@@ -255,6 +255,12 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		warnings = append(warnings, offWarn...)
 	}
 
+	// 规则 16: 企业支付行程防重复报销 (跑哥 2026-06-11)
+	if r16Rej, r16Warn := h.ruleCorpPaidDuplicate(raw, flowID); len(r16Rej) > 0 || len(r16Warn) > 0 {
+		rejectReasons = append(rejectReasons, r16Rej...)
+		warnings = append(warnings, r16Warn...)
+	}
+
 	// 优先级: reject > manual > agree
 	if len(rejectReasons) > 0 {
 		all := rejectReasons
@@ -1192,6 +1198,144 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 					warnings = append(warnings, msg+" [花名册未匹配职级, 按其他员工档算, 请人工核]")
 				}
 			}
+		}
+	}
+	return rejects, warnings
+}
+
+// ruleCorpPaidDuplicate 规则 16: 企业支付行程防重复报销 (跑哥 2026-06-11)
+// 报销单关联的出差申请单下, 公司已"企业支付"买好的火车/飞机票 (合思商旅订单),
+// 若同车次+同乘车人又出现在本单报销发票里:
+//
+//	票价也一致 (订单"票面价"=发票金额) → 公司已付的票疑似二次报销, 建议驳回
+//	票价不一致 → 可能是同车次的另一张票 (改签/不同坐席/浮动票价), 转人工核
+//
+// 数据校准 (2026-06-11 实查): 企业支付金额 = 票面价 + ~3元服务费, 对碰必须用票面价;
+// 商旅订单没有可用出发日期列, 靠"只看本单关联申请单"收口, 不跨行程乱碰
+func (h *DashboardHandler) ruleCorpPaidDuplicate(raw map[string]interface{}, flowID string) ([]string, []string) {
+	links, _ := raw["expenseLinks"].([]interface{})
+	if len(links) == 0 || flowID == "" {
+		return nil, nil
+	}
+	// 关联申请单号 (expenseLinks 存的是申请单 flow_id, 换 code)
+	var codes []interface{}
+	for _, l := range links {
+		lid, _ := l.(string)
+		if lid == "" {
+			continue
+		}
+		var code string
+		if err := h.DB.QueryRow(`SELECT code FROM hesi_flow WHERE flow_id=? LIMIT 1`, lid).Scan(&code); err == nil && code != "" {
+			codes = append(codes, code)
+		}
+	}
+	if len(codes) == 0 {
+		return nil, nil
+	}
+
+	// 申请单下的企业支付车票订单 (火车/飞机才有车次; 退票=公司没掏成钱, 不算)
+	type corpOrder struct {
+		tripNo, traveler, reqCode string
+		fare                      float64 // 票面价 (= 发票金额口径); 拿不到时退回企业支付金额
+		used                      bool
+	}
+	ph := strings.TrimRight(strings.Repeat("?,", len(codes)), ",")
+	rows, err := h.DB.Query(`SELECT IFNULL(trip_no,''), IFNULL(traveler,''), IFNULL(req_code,''),
+		IFNULL(corp_pay,0), IFNULL(raw_json,'') FROM hesi_travel_order
+		WHERE req_code IN (`+ph+`) AND pay_method='企业支付' AND trip_no<>'' AND order_state<>'退票'`, codes...)
+	if err != nil {
+		log.Printf("[hesi-audit] 规则16 查商旅订单失败 flow=%s: %v", flowID, err)
+		return nil, nil
+	}
+	var orders []*corpOrder
+	for rows.Next() {
+		var o corpOrder
+		var corpPay float64
+		var rawJSON string
+		if rows.Scan(&o.tripNo, &o.traveler, &o.reqCode, &corpPay, &rawJSON) != nil {
+			continue
+		}
+		o.fare = corpPay
+		if rawJSON != "" {
+			var om map[string]interface{}
+			if json.Unmarshal([]byte(rawJSON), &om) == nil {
+				if v, ok := getStandardAmount(om["票面价"]); ok && v > 0 {
+					o.fare = v
+				}
+			}
+		}
+		if o.tripNo != "" {
+			orders = append(orders, &o)
+		}
+	}
+	rows.Close()
+	if len(orders) == 0 {
+		return nil, nil
+	}
+
+	// detailId → detailNo (提示里标明细号)
+	detailNo := map[string]int{}
+	if details, ok := raw["details"].([]interface{}); ok {
+		for _, d := range details {
+			dm, _ := d.(map[string]interface{})
+			if dm == nil {
+				continue
+			}
+			form, _ := dm["feeTypeForm"].(map[string]interface{})
+			if form == nil {
+				continue
+			}
+			did, _ := form["detailId"].(string)
+			if n, ok := form["detailNo"].(float64); ok && did != "" {
+				detailNo[did] = int(n)
+			}
+		}
+	}
+
+	// 本单带车次的发票 (火车票 OCR 有车次/乘车人)
+	ivRows, err := h.DB.Query(`SELECT IFNULL(detail_id,''), IFNULL(train_no,''), IFNULL(passenger,''),
+		IFNULL(total_amount,0) FROM hesi_flow_invoice WHERE flow_id=? AND IFNULL(train_no,'')<>''`, flowID)
+	if err != nil {
+		log.Printf("[hesi-audit] 规则16 查发票失败 flow=%s: %v", flowID, err)
+		return nil, nil
+	}
+	defer ivRows.Close()
+
+	var rejects, warnings []string
+	for ivRows.Next() {
+		var did, trainNo, passenger string
+		var amt float64
+		if ivRows.Scan(&did, &trainNo, &passenger, &amt) != nil {
+			continue
+		}
+		if trainNo == "" || passenger == "" {
+			continue
+		}
+		// 找还没对上号的同车次+同乘车人企业支付订单, 票价一致的优先
+		var hit *corpOrder
+		for _, o := range orders {
+			if o.used || o.tripNo != trainNo || o.traveler != passenger {
+				continue
+			}
+			if math.Abs(o.fare-amt) <= 0.005 {
+				hit = o
+				break
+			}
+			if hit == nil {
+				hit = o
+			}
+		}
+		if hit == nil {
+			continue
+		}
+		hit.used = true
+		no := detailNo[did]
+		if math.Abs(hit.fare-amt) <= 0.005 {
+			rejects = append(rejects, fmt.Sprintf("明细#%d 车次 %s (乘车人%s ¥%.2f) 在出差申请单 %s 里公司已企业支付同车次同票价的票, 疑似已付票二次报销 (规则 16)",
+				no, trainNo, passenger, amt, hit.reqCode))
+		} else {
+			warnings = append(warnings, fmt.Sprintf("明细#%d 车次 %s (乘车人%s) 与出差申请单 %s 的企业支付订单同车次, 但票价不同 (发票 ¥%.2f / 订单 ¥%.2f), 请人工核是否重复报销 (规则 16)",
+				no, trainNo, passenger, hit.reqCode, amt, hit.fare))
 		}
 	}
 	return rejects, warnings
