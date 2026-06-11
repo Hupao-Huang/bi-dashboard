@@ -241,8 +241,12 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 		len(batch), parsed.Value.Total, parsed.Value.Success, parsed.Value.Residue)
 
 	// 6. 每单立即处理: 操作人回执 + 审计日志 (这两个只依赖"合思已受理")
+	// 自己审自己的单不发任何钉钉 (跑哥 6/11: 逐单回执+代审知会都免, 页面状态已足够)
+	selfApproval := h.clickerIsApprover(batch[0].UserID, approver)
 	for _, it := range batch {
-		h.notifyApprovalDone(it, action)
+		if !selfApproval {
+			h.notifyApprovalDone(it, action)
+		}
 		h.writeAuditLogForApproval(it, action)
 	}
 
@@ -317,10 +321,8 @@ func (h *DashboardHandler) notifyDelegatedApprover(batch []approvalQueueItem, ac
 	}
 	approveID := batch[0].ApproveID
 
-	// 点审批的人自己就是这个审批人 → 不通知自己
-	var clickerHesiID string
-	_ = h.DB.QueryRow(`SELECT IFNULL(hesi_staff_id,'') FROM users WHERE id=?`, batch[0].UserID).Scan(&clickerHesiID)
-	if clickerHesiID != "" && clickerHesiID == approveID {
+	// 点审批的人自己就是这个审批人 → 不通知自己 (工号没绑定时按真名兜底判)
+	if h.clickerIsApprover(batch[0].UserID, approveID) {
 		return
 	}
 
@@ -445,6 +447,25 @@ func (h *DashboardHandler) writeFlowStateAfterApproval(flowID, action, stageName
 }
 
 // (原 notifyNextApprover "下一环节通知" 已删 — 跑哥 6/11 拍板只通知被代审人, 不打扰下游)
+
+// clickerIsApprover 点审批的 BI 用户是否就是该合思审批人本人
+// 优先比绑定工号; 没绑定按真名查花名册桥接表兜底 (樊雪娇未绑定时自审自单曾误发通知)
+func (h *DashboardHandler) clickerIsApprover(userID int64, approveID string) bool {
+	if approveID == "" {
+		return false
+	}
+	var staffID, realName string
+	_ = h.DB.QueryRow(`SELECT IFNULL(hesi_staff_id,''), IFNULL(real_name,'') FROM users WHERE id=?`, userID).Scan(&staffID, &realName)
+	if staffID != "" {
+		return staffID == approveID
+	}
+	if realName == "" {
+		return false
+	}
+	var bridged string
+	_ = h.DB.QueryRow(`SELECT hesi_staff_id FROM hesi_employee_contract_company WHERE hesi_name=? AND hesi_staff_id<>'' LIMIT 1`, realName).Scan(&bridged)
+	return bridged != "" && bridged == approveID
+}
 
 // notifyApprovalDone 钉钉通知操作人
 func (h *DashboardHandler) notifyApprovalDone(item approvalQueueItem, action string) {
