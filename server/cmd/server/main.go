@@ -422,6 +422,8 @@ func main() {
 	mux.HandleFunc("/api/customer/comments/delete", pageProtected("customer.comment:view", h.CommentDelete))
 	mux.HandleFunc("/api/customer/comments/restore", pageProtected("customer.comment:edit", h.CommentRestore))
 	mux.HandleFunc("/api/customer/comments/undelete", pageProtected("customer.comment:edit", h.CommentUndelete))
+	// 服务分: 数据量小(每天32店)且每天只导一次, 不走 cache 避免 TTL 跟同步频率错位
+	mux.HandleFunc("/api/customer/service-scores", pageProtected("customer.service_score:view", h.GetServiceScores))
 	mux.HandleFunc("/api/s-products", pageAnyProtected(cache24h(h.GetSProducts),
 		"ecommerce.store_dashboard:view", "ecommerce.product_dashboard:view",
 		"social.store_dashboard:view", "social.product_dashboard:view",
