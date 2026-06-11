@@ -248,6 +248,9 @@ func (h *DashboardHandler) confirmAdvanceAndNotify(batch []approvalQueueItem, ac
 		pending[it.FlowID] = it
 	}
 	advanced := make([]approvalQueueItem, 0, len(batch))
+	// 驳回后单子退回提交人改单, 离开审批管道 → approveStates 查无此单 (B26003612 案例)。
+	// "查无"连续 2 次才认定离开 (防偶发空应答误判), 然后按动作落终态: agree→paying / reject→rejected
+	goneCount := make(map[string]int, len(batch))
 
 	for _, d := range delays {
 		if len(pending) == 0 {
@@ -255,10 +258,21 @@ func (h *DashboardHandler) confirmAdvanceAndNotify(batch []approvalQueueItem, ac
 		}
 		time.Sleep(d)
 		for fid, it := range pending {
-			stage, ops, ok := h.fetchApproveState(fid, token)
+			stage, ops, found, ok := h.fetchApproveState(fid, token)
 			if !ok {
+				continue // 网络/解析失败, 下一轮重试
+			}
+			if !found {
+				goneCount[fid]++
+				if goneCount[fid] < 2 {
+					continue
+				}
+				h.writeFlowStateAfterApproval(fid, action, "", nil)
+				advanced = append(advanced, it)
+				delete(pending, fid)
 				continue
 			}
+			goneCount[fid] = 0
 			pre := preStates[fid]
 			opID := ""
 			if len(ops) > 0 {
@@ -354,11 +368,12 @@ type hesiNextOperator struct {
 }
 
 // fetchApproveState 调合思 approveStates 查单据当前环节+操作人 (只读, 不写库)
-func (h *DashboardHandler) fetchApproveState(flowID, token string) (string, []hesiNextOperator, bool) {
+// 返回: stage/ops, found=审批管道里有这单, ok=请求+解析成功 (found=false+ok=true = 单子已离开审批管道)
+func (h *DashboardHandler) fetchApproveState(flowID, token string) (string, []hesiNextOperator, bool, bool) {
 	url := fmt.Sprintf("%s/api/openapi/v2/approveStates/%%5B%s%%5D?accessToken=%s", hesiAPIBase, flowID, token)
 	resp, err := hesiHTTP.Get(url)
 	if err != nil {
-		return "", nil, false
+		return "", nil, false, false
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
@@ -373,18 +388,19 @@ func (h *DashboardHandler) fetchApproveState(flowID, token string) (string, []he
 			} `json:"operators"`
 		} `json:"items"`
 	}
-	if err := json.Unmarshal(data, &rs); err != nil || len(rs.Items) == 0 {
-		if err != nil {
-			log.Printf("[hesi-worker] approveStates 解析失败 flow=%s: %v", flowID, err)
-		}
-		return "", nil, false
+	if err := json.Unmarshal(data, &rs); err != nil {
+		log.Printf("[hesi-worker] approveStates 解析失败 flow=%s: %v", flowID, err)
+		return "", nil, false, false
+	}
+	if len(rs.Items) == 0 {
+		return "", nil, false, true // 查无此单 = 已离开审批管道 (驳回退回提交人 / 审批全部走完)
 	}
 	it := rs.Items[0]
 	ops := make([]hesiNextOperator, 0, len(it.Operators))
 	for _, op := range it.Operators {
 		ops = append(ops, hesiNextOperator{ID: op.ID, Name: op.Name, Code: op.Code})
 	}
-	return it.StageName, ops, true
+	return it.StageName, ops, true, true
 }
 
 // writeFlowStateAfterApproval 把确认流转后的环节/操作人写回本地 hesi_flow
