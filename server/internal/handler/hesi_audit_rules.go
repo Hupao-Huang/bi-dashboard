@@ -137,6 +137,13 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	var rejectReasons []string
 	var warnings []string
 
+	// 线下判定: 法人实体名含 世创/世用 → 走线下专属规则集 (樊雪娇 2026-06-11, 与集团口径不同)
+	isOfflineFlow := false
+	if leID, _ := raw["法人实体"].(string); leID != "" {
+		leName := h.LookupLegalEntityName(leID)
+		isOfflineFlow = strings.Contains(leName, "世创") || strings.Contains(leName, "世用")
+	}
+
 	// 规则 1: 发起人部门 末级 (员工提交人部门, raw_json.u_提交人部门 = hesi_flow.owner_department)
 	if r := ruleDeptLeaf(h.DB, ownerDeptID, "发起人部门 (规则 1)"); r != "" {
 		rejectReasons = append(rejectReasons, r)
@@ -205,7 +212,8 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	}
 
 	// 规则 11: 出差补贴 ≤ u_天数 × 职级标准 (半天按 1 天 ceil)
-	if rejMsg, warnMsg := h.ruleSubsidyStandard(raw, submitterID); rejMsg != "" || warnMsg != "" {
+	// 线下单不走集团补贴标准 (规则 15-3 用线下口径替代)
+	if rejMsg, warnMsg := h.ruleSubsidyStandard(raw, submitterID); !isOfflineFlow && (rejMsg != "" || warnMsg != "") {
 		if rejMsg != "" {
 			rejectReasons = append(rejectReasons, rejMsg)
 		}
@@ -233,6 +241,14 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	// 规则 14: 健康证及体检 — 金额 ≤100 且 发票开票 ≤6 个月才通过 (跑哥 2026-06-11)
 	if rej := h.ruleHealthExam(raw, flowID); len(rej) > 0 {
 		rejectReasons = append(rejectReasons, rej...)
+	}
+
+	// ===== 规则 15: 线下专属规则集 (樊雪娇 2026-06-11) =====
+	// 触发: 法人实体名含"世创"或"世用" (线下公司)。线下出差补贴口径替代规则 11 (上面已 gate)
+	if isOfflineFlow {
+		offRej, offWarn := h.ruleOfflineExtras(raw, flowID, submitterID)
+		rejectReasons = append(rejectReasons, offRej...)
+		warnings = append(warnings, offWarn...)
 	}
 
 	// 优先级: reject > manual > agree
@@ -988,6 +1004,174 @@ func (h *DashboardHandler) ruleHealthExam(raw map[string]interface{}, flowID str
 		}
 	}
 	return rejects
+}
+
+// 专票类型集合 (规则 15-1.2: 非专票才要求付款截图; 樊雪娇口径"非专用发票=专票不要")
+var specialInvoiceTypes = map[string]bool{
+	"FULL_DIGITAl_SPECIAL": true, "DIGITAL_SPECIAL": true, "PAPER_SPECIAL": true, "SPECIAL": true,
+}
+
+// 规则 15-2 豁免类型: 补贴/样品/业务宣传费/私车公用 不要求 付款金额=发票金额
+var offlineAmountExempt = map[string]bool{
+	"ID01Fk0MQBAAQ7": true, "ID01Fk0MQBAB6D": true, "ID01FkA9pR8zGT": true, // 补贴类
+	"ID01Fk0FsIqhDV": true, "ID01KhLrRhAWp9": true, "ID01Fk0B0hMfF5": true, // 样品类
+	"ID01MBFnQppBWn": true, // 业务宣传费
+	"ID01Fr2mX8KP2T": true, // 私车公用
+}
+
+// ruleOfflineExtras 规则 15: 线下(世创/世用)专属 (樊雪娇 2026-06-11 口径)
+// 15-1.2 非专票(含电子铁路票/行程单)的明细必须传"付款截图"附件
+// 15-2   除豁免类型外, 明细金额必须 = 该明细发票合计 (一分不差)
+// 15-3   出差补贴: 集团经理及以上(含集团总监) 120/天(50餐+70交通), 其他 100/天(50餐+50交通);
+//        当天有私车公用的, 该天只算 50 餐补 (花名册无"大区经理"档, 大区经理归集团经理档)
+// 15-4   私车公用: 该明细油费发票合计 ≥ 系统算出的报销金额, 否则驳回 (线下自动判, 不转人工)
+func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID, submitterID string) ([]string, []string) {
+	var rejects, warnings []string
+	details, _ := raw["details"].([]interface{})
+
+	type det struct {
+		no         int
+		feeTypeID  string
+		amount     float64
+		hasPayShot bool
+		dates      []string // feeDate / feeDatePeriod 覆盖的日期 (yyyy-mm-dd)
+		days       float64  // u_天数 (补贴明细)
+		subsidyAmt float64  // u_出差补贴金额
+	}
+	byID := map[string]det{}
+	var driveDates []string
+	for _, d := range details {
+		dm, _ := d.(map[string]interface{})
+		if dm == nil {
+			continue
+		}
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		if form == nil {
+			continue
+		}
+		var dt det
+		dt.feeTypeID, _ = dm["feeTypeId"].(string)
+		if n, ok := form["detailNo"].(float64); ok {
+			dt.no = int(n)
+		}
+		if a, ok := form["amount"].(map[string]interface{}); ok {
+			if s, ok := a["standard"].(string); ok {
+				dt.amount, _ = strconv.ParseFloat(s, 64)
+			}
+		}
+		if v, ok := form["u_付款截图"].([]interface{}); ok && len(v) > 0 {
+			dt.hasPayShot = true
+		} else if s, ok := form["u_付款截图"].(string); ok && s != "" {
+			dt.hasPayShot = true
+		}
+		if fd, ok := form["feeDate"].(float64); ok && fd > 1e12 {
+			dt.dates = append(dt.dates, time.UnixMilli(int64(fd)).Format("2006-01-02"))
+		}
+		if fp, ok := form["feeDatePeriod"].(map[string]interface{}); ok {
+			s, _ := fp["start"].(float64)
+			e, _ := fp["end"].(float64)
+			for t := int64(s); t <= int64(e) && s > 1e12; t += 86400000 {
+				dt.dates = append(dt.dates, time.UnixMilli(t).Format("2006-01-02"))
+			}
+		}
+		if v, ok := form["u_天数"].(string); ok {
+			dt.days, _ = strconv.ParseFloat(v, 64)
+		}
+		if a, ok := form["u_出差补贴金额"].(map[string]interface{}); ok {
+			if s, ok := a["standard"].(string); ok {
+				dt.subsidyAmt, _ = strconv.ParseFloat(s, 64)
+			}
+		}
+		if did, ok := form["detailId"].(string); ok && did != "" {
+			byID[did] = dt
+		}
+		if dt.feeTypeID == driveFeeTypeID {
+			driveDates = append(driveDates, dt.dates...)
+		}
+	}
+	if len(byID) == 0 {
+		return nil, nil
+	}
+
+	// 拉发票: detail_id → (合计金额, 是否全专票, 非专票存在)
+	invSum := map[string]float64{}
+	hasNonSpecial := map[string]bool{}
+	if flowID != "" {
+		rows, err := h.DB.Query(`SELECT IFNULL(detail_id,''), IFNULL(invoice_type,''),
+			IFNULL(total_amount,0), IFNULL(approve_amount,0) FROM hesi_flow_invoice WHERE flow_id=?`, flowID)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var did, itype string
+				var total, approve float64
+				if rows.Scan(&did, &itype, &total, &approve) != nil {
+					continue
+				}
+				amt := total
+				if amt == 0 {
+					amt = approve
+				}
+				invSum[did] += amt
+				if itype != "" && !specialInvoiceTypes[itype] {
+					hasNonSpecial[did] = true
+				}
+			}
+		} else {
+			log.Printf("[hesi-audit] 规则15 查发票失败 flow=%s: %v", flowID, err)
+		}
+	}
+
+	driveDaySet := map[string]bool{}
+	for _, d := range driveDates {
+		driveDaySet[d] = true
+	}
+
+	// 职级 → 线下补贴日标准
+	position := ""
+	if submitterID != "" {
+		_ = h.DB.QueryRow(`SELECT IFNULL(position,'') FROM hesi_employee_contract_company WHERE hesi_staff_id = ? LIMIT 1`, submitterID).Scan(&position)
+	}
+	transport := 50.0 // 其他员工 50餐+50交通
+	if position == "集团经理" || position == "集团总监" || position == "副总裁" || position == "总裁" {
+		transport = 70.0 // 集团经理及以上(大区经理归此档) 50餐+70交通
+	}
+	posKnown := position != ""
+
+	for did, dt := range byID {
+		// 15-1.2 非专票必须传付款截图
+		if hasNonSpecial[did] && !dt.hasPayShot {
+			rejects = append(rejects, fmt.Sprintf("明细#%d 含非专用发票(铁路票/行程单/普票等), 须在'付款截图'上传付款凭证等附件 (线下规则 15-1.2)", dt.no))
+		}
+		// 15-2 付款金额 = 发票合计 (一分不差, 豁免: 补贴/样品/业务宣传/私车公用)
+		if !offlineAmountExempt[dt.feeTypeID] && invSum[did] > 0 && math.Abs(invSum[did]-dt.amount) > 0.005 {
+			rejects = append(rejects, fmt.Sprintf("明细#%d 金额 ¥%.2f ≠ 发票合计 ¥%.2f, 线下要求一分不差 (规则 15-2)", dt.no, dt.amount, invSum[did]))
+		}
+		// 15-4 私车公用: 油费发票合计 ≥ 系统报销金额
+		if dt.feeTypeID == driveFeeTypeID {
+			if invSum[did]+0.005 < dt.amount {
+				rejects = append(rejects, fmt.Sprintf("明细#%d 私车公用 ¥%.2f, 油费发票合计仅 ¥%.2f, 须 ≥ 报销金额 (规则 15-4)", dt.no, dt.amount, invSum[did]))
+			}
+		}
+		// 15-3 出差补贴线下口径
+		if dt.feeTypeID == "ID01Fk0MQBAAQ7" && dt.subsidyAmt > 0 && dt.days > 0 {
+			days := math.Ceil(dt.days)
+			driveDays := float64(len(driveDaySet))
+			if driveDays > days {
+				driveDays = days
+			}
+			cap := 50*days + transport*(days-driveDays) // 有私车公用的天只剩50餐补
+			msg := fmt.Sprintf("明细#%d 出差补贴 ¥%.2f > 线下标准 ¥%.2f (50餐补×%.0f天 + %.0f交通补×%.0f天, 私车公用 %.0f 天无交通补, 规则 15-3)",
+				dt.no, dt.subsidyAmt, cap, days, transport, days-driveDays, driveDays)
+			if dt.subsidyAmt > cap+0.005 {
+				if posKnown {
+					rejects = append(rejects, msg)
+				} else {
+					warnings = append(warnings, msg+" [花名册未匹配职级, 按其他员工档算, 请人工核]")
+				}
+			}
+		}
+	}
+	return rejects, warnings
 }
 
 // uniqueInts 去重 + 升序排, 用于规则 8 提示里的"明细 [1 2 5]"
