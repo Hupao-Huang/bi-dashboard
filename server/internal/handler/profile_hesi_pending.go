@@ -23,9 +23,11 @@ func (h *DashboardHandler) GetHesiApprovers(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusForbidden, "无权限")
 		return
 	}
+	// v1.76.7: 排除 paying — 出纳支付环节不是审批动作 (HesiApprove 也拒绝 paying),
+	// 留在列表里会出现"审批完同名审批人接支付环节, 单子看着没消失"的错觉 (B26003636 案例)
 	rows, err := h.DB.Query(`SELECT current_approver_name, COUNT(*) AS cnt
 		FROM hesi_flow
-		WHERE active=1 AND state IN ('approving','paying','pending') AND current_approver_name IS NOT NULL AND current_approver_name<>''
+		WHERE active=1 AND state IN ('approving','pending') AND current_approver_name IS NOT NULL AND current_approver_name<>''
 		GROUP BY current_approver_name
 		ORDER BY cnt DESC, current_approver_name`)
 	if err != nil {
@@ -151,12 +153,14 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		rows *sql.Rows
 		err  error
 	)
+	// v1.76.7: 排除 paying — 出纳支付环节机器人不能替操作 (HesiApprove 只认 approving/pending),
+	// 含 paying 会让"财务审完接出纳支付且是同一人"的单看起来审批后没消失 (B26003636 案例)
 	if queryStaffID != "" {
 		// 精确匹配: current_approver_id 含 staffId (格式 corp:staff, LIKE %staff%)
 		rows, err = h.DB.Query(`SELECT `+selectFields+`
 			FROM hesi_flow
 			WHERE active=1
-			  AND state IN ('approving','paying','pending')
+			  AND state IN ('approving','pending')
 			  AND current_approver_id LIKE ?
 			ORDER BY submit_date DESC, create_time DESC
 			LIMIT 500`, "%"+queryStaffID+"%")
@@ -165,7 +169,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		rows, err = h.DB.Query(`SELECT `+selectFields+`
 			FROM hesi_flow
 			WHERE active=1
-			  AND state IN ('approving','paying','pending')
+			  AND state IN ('approving','pending')
 			  AND current_approver_name LIKE ?
 			ORDER BY submit_date DESC, create_time DESC
 			LIMIT 500`, "%"+queryName+"%")
