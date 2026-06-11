@@ -424,21 +424,46 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                       </Tooltip>
                     } span={2}>
                       {detailData.linkedRequisitions.map((lr: any) => (
-                        <div key={lr.flowId} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
-                          {lr.missing ? (
-                            <Typography.Text type="secondary">关联单还没同步到看板 (可去合思查看)</Typography.Text>
-                          ) : (
-                            <>
-                              <a onClick={() => setDrillStack(s => [...s, lr.flowId])}>{lr.code}</a>
-                              {lr.specName && <Tag color="green">{lr.specName}</Tag>}
-                              <span>{lr.title}</span>
-                              {lr.requisitionMoney != null && (
-                                <Typography.Text>申请额度 ¥{Number(lr.requisitionMoney).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</Typography.Text>
-                              )}
-                              {lr.state && (
-                                <Tag color={stateMap[lr.state]?.color}>{stateMap[lr.state]?.label || lr.state}</Tag>
-                              )}
-                            </>
+                        <div key={lr.flowId} style={{ marginBottom: 8 }}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {lr.missing ? (
+                              <Typography.Text type="secondary">关联单还没同步到看板 (可去合思查看)</Typography.Text>
+                            ) : (
+                              <>
+                                <a onClick={() => setDrillStack(s => [...s, lr.flowId])}>{lr.code}</a>
+                                {lr.specName && <Tag color="green">{lr.specName}</Tag>}
+                                <span>{lr.title}</span>
+                                {lr.requisitionMoney != null && (
+                                  <Typography.Text>申请额度 ¥{Number(lr.requisitionMoney).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</Typography.Text>
+                                )}
+                                {lr.state && (
+                                  <Tag color={stateMap[lr.state]?.color}>{stateMap[lr.state]?.label || lr.state}</Tag>
+                                )}
+                              </>
+                            )}
+                          </div>
+                          {Array.isArray(lr.orders) && lr.orders.length > 0 && (
+                            <div style={{ background: '#f8fafc', borderRadius: 4, padding: '6px 10px', marginTop: 4 }}>
+                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>行程消费信息 (合思商旅订单)</Typography.Text>
+                              {lr.orders.map((o: any, i: number) => (
+                                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13, marginTop: 2 }}>
+                                  <Tag>{o.entityName}</Tag>
+                                  {o.departTime && <span>{o.departTime}</span>}
+                                  {o.tripNo && <span>{o.tripNo}</span>}
+                                  {o.seat && <span>{o.seat}</span>}
+                                  <span>{o.departStation && o.arriveStation ? `${o.departStation} → ${o.arriveStation}` : o.name}</span>
+                                  {o.traveler && <span>{o.traveler}</span>}
+                                  {o.orderAmount != null && <span>¥{Number(o.orderAmount).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>}
+                                  <Tag color={o.payMethod === '企业支付' ? 'red' : 'blue'}>{o.payMethod}</Tag>
+                                  {o.reimburseStatus && <Tag color={o.reimburseStatus === '已报销' ? 'warning' : 'default'}>{o.reimburseStatus}</Tag>}
+                                  {o.overStandard === '是' && <Tag color="error">超标</Tag>}
+                                  {o.orderState && o.orderState !== '出票' && <Tag color="warning">{o.orderState}</Tag>}
+                                </div>
+                              ))}
+                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                标红"企业支付"= 公司已付钱, 报销明细里不应再出现同一笔
+                              </Typography.Text>
+                            </div>
                           )}
                         </div>
                       ))}
