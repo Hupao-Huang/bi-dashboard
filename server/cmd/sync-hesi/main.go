@@ -25,9 +25,9 @@ import (
 const (
 	hesiAPIBase = "https://app.ekuaibao.com"
 	pageSize    = 100
-	// v1.70.3: 50 → 200, 22,698 单据从 454 batch × 4s = 30min+ 降到 114 batch × 2s = 4min
-	// 合思 API flowIds 在请求体里, 没硬性 batch 上限 (实测 200 OK)
-	attachBatch = 200
+	// 6/11 翻车收正: 5/20 调到 200 后接口实际全批报错(返回中文错误文本非JSON),
+	// 5/20-6/11 附件静默漏同步 7359 批。合思附件接口上限就是 100 (v0.16 原注释是对的), 别再调大
+	attachBatch = 100
 )
 
 var (
@@ -187,7 +187,12 @@ func getAttachments(token string, flowIds []string) ([]map[string]interface{}, e
 		Items []map[string]interface{} `json:"items"`
 	}
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("解析附件失败: %w", err)
+		// 带上响应体片段 — 5/20 这里只报 invalid character, 接口真实报错被吞了三周
+		snip := string(data)
+		if len(snip) > 200 {
+			snip = snip[:200]
+		}
+		return nil, fmt.Errorf("解析附件失败: %w (HTTP %d, body: %s)", err, resp.StatusCode, snip)
 	}
 	return result.Items, nil
 }
