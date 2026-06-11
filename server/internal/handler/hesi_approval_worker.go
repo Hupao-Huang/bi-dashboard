@@ -218,7 +218,10 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 	log.Printf("[hesi-worker] 批成功 单数=%d total=%d success=%d residue=%d",
 		len(batch), parsed.Value.Total, parsed.Value.Success, parsed.Value.Residue)
 
-	// 6. 每单后处理: 刷新 hesi_flow + 钉钉通知操作人 + 钉钉通知下一环节审批人
+	// 6. 批级通知: 被代审的审批人 (跑哥替樊雪娇审 → 通知樊雪娇, 一批一条汇总不刷屏)
+	h.notifyDelegatedApprover(batch, action)
+
+	// 7. 每单后处理: 刷新 hesi_flow + 钉钉通知操作人 + 钉钉通知下一环节审批人
 	for _, it := range batch {
 		stage, nextOps := h.refreshFlowAfterApproval(it.FlowID, action, token)
 		h.notifyApprovalDone(it, action)
@@ -227,6 +230,55 @@ func (h *DashboardHandler) processApprovalBatch(batch []approvalQueueItem) {
 		}
 		h.writeAuditLogForApproval(it, action)
 	}
+}
+
+// notifyDelegatedApprover 钉钉通知"被代审的审批人": 单据挂在他名下待审, 被别人通过 BI 代点了
+// 整批同一审批人+同一动作 → 只发一条汇总。代审人就是审批人自己时不发 (自己审自己不用通知)
+func (h *DashboardHandler) notifyDelegatedApprover(batch []approvalQueueItem, action string) {
+	if h.Notifier == nil || len(batch) == 0 {
+		return
+	}
+	approveID := batch[0].ApproveID
+
+	// 点审批的人自己就是这个审批人 → 不通知自己
+	var clickerHesiID string
+	_ = h.DB.QueryRow(`SELECT IFNULL(hesi_staff_id,'') FROM users WHERE id=?`, batch[0].UserID).Scan(&clickerHesiID)
+	if clickerHesiID != "" && clickerHesiID == approveID {
+		return
+	}
+
+	var dingID, approverName string
+	if err := h.DB.QueryRow(
+		`SELECT dingtalk_userid, hesi_name FROM hesi_employee_contract_company
+		 WHERE hesi_staff_id = ? AND dingtalk_userid <> '' LIMIT 1`, approveID).Scan(&dingID, &approverName); err != nil || dingID == "" {
+		log.Printf("[hesi-worker] 被代审审批人 %s 未桥接钉钉, 跳过通知", approveID)
+		return
+	}
+
+	label := "已同意"
+	if action == "reject" {
+		label = "已驳回"
+	}
+	operator := batch[0].RealName
+	if operator == "" {
+		operator = batch[0].Username
+	}
+
+	codes := make([]string, 0, len(batch))
+	for _, it := range batch {
+		codes = append(codes, it.FlowCode)
+	}
+	var msg string
+	if len(batch) == 1 {
+		msg = fmt.Sprintf("【合思审批】您的待审批单据 %s (%s) 已由 %s 代您审批: %s", batch[0].FlowCode, batch[0].FlowTitle, operator, label)
+		if action == "reject" && batch[0].Comment != "" {
+			msg += fmt.Sprintf(" (理由: %s)", batch[0].Comment)
+		}
+	} else {
+		msg = fmt.Sprintf("【合思审批】您的 %d 张待审批单据已由 %s 代您审批: %s (%s)", len(batch), operator, label, strings.Join(codes, ", "))
+	}
+	h.Notifier.SendTextToStaffIDsAsync([]string{dingID}, msg)
+	log.Printf("[hesi-worker] 已通知被代审审批人 %s(%s) 单数=%d", approverName, approveID, len(batch))
 }
 
 // failBatch 整批标记失败
