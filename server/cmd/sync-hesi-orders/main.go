@@ -267,6 +267,20 @@ func saveOrder(db *sql.DB, entityID, entityName string, dl map[string]interface{
 			f[m[1]] = v
 		}
 	}
+	// 笼统大类(订单/行程)按特征字段推具体类型: 有火车车次=火车, 有航班舱型=飞机,
+	// 有入住日期=酒店, 有车型=用车 (细分类业务对象是另一套数据无支付信息, 推断才是唯一来源)
+	if entityName == "订单" || entityName == "行程" || entityName == "通用" {
+		switch {
+		case fStr(f, "火车车次") != "":
+			entityName = "火车"
+		case fStr(f, "航班号") != "" || fStr(f, "航班舱型") != "":
+			entityName = "飞机"
+		case fStr(f, "入住日期") != "":
+			entityName = "酒店"
+		case fStr(f, "车型") != "":
+			entityName = "用车"
+		}
+	}
 	// 车次/舱型: 火车用 火车车次/火车坐席, 飞机用 航班号?/航班舱型, 取非空者
 	tripNo := fStr(f, "火车车次")
 	if tripNo == "" {
