@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button, Card, Input, Table, Tabs, Typography, Empty, Modal, Tag, Statistic, Row, Col, Tooltip, Spin, message } from 'antd';
-import { DownloadOutlined } from '@ant-design/icons';
+import { CaretDownOutlined, CaretUpOutlined, DownloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import DateFilter from '../../components/DateFilter';
@@ -250,11 +250,31 @@ const ServiceScore: React.FC = () => {
               const v = it ? it[m.key] : null;
               const below = m.isTarget && it && v !== null && it.target !== null && v < it.target;
               const text = fmtVal(v, m.pct);
+              // 跟上一个有数的日期比, 变了才标涨跌 (每天区别一眼可辨)
+              const prevIt = gi + 1 < dates.length ? row.byDate.get(dates[gi + 1]) : undefined;
+              const pv = prevIt ? prevIt[m.key] : null;
+              let arrow: React.ReactNode = null;
+              let deltaText = '';
+              if (v !== null && pv !== null && pv !== undefined && Math.abs(v - pv) > 1e-9) {
+                const up = v > pv;
+                // 平均响应时间越低越好, 其他分数越高越好
+                const good = m.label === '平均响应时间' ? !up : up;
+                const color = good ? '#3f8600' : '#cf1322';
+                const st = { color, marginLeft: 2 };
+                arrow = up ? <CaretUpOutlined style={st} /> : <CaretDownOutlined style={st} />;
+                const diff = m.pct
+                  ? `${parseFloat(((v - pv) * 100).toFixed(1))}%`
+                  : String(parseFloat((v - pv).toFixed(3)));
+                deltaText = `较前一天 ${up ? '+' : ''}${diff}`;
+              }
               let node: React.ReactNode;
               if (below) node = <Text type="danger" strong={isFocus}>{text}</Text>;
               else if (it?.edited) node = <Text type="warning" strong={isFocus}>{text}</Text>;
               else node = isFocus ? <Text strong>{text}</Text> : text;
-              return it ? <Tooltip title={it.edited ? '已人工修正 · 点击可再改' : '点击修改'}>{node}</Tooltip> : node;
+              const cell = <span>{node}{arrow}</span>;
+              if (!it) return cell;
+              const tip = [deltaText, it.edited ? '已人工修正 · 点击可再改' : '点击修改'].filter(Boolean).join(' · ');
+              return <Tooltip title={tip}>{cell}</Tooltip>;
             },
           };
         }),
