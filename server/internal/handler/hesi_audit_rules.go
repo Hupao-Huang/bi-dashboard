@@ -226,7 +226,7 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		}
 	}
 
-	// 规则 12: 自驾 manual 提示 + 消费事由长度审核
+	// 规则 12-2: 消费事由长度审核
 	if rejMsg, warnMsg := ruleDriveAndReasons(raw); rejMsg != "" || warnMsg != "" {
 		if rejMsg != "" {
 			rejectReasons = append(rejectReasons, rejMsg)
@@ -234,6 +234,12 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		if warnMsg != "" {
 			warnings = append(warnings, warnMsg)
 		}
+	}
+
+	// 规则 12-1: 私车公用按行车记录自动对账 (报销 ≤ 系统算出补助 通过, 超了驳回, 拉不到记录转人工)
+	if r12Rej, r12Warn := h.ruleDriveRecordCheck(raw); len(r12Rej) > 0 || len(r12Warn) > 0 {
+		rejectReasons = append(rejectReasons, r12Rej...)
+		warnings = append(warnings, r12Warn...)
 	}
 
 	// 规则 13: 必填字段校验 (品牌中心/研发中心必选 + 附件 + 报销=支付金额)
@@ -564,17 +570,71 @@ func (h *DashboardHandler) isBrandCenterDept(deptID string) bool {
 	return false
 }
 
-// ruleDriveAndReasons 规则 12-1: 自驾 manual 提示 + 12-2: 消费事由长度审核
-// 12-1: 自驾报销 (fee_type=ID01Fr2mX8KP2T) → 转人工 (合思后台无车型/KM 结构化字段)
-//
-//	跑哥规则: 油车 ¥0.7/KM, 电车 ¥0.6/KM
-//
+// ruleDriveRecordCheck 规则 12-1 自动化 (跑哥 2026-06-12: 行车记录已可拉取, 不再一律人工核)
+// 私车公用明细对账: 报销金额 vs 行车记录"系统算出补助"(里程 × 标准, 油¥0.7/电¥0.6 标准在合思配置里):
+//   - 金额 ≤ 系统算出 → 自动通过 (少报不拦)
+//   - 金额 > 系统算出 → 建议驳回 (多报了)
+//   - 行车记录缺失/拉取失败 → 保留原人工核提示 (降级兜底)
+func (h *DashboardHandler) ruleDriveRecordCheck(raw map[string]interface{}) ([]string, []string) {
+	details, _ := raw["details"].([]interface{})
+	var rejects []string
+	var manual []int
+	for _, d := range details {
+		dm, _ := d.(map[string]interface{})
+		if dm == nil {
+			continue
+		}
+		if ft, _ := dm["feeTypeId"].(string); ft != driveFeeTypeID {
+			continue
+		}
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		if form == nil {
+			continue
+		}
+		no := 0
+		if n, ok := form["detailNo"].(float64); ok {
+			no = int(n)
+		}
+		var amt float64
+		if a, ok := form["amount"].(map[string]interface{}); ok {
+			if s, ok := a["standard"].(string); ok {
+				amt, _ = strconv.ParseFloat(s, 64)
+			}
+		}
+		recID, _ := form["u_行车记录"].(string)
+		var rec *DriveRecord
+		if recID != "" {
+			rec = h.LookupDriveRecord(recID)
+		}
+		sub := 0.0
+		if rec != nil && rec.Subsidy != "" {
+			sub, _ = strconv.ParseFloat(rec.Subsidy, 64)
+		}
+		if sub <= 0 {
+			manual = append(manual, no)
+			continue
+		}
+		if amt > sub+0.005 {
+			rejects = append(rejects, fmt.Sprintf("明细#%d 私车公用 ¥%.2f > 行车记录算出补助 ¥%.2f (%s km × ¥%s/km, 规则 12-1)",
+				no, amt, sub, rec.Mileage, rec.Standard))
+		}
+	}
+	var warnings []string
+	if len(manual) > 0 {
+		warnings = append(warnings, fmt.Sprintf("明细 %v 自驾, 行车记录缺失或拉取失败, 需人工核 KM × 车型单价 (油 ¥0.7/KM, 电 ¥0.6/KM, 规则 12-1)", uniqueInts(manual)))
+	}
+	return rejects, warnings
+}
+
+// ruleDriveAndReasons 规则 12-2: 消费事由长度审核
+// (12-1 自驾对账已升级为 ruleDriveRecordCheck 自动判, 2026-06-12 从本函数摘除)
 // 12-2: consumptionReasons 长度 ≤50字 agree / >50字 reject (跑哥 2026-06-05 改: 50字以内都通过, 去掉10-50字人工核档)
 //
 //	字数按 rune 计 (中文 1 字)
 func ruleDriveAndReasons(raw map[string]interface{}) (string, string) {
 	details, _ := raw["details"].([]interface{})
 	var driveDetails, longReasons []int
+	_ = driveDetails
 
 	for _, d := range details {
 		dm, _ := d.(map[string]interface{})
@@ -590,12 +650,6 @@ func ruleDriveAndReasons(raw map[string]interface{}) (string, string) {
 			no = int(n)
 		}
 
-		// 12-1: 自驾 fee_type 触发
-		feeTypeID, _ := dm["feeTypeId"].(string)
-		if feeTypeID == driveFeeTypeID {
-			driveDetails = append(driveDetails, no)
-		}
-
 		// 12-2: 消费事由长度 (rune 计数, 中文 1 字) — 50 字以内通过, 超过 50 字驳回
 		reason, _ := form["consumptionReasons"].(string)
 		if len([]rune(reason)) > 50 {
@@ -606,9 +660,6 @@ func ruleDriveAndReasons(raw map[string]interface{}) (string, string) {
 	var rejects, warnings []string
 	if len(longReasons) > 0 {
 		rejects = append(rejects, fmt.Sprintf("明细 %v 消费事由 > 50 字 (规则 12-2)", uniqueInts(longReasons)))
-	}
-	if len(driveDetails) > 0 {
-		warnings = append(warnings, fmt.Sprintf("明细 %v 自驾, 需人工核行车记录 KM × 车型单价 (油 ¥0.7/KM, 电 ¥0.6/KM, 规则 12-1)", uniqueInts(driveDetails)))
 	}
 	return strings.Join(rejects, "; "), strings.Join(warnings, "; ")
 }
@@ -1050,7 +1101,9 @@ var offlineAmountExempt = map[string]bool{
 //
 //	当天有私车公用的, 该天只算 50 餐补 (花名册无"大区经理"档, 大区经理归集团经理档)
 //
-// 15-4   私车公用: 该明细油费发票合计 ≥ 系统算出的报销金额, 否则驳回 (线下自动判, 不转人工)
+// 15-4   私车公用(整单聚合): 全部私车明细的油费发票合计 ≥ 私车报销总额, 否则驳回
+//
+//	(樊雪娇口径"超过总私车公用报销金额的油费发票即可"; 6/12 从按明细判改成整单判, 防误驳)
 func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID, submitterID string) ([]string, []string) {
 	var rejects, warnings []string
 	details, _ := raw["details"].([]interface{})
@@ -1164,12 +1217,6 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 		if !offlineAmountExempt[dt.feeTypeID] && invSum[did] > 0 && math.Abs(invSum[did]-dt.amount) > 0.005 {
 			rejects = append(rejects, fmt.Sprintf("明细#%d 金额 ¥%.2f ≠ 发票合计 ¥%.2f, 线下要求一分不差 (规则 15-2)", dt.no, dt.amount, invSum[did]))
 		}
-		// 15-4 私车公用: 油费发票合计 ≥ 系统报销金额
-		if dt.feeTypeID == driveFeeTypeID {
-			if invSum[did]+0.005 < dt.amount {
-				rejects = append(rejects, fmt.Sprintf("明细#%d 私车公用 ¥%.2f, 油费发票合计仅 ¥%.2f, 须 ≥ 报销金额 (规则 15-4)", dt.no, dt.amount, invSum[did]))
-			}
-		}
 		// 15-3 出差补贴线下口径
 		if dt.feeTypeID == "ID01Fk0MQBAAQ7" && dt.subsidyAmt > 0 && dt.days > 0 {
 			days := math.Ceil(dt.days)
@@ -1200,6 +1247,22 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 			}
 		}
 	}
+
+	// 15-4 私车公用(整单聚合, 6/12 修): 樊雪娇原话"提供超过**总**私车公用报销金额的油费
+	// 发票即可" — 油费发票通常一张大票挂一条明细管整月, 按明细判会大面积误驳 (dry-run 实证)
+	driveAmtSum, driveInvSum := 0.0, 0.0
+	hasDrive := false
+	for did, dt := range byID {
+		if dt.feeTypeID == driveFeeTypeID {
+			hasDrive = true
+			driveAmtSum += dt.amount
+			driveInvSum += invSum[did]
+		}
+	}
+	if hasDrive && driveInvSum+0.005 < driveAmtSum {
+		rejects = append(rejects, fmt.Sprintf("私车公用合计 ¥%.2f, 油费发票合计仅 ¥%.2f, 须 ≥ 总报销金额 (规则 15-4)", driveAmtSum, driveInvSum))
+	}
+
 	return rejects, warnings
 }
 

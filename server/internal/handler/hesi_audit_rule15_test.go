@@ -210,6 +210,30 @@ func TestRule1512SpecialInvoiceNoPayShotOK(t *testing.T) {
 	}
 }
 
+func TestRule154AggregateAcrossDetails(t *testing.T) {
+	// 两条私车明细(100+100), 一张¥210大油票挂在第一条 → 整单聚合 210≥200 → 过
+	// (6/12 修: 按明细判会误驳没挂发票的第二条; 樊雪娇口径是"总额"判)
+	inv := emptyInvRows().AddRow("D-drive-a", "DIGITAL_NORMAL", 210.00, 0)
+	h, done := mkOfflineHandler(t, inv, "集团经理")
+	defer done()
+	mk := func(did string, no int) map[string]interface{} {
+		return map[string]interface{}{
+			"feeTypeId": driveFeeTypeID,
+			"feeTypeForm": map[string]interface{}{
+				"detailId": did, "detailNo": float64(no),
+				"amount": map[string]interface{}{"standard": "100.00"},
+				"u_付款截图": "att://1",
+			},
+		}
+	}
+	rej, _ := h.ruleOfflineExtras(rawOf(mk("D-drive-a", 1), mk("D-drive-b", 2)), "F15", "S1")
+	for _, r := range rej {
+		if strings.Contains(r, "规则 15-4") {
+			t.Errorf("整单油票足额不应驳回 15-4, got %v", rej)
+		}
+	}
+}
+
 func TestRule154DriveFuelInvoiceMustCover(t *testing.T) {
 	// 私车公用 ¥200, 油费发票合计 ¥150 → 驳回 15-4; 补足 ¥200 → 通过
 	inv := emptyInvRows().AddRow("D-drive", "DIGITAL_NORMAL", 150.00, 0)
