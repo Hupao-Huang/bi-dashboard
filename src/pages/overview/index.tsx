@@ -5,6 +5,8 @@ import {
   GlobalOutlined,
   ShopOutlined,
   ShareAltOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
@@ -36,6 +38,9 @@ const deptConfig: Record<string, { label: string; color: string; icon: React.Rea
 const OverviewPage: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [trendData, setTrendData] = useState<any[]>([]);
+  // 环比基期(上一同等长度时段) / 同比基期(去年同期) 合计; 拿不到不显示, 不影响主数据
+  const [prevTotals, setPrevTotals] = useState<{ sales: number; qty: number } | null>(null);
+  const [yoyTotals, setYoyTotals] = useState<{ sales: number; qty: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
@@ -49,6 +54,35 @@ const OverviewPage: React.FC = () => {
     const diffDays = dayjs(e).diff(dayjs(s), 'day');
     const trendStart = diffDays <= 3 ? dayjs(e).subtract(13, 'day').format('YYYY-MM-DD') : s;
     const trendEnd = e;
+
+    // 基期合计(含 other, 与 KPI 大数字同口径): 环比=紧邻上一同等长度时段, 同比=去年同期
+    // 异步拉取不阻塞主数据; 失败/无数据则对应指标不显示
+    const fetchPeriodTotals = (ps: string, pe: string, apply: (t: { sales: number; qty: number }) => void) => {
+      fetch(`${API_BASE}/api/overview?start=${ps}&end=${pe}&trendStart=${pe}&trendEnd=${pe}`)
+        .then((r) => r.json())
+        .then((j) => {
+          if (reqId !== requestSeqRef.current) return;
+          const depts = j.data?.departments || [];
+          apply({
+            sales: depts.reduce((acc: number, d: any) => acc + (d.sales || 0), 0),
+            qty: depts.reduce((acc: number, d: any) => acc + (d.qty || 0), 0),
+          });
+        })
+        .catch(() => { /* 基期拿不到则不显示, 不影响主数据 */ });
+    };
+    setPrevTotals(null);
+    setYoyTotals(null);
+    const periodDays = diffDays + 1;
+    fetchPeriodTotals(
+      dayjs(s).subtract(periodDays, 'day').format('YYYY-MM-DD'),
+      dayjs(s).subtract(1, 'day').format('YYYY-MM-DD'),
+      setPrevTotals,
+    );
+    fetchPeriodTotals(
+      dayjs(s).subtract(1, 'year').format('YYYY-MM-DD'),
+      dayjs(e).subtract(1, 'year').format('YYYY-MM-DD'),
+      setYoyTotals,
+    );
 
     try {
       const response = await fetch(
@@ -465,12 +499,31 @@ const OverviewPage: React.FC = () => {
   const statColors = ['#1e40af', '#f59e0b', '#06b6d4'];
   const fmtDept = (v: number) => v >= 10000 ? `¥${(v / 10000).toFixed(1)}万` : `¥${v.toLocaleString()}`;
   const fmtDeptQty = (v: number) => v >= 10000 ? `${(v / 10000).toFixed(1)}万` : v.toLocaleString();
+
+  // 环比/同比涨跌幅 (绿涨红跌, 与分销页惯例一致); 基期为 0/缺数据则为 null 不显示
+  const pctOf = (cur: number, prev: number | null | undefined) =>
+    prev && prev > 0 ? ((cur - prev) / prev) * 100 : null;
+  const prevAvg = prevTotals && prevTotals.qty > 0 ? prevTotals.sales / prevTotals.qty : null;
+  const yoyAvg = yoyTotals && yoyTotals.qty > 0 ? yoyTotals.sales / yoyTotals.qty : null;
+  const renderDelta = (label: string, pct: number | null) => pct === null ? null : (
+    <span style={{ whiteSpace: 'nowrap', marginRight: 12 }}>
+      <span style={{ color: '#94a3b8' }}>{label}</span>{' '}
+      <span style={{ color: pct >= 0 ? '#3f8600' : '#cf1322', fontWeight: 600 }}>
+        {pct >= 0 ? <ArrowUpOutlined style={{ fontSize: 11 }} /> : <ArrowDownOutlined style={{ fontSize: 11 }} />}
+        {Math.abs(pct).toFixed(1)}%
+      </span>
+    </span>
+  );
+
   const summaryCards = [
     { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', color: statColors[0],
+      mom: pctOf(totalSales, prevTotals?.sales), yoy: pctOf(totalSales, yoyTotals?.sales),
       depts: visibleDepts.map((d: any) => ({ label: deptConfig[d.department]?.label || d.department, value: fmtDept(d.sales), color: deptConfig[d.department]?.color })) },
     { title: '总货品数', value: totalQty, precision: 0, prefix: '', color: statColors[1],
+      mom: pctOf(totalQty, prevTotals?.qty), yoy: pctOf(totalQty, yoyTotals?.qty),
       depts: visibleDepts.map((d: any) => ({ label: deptConfig[d.department]?.label || d.department, value: fmtDeptQty(d.qty), color: deptConfig[d.department]?.color })) },
     { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', color: statColors[2],
+      mom: pctOf(avgOrderValue, prevAvg), yoy: pctOf(avgOrderValue, yoyAvg),
       depts: visibleDepts.map((d: any) => ({ label: deptConfig[d.department]?.label || d.department, value: `¥${d.qty > 0 ? (d.sales / d.qty).toFixed(0) : '-'}`, color: deptConfig[d.department]?.color })) },
   ];
 
@@ -502,6 +555,11 @@ const OverviewPage: React.FC = () => {
                     />
                     <div style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
                       {hint ? hint.replace('约', '≈ ') : ' '}
+                    </div>
+                    {/* 环比/同比行: 预留高度防止异步数据到达时卡片跳动 */}
+                    <div style={{ fontSize: 13, marginTop: 4, fontVariantNumeric: 'tabular-nums', minHeight: '1.4em' }}>
+                      {renderDelta('环比', card.mom)}
+                      {renderDelta('同比', card.yoy)}
                     </div>
                   </div>
                   {card.depts && card.depts.length > 0 && (
