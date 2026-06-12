@@ -1,8 +1,7 @@
 import dayjs from 'dayjs';
 
 // API 地址自动适配：localhost 访问用 localhost，局域网访问用当前 IP
-// dev 模式走相对路径 → CRA proxy 转 8080 (同源免 CORS, 方便 3001 等端口预览); 生产 build 不受影响
-export const API_BASE = process.env.NODE_ENV === 'development' ? '' : `http://${window.location.hostname}:8080`;
+export const API_BASE = `http://${window.location.hostname}:8080`;
 
 // 数据截止日期：昨天（运营数据都是T+1，当天无数据）
 export const DATA_END_DATE = dayjs().subtract(1, 'day').format('YYYY-MM-DD');

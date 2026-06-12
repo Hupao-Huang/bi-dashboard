@@ -5,8 +5,6 @@ import {
   GlobalOutlined,
   ShopOutlined,
   ShareAltOutlined,
-  ArrowUpOutlined,
-  ArrowDownOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
@@ -38,8 +36,6 @@ const deptConfig: Record<string, { label: string; color: string; icon: React.Rea
 const OverviewPage: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [trendData, setTrendData] = useState<any[]>([]);
-  // 环比基期合计 (上一同等长度时段, 口径与分销页 momChange 一致); 拿不到不影响主数据
-  const [prevTotals, setPrevTotals] = useState<{ sales: number; qty: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(DATA_START_DATE);
   const [endDate, setEndDate] = useState(DATA_END_DATE);
@@ -53,24 +49,6 @@ const OverviewPage: React.FC = () => {
     const diffDays = dayjs(e).diff(dayjs(s), 'day');
     const trendStart = diffDays <= 3 ? dayjs(e).subtract(13, 'day').format('YYYY-MM-DD') : s;
     const trendEnd = e;
-
-    // 环比基期: 紧邻的上一同等长度时段 (异步拉, 不阻塞主数据渲染)
-    setPrevTotals(null);
-    const periodDays = diffDays + 1;
-    const prevEnd = dayjs(s).subtract(1, 'day').format('YYYY-MM-DD');
-    const prevStart = dayjs(s).subtract(periodDays, 'day').format('YYYY-MM-DD');
-    fetch(`${API_BASE}/api/overview?start=${prevStart}&end=${prevEnd}&trendStart=${prevEnd}&trendEnd=${prevEnd}`)
-      .then((r) => r.json())
-      .then((j) => {
-        if (reqId !== requestSeqRef.current) return;
-        // 含 other: 与 KPI totalSales (currentDepts 全量 reduce) 同口径
-        const depts = j.data?.departments || [];
-        setPrevTotals({
-          sales: depts.reduce((acc: number, d: any) => acc + (d.sales || 0), 0),
-          qty: depts.reduce((acc: number, d: any) => acc + (d.qty || 0), 0),
-        });
-      })
-      .catch(() => { /* 基期拿不到则不显示环比, 不影响主数据 */ });
 
     try {
       const response = await fetch(
@@ -487,79 +465,12 @@ const OverviewPage: React.FC = () => {
   const statColors = ['#1e40af', '#f59e0b', '#06b6d4'];
   const fmtDept = (v: number) => v >= 10000 ? `¥${(v / 10000).toFixed(1)}万` : `¥${v.toLocaleString()}`;
   const fmtDeptQty = (v: number) => v >= 10000 ? `${(v / 10000).toFixed(1)}万` : v.toLocaleString();
-
-  // 环比: 对比上一同等长度时段 (绿涨红跌, 与分销页惯例一致); 基期为 0/未到则不显示
-  const momOf = (cur: number, prev: number | null | undefined) =>
-    prev && prev > 0 ? ((cur - prev) / prev) * 100 : null;
-  const prevAvg = prevTotals && prevTotals.qty > 0 ? prevTotals.sales / prevTotals.qty : null;
-  const salesMom = momOf(totalSales, prevTotals?.sales);
-  const qtyMom = momOf(totalQty, prevTotals?.qty);
-  const avgMom = momOf(avgOrderValue, prevAvg);
-  const salesDiff = prevTotals && prevTotals.sales > 0 ? totalSales - prevTotals.sales : null;
-  const fmtDiffAbs = (v: number) =>
-    Math.abs(v) >= 10000 ? `¥${(Math.abs(v) / 10000).toFixed(1)}万` : `¥${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-  const renderMomInline = (mom: number | null) => mom === null ? null : (
-    <span style={{ color: mom >= 0 ? '#3f8600' : '#cf1322', marginLeft: 8, whiteSpace: 'nowrap' }}>
-      环比 {mom >= 0 ? '+' : ''}{mom.toFixed(1)}%
-    </span>
-  );
-  // 主卡迷你趋势线: 全公司每日销售走势 (五部门销售+调拨, 未映射渠道只进总账不分日, 占比约4%)
-  const totalTrendByDay = useMemo(() => {
-    const dayMap = new Map<string, number>();
-    trendData.forEach((t: any) => {
-      const d = String(t.date).slice(0, 10);
-      dayMap.set(d, (dayMap.get(d) || 0) + (t.sales || 0) + (t.allotSales || 0));
-    });
-    return trendDatesRaw.map((d: string) => ({ label: formatDate(d), v: dayMap.get(d) || 0 }));
-  }, [trendData, trendDatesRaw]);
-
-  const sparkOption = useMemo(() => ({
-    animation: false,
-    grid: { left: 2, right: 2, top: 6, bottom: 2 },
-    xAxis: { type: 'category' as const, show: false, boundaryGap: false, data: totalTrendByDay.map((x) => x.label) },
-    yAxis: { type: 'value' as const, show: false, min: (v: any) => v.min * 0.92 },
-    tooltip: {
-      trigger: 'axis' as const,
-      confine: true,
-      formatter: (params: any) => {
-        const p = Array.isArray(params) ? params[0] : params;
-        return `${p.name}<br/>销售 ¥${(+p.value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-      },
-    },
-    series: [{
-      type: 'line' as const,
-      smooth: true,
-      symbol: 'none' as const,
-      data: totalTrendByDay.map((x) => x.v),
-      lineStyle: { color: '#1e40af', width: 2 },
-      areaStyle: {
-        color: {
-          type: 'linear' as const, x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: 'rgba(30, 64, 175, 0.12)' },
-            { offset: 1, color: 'rgba(30, 64, 175, 0)' },
-          ],
-        },
-      },
-    }],
-  }), [totalTrendByDay]);
-
-  const renderDeptTags = (depts: any[]) => (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: '55%' }}>
-      {depts.map((d: any) => (
-        <span key={d.label} style={{ fontSize: 11, color: '#64748b', background: `${d.color}10`, border: `1px solid ${d.color}20`, borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>
-          <span style={{ color: d.color, fontWeight: 600 }}>{d.label}</span> {d.value}
-        </span>
-      ))}
-    </div>
-  );
-
   const summaryCards = [
-    { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', color: statColors[0], mom: salesMom,
+    { title: '总销售额', value: totalSales, precision: 2, prefix: '¥', color: statColors[0],
       depts: visibleDepts.map((d: any) => ({ label: deptConfig[d.department]?.label || d.department, value: fmtDept(d.sales), color: deptConfig[d.department]?.color })) },
-    { title: '总货品数', value: totalQty, precision: 0, prefix: '', color: statColors[1], mom: qtyMom,
+    { title: '总货品数', value: totalQty, precision: 0, prefix: '', color: statColors[1],
       depts: visibleDepts.map((d: any) => ({ label: deptConfig[d.department]?.label || d.department, value: fmtDeptQty(d.qty), color: deptConfig[d.department]?.color })) },
-    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', color: statColors[2], mom: avgMom,
+    { title: '综合客单价', value: avgOrderValue, precision: 2, prefix: '¥', color: statColors[2],
       depts: visibleDepts.map((d: any) => ({ label: deptConfig[d.department]?.label || d.department, value: `¥${d.qty > 0 ? (d.sales / d.qty).toFixed(0) : '-'}`, color: deptConfig[d.department]?.color })) },
   ];
 
@@ -575,70 +486,38 @@ const OverviewPage: React.FC = () => {
     <div>
       <DateFilter start={startDate} end={endDate} onChange={handleDateChange} />
 
-      {/* v1.78: 总销售额主卡"供起来" (hero 大字 + 环比), 货品数/客单价右侧纵叠 */}
       <Row gutter={[16, 16]}>
-        <Col xs={24} lg={14}>
-          <Card className="bi-stat-card bi-stat-card--hero" style={{ ['--accent-color' as any]: summaryCards[0].color, height: '100%' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <Statistic
-                    title={summaryCards[0].title}
-                    value={summaryCards[0].value}
-                    precision={summaryCards[0].precision}
-                    prefix={summaryCards[0].prefix}
-                  />
-                  <div style={{ fontSize: 14, color: '#64748b', marginTop: 6, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
-                    {formatWanHint(summaryCards[0].value) ? formatWanHint(summaryCards[0].value).replace('约', '≈ ') : ' '}
+        {summaryCards.map((card: any, i: number) => {
+          const hint = formatWanHint(card.value);
+          return (
+            <Col xs={24} sm={8} key={i}>
+              <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.color }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <Statistic
+                      title={card.title}
+                      value={card.value}
+                      precision={card.precision}
+                      prefix={card.prefix}
+                    />
+                    <div style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
+                      {hint ? hint.replace('约', '≈ ') : ' '}
+                    </div>
                   </div>
-                  {salesMom !== null && (
-                    <div style={{ marginTop: 10, fontSize: 14, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                      <span style={{ color: salesMom >= 0 ? '#3f8600' : '#cf1322', fontWeight: 600 }}>
-                        {salesMom >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />} {Math.abs(salesMom).toFixed(1)}%
-                      </span>
-                      <span style={{ color: '#64748b', marginLeft: 6 }}>环比上期</span>
-                      {salesDiff !== null && (
-                        <span style={{ color: '#94a3b8', marginLeft: 10 }}>
-                          较上期 {salesDiff >= 0 ? '+' : '-'}{fmtDiffAbs(salesDiff)}
+                  {card.depts && card.depts.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: '60%' }}>
+                      {card.depts.map((d: any) => (
+                        <span key={d.label} style={{ fontSize: 11, color: '#64748b', background: `${d.color}10`, border: `1px solid ${d.color}20`, borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+                          <span style={{ color: d.color, fontWeight: 600 }}>{d.label}</span> {d.value}
                         </span>
-                      )}
+                      ))}
                     </div>
                   )}
                 </div>
-                {summaryCards[0].depts.length > 0 && renderDeptTags(summaryCards[0].depts)}
-              </div>
-              {totalTrendByDay.length > 1 && (
-                <ReactECharts option={sparkOption} lazyUpdate={true} style={{ height: 56, marginTop: 12 }} />
-              )}
-            </div>
-          </Card>
-        </Col>
-        <Col xs={24} lg={10}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
-            {summaryCards.slice(1).map((card: any) => {
-              const hint = formatWanHint(card.value);
-              return (
-                <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.color, flex: 1 }} key={card.title}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <Statistic
-                        title={card.title}
-                        value={card.value}
-                        precision={card.precision}
-                        prefix={card.prefix}
-                      />
-                      <div style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
-                        {hint ? hint.replace('约', '≈ ') : ' '}
-                        {renderMomInline(card.mom)}
-                      </div>
-                    </div>
-                    {card.depts && card.depts.length > 0 && renderDeptTags(card.depts)}
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        </Col>
+              </Card>
+            </Col>
+          );
+        })}
       </Row>
 
       <Row gutter={[12, 12]} style={{ marginTop: 16 }} wrap>
