@@ -261,6 +261,17 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		warnings = append(warnings, r16Warn...)
 	}
 
+	// 规则 17: 补贴日期须在关联出差申请单起止日期内 (财务 2026-06-12)
+	if r17 := h.ruleSubsidyDateInTrip(raw); len(r17) > 0 {
+		rejectReasons = append(rejectReasons, r17...)
+	}
+
+	// 规则 18: 广告费发票项目名称须含"广告/推广" (财务 2026-06-12)
+	if r18Rej, r18Warn := h.ruleAdInvoiceItemName(raw, flowID); len(r18Rej) > 0 || len(r18Warn) > 0 {
+		rejectReasons = append(rejectReasons, r18Rej...)
+		warnings = append(warnings, r18Warn...)
+	}
+
 	// 优先级: reject > manual > agree
 	if len(rejectReasons) > 0 {
 		all := rejectReasons
@@ -1079,19 +1090,7 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 		} else if s, ok := form["u_付款截图"].(string); ok && s != "" {
 			dt.hasPayShot = true
 		}
-		if fd, ok := form["feeDate"].(float64); ok && fd > 1e12 {
-			dt.dates = append(dt.dates, time.UnixMilli(int64(fd)).Format("2006-01-02"))
-		}
-		if fp, ok := form["feeDatePeriod"].(map[string]interface{}); ok {
-			s, _ := fp["start"].(float64)
-			e, _ := fp["end"].(float64)
-			// 起止须是合法毫秒时间戳且区间 ≤370 天, 防脏数据把循环跑飞 (规则15二审)
-			if s > 1e12 && e >= s && e-s <= 370*86400000 {
-				for t := int64(s); t <= int64(e); t += 86400000 {
-					dt.dates = append(dt.dates, time.UnixMilli(t).Format("2006-01-02"))
-				}
-			}
-		}
+		dt.dates = extractFeeDates(form)
 		if v, ok := form["u_天数"].(string); ok {
 			dt.days, _ = strconv.ParseFloat(v, 64)
 		}
@@ -1156,9 +1155,10 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 	posKnown := position != ""
 
 	for did, dt := range byID {
-		// 15-1.2 非专票必须传付款截图
-		if hasNonSpecial[did] && !dt.hasPayShot {
-			rejects = append(rejects, fmt.Sprintf("明细#%d 含非专用发票(铁路票/行程单/普票等), 须在'付款截图'上传付款凭证等附件 (线下规则 15-1.2)", dt.no))
+		// 15-1.2 非专票必须传付款截图 — 交通及差旅费类型豁免 (财务 6/12: 铁路票/行程单
+		// 本来就是差旅票, 只有差旅之外的费用类型才要求付款截图)
+		if hasNonSpecial[did] && !dt.hasPayShot && travelExpenseFeeTypes[dt.feeTypeID] == "" {
+			rejects = append(rejects, fmt.Sprintf("明细#%d 含非专用发票(普票等), 须在'付款截图'上传付款凭证等附件 (线下规则 15-1.2)", dt.no))
 		}
 		// 15-2 付款金额 = 发票合计 (一分不差, 豁免: 补贴/样品/业务宣传/私车公用)
 		if !offlineAmountExempt[dt.feeTypeID] && invSum[did] > 0 && math.Abs(invSum[did]-dt.amount) > 0.005 {
@@ -1201,6 +1201,262 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 		}
 	}
 	return rejects, warnings
+}
+
+// extractFeeDates 从明细 form 提取 feeDate / feeDatePeriod 覆盖的日期 (yyyy-mm-dd)
+// 起止须是合法毫秒时间戳且区间 ≤370 天, 防脏数据把循环跑飞 (规则15二审守卫, 规则17复用)
+func extractFeeDates(form map[string]interface{}) []string {
+	var dates []string
+	if fd, ok := form["feeDate"].(float64); ok && fd > 1e12 {
+		dates = append(dates, time.UnixMilli(int64(fd)).Format("2006-01-02"))
+	}
+	if fp, ok := form["feeDatePeriod"].(map[string]interface{}); ok {
+		s, _ := fp["start"].(float64)
+		e, _ := fp["end"].(float64)
+		if s > 1e12 && e >= s && e-s <= 370*86400000 {
+			for t := int64(s); t <= int64(e); t += 86400000 {
+				dates = append(dates, time.UnixMilli(t).Format("2006-01-02"))
+			}
+		}
+	}
+	return dates
+}
+
+// ruleSubsidyDateInTrip 规则 17: 出差补贴日期须落在关联出差申请单的起止日期内 (财务 2026-06-12)
+// 补贴明细 (出差补贴 ID01Fk0MQBAAQ7) 的日期 vs 关联申请单 u_出差起止日期 [start,end]:
+//   - feeDate 单日: 必须被任一申请单覆盖, 否则建议驳回 (出差那天没申请单)
+//   - feeDatePeriod 区间: 业务员按月报销惯例填"整月"(dry-run 实查 5/1~5/31 大量存在),
+//     逐天判会大面积误杀 → 只要求区间与任一申请单有交集, 完全不沾边才驳回
+//
+// 明细没填日期 / 关联申请单都没有起止日期 → 不判 (关联缺失本身由规则 7-1 管)
+func (h *DashboardHandler) ruleSubsidyDateInTrip(raw map[string]interface{}) []string {
+	details, _ := raw["details"].([]interface{})
+	type sub struct {
+		no           int
+		singleDates  []string // feeDate 单日
+		pStart, pEnd string   // feeDatePeriod 区间 (空=没填)
+	}
+	var subs []sub
+	for _, d := range details {
+		dm, _ := d.(map[string]interface{})
+		if dm == nil {
+			continue
+		}
+		if ft, _ := dm["feeTypeId"].(string); ft != "ID01Fk0MQBAAQ7" {
+			continue
+		}
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		if form == nil {
+			continue
+		}
+		var sb sub
+		if n, ok := form["detailNo"].(float64); ok {
+			sb.no = int(n)
+		}
+		if fd, ok := form["feeDate"].(float64); ok && fd > 1e12 {
+			sb.singleDates = append(sb.singleDates, time.UnixMilli(int64(fd)).Format("2006-01-02"))
+		}
+		if fp, ok := form["feeDatePeriod"].(map[string]interface{}); ok {
+			s, _ := fp["start"].(float64)
+			e, _ := fp["end"].(float64)
+			if s > 1e12 && e >= s {
+				sb.pStart = time.UnixMilli(int64(s)).Format("2006-01-02")
+				sb.pEnd = time.UnixMilli(int64(e)).Format("2006-01-02")
+			}
+		}
+		if len(sb.singleDates) > 0 || sb.pStart != "" {
+			subs = append(subs, sb)
+		}
+	}
+	if len(subs) == 0 {
+		return nil
+	}
+
+	// 关联出差申请单的起止区间 (天粒度字符串, 可能多张申请单取并集)
+	links, _ := raw["expenseLinks"].([]interface{})
+	type span struct{ code, start, end string }
+	var spans []span
+	for _, l := range links {
+		lid, _ := l.(string)
+		if lid == "" {
+			continue
+		}
+		var code, lraw string
+		if err := h.DB.QueryRow(`SELECT code, IFNULL(raw_json,'') FROM hesi_flow WHERE flow_id=? LIMIT 1`, lid).Scan(&code, &lraw); err != nil || lraw == "" {
+			continue
+		}
+		var rm map[string]interface{}
+		if json.Unmarshal([]byte(lraw), &rm) != nil {
+			continue
+		}
+		tp, _ := rm["u_出差起止日期"].(map[string]interface{})
+		if tp == nil {
+			continue
+		}
+		s, _ := tp["start"].(float64)
+		e, _ := tp["end"].(float64)
+		if s > 1e12 && e >= s {
+			spans = append(spans, span{code,
+				time.UnixMilli(int64(s)).Format("2006-01-02"),
+				time.UnixMilli(int64(e)).Format("2006-01-02")})
+		}
+	}
+	if len(spans) == 0 {
+		return nil
+	}
+
+	spanDesc := func() string {
+		var rngs []string
+		for _, sp := range spans {
+			rngs = append(rngs, fmt.Sprintf("%s(%s~%s)", sp.code, sp.start, sp.end))
+		}
+		return strings.Join(rngs, "、")
+	}
+
+	var rejects []string
+	for _, sb := range subs {
+		// 单日: 必须被某申请单覆盖
+		var outside []string
+		for _, d := range sb.singleDates {
+			covered := false
+			for _, sp := range spans {
+				if d >= sp.start && d <= sp.end {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				outside = append(outside, d)
+			}
+		}
+		if len(outside) > 0 {
+			rejects = append(rejects, fmt.Sprintf("明细#%d 补贴日期 %s 不在出差申请单 %s 起止日期内 (规则 17)",
+				sb.no, strings.Join(outside, "/"), spanDesc()))
+		}
+		// 区间: 与所有申请单都无交集才算超范围
+		if sb.pStart != "" {
+			overlap := false
+			for _, sp := range spans {
+				if sb.pStart <= sp.end && sb.pEnd >= sp.start {
+					overlap = true
+					break
+				}
+			}
+			if !overlap {
+				rejects = append(rejects, fmt.Sprintf("明细#%d 补贴期间 %s~%s 与出差申请单 %s 起止日期完全不重叠 (规则 17)",
+					sb.no, sb.pStart, sb.pEnd, spanDesc()))
+			}
+		}
+	}
+	return rejects
+}
+
+// 广告费 fee_type (规则 18; 旧版已停用 ID 兜底历史单)
+var adFeeTypes = map[string]bool{
+	"ID01MBFo8YEVQ3": true, // 广告费 (启用中, 父类=广告宣传费用)
+	"ID01KhLrRhAVl5": true, // 广告费 (旧, 已停用)
+}
+
+// adInvRef 广告费明细关联的一张发票 (规则 18 判定输入)
+type adInvRef struct {
+	no        int    // 明细号
+	invoiceID string // 合思发票 ID
+	number    string // 发票号码 (提示里显示尾号)
+}
+
+// checkAdInvoiceItems 规则 18 纯判定: 发票货物明细行名称全部不含"广告/推广" → 建议驳回
+// names: invoiceID → 该发票所有明细行项目名称; 接口没回明细的发票不判 (不冤枉)
+func checkAdInvoiceItems(invs []adInvRef, names map[string][]string) []string {
+	var rejects []string
+	for _, iv := range invs {
+		items := names[iv.invoiceID]
+		if len(items) == 0 {
+			continue
+		}
+		hit := false
+		for _, n := range items {
+			if strings.Contains(n, "广告") || strings.Contains(n, "推广") {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			show := strings.Join(items, "、")
+			if r := []rune(show); len(r) > 40 {
+				show = string(r[:40]) + "…"
+			}
+			tail := iv.number
+			if len(tail) > 8 {
+				tail = tail[len(tail)-8:]
+			}
+			rejects = append(rejects, fmt.Sprintf("明细#%d 广告费发票(尾号%s)项目名称「%s」不含'广告/推广' (规则 18)", iv.no, tail, show))
+		}
+	}
+	return rejects
+}
+
+// ruleAdInvoiceItemName 规则 18: 广告费发票的项目名称须含"广告"或"推广" (财务 2026-06-12)
+// 例: 广告费明细配"*印刷品*KT板立牌"发票 → 项目名称与费用类型不符, 建议驳回。
+// 发票货物明细行名称本地没存, 现场调合思接口 (5min 缓存); 拉取失败转人工核提示
+func (h *DashboardHandler) ruleAdInvoiceItemName(raw map[string]interface{}, flowID string) ([]string, []string) {
+	details, _ := raw["details"].([]interface{})
+	adDetails := map[string]int{} // detailId → detailNo
+	for _, d := range details {
+		dm, _ := d.(map[string]interface{})
+		if dm == nil {
+			continue
+		}
+		if ft, _ := dm["feeTypeId"].(string); !adFeeTypes[ft] {
+			continue
+		}
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		if form == nil {
+			continue
+		}
+		did, _ := form["detailId"].(string)
+		no := 0
+		if n, ok := form["detailNo"].(float64); ok {
+			no = int(n)
+		}
+		if did != "" {
+			adDetails[did] = no
+		}
+	}
+	if len(adDetails) == 0 || flowID == "" {
+		return nil, nil
+	}
+
+	rows, err := h.DB.Query(`SELECT IFNULL(detail_id,''), IFNULL(invoice_id,''), IFNULL(invoice_number,'')
+		FROM hesi_flow_invoice WHERE flow_id=?`, flowID)
+	if err != nil {
+		log.Printf("[hesi-audit] 规则18 查发票失败 flow=%s: %v", flowID, err)
+		return nil, nil
+	}
+	defer rows.Close()
+	var invs []adInvRef
+	for rows.Next() {
+		var did, iid, num string
+		if rows.Scan(&did, &iid, &num) != nil {
+			continue
+		}
+		if no, ok := adDetails[did]; ok && iid != "" {
+			invs = append(invs, adInvRef{no, iid, num})
+		}
+	}
+	if len(invs) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(invs))
+	for _, iv := range invs {
+		ids = append(ids, iv.invoiceID)
+	}
+	names, err := h.fetchInvoiceItemNames(ids)
+	if err != nil {
+		log.Printf("[hesi-audit] 规则18 拉发票明细失败 flow=%s: %v", flowID, err)
+		return nil, []string{"广告费发票项目名称暂时拉不到, 请人工核是否含'广告/推广' (规则 18)"}
+	}
+	return checkAdInvoiceItems(invs, names), nil
 }
 
 // ruleCorpPaidDuplicate 规则 16: 企业支付行程防重复报销 (跑哥 2026-06-11)
