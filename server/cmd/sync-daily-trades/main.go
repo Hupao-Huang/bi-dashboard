@@ -565,6 +565,12 @@ func syncColumnsFromTemplate(db *sql.DB, tableName, likeTable string) {
 		c.comment = comment.String
 		tmplCols = append(tmplCols, c)
 	}
+	if err := tRows.Err(); err != nil {
+		// 模板列读不全就 ALTER 会漏列, 本轮 schema sync 放弃 (下轮再试), 不能拿残缺清单干活
+		log.Printf("[schema sync] 读模板列中断: %v, 本轮跳过", err)
+		tRows.Close()
+		return
+	}
 	tRows.Close()
 
 	// 2) 目标表已有字段
@@ -579,6 +585,12 @@ func syncColumnsFromTemplate(db *sql.DB, tableName, likeTable string) {
 		if err := eRows.Scan(&n); err == nil {
 			existing[n] = true
 		}
+	}
+	if err := eRows.Err(); err != nil {
+		// 已有列清单残缺会对存在的列重复 ALTER ADD 报错, 本轮跳过
+		log.Printf("[schema sync] 读已有列中断: %v, 本轮跳过", err)
+		eRows.Close()
+		return
 	}
 	eRows.Close()
 

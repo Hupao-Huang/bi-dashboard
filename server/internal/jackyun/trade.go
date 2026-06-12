@@ -183,10 +183,13 @@ type GoodsItem struct {
 
 // FetchTrades 拉取销售单（支持游标分页）
 // progressFn 可选，用于打印翻页进度
+// 注意: 当前无生产调用方 (仅单测覆盖) — sync-daily-trades 用自己的按小时拆窗循环拉单,
+// 且自带 scrollId 缺失防护。本函数的 emptyScroll 守卫是库函数加固, 供未来调用方继承。
 func (c *Client) FetchTrades(start, end time.Time, callback func([]Trade) error, progressFn ...func(fetched, total int)) error {
 	scrollId := ""
 	pageIndex := 0
 	fetched := 0
+	emptyScroll := 0 // 连续几页没回 scrollId (游标不前进时防原地重拉死循环)
 
 	fields := "tradeNo,tradeStatus,tradeType,shopName,shopId,warehouseName,warehouseId," +
 		"goodsDetail.goodsNo,goodsDetail.goodsName,goodsDetail.goodsId," +
@@ -251,6 +254,16 @@ func (c *Client) FetchTrades(start, end time.Time, callback func([]Trade) error,
 		// 使用游标翻页
 		if result.ScrollId != "" {
 			scrollId = result.ScrollId
+			emptyScroll = 0
+		} else {
+			// 游标没回来 (空 scrollId 真实发生过, 见 cmd/probe-trade-empty-scrollid):
+			// 整页满 = 数据没拉完, 旧游标再查只会原地重拉同一页; 连续两轮缺失 = 游标已卡死
+			// 报错让同步任务失败重跑, 不能无限循环也不能静默截断
+			emptyScroll++
+			if len(result.Trades) >= 200 || emptyScroll >= 2 {
+				return fmt.Errorf("scrollId 缺失 page %d (本页 %d 条, 已拉 %d 条), 中止防原地重拉", pageIndex, len(result.Trades), fetched)
+			}
+			// 非整页 + 首次缺失: 大概率已是最后一页, 按原行为再查一次等空页正常收尾
 		}
 		pageIndex++
 	}
