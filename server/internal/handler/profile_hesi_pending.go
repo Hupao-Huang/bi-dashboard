@@ -352,6 +352,30 @@ func (h *DashboardHandler) GetMyHesiFlowDetail(w http.ResponseWriter, r *http.Re
 	h.GetHesiFlowDetail(w, r)
 }
 
+// GetMyHesiApprovalFlow GET /api/profile/hesi-approval-flow?flowId=xxx
+// 同 GetMyHesiFlowDetail: 鉴权后 delegate 到 HesiApprovalFlow
+func (h *DashboardHandler) GetMyHesiApprovalFlow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	flowID := strings.TrimSpace(r.URL.Query().Get("flowId"))
+	if flowID == "" {
+		writeError(w, 400, "缺少flowId参数")
+		return
+	}
+	ok, msg := h.authorizeFlowAccess(r, flowID)
+	if !ok {
+		if msg == "单据不存在" {
+			writeError(w, 404, msg)
+		} else {
+			writeError(w, http.StatusForbidden, msg)
+		}
+		return
+	}
+	h.HesiApprovalFlow(w, r)
+}
+
 // GetMyHesiAttachmentURLs GET /api/profile/hesi-attachment-urls?flowId=xxx
 // 同上, 鉴权后 delegate
 func (h *DashboardHandler) GetMyHesiAttachmentURLs(w http.ResponseWriter, r *http.Request) {

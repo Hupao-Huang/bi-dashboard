@@ -859,6 +859,7 @@ const HesiBot: React.FC = () => {
         onClose={() => setDetailModal({ visible: false, flowId: '' })}
         flowDetailUrl={(id) => `${PROFILE_API}/hesi-flow-detail?flowId=${id}`}
         attachmentUrlsUrl={(id) => `${PROFILE_API}/hesi-attachment-urls?flowId=${id}`}
+        approvalFlowUrl={(id) => `${PROFILE_API}/hesi-approval-flow?flowId=${id}`}
       />
     </div>
   );

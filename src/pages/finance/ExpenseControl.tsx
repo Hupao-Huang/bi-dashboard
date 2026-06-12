@@ -569,6 +569,7 @@ const ExpenseControl: React.FC = () => {
         onClose={() => setDetailModal({ visible: false, flowId: '' })}
         flowDetailUrl={(id) => `${API}/flow-detail?flowId=${id}`}
         attachmentUrlsUrl={(id) => `${API}/attachment-urls?flowId=${id}`}
+        approvalFlowUrl={(id) => `${API}/approval-flow?flowId=${id}`}
       />
 
       {/* v1.57.1 同步日志 modal */}
