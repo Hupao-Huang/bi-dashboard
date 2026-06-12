@@ -251,6 +251,16 @@ body {
   color: var(--text-secondary) !important;
 }
 
+/* 主角 KPI 卡: 综合看板"总销售额"供起来 — 大字号 + 收紧字距 (仅 overview 挂用) */
+.bi-stat-card--hero .ant-statistic-content-value {
+  font-size: 38px !important;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.bi-stat-card--hero .ant-statistic-content-prefix {
+  font-size: 24px !important;
+}
+
 /* ==========================================
    业务卡片节奏（筛选 / 数据表）
    ========================================== */
