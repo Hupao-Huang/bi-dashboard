@@ -105,3 +105,6 @@ skills-lock.json
 
 # .err dump (区别于已盖的 *.err.log)
 *.err
+
+# CodeGraph 本地索引 (AI 代码图谱, 不入库)
+.codegraph/
