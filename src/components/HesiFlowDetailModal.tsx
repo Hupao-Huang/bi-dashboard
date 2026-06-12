@@ -225,7 +225,10 @@ const ApprovalFlowPane: React.FC<{ url: string }> = ({ url }) => {
               {lg.time ? dayjs(lg.time).format('YYYY-MM-DD HH:mm:ss') : ''}
             </Typography.Text>
           </Space>
-          {lg.comment && <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>“{lg.comment}”</div>}
+          {/* 意见就是"同意/驳回"两个字时和左边标签重复, 不再显示 (跑哥 6/12) */}
+          {lg.comment && lg.comment.trim() !== act.label && (
+            <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>“{lg.comment}”</div>
+          )}
         </div>
       ),
     };
