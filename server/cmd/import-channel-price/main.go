@@ -4,6 +4,8 @@
 package main
 
 import (
+	"bi-dashboard/internal/specialchannel"
+
 	"database/sql"
 	"encoding/json"
 	"flag"
@@ -49,7 +51,11 @@ func main() {
 	}
 	defer f.Close()
 
-	allowedSheets := map[string]bool{"京东": true, "猫超": true, "朴朴": true, "小象": true, "叮咚": true}
+	// 合法 sheet 名 = specialchannel 注册表渠道短名 (单一来源)
+	allowedSheets := map[string]bool{}
+	for _, k := range specialchannel.KeysByDept("") {
+		allowedSheets[k] = true
+	}
 	totalImported := 0
 	for _, sheetName := range f.GetSheetList() {
 		if !allowedSheets[sheetName] {

@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -144,8 +143,10 @@ func main() {
 
 // importShopDaily 导入京东店铺销售数据。
 // RPA 抓到的 Excel 至少有两套列布局：
-//   老格式: 时间 / 成交金额 / 成交商品件数 / 成交客户数 / 成交单量 / 店铺成交转化率 / 客单价 / 店铺浏览量 / 店铺访客数 / 平均停留时长 ...
-//   新格式: 日期 / 浏览量 / 浏览量环比 / 访客数 / 访客数环比 / 人均浏览量 / 平均停留时间 / 跳失率 / 成交客户数 / 成交单量 / 成交金额 / 客单价 / ...
+//
+//	老格式: 时间 / 成交金额 / 成交商品件数 / 成交客户数 / 成交单量 / 店铺成交转化率 / 客单价 / 店铺浏览量 / 店铺访客数 / 平均停留时长 ...
+//	新格式: 日期 / 浏览量 / 浏览量环比 / 访客数 / 访客数环比 / 人均浏览量 / 平均停留时间 / 跳失率 / 成交客户数 / 成交单量 / 成交金额 / 客单价 / ...
+//
 // 按列索引硬编码会错位（v0.27 之前版本），现改为按表头名查列 + 同义词兼容 + 核心字段缺失报错。
 func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 	f, err := excelize.OpenFile(fpath)
@@ -217,7 +218,7 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		getFloat(d, importutil.FindCol(idx, "UV价值")), // 新格式无此列，fallback 0
 		getFloat(d, importutil.FindCol(idx, "退款金额", "取消及售后退款金额")),
 		getInt(d, importutil.FindCol(idx, "加购客户数")), // 新格式无此列，fallback 0
-		0)                                 // collect_customers 无对应列
+		0) // collect_customers 无对应列
 	if err != nil {
 		return 0, err
 	}
@@ -226,7 +227,9 @@ func importShopDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 
 // importCustomerDaily 导入京东客户数据-洞察。按表头名映射。
 // Excel 真实列：日期/进店客户数/进店同比/加购客户数/加购同比/下单客户数/下单同比/
-//   成交客户数/成交同比/出库客户数/出库同比/复购客户数/复购同比
+//
+//	成交客户数/成交同比/出库客户数/出库同比/复购客户数/复购同比
+//
 // 原版按奇数列索引硬编码，但 repurchase_customers 取了 d[9]=出库客户数（错）、
 // lost_customers 取了 d[11]=复购客户数（错，应视为 repurchase），造成两列错位。
 func importCustomerDaily(db *sql.DB, fpath, date, shop string) (int, error) {
@@ -271,8 +274,8 @@ func importCustomerDaily(db *sql.DB, fpath, date, shop string) (int, error) {
 		getInt(d, importutil.FindCol(idx, "加购客户数")),
 		getInt(d, importutil.FindCol(idx, "下单客户数")),
 		getInt(d, importutil.FindCol(idx, "成交客户数")),
-		getInt(d, importutil.FindCol(idx, "复购客户数")),            // 原版错位：存了出库客户数
-		getInt(d, importutil.FindCol(idx, "流失客户数")),            // Excel 无此列 fallback 0
+		getInt(d, importutil.FindCol(idx, "复购客户数")), // 原版错位：存了出库客户数
+		getInt(d, importutil.FindCol(idx, "流失客户数")), // Excel 无此列 fallback 0
 	)
 	if err != nil {
 		return 0, err
@@ -416,19 +419,13 @@ func importIndustryKeyword(db *sql.DB, fpath, date, shop string) (int, error) {
 	return cnt, nil
 }
 
-// 工具函数
+// 工具函数 — 数字解析统一走 importutil (2026-06-12 第三批收编, 语义超集: 多剥 ¥/元, 失败带日志)
 func toInt(s string) int {
-	s = strings.ReplaceAll(s, ",", "")
-	s = strings.ReplaceAll(s, "%", "")
-	v, _ := strconv.ParseFloat(s, 64)
-	return int(v)
+	return importutil.ParseInt(s)
 }
 
 func toFloat(s string) float64 {
-	s = strings.ReplaceAll(s, ",", "")
-	s = strings.ReplaceAll(s, "%", "")
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
+	return importutil.ParseFloat(s)
 }
 
 func gs(d []string, i int) interface{} {

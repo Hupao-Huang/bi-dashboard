@@ -160,17 +160,8 @@ func importLiveDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 {
-			s := strings.ReplaceAll(strings.ReplaceAll(get(name), ",", ""), "¥", "")
-			s = strings.ReplaceAll(s, "%", "")
-			v, _ := strconv.ParseFloat(s, 64)
-			return v
-		}
-		getI := func(name string) int {
-			s := strings.ReplaceAll(get(name), ",", "")
-			v, _ := strconv.Atoi(s)
-			return v
-		}
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		anchorName := get("主播昵称")
 		if anchorName == "" {
@@ -248,17 +239,8 @@ func importGoodsDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 {
-			s := strings.ReplaceAll(strings.ReplaceAll(get(name), ",", ""), "¥", "")
-			s = strings.ReplaceAll(s, "%", "")
-			v, _ := strconv.ParseFloat(s, 64)
-			return v
-		}
-		getI := func(name string) int {
-			s := strings.ReplaceAll(get(name), ",", "")
-			v, _ := strconv.Atoi(s)
-			return v
-		}
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		productID := get("商品ID")
 		if productID == "" {
@@ -483,17 +465,8 @@ func importAdLiveDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 {
-			s := strings.ReplaceAll(strings.ReplaceAll(get(name), ",", ""), "¥", "")
-			s = strings.ReplaceAll(s, "%", "")
-			v, _ := strconv.ParseFloat(s, 64)
-			return v
-		}
-		getI := func(name string) int {
-			s := strings.ReplaceAll(get(name), ",", "")
-			v, _ := strconv.Atoi(s)
-			return v
-		}
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		douyinName := get("抖音号名称")
 		rowDate := get("日期")
@@ -559,17 +532,8 @@ func importAnchorDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 {
-			s := strings.ReplaceAll(strings.ReplaceAll(get(name), ",", ""), "¥", "")
-			s = strings.ReplaceAll(s, "%", "")
-			v, _ := strconv.ParseFloat(s, 64)
-			return v
-		}
-		getI := func(name string) int {
-			s := strings.ReplaceAll(get(name), ",", "")
-			v, _ := strconv.Atoi(s)
-			return v
-		}
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		anchorName := get("主播名称")
 		if anchorName == "" || anchorName == "-" {
@@ -632,17 +596,8 @@ func importAdMaterialDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			}
 			return strings.TrimSpace(row[idx])
 		}
-		getF := func(name string) float64 {
-			s := strings.ReplaceAll(strings.ReplaceAll(get(name), ",", ""), "¥", "")
-			s = strings.ReplaceAll(s, "%", "")
-			v, _ := strconv.ParseFloat(s, 64)
-			return v
-		}
-		getI := func(name string) int {
-			s := strings.ReplaceAll(get(name), ",", "")
-			v, _ := strconv.Atoi(s)
-			return v
-		}
+		getF := func(name string) float64 { return importutil.ParseFloat(get(name)) }
+		getI := func(name string) int { return importutil.ParseInt(get(name)) }
 
 		materialName := get("素材名称")
 		if materialName == "" || materialName == "-" {

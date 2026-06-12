@@ -986,15 +986,10 @@ func toS(d []string, i int) interface{} {
 func toFS(s string) float64 { return parseFloatText(s) }
 func toIS(s string) int     { return int(parseFloatText(s)) }
 
+// parseFloatText 数字解析统一走 importutil (2026-06-12 第三批收编)
+// 注意: getPctFloat (百分比÷100) 是另一套有意语义, 不在收编范围
 func parseFloatText(s string) float64 {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, ",", "")
-	s = strings.ReplaceAll(s, "%", "")
-	if s == "" || s == "-" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
+	return importutil.ParseFloat(s)
 }
 
 func normalizeDate(s string) string {

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bi-dashboard/internal/specialchannel"
+
 	"context"
 	"fmt"
 	"log"
@@ -551,9 +553,7 @@ func (h *DashboardHandler) loadEcommerceAllotAdjustment(
 	start, end string,
 	scopeCond string, scopeArgs []interface{},
 ) (salesExcluded, allotAmt, qtyExcluded, allotQty float64, err error) {
-	// 固定 2 渠道 ID (跟 special_channel.go 一致, channel_id 即 shop_id)
-	const jdShopID = "1819610592561398400"   // ds-京东-清心湖自营
-	const tmcsShopID = "1819610591915475584" // ds-天猫超市-寄售
+	// 2 渠道 shop_id 用包级 specialchannel 注册表来源 (jdShopID/tmcsShopID)
 
 	// query 1: 这 2 渠道销售单口径 (sales + qty)
 	salesArgs := append([]interface{}{start, end, jdShopID, tmcsShopID}, scopeArgs...)
@@ -602,9 +602,6 @@ func (h *DashboardHandler) loadEcommerceDailyAllot(
 	start, end string,
 	scopeCond string, scopeArgs []interface{},
 ) (map[string]ecomDailyAllot, error) {
-	const jdShopID = "1819610592561398400"
-	const tmcsShopID = "1819610591915475584"
-
 	out := make(map[string]ecomDailyAllot)
 
 	// query 1: 日级销售单口径
@@ -755,7 +752,7 @@ func applyEcommerceDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDail
 type TrendPoint struct {
 	Date       string  `json:"date"`
 	Department string  `json:"department"`
-	Sales      float64 `json:"sales"`                // ecommerce 部门 = 已排除 2 调拨渠道销售单 (= 其它电商渠道销售单)
+	Sales      float64 `json:"sales"` // ecommerce 部门 = 已排除 2 调拨渠道销售单 (= 其它电商渠道销售单)
 	Qty        float64 `json:"qty"`
 	AllotSales float64 `json:"allotSales,omitempty"` // ecommerce 部门 = 2 调拨渠道当日调拨金额 (前端用黄色堆叠柱显示)
 	AllotQty   float64 `json:"allotQty,omitempty"`
@@ -777,14 +774,17 @@ type shopAllotData struct {
 	allotQty      float64
 }
 
-// 固定 2 调拨渠道映射 (跟 special_channel.go 一致, 多处复用)
-const (
-	jdShopID    = "1819610592561398400"
-	tmcsShopID  = "1819610591915475584"
-	jdShopName  = "ds-京东-清心湖自营"
-	tmcsShopNm  = "ds-天猫超市-寄售"
-	jdChanKey   = "京东"
-	tmcsChanKey = "猫超"
+// 电商 2 调拨渠道映射 — 来自 specialchannel 注册表 (单一来源, 多处复用)
+// 注意: ShopID 是 sales_goods_summary.shop_id, 跟调拨单的 ChannelName(店名) 是两套不同维度的标识
+var (
+	jdChan, _   = specialchannel.ByKey("京东")
+	tmcsChan, _ = specialchannel.ByKey("猫超")
+	jdShopID    = jdChan.ShopID
+	tmcsShopID  = tmcsChan.ShopID
+	jdShopName  = jdChan.ChannelName
+	tmcsShopNm  = tmcsChan.ChannelName
+	jdChanKey   = jdChan.Key
+	tmcsChanKey = tmcsChan.Key
 )
 
 // loadEcommerceShopAllot v1.74.3 拓范: 加载 2 调拨渠道按 shop 分的双口径
@@ -1005,4 +1005,3 @@ func applyEcommerceAllotAdjustment(deptList []DeptSummary, salesExcluded, allotA
 		break
 	}
 }
-

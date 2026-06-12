@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -717,15 +716,9 @@ func getCol(row []string, m map[string]int, name string) string {
 	return strings.TrimSpace(row[idx])
 }
 
-func parseF(s string) float64 {
-	s = strings.ReplaceAll(strings.ReplaceAll(s, ",", ""), "%", "")
-	if s == "" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
-}
-func parseI(s string) int { return int(parseF(s)) }
+// 数字解析统一走 importutil (2026-06-12 第三批收编)
+func parseF(s string) float64 { return importutil.ParseFloat(s) }
+func parseI(s string) int     { return int(parseF(s)) }
 
 // pickSheet 优先取指定名字的 sheet，找不到就返回第 0 个
 func pickSheet(f *excelize.File, preferred string) string {

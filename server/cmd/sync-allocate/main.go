@@ -4,6 +4,8 @@
 package main
 
 import (
+	"bi-dashboard/internal/specialchannel"
+
 	"database/sql"
 	"encoding/json"
 	"flag"
@@ -39,19 +41,26 @@ type Config struct {
 	} `json:"webhook"`
 }
 
-// 5 个外仓 → 渠道映射
-var warehouseMap = map[string]struct {
+// 外仓 → 渠道映射, 来自 specialchannel 注册表 (单一来源, 加渠道改注册表后重编译本工具)
+var warehouseMap = func() map[string]struct {
 	Code        string
 	ChannelKey  string // 京东/猫超/朴朴/小象/叮咚
 	ChannelName string // 渠道全称
-}{
-	"0057": {"0057", "京东", "ds-京东-清心湖自营"},
-	"0019": {"0019", "猫超", "ds-天猫超市-寄售"},
-	"0110": {"0110", "朴朴", "js-即时零售事业一部（世创）-朴朴"},
-	// 2026-06-05 跑哥追加: 即时零售部小象/叮咚 也走调拨当销售 (销售单+调拨, 价格表后续给, 暂无价→金额算0)
-	"0112": {"0112", "小象", "js-即时零售事业一部（世创）-小象"},
-	"0111": {"0111", "叮咚", "js-即时零售事业一部（杭州松鲜鲜）-叮咚"},
-}
+} {
+	m := map[string]struct {
+		Code        string
+		ChannelKey  string
+		ChannelName string
+	}{}
+	for _, c := range specialchannel.All {
+		m[c.WarehouseCode] = struct {
+			Code        string
+			ChannelKey  string
+			ChannelName string
+		}{c.WarehouseCode, c.Key, c.ChannelName}
+	}
+	return m
+}()
 
 type AllocateQuery struct {
 	PageIndex       int    `json:"pageIndex"`

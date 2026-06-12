@@ -116,6 +116,112 @@ var subsidyStandard = map[string]float64{
 	"主管和其他": 60,
 }
 
+// ====== 审批业务参数 DB 配置化 (2026-06-12 第三批) ======
+// 住宿矩阵/补贴标准是财务最常调的两组参数, 搬进 hesi_audit_param 表后改口径不用改代码:
+//   UPDATE hesi_audit_param SET param_json='{"总裁":220,...}' WHERE param_key='subsidy_standard';
+// 5 分钟内自动生效 (loader TTL); 表里没有/JSON 解析失败时回落到上面的代码默认值, 永不空转
+var (
+	hesiAuditParamOnce sync.Once
+	hesiAuditParamMu   sync.Mutex
+	accomStdCache      map[string]map[string]float64
+	subsidyStdCache    map[string]float64
+	hesiAuditParamAt   time.Time
+)
+
+func (h *DashboardHandler) ensureHesiAuditParamTable() {
+	if h.DB == nil {
+		return
+	}
+	hesiAuditParamOnce.Do(func() {
+		if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS hesi_audit_param (
+			param_key VARCHAR(64) PRIMARY KEY COMMENT '参数名',
+			param_json TEXT NOT NULL COMMENT '参数值(JSON)',
+			remark VARCHAR(255) DEFAULT '' COMMENT '说明',
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='合思审批规则业务参数(财务改口径直接改param_json, 5分钟生效, 不用改代码)'`); err != nil {
+			log.Printf("[hesi-audit] 建参数表失败: %v", err)
+			return
+		}
+		seed := func(key string, v interface{}, remark string) {
+			b, err := json.Marshal(v)
+			if err != nil {
+				return
+			}
+			if _, err := h.DB.Exec(`INSERT IGNORE INTO hesi_audit_param (param_key, param_json, remark) VALUES (?,?,?)`, key, string(b), remark); err != nil {
+				log.Printf("[hesi-audit] 参数种子 %s 失败: %v", key, err)
+			}
+		}
+		seed("accommodation_standard", accommodationStandard, "住宿费单晚标准: 职级×城市分级 (规则 7-3)")
+		seed("subsidy_standard", subsidyStandard, "出差补贴标准 ¥/天: 职级 (规则 11)")
+	})
+}
+
+// loadHesiAuditParams 返回 (住宿矩阵, 补贴标准), DB 配置优先, 失败回落代码默认值
+func (h *DashboardHandler) loadHesiAuditParams() (map[string]map[string]float64, map[string]float64) {
+	if h.DB == nil { // 单测裸 handler 直接用代码默认值
+		return accommodationStandard, subsidyStandard
+	}
+	h.ensureHesiAuditParamTable()
+	hesiAuditParamMu.Lock()
+	defer hesiAuditParamMu.Unlock()
+	if accomStdCache != nil && time.Since(hesiAuditParamAt) < 5*time.Minute {
+		return accomStdCache, subsidyStdCache
+	}
+	accom, subsidy := accommodationStandard, subsidyStandard
+	rows, err := h.DB.Query(`SELECT param_key, param_json FROM hesi_audit_param WHERE param_key IN ('accommodation_standard','subsidy_standard')`)
+	if err != nil {
+		log.Printf("[hesi-audit] 参数表读取失败, 用代码默认值: %v", err)
+		return accom, subsidy
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k, j string
+		if rows.Scan(&k, &j) != nil {
+			continue
+		}
+		// 合并语义: DB 配置按职级档覆盖, 没写的档用代码默认值补齐 —
+		// 防财务手填 JSON 少一档时, 该档从"有标准"静默变"未配置"(二审抓的风险)
+		switch k {
+		case "accommodation_standard":
+			var m map[string]map[string]float64
+			if e := json.Unmarshal([]byte(j), &m); e == nil && len(m) > 0 {
+				merged := map[string]map[string]float64{}
+				for pos, tiers := range accommodationStandard {
+					merged[pos] = tiers
+				}
+				for pos, tiers := range m {
+					merged[pos] = tiers
+				}
+				accom = merged
+			} else {
+				log.Printf("[hesi-audit] accommodation_standard JSON 异常, 用代码默认值: %v", e)
+			}
+		case "subsidy_standard":
+			var m map[string]float64
+			if e := json.Unmarshal([]byte(j), &m); e == nil && len(m) > 0 {
+				merged := map[string]float64{}
+				for pos, v := range subsidyStandard {
+					merged[pos] = v
+				}
+				for pos, v := range m {
+					merged[pos] = v
+				}
+				subsidy = merged
+			} else {
+				log.Printf("[hesi-audit] subsidy_standard JSON 异常, 用代码默认值: %v", e)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		// 读取中断的残缺结果不落缓存 (跟部门树缓存同教训), 本次用默认值
+		log.Printf("[hesi-audit] 参数表读取中断, 用代码默认值: %v", err)
+		return accommodationStandard, subsidyStandard
+	}
+	accomStdCache, subsidyStdCache = accom, subsidy
+	hesiAuditParamAt = time.Now()
+	return accom, subsidy
+}
+
 // AuditSuggestion 审批建议输出
 type AuditSuggestion struct {
 	Action  string   `json:"action"` // agree / reject / manual
@@ -792,7 +898,8 @@ func (h *DashboardHandler) ruleSubsidyStandard(raw map[string]interface{}, submi
 		positionForDisplay = "主管和其他 (花名册未匹配)"
 		isFallback = true
 	}
-	std, ok := subsidyStandard[position]
+	_, subsidyStd := h.loadHesiAuditParams() // DB 配置优先, 财务改口径 5 分钟生效
+	std, ok := subsidyStd[position]
 	if !ok {
 		return "", "岗位职级「" + position + "」非标准 5 档, 出差补贴标准未配置 (规则 11)"
 	}
@@ -1859,7 +1966,8 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 		positionForDisplay = "主管和其他 (花名册未匹配)"
 		isFallback = true
 	}
-	standards, ok := accommodationStandard[position]
+	accomStd, _ := h.loadHesiAuditParams() // DB 配置优先, 财务改口径 5 分钟生效
+	standards, ok := accomStd[position]
 	if !ok {
 		return "", "岗位职级「" + position + "」非标准 5 档, 住宿标准未配置 (规则 7-3)"
 	}

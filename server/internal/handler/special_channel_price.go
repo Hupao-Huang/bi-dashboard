@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bi-dashboard/internal/specialchannel"
+
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -14,13 +16,7 @@ import (
 //   列表走 ecommerce/instant_retail 任一 view (谁能看对账页就能看价格)。
 // Excel 仍可用: import-channel-price.exe 已改成"有则更新无则新增"(不再整渠道清空), 两边并存不冲突。
 
-var validChannelKeys = map[string]bool{"京东": true, "猫超": true, "朴朴": true, "小象": true, "叮咚": true}
-
-// dept → 渠道清单 (跟 special_channel.go channelMapByDept 一致)
-var priceChannelsByDept = map[string][]string{
-	"ecommerce":      {"京东", "猫超"},
-	"instant_retail": {"朴朴", "小象", "叮咚"},
-}
+// 渠道清单/合法 key 一律来自 specialchannel 注册表 (单一来源), 不再各自硬编码
 
 // SaveChannelPrice POST /api/special-channel-allot/save-price
 // body: {channelKey, goodsNo, barcode, goodsName, price}
@@ -46,8 +42,8 @@ func (h *DashboardHandler) SaveChannelPrice(w http.ResponseWriter, r *http.Reque
 	req.Barcode = strings.TrimSpace(req.Barcode)
 	req.GoodsName = strings.TrimSpace(req.GoodsName)
 
-	if !validChannelKeys[req.ChannelKey] {
-		writeError(w, http.StatusBadRequest, "渠道不对(只支持 京东/猫超/朴朴/小象/叮咚)")
+	if !specialchannel.IsValidKey(req.ChannelKey) {
+		writeError(w, http.StatusBadRequest, "渠道不对(只支持 "+strings.Join(specialchannel.KeysByDept(""), "/")+")")
 		return
 	}
 	if req.GoodsNo == "" {
@@ -94,9 +90,9 @@ func (h *DashboardHandler) SaveChannelPrice(w http.ResponseWriter, r *http.Reque
 	})
 
 	writeJSON(w, map[string]interface{}{
-		"goodsNo":      req.GoodsNo,
-		"price":        req.Price,
-		"updatedRows":  updated,
+		"goodsNo":     req.GoodsNo,
+		"price":       req.Price,
+		"updatedRows": updated,
 	})
 }
 
@@ -104,10 +100,10 @@ func (h *DashboardHandler) SaveChannelPrice(w http.ResponseWriter, r *http.Reque
 // 返回该部门对应渠道的全部已配价格 (给"全部价格"表用)
 func (h *DashboardHandler) GetChannelPrices(w http.ResponseWriter, r *http.Request) {
 	dept := r.URL.Query().Get("dept")
-	channels, ok := priceChannelsByDept[dept]
-	if !ok {
-		// 空 dept = 全部 (向后兼容)
-		channels = []string{"京东", "猫超", "朴朴", "小象", "叮咚"}
+	channels := specialchannel.KeysByDept(dept)
+	if len(channels) == 0 {
+		// 空/未知 dept = 全部 (向后兼容老行为)
+		channels = specialchannel.KeysByDept("")
 	}
 	placeholders := make([]string, len(channels))
 	args := make([]interface{}, len(channels))
