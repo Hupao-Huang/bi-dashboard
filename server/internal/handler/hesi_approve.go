@@ -77,6 +77,79 @@ func (h *DashboardHandler) HesiRejectNodes(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, map[string]interface{}{"nodes": nodes})
 }
 
+// HesiApprovalFlow GET /api/hesi/approval-flow?flowId= (费控) / 经 GetMyHesiApprovalFlow (机器人)
+// 单据审批流时间线 (跑哥 2026-06-12: 详情里要能看审批流)
+// 数据源: 合思 flowDetails v1.1 logs 实时拉 (本地 raw_json 没存 logs);
+// 审批中的单补当前待审节点 (hesi_flow.current_* 本地同步字段)
+func (h *DashboardHandler) HesiApprovalFlow(w http.ResponseWriter, r *http.Request) {
+	flowID := strings.TrimSpace(r.URL.Query().Get("flowId"))
+	if flowID == "" {
+		writeError(w, 400, "flowId 不能为空")
+		return
+	}
+	token, err := h.getHesiToken()
+	if err != nil {
+		writeServerError(w, 500, "获取合思授权失败", err)
+		return
+	}
+	resp, err := hesiHTTP.Get(fmt.Sprintf("%s/api/openapi/v1.1/flowDetails?flowId=%s&accessToken=%s", hesiAPIBase, flowID, token))
+	if err != nil {
+		writeServerError(w, 500, "查询合思单据失败", err)
+		return
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	var parsed struct {
+		Value struct {
+			State string `json:"state"`
+			Logs  []struct {
+				Action       string `json:"action"`
+				Time         int64  `json:"time"`
+				OperatorID   string `json:"operatorId"`
+				ByDelegateID string `json:"byDelegateId"`
+				Attributes   struct {
+					NodeName string `json:"nodeName"`
+					Comment  string `json:"comment"`
+				} `json:"attributes"`
+			} `json:"logs"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		writeServerError(w, 500, "解析合思单据失败", err)
+		return
+	}
+
+	type step struct {
+		Action   string `json:"action"`
+		NodeName string `json:"nodeName"`
+		Operator string `json:"operator"`
+		Delegate string `json:"delegate,omitempty"` // 代审人
+		Comment  string `json:"comment"`
+		Time     int64  `json:"time"`
+	}
+	steps := make([]step, 0, len(parsed.Value.Logs))
+	for _, lg := range parsed.Value.Logs {
+		st := step{Action: lg.Action, NodeName: lg.Attributes.NodeName, Comment: lg.Attributes.Comment, Time: lg.Time}
+		if lg.OperatorID != "" {
+			st.Operator = h.LookupStaffName(lg.OperatorID)
+			if st.Operator == "" {
+				st.Operator = lg.OperatorID
+			}
+		}
+		if lg.ByDelegateID != "" {
+			st.Delegate = h.LookupStaffName(lg.ByDelegateID)
+		}
+		steps = append(steps, st)
+	}
+
+	var curNode, curApprover string
+	_ = h.DB.QueryRow(`SELECT IFNULL(current_stage_name,''), IFNULL(current_approver_name,'') FROM hesi_flow WHERE flow_id=? LIMIT 1`, flowID).Scan(&curNode, &curApprover)
+	writeJSON(w, map[string]interface{}{
+		"state": parsed.Value.State, "logs": steps,
+		"currentNode": curNode, "currentApprover": curApprover,
+	})
+}
+
 // nullableStr 空字符串转 SQL NULL (用于 hesi_flow.current_* 字段)
 func nullableStr(s string) sql.NullString {
 	if s == "" {
@@ -144,9 +217,9 @@ func (h *DashboardHandler) HesiApprove(w http.ResponseWriter, r *http.Request) {
 
 	// 1. 查 hesi_flow 拿单据信息 + 审批人 ID
 	var (
-		currentApproverID sql.NullString
+		currentApproverID      sql.NullString
 		flowCode, title, state string
-		formType string
+		formType               string
 	)
 	err := h.DB.QueryRow(`
 		SELECT current_approver_id, code, IFNULL(title,''), state, form_type

@@ -9,7 +9,7 @@
 // 所以接口地址用 props 传进来即可.
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Descriptions, Space, Tabs, Tag, Table, Typography, Tooltip, Button, Image, message } from 'antd';
+import { Modal, Descriptions, Space, Spin, Tabs, Tag, Table, Timeline, Typography, Tooltip, Button, Image, message } from 'antd';
 import { ArrowLeftOutlined, CheckCircleOutlined, WarningOutlined, PaperClipOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
@@ -151,9 +151,100 @@ export interface HesiFlowDetailModalProps {
   flowDetailUrl: (flowId: string) => string;
   /** 在线附件链接接口完整 URL — 费控: `${API}/attachment-urls?flowId=x`; 机器人: `${PROFILE_API}/hesi-attachment-urls?flowId=x` */
   attachmentUrlsUrl: (flowId: string) => string;
+  /** 审批流接口完整 URL (可选) — 费控: `${API}/approval-flow?flowId=x`; 机器人: `${PROFILE_API}/hesi-approval-flow?flowId=x` */
+  approvalFlowUrl?: (flowId: string) => string;
 }
 
-const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId, onClose, flowDetailUrl, attachmentUrlsUrl }) => {
+// 审批动作 → 展示文案/颜色 (合思 freeflow.* 动作)
+const APPROVAL_ACTION_MAP: Record<string, { label: string; color: string }> = {
+  'freeflow.submit': { label: '提交', color: 'blue' },
+  'freeflow.agree': { label: '同意', color: 'green' },
+  'freeflow.reject': { label: '驳回', color: 'red' },
+  'freeflow.carbonCopy': { label: '抄送', color: 'default' },
+  'freeflow.retract': { label: '撤回', color: 'orange' },
+  'freeflow.revoke': { label: '撤销', color: 'orange' },
+  'freeflow.modify': { label: '修改', color: 'orange' },
+  'freeflow.comment': { label: '评论', color: 'default' },
+  'freeflow.archive': { label: '归档', color: 'default' },
+  'freeflow.pay': { label: '支付', color: 'cyan' },
+  // 合思系统/机器人自动动作
+  'freeflow.ebotAgree': { label: '机器人通过', color: 'green' },
+  'freeflow.autoAgree': { label: '自动通过', color: 'green' },
+  'freeflow.jump': { label: '跳过节点', color: 'default' },
+  'freeflow.addnode': { label: '加签', color: 'orange' },
+  'freeflow.transfer': { label: '转交', color: 'orange' },
+  'freeflow.print': { label: '打印', color: 'default' },
+  'freeflow.remind': { label: '催办', color: 'default' },
+  'freeflow.receive': { label: '收单', color: 'default' },
+  'freeflow.back': { label: '退回', color: 'red' },
+};
+
+// 审批流 Tab 内容: 首次切到该 tab 时拉合思实时审批记录 (logs 本地没存)
+const ApprovalFlowPane: React.FC<{ url: string }> = ({ url }) => {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    (async () => {
+      try {
+        const res = await fetch(url, { credentials: 'include' });
+        const json = await res.json();
+        if (cancelled) return;
+        if (json.code === 200 && json.data) setData(json.data);
+        else setError(json.msg || '获取审批流失败');
+      } catch {
+        if (!cancelled) setError('获取审批流失败');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 32 }}><Spin tip="正在向合思拉取审批记录…" /></div>;
+  if (error) return <Typography.Text type="danger">{error}</Typography.Text>;
+  const logs: any[] = data?.logs || [];
+  if (!logs.length) return <Typography.Text type="secondary">暂无审批记录</Typography.Text>;
+
+  const items = logs.map((lg) => {
+    const act = APPROVAL_ACTION_MAP[lg.action] || { label: lg.action?.replace('freeflow.', '') || '操作', color: 'default' };
+    return {
+      color: act.color === 'default' ? 'gray' : act.color === 'red' ? 'red' : act.color === 'green' ? 'green' : 'blue',
+      children: (
+        <div>
+          <Space size={8} wrap>
+            <Tag color={act.color}>{act.label}</Tag>
+            {lg.nodeName && <Typography.Text strong>{lg.nodeName}</Typography.Text>}
+            <span>{lg.operator}{lg.delegate ? `（${lg.delegate} 代审）` : ''}</span>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {lg.time ? dayjs(lg.time).format('YYYY-MM-DD HH:mm:ss') : ''}
+            </Typography.Text>
+          </Space>
+          {lg.comment && <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>“{lg.comment}”</div>}
+        </div>
+      ),
+    };
+  });
+  // 审批中的单: 末尾补当前待审节点
+  if (data.state === 'approving' && (data.currentNode || data.currentApprover)) {
+    items.push({
+      color: 'blue',
+      children: (
+        <Space size={8} wrap>
+          <Tag color="processing">审批中</Tag>
+          <Typography.Text strong>{data.currentNode || '当前节点'}</Typography.Text>
+          <span>待 {data.currentApprover || '-'} 审批</span>
+        </Space>
+      ),
+    });
+  }
+  return <Timeline style={{ marginTop: 8 }} items={items} />;
+};
+
+const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId, onClose, flowDetailUrl, attachmentUrlsUrl, approvalFlowUrl }) => {
   const [detailData, setDetailData] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [attachUrls, setAttachUrls] = useState<any>(null);
@@ -781,6 +872,11 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                 </div>
               ),
             },
+            ...(approvalFlowUrl ? [{
+              key: 'approval',
+              label: '审批流',
+              children: <ApprovalFlowPane url={approvalFlowUrl(activeFlowId)} />,
+            }] : []),
           ]} />
         )}
       </Modal>

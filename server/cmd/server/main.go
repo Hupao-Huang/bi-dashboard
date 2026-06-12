@@ -545,6 +545,7 @@ func main() {
 	// v1.62.x 合思机器人详情/附件 (鉴权: 审批人/提交人/管理员)
 	mux.HandleFunc("/api/profile/hesi-flow-detail", pageProtected("profile.hesi_bot:view", h.GetMyHesiFlowDetail))
 	mux.HandleFunc("/api/profile/hesi-attachment-urls", pageProtected("profile.hesi_bot:view", h.GetMyHesiAttachmentURLs))
+	mux.HandleFunc("/api/profile/hesi-approval-flow", pageProtected("profile.hesi_bot:view", h.GetMyHesiApprovalFlow))
 	// v1.60.0 合思机器人规则 CRUD
 	mux.HandleFunc("/api/profile/hesi-rules", pageProtected("profile.hesi_bot:view", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -591,6 +592,7 @@ func main() {
 	mux.HandleFunc("/api/hesi/flow-detail", pageProtected("finance.expense:view", h.GetHesiFlowDetail))
 	mux.HandleFunc("/api/hesi/specifications", pageProtected("finance.expense:view", cache24h(h.GetHesiSpecifications)))
 	mux.HandleFunc("/api/hesi/attachment-urls", pageProtected("finance.expense:view", h.GetHesiAttachmentURLs))
+	mux.HandleFunc("/api/hesi/approval-flow", pageProtected("finance.expense:view", h.HesiApprovalFlow))
 	mux.HandleFunc("/api/hesi/last-sync", pageProtected("finance.expense:view", h.GetHesiLastSync))
 
 	// 财务报表
