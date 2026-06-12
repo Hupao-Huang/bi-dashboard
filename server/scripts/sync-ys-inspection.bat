@@ -1,5 +1,5 @@
 @echo off
-REM 用友 BIP 来料检验单同步 — schtasks 每天 09:40 调用 (默认拉最近3天~今天, 覆盖晚审批)
+REM YonBIP incoming inspection sync - schtasks daily 09:40 (default last 3 days to today, covers late approvals)
 setlocal
 set LOGDIR=C:\Users\Administrator\bi-dashboard\server\logs
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"

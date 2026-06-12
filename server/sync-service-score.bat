@@ -1,5 +1,5 @@
 @echo off
-REM 客服服务分每日同步 (RPA 当天下午写 Z 盘, 19:30 兜底导入; 全量幂等扫描)
+REM Customer service score daily sync (RPA writes Z: in the afternoon, 19:30 fallback import; full idempotent scan)
 cd /d C:\Users\Administrator\bi-dashboard\server
 
 set LOGFILE=C:\Users\Administrator\bi-dashboard\server\sync-service-score.log

@@ -1,5 +1,5 @@
 @echo off
-REM 用友 BIP 委外订单同步 — schtasks 09:10 调用 (默认拉昨天~今天)
+REM YonBIP subcontract order sync - schtasks 09:10 (default yesterday to today)
 setlocal
 set LOGDIR=C:\Users\Administrator\bi-dashboard\server\logs
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"

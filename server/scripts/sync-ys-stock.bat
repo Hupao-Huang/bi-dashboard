@@ -1,6 +1,6 @@
 @echo off
-REM 用友 BIP 现存量同步 — schtasks 09:30/14:00/18:00 调用
-REM 日志按日切分, 完成后由 exe 自行调 bi-server webhook 清缓存
+REM YonBIP current stock sync - schtasks 09:30/14:00/18:00
+REM Logs split by day; exe calls bi-server webhook to clear cache when done
 setlocal
 set LOGDIR=C:\Users\Administrator\bi-dashboard\server\logs
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
