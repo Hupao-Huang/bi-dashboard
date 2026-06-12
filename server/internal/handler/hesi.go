@@ -70,7 +70,7 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 	state := q.Get("state")
 	invoiceStatus := q.Get("invoiceStatus")
 	keyword := q.Get("keyword")
-	approver := q.Get("approver") // v1.58.2: 当前审批人姓名 LIKE 搜索
+	approver := q.Get("approver")               // v1.58.2: 当前审批人姓名 LIKE 搜索
 	specificationID := q.Get("specificationId") // v1.63.x: 单据模板筛选 (字典 id 是 specification_id 的前缀)
 	startDate := q.Get("startDate")
 	endDate := q.Get("endDate")
@@ -299,13 +299,13 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	// 主表
 	var rawJSON *string
 	var flow struct {
-		FlowId       string   `json:"flowId"`
-		Code         string   `json:"code"`
-		Title        string   `json:"title"`
-		FormType     string   `json:"formType"`
-		State        string   `json:"state"`
-		OwnerId      *string  `json:"ownerId"`
-		DepartmentId *string  `json:"departmentId"`
+		FlowId       string  `json:"flowId"`
+		Code         string  `json:"code"`
+		Title        string  `json:"title"`
+		FormType     string  `json:"formType"`
+		State        string  `json:"state"`
+		OwnerId      *string `json:"ownerId"`
+		DepartmentId *string `json:"departmentId"`
 		// v1.74.9: owner_department 字段以前没 SELECT, 现在补上 (发起人所在部门, 跟 department_id=报销部门 不同)
 		OwnerDepartment   *string  `json:"ownerDepartmentId"`
 		SubmitterId       *string  `json:"submitterId"`
@@ -395,6 +395,7 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		Reasons         *string         `json:"consumptionReasons"`
 		SpecificationId *string         `json:"specificationId"`
 		RawJson         json.RawMessage `json:"rawJson,omitempty"`
+		DriveRecord     *DriveRecord    `json:"driveRecord,omitempty"` // 私车公用行车记录 (跑哥 6/12)
 	}
 	var details []DetailItem
 	drows, err := h.DB.Query(`SELECT detail_id, detail_no, fee_type_id, amount, fee_date,
@@ -414,6 +415,17 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 			}
 			if d.FeeTypeId != nil && *d.FeeTypeId != "" {
 				d.FeeTypeName = h.LookupFeeTypeName(*d.FeeTypeId)
+			}
+			// 私车公用明细带 u_行车记录(实例ID) → 反查行车记录 (出发地/目的地/里程/补助标准)
+			if len(d.RawJson) > 0 {
+				var rj struct {
+					FeeTypeForm struct {
+						DriveRecID string `json:"u_行车记录"`
+					} `json:"feeTypeForm"`
+				}
+				if json.Unmarshal(d.RawJson, &rj) == nil && rj.FeeTypeForm.DriveRecID != "" {
+					d.DriveRecord = h.LookupDriveRecord(rj.FeeTypeForm.DriveRecID)
+				}
 			}
 			details = append(details, d)
 		}
@@ -473,7 +485,8 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	if irows != nil {
 		defer irows.Close()
 		for irows.Next() {
-			var inv InvoiceItem; var feeTypeId *string
+			var inv InvoiceItem
+			var feeTypeId *string
 			if writeDatabaseError(w, irows.Scan(&inv.InvoiceId, &inv.InvoiceNumber, &inv.InvoiceCode,
 				&inv.InvoiceDate, &inv.InvoiceAmount, &inv.TotalAmount, &inv.TaxAmount, &inv.ApproveAmount,
 				&inv.InvoiceStatus, &inv.InvoiceType, &inv.BuyerName, &inv.BuyerTaxNo, &inv.SellerName, &inv.SellerTaxNo, &inv.IsVerified,
@@ -481,8 +494,10 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 				&inv.DetailAmount, &inv.DetailReason)) {
 				return
 			}
-			if feeTypeId != nil && *feeTypeId != "" { inv.FeeTypeName = h.LookupFeeTypeName(*feeTypeId) }
-				invoices = append(invoices, inv)
+			if feeTypeId != nil && *feeTypeId != "" {
+				inv.FeeTypeName = h.LookupFeeTypeName(*feeTypeId)
+			}
+			invoices = append(invoices, inv)
 		}
 		if writeDatabaseError(w, irows.Err()) {
 			return

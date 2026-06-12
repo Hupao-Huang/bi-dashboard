@@ -685,8 +685,35 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                   scroll={{ y: 480 }}
                   sticky
                   expandable={{
-                    expandedRowRender: (record: any) => renderHesiDetailExpand(record, { resolve: resolveAttachFile, preview: openFilePreview }),
+                    expandedRowRender: (record: any) => (
+                      <>
+                        {record.driveRecord && (
+                          <div style={{ background: '#f8fafc', borderRadius: 6, padding: '8px 12px', marginBottom: 8 }}>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>行车记录（私车公用）</Typography.Text>
+                            <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', fontSize: 13, marginTop: 4 }}>
+                              <span>
+                                {record.driveRecord.departure || '-'} → {record.driveRecord.destination || '-'}
+                                {record.driveRecord.waypoints > 0 && <Typography.Text type="secondary">（途经 {record.driveRecord.waypoints} 地）</Typography.Text>}
+                              </span>
+                            </div>
+                            <Space size={16} wrap style={{ fontSize: 13, marginTop: 4 }}>
+                              <span>实际里程 <Typography.Text strong>{record.driveRecord.mileage || '-'} km</Typography.Text></span>
+                              {record.driveRecord.standard && <span>补助标准 ¥{record.driveRecord.standard}/km</span>}
+                              {record.driveRecord.subsidy && <span>系统算出补助 <Typography.Text strong>¥{record.driveRecord.subsidy}</Typography.Text></span>}
+                              {record.driveRecord.startTime > 0 && (
+                                <Typography.Text type="secondary">
+                                  {dayjs(record.driveRecord.startTime).format('YYYY-MM-DD HH:mm')}
+                                  {record.driveRecord.endTime > 0 && ` ~ ${dayjs(record.driveRecord.endTime).format('HH:mm')}`}
+                                </Typography.Text>
+                              )}
+                            </Space>
+                          </div>
+                        )}
+                        {renderHesiDetailExpand(record, { resolve: resolveAttachFile, preview: openFilePreview })}
+                      </>
+                    ),
                     rowExpandable: (r: any) => {
+                      if (r.driveRecord) return true;
                       const form = r.rawJson?.feeTypeForm || r.rawJson;
                       if (!form || typeof form !== 'object') return false;
                       return Object.keys(form).some((k) => !HESI_DETAIL_HIDDEN_KEYS.has(k));
