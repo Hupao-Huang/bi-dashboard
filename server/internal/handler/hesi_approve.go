@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -77,6 +78,9 @@ func (h *DashboardHandler) HesiRejectNodes(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, map[string]interface{}{"nodes": nodes})
 }
 
+// hesiMentionRe 合思评论里 @人 的占位符 "{ID01corpXxx:ID01staffXxx}"
+var hesiMentionRe = regexp.MustCompile(`\{ID01\w+:ID01\w+\}`)
+
 // HesiApprovalFlow GET /api/hesi/approval-flow?flowId= (费控) / 经 GetMyHesiApprovalFlow (机器人)
 // 单据审批流时间线 (跑哥 2026-06-12: 详情里要能看审批流)
 // 数据源: 合思 flowDetails v1.1 logs 实时拉 (本地 raw_json 没存 logs);
@@ -129,7 +133,14 @@ func (h *DashboardHandler) HesiApprovalFlow(w http.ResponseWriter, r *http.Reque
 	}
 	steps := make([]step, 0, len(parsed.Value.Logs))
 	for _, lg := range parsed.Value.Logs {
-		st := step{Action: lg.Action, NodeName: lg.Attributes.NodeName, Comment: lg.Attributes.Comment, Time: lg.Time}
+		// 评论里 @某人 合思存的是 "{corpId:staffId}" 占位符, 反查成 @姓名 (跑哥 6/12 圈出来的)
+		comment := hesiMentionRe.ReplaceAllStringFunc(lg.Attributes.Comment, func(m string) string {
+			if name := h.LookupStaffName(strings.Trim(m, "{}")); name != "" {
+				return "@" + name
+			}
+			return m
+		})
+		st := step{Action: lg.Action, NodeName: lg.Attributes.NodeName, Comment: comment, Time: lg.Time}
 		if lg.OperatorID != "" {
 			st.Operator = h.LookupStaffName(lg.OperatorID)
 			if st.Operator == "" {

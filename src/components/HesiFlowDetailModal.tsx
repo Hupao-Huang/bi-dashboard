@@ -171,6 +171,8 @@ const APPROVAL_ACTION_MAP: Record<string, { label: string; color: string }> = {
   'freeflow.ebotAgree': { label: '机器人通过', color: 'green' },
   'freeflow.autoAgree': { label: '自动通过', color: 'green' },
   'freeflow.jump': { label: '跳过节点', color: 'default' },
+  'freeflow.skipped': { label: '跳过', color: 'default' },
+  'skipped': { label: '跳过', color: 'default' },
   'freeflow.addnode': { label: '加签', color: 'orange' },
   'freeflow.transfer': { label: '转交', color: 'orange' },
   'freeflow.print': { label: '打印', color: 'default' },
