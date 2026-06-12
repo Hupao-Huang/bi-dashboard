@@ -94,6 +94,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "data:export", Name: "数据导出", Type: "action"},
 	{Code: "profile.hesi_bot:view", Name: "个人中心-合思机器人", Type: "page"},
 	{Code: "system.yonbip:use", Name: "YS工具(批量出库/批次转换,写用友不可逆)", Type: "action"},
+	{Code: "ai.assistant:use", Name: "AI 智能助手(全公司数据口径)", Type: "action"},
 }
 
 var roleSeeds = []roleSeed{
