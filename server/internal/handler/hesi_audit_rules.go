@@ -578,7 +578,7 @@ func (h *DashboardHandler) isBrandCenterDept(deptID string) bool {
 func (h *DashboardHandler) ruleDriveRecordCheck(raw map[string]interface{}) ([]string, []string) {
 	details, _ := raw["details"].([]interface{})
 	var rejects []string
-	var manual []int
+	var manual, zeroAmt []int
 	for _, d := range details {
 		dm, _ := d.(map[string]interface{})
 		if dm == nil {
@@ -601,6 +601,11 @@ func (h *DashboardHandler) ruleDriveRecordCheck(raw map[string]interface{}) ([]s
 				amt, _ = strconv.ParseFloat(s, 64)
 			}
 		}
+		// 金额 0/缺失/解析失败时不能走 "0 ≤ 补助 → 通过" 静默放行 (真实金额可能解析失败被置 0), 转人工
+		if amt <= 0 {
+			zeroAmt = append(zeroAmt, no)
+			continue
+		}
 		recID, _ := form["u_行车记录"].(string)
 		var rec *DriveRecord
 		if recID != "" {
@@ -622,6 +627,9 @@ func (h *DashboardHandler) ruleDriveRecordCheck(raw map[string]interface{}) ([]s
 	var warnings []string
 	if len(manual) > 0 {
 		warnings = append(warnings, fmt.Sprintf("明细 %v 自驾, 行车记录缺失或拉取失败, 需人工核 KM × 车型单价 (油 ¥0.7/KM, 电 ¥0.6/KM, 规则 12-1)", uniqueInts(manual)))
+	}
+	if len(zeroAmt) > 0 {
+		warnings = append(warnings, fmt.Sprintf("明细 %v 自驾, 报销金额为 0 或解析失败, 需人工核金额 (规则 12-1)", uniqueInts(zeroAmt)))
 	}
 	return rejects, warnings
 }
@@ -806,15 +814,30 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 		LEFT JOIN hesi_flow_detail d ON i.detail_id = d.detail_id AND d.flow_id = i.flow_id
 		WHERE i.flow_id = ?`, flowID)
 	if err != nil {
-		return nil, nil
+		log.Printf("[hesi-audit] 规则8/10 查发票失败 flow=%s: %v", flowID, err)
+		return nil, []string{"发票数据读取失败, 规则 8/10 未自动判定, 需人工核发票"}
 	}
 	defer rows.Close()
 	var invoices []inv
+	invoiceReadBroken := false
 	for rows.Next() {
 		var i inv
 		if err := rows.Scan(&i.detailID, &i.detailNo, &i.buyerName, &i.taxNo, &i.date, &i.total, &i.approve); err == nil {
 			invoices = append(invoices, i)
+		} else {
+			if !invoiceReadBroken { // 只记首条, 防 DB 故障时每行刷一条日志
+				log.Printf("[hesi-audit] 规则8/10 发票行解析失败 flow=%s: %v", flowID, err)
+			}
+			invoiceReadBroken = true
 		}
+	}
+	if err := rows.Err(); err != nil {
+		invoiceReadBroken = true
+		log.Printf("[hesi-audit] 规则8/10 发票读取中断 flow=%s: %v", flowID, err)
+	}
+	// 发票数据不完整时规则 8/10 两个方向都会判错 (漏驳/误驳), 整体降级转人工
+	if invoiceReadBroken {
+		return nil, []string{"发票数据读取不完整, 规则 8/10 未自动判定, 需人工核发票"}
 	}
 	// 拉 details (从 raw_json) → 行号/金额/fee_type (用于规则 8-3 + 规则 10)
 	details, _ := raw["details"].([]interface{})
@@ -865,13 +888,18 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 		detailHasInvoice[iv.detailID] = true
 	}
 	isResearch := h.isResearchDept(ownerDeptID)
-	var noInvoiceReject []int
+	var noInvoiceReject, missingFeeType []int
 	for _, did := range allDetailIDs {
 		if detailHasInvoice[did] {
 			continue // 有票, 不进规则 10
 		}
 		feeTypeID := detailFeeTypeMap[did]
 		no := detailNoMap[did]
+		// raw_json 缺 feeTypeId 时豁免判定全失配, 不能当 "不豁免" 误驳, 转人工
+		if feeTypeID == "" {
+			missingFeeType = append(missingFeeType, no)
+			continue
+		}
 		// 豁免 B: 补贴类 (出差/餐补/市内)
 		if _, ok := subsidyFeeTypes[feeTypeID]; ok {
 			continue
@@ -883,15 +911,20 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 		// 都不豁免 → reject
 		noInvoiceReject = append(noInvoiceReject, no)
 	}
+	var missingFeeTypeWarn []string
+	if len(missingFeeType) > 0 {
+		missingFeeTypeWarn = append(missingFeeTypeWarn, fmt.Sprintf("明细 %v 无发票且费用类型缺失, 豁免无法自动判定, 需人工核 (规则 10)", uniqueInts(missingFeeType)))
+	}
 	if len(invoices) == 0 {
 		// 无发票时, 只跑规则 10 — 其他规则 8-1/8-2/8-3/8-4 都不适用
 		if len(noInvoiceReject) > 0 {
-			return []string{fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/特殊截图说明 豁免)", uniqueInts(noInvoiceReject))}, nil
+			return []string{fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/特殊截图说明 豁免)", uniqueInts(noInvoiceReject))}, missingFeeTypeWarn
 		}
-		return nil, nil
+		return nil, missingFeeTypeWarn
 	}
 
 	var rejects, warnings []string
+	warnings = append(warnings, missingFeeTypeWarn...)
 
 	// 拉所属公司 (法人实体) 的开票字典
 	legalEntityID, _ := raw["法人实体"].(string)
@@ -1171,10 +1204,15 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 			IFNULL(total_amount,0), IFNULL(approve_amount,0) FROM hesi_flow_invoice WHERE flow_id=?`, flowID)
 		if err == nil {
 			defer rows.Close()
+			invoiceReadBroken := false
 			for rows.Next() {
 				var did, itype string
 				var total, approve float64
-				if rows.Scan(&did, &itype, &total, &approve) != nil {
+				if err := rows.Scan(&did, &itype, &total, &approve); err != nil {
+					if !invoiceReadBroken { // 只记首条, 防 DB 故障时每行刷一条日志
+						log.Printf("[hesi-audit] 规则15 发票行解析失败 flow=%s: %v", flowID, err)
+					}
+					invoiceReadBroken = true
 					continue
 				}
 				amt := total
@@ -1186,8 +1224,17 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 					hasNonSpecial[did] = true
 				}
 			}
+			if err := rows.Err(); err != nil {
+				invoiceReadBroken = true
+				log.Printf("[hesi-audit] 规则15 发票读取中断 flow=%s: %v", flowID, err)
+			}
+			// invSum 不完整时 15-2/15-4 金额对碰必判错 (合计偏低 → 误驳合法单), 整体降级转人工
+			if invoiceReadBroken {
+				return nil, []string{"发票数据读取不完整, 规则 15 未自动判定, 需人工核"}
+			}
 		} else {
 			log.Printf("[hesi-audit] 规则15 查发票失败 flow=%s: %v", flowID, err)
+			return nil, []string{"发票数据读取失败, 规则 15 未自动判定, 需人工核"}
 		}
 	}
 
@@ -1625,10 +1672,15 @@ func (h *DashboardHandler) ruleCorpPaidDuplicate(raw map[string]interface{}, flo
 	defer ivRows.Close()
 
 	var rejects, warnings []string
+	ticketReadBroken := false
 	for ivRows.Next() {
 		var did, trainNo, passenger string
 		var amt float64
-		if ivRows.Scan(&did, &trainNo, &passenger, &amt) != nil {
+		if err := ivRows.Scan(&did, &trainNo, &passenger, &amt); err != nil {
+			if !ticketReadBroken { // 只记首条, 防 DB 故障时每行刷一条日志
+				log.Printf("[hesi-audit] 规则16 发票行解析失败 flow=%s: %v", flowID, err)
+			}
+			ticketReadBroken = true
 			continue
 		}
 		if trainNo == "" || passenger == "" {
@@ -1663,6 +1715,14 @@ func (h *DashboardHandler) ruleCorpPaidDuplicate(raw map[string]interface{}, flo
 				no, trainNo, passenger, hit.reqCode, amt, hit.fare))
 		}
 	}
+	if err := ivRows.Err(); err != nil {
+		ticketReadBroken = true
+		log.Printf("[hesi-audit] 规则16 发票读取中断 flow=%s: %v", flowID, err)
+	}
+	// 车票数据不完整只会漏判 (不会误驳), 保留已出结果, 补一条人工核提示
+	if ticketReadBroken {
+		warnings = append(warnings, "车票发票数据读取不完整, 规则 16 防重复报销可能漏判, 需人工核 (规则 16)")
+	}
 	return rejects, warnings
 }
 
@@ -1689,11 +1749,12 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 	details, _ := raw["details"].([]interface{})
 
 	type hotelLine struct {
-		idx     int
-		amount  float64
-		cityRaw string
-		days    int
-		cohabit bool
+		idx       int
+		amount    float64
+		cityRaw   string
+		days      int
+		cohabit   bool
+		badPeriod bool // 日期区间缺失/异常 (如 start=0), 间夜数对不准, 转人工
 	}
 	var lines []hotelLine
 	for i, d := range details {
@@ -1721,17 +1782,19 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 			cohabit = true
 		}
 		days := 1
+		badPeriod := false
 		if fp, ok := form["feeDatePeriod"].(map[string]interface{}); ok {
 			start, _ := fp["start"].(float64)
 			end, _ := fp["end"].(float64)
-			if end > start {
+			// start 必须是合法毫秒时间戳(>1e12) + 区间封顶 370 天, 跟 extractFeeDates 同口径
+			// 否则 (如缺起始日期 start=0, end 正常) 会按 end-0 算出 2 万+天, 标准上限被撑爆 → 超标住宿永不触发
+			if start > 1e12 && end >= start && end-start <= 370*86400000 {
 				days = int((end-start)/86400000) + 1
-				if days < 1 {
-					days = 1
-				}
+			} else {
+				badPeriod = true
 			}
 		}
-		lines = append(lines, hotelLine{i + 1, amt, cityRaw, days, cohabit})
+		lines = append(lines, hotelLine{i + 1, amt, cityRaw, days, cohabit, badPeriod})
 	}
 	if len(lines) == 0 {
 		return "", ""
@@ -1759,6 +1822,10 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 	var rejectMsgs []string
 	var warnMsgs []string
 	for _, line := range lines {
+		if line.badPeriod {
+			warnMsgs = append(warnMsgs, fmt.Sprintf("住宿明细#%d 日期区间缺失/异常, 间夜数无法核算, 需人工核 (规则 7-3)", line.idx))
+			continue
+		}
 		tier := extractTier(line.cityRaw, tierMap)
 		std := standards[tier]
 		if std == 0 {

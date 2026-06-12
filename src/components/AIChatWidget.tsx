@@ -10,6 +10,7 @@ import {
   LikeFilled, DislikeFilled,
 } from '@ant-design/icons';
 import { API_BASE } from '../config';
+import { useAuth } from '../auth/AuthContext';
 
 interface Message {
   id?: number;
@@ -26,6 +27,7 @@ interface Message {
 const STORAGE_KEY = 'bi-ai-chat-session';
 
 const AIChatWidget: React.FC = () => {
+  const { hasPermission } = useAuth();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -147,6 +149,11 @@ const AIChatWidget: React.FC = () => {
       handleSend();
     }
   };
+
+  // 无 AI 助手权限 (ai.assistant:use) 的用户不渲染浮窗 — 后端接口也有同名权限闸, 这里只是不让用户看到点了报错的入口
+  if (!hasPermission('ai.assistant:use')) {
+    return null;
+  }
 
   if (!open) {
     return (

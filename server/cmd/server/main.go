@@ -495,10 +495,11 @@ func main() {
 	mux.HandleFunc("/api/admin/rpa/platform-mapping", adminRoles(h.GetRPAPlatformMapping))
 	mux.HandleFunc("/api/admin/rpa/platform-mapping/update", adminRoles(h.UpdateRPAPlatformMapping))
 	// v1.73.0 W1+W2: BI 智能助手 (ask + sessions + messages + feedback)
-	mux.HandleFunc("/api/ai-assistant/ask", corsHandler(h.RequireAuth(h.AIAssistantAsk)))
-	mux.HandleFunc("/api/ai-assistant/sessions", corsHandler(h.RequireAuth(h.AIAssistantSessions)))
-	mux.HandleFunc("/api/ai-assistant/messages", corsHandler(h.RequireAuth(h.AIAssistantMessages)))
-	mux.HandleFunc("/api/ai-assistant/feedback", corsHandler(h.RequireAuth(h.AIAssistantFeedback)))
+	// 答案是全公司数据口径且查询不做 scope 过滤, 必须挂权限点限管理层 — 仅 RequireAuth 时任何登录用户可 API 直调拿全公司数据
+	mux.HandleFunc("/api/ai-assistant/ask", corsHandler(h.RequirePermission("ai.assistant:use", h.AIAssistantAsk)))
+	mux.HandleFunc("/api/ai-assistant/sessions", corsHandler(h.RequirePermission("ai.assistant:use", h.AIAssistantSessions)))
+	mux.HandleFunc("/api/ai-assistant/messages", corsHandler(h.RequirePermission("ai.assistant:use", h.AIAssistantMessages)))
+	mux.HandleFunc("/api/ai-assistant/feedback", corsHandler(h.RequirePermission("ai.assistant:use", h.AIAssistantFeedback)))
 
 	mux.HandleFunc("/api/admin/yingdao/tasks", adminRoles(h.GetYingDaoTasks))
 	mux.HandleFunc("/api/admin/yingdao/sub-apps", adminRoles(h.GetYingDaoSubApps))
