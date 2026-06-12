@@ -1,0 +1,3 @@
+# Windows batch scripts must stay CRLF: cmd.exe misparses LF-only bats (2026-06-12 sync-ops exit-255 incident)
+*.bat text eol=crlf
+*.cmd text eol=crlf

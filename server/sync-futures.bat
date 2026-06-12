@@ -1,5 +1,5 @@
 @echo off
-REM 期货日线每日同步 - 每天 17:30 跑（日盘收盘 15:00 后 + 夜盘前）
-REM SYSTEM 账户 schtasks 调用，不能用相对 cd 因为工作目录不可控
+REM Futures daily-bar sync - runs 17:30 (after day session close 15:00, before night session)
+REM Called by schtasks under SYSTEM; must use absolute cd (working dir not controllable)
 cd /d C:\Users\Administrator\bi-dashboard\server
 .\sync-futures.exe
