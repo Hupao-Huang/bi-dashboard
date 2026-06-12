@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bi-dashboard/internal/specialchannel"
+
 	"log"
 	"net/http"
 	"sort"
@@ -12,28 +14,29 @@ import (
 // (这两个渠道按调拨单算销售额 /api/special-channel-allot, 销售单不在电商部门重复计)
 // 仅对 dept='ecommerce' 生效, 其他部门和综合看板 (overview) 不动
 // 综合看板继续显示总数 + 前端文案标"电商部门含特殊渠道调拨金额"提示用户口径
-const ecommerceExcludeAllotCond = ` AND shop_name NOT IN ('ds-京东-清心湖自营','ds-天猫超市-寄售')`
-const ecommerceExcludeAllotCondAlias = ` AND s.shop_name NOT IN ('ds-京东-清心湖自营','ds-天猫超市-寄售')`
+// 店名清单来自 specialchannel 注册表 (单一来源), 值是白名单拼接无注入风险
+var ecommerceExcludeAllotCond = ` AND shop_name NOT IN (` + allotChannelsInClause(specialchannel.ShopNamesByDept(specialchannel.DeptEcommerce)) + `)`
+var ecommerceExcludeAllotCondAlias = ` AND s.shop_name NOT IN (` + allotChannelsInClause(specialchannel.ShopNamesByDept(specialchannel.DeptEcommerce)) + `)`
 
 // ====== 即时零售"调拨当销售"渠道 (朴朴/小象/叮咚) ======
 // 朴朴: 纯调拨, 无销售单 → 调拨即该店全部销售额。
 // 小象/叮咚 (2026-06-05 跑哥追加): 有销售单, 销售额=销售单+调拨 (两批不同货, 不重复)。
-// 渠道→店铺名 (店铺看板按店名合并调拨到对应 entry)
-var instantRetailAllotShop = map[string]string{
-	"朴朴": "js-即时零售事业一部（世创）-朴朴",
-	"小象": "js-即时零售事业一部（世创）-小象",
-	"叮咚": "js-即时零售事业一部（杭州松鲜鲜）-叮咚",
-}
+// 渠道→店铺名 (店铺看板按店名合并调拨到对应 entry), 来自 specialchannel 注册表
+var instantRetailAllotShop = specialchannel.ShopNameByKey(specialchannel.DeptInstantRetail)
 
 // instantRetailAllotChannels 返回即时零售"调拨当销售"应纳入看板的渠道。
-// 朴朴: 纯调拨、无销售单, 是历史既有口径, **始终纳入**(不依赖价格表是否存在, 防价格行被删就静默丢朴朴 GMV)。
-// 小象/叮咚: 有销售单, 只有"已配价格表"才纳入——没价格表时 excel_amount=0, 但调拨件数是真的, 贸然纳入会让
-// 销量/客单价失真; 故价格表到位前不进, 跑哥导入价格表后自动纳入(金额+件数一起生效), 无需再改代码部署。
-// 返回值来自硬编码白名单, 拼 IN 子句无注入风险。
+// 纯调拨渠道 (PureAllot, 朴朴): 无销售单, 是历史既有口径, **始终纳入**(不依赖价格表是否存在, 防价格行被删就静默丢 GMV)。
+// 价格门控渠道 (小象/叮咚/未来七鲜): 有销售单, 只有"已配价格表"才纳入——没价格表时 excel_amount=0, 但调拨件数是真的,
+// 贸然纳入会让销量/客单价失真; 故价格表到位前不进, 跑哥导入价格表后自动纳入(金额+件数一起生效), 无需再改代码部署。
+// 渠道清单来自 specialchannel 注册表, 拼 IN 子句的值是白名单无注入风险。
 func (h *DashboardHandler) instantRetailAllotChannels() []string {
-	out := []string{"朴朴"} // 朴朴始终在内
+	out := append([]string{}, specialchannel.PureAllotKeys(specialchannel.DeptInstantRetail)...)
+	gated := specialchannel.PriceGatedKeys(specialchannel.DeptInstantRetail)
+	if len(gated) == 0 {
+		return out
+	}
 	has := map[string]bool{}
-	rows, err := h.DB.Query(`SELECT DISTINCT channel_key FROM channel_special_price WHERE channel_key IN ('小象','叮咚')`)
+	rows, err := h.DB.Query(`SELECT DISTINCT channel_key FROM channel_special_price WHERE channel_key IN (` + allotChannelsInClause(gated) + `)`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -43,7 +46,7 @@ func (h *DashboardHandler) instantRetailAllotChannels() []string {
 			}
 		}
 	}
-	for _, c := range []string{"小象", "叮咚"} {
+	for _, c := range gated {
 		if has[c] {
 			out = append(out, c)
 		}

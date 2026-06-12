@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -780,17 +779,9 @@ func toInt(row []string, idx int) int {
 	return int(toFloat(row, idx))
 }
 
+// parseFloatText 数字解析统一走 importutil (2026-06-12 第三批收编, 含原有的 元/"--" 处理)
 func parseFloatText(s string) float64 {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, ",", "")
-	s = strings.ReplaceAll(s, "%", "")
-	s = strings.ReplaceAll(s, "元", "")
-	s = strings.TrimSpace(s)
-	if s == "" || s == "-" || s == "--" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
+	return importutil.ParseFloat(s)
 }
 
 // parseDurationSeconds 支持: 11秒 / 2分30秒 / 7小时41分52秒

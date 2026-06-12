@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bi-dashboard/internal/specialchannel"
+
 	"database/sql"
 	"net/http"
 	"time"
@@ -10,9 +12,10 @@ import (
 // GET /api/special-channel-allot/summary?start=YYYY-MM-DD&end=YYYY-MM-DD
 //
 // 返回:
-//   summary[]   各渠道 KPI(已入库完成 / 在途分别)
-//   orders[]    所有调拨单(前端按 channel 过滤)
-//   missing[]   价格表缺失的 SKU(给跑哥维护用)
+//
+//	summary[]   各渠道 KPI(已入库完成 / 在途分别)
+//	orders[]    所有调拨单(前端按 channel 过滤)
+//	missing[]   价格表缺失的 SKU(给跑哥维护用)
 func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, r *http.Request) {
 	start := r.URL.Query().Get("start")
 	end := r.URL.Query().Get("end")
@@ -27,41 +30,22 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 
 	// 1) 各渠道 KPI
 	type ChannelSummary struct {
-		ChannelKey       string  `json:"channelKey"`
-		ChannelName      string  `json:"channelName"`
-		CompletedOrders  int     `json:"completedOrders"`
-		CompletedSales   float64 `json:"completedSales"`
-		PendingOrders    int     `json:"pendingOrders"`
-		PendingSales     float64 `json:"pendingSales"`
-		TotalOrders      int     `json:"totalOrders"`
-		TotalSales       float64 `json:"totalSales"`
+		ChannelKey      string  `json:"channelKey"`
+		ChannelName     string  `json:"channelName"`
+		CompletedOrders int     `json:"completedOrders"`
+		CompletedSales  float64 `json:"completedSales"`
+		PendingOrders   int     `json:"pendingOrders"`
+		PendingSales    float64 `json:"pendingSales"`
+		TotalOrders     int     `json:"totalOrders"`
+		TotalSales      float64 `json:"totalSales"`
 	}
-	// 按部门拆分: 朴朴/小象/叮咚归即时零售, 京东+猫超归电商
-	channelMapByDept := map[string]map[string]string{
-		"ecommerce": {
-			"京东": "ds-京东-清心湖自营",
-			"猫超": "ds-天猫超市-寄售",
-		},
-		"instant_retail": {
-			"朴朴": "js-即时零售事业一部（世创）-朴朴",
-			"小象": "js-即时零售事业一部（世创）-小象",
-			"叮咚": "js-即时零售事业一部（杭州松鲜鲜）-叮咚",
-		},
-	}
-	// 按 dept 过滤 channelMap, 空 dept 返回全部(向后兼容老调用)
+	// 渠道清单来自 specialchannel 注册表 (单一来源, 加渠道只改注册表)
+	// 按 dept 过滤, 空 dept 返回全部(向后兼容老调用)
 	channelMap := map[string]string{}
 	channelOrder := []string{} // 保证返回顺序稳定
-	if dept == "" || dept == "ecommerce" {
-		for _, k := range []string{"京东", "猫超"} {
-			channelMap[k] = channelMapByDept["ecommerce"][k]
-			channelOrder = append(channelOrder, k)
-		}
-	}
-	if dept == "" || dept == "instant_retail" {
-		for _, k := range []string{"朴朴", "小象", "叮咚"} {
-			channelMap[k] = channelMapByDept["instant_retail"][k]
-			channelOrder = append(channelOrder, k)
-		}
+	for _, c := range specialchannel.ByDept(dept) {
+		channelMap[c.Key] = c.ChannelName
+		channelOrder = append(channelOrder, c.Key)
 	}
 	if len(channelMap) == 0 {
 		writeError(w, 400, "dept 参数无效, 仅支持 ecommerce / instant_retail / 空")
@@ -115,18 +99,18 @@ func (h *DashboardHandler) GetSpecialChannelAllotSummary(w http.ResponseWriter, 
 
 	// 2) 全部调拨单(列表)
 	type OrderRow struct {
-		AllocateNo      string   `json:"allocateNo"`
-		ChannelKey      string   `json:"channelKey"`
-		InWarehouseName string   `json:"inWarehouseName"`
-		InStatus        int      `json:"inStatus"`
-		Status          int      `json:"status"`
-		GmtCreate       string   `json:"gmtCreate"`
-		AuditDate       string   `json:"auditDate"`
-		GmtModified     string   `json:"gmtModified"`
-		StatDate        string   `json:"statDate"`
-		SkuCount        int      `json:"skuCount"`
-		ExcelSales      float64  `json:"excelSales"`
-		ApiSales        float64  `json:"apiSales"`
+		AllocateNo      string  `json:"allocateNo"`
+		ChannelKey      string  `json:"channelKey"`
+		InWarehouseName string  `json:"inWarehouseName"`
+		InStatus        int     `json:"inStatus"`
+		Status          int     `json:"status"`
+		GmtCreate       string  `json:"gmtCreate"`
+		AuditDate       string  `json:"auditDate"`
+		GmtModified     string  `json:"gmtModified"`
+		StatDate        string  `json:"statDate"`
+		SkuCount        int     `json:"skuCount"`
+		ExcelSales      float64 `json:"excelSales"`
+		ApiSales        float64 `json:"apiSales"`
 	}
 	oRows, err := h.DB.Query(`
 		SELECT o.allocate_no, o.channel_key, o.in_warehouse_name, o.in_status, o.status,
