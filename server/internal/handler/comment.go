@@ -132,6 +132,10 @@ func (h *DashboardHandler) CommentList(w http.ResponseWriter, r *http.Request) {
 		it.Edited = edited == 1
 		list = append(list, it)
 	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "查询评价中断, 数据不全: "+err.Error())
+		return
+	}
 	writeJSON(w, map[string]interface{}{"list": list, "total": total, "page": page, "pageSize": pageSize})
 }
 
@@ -246,6 +250,10 @@ func (h *DashboardHandler) CommentOptions(w http.ResponseWriter, r *http.Request
 				platforms = append(platforms, p)
 			}
 		}
+		if err := prows.Err(); err != nil {
+			writeError(w, http.StatusInternalServerError, "查询平台选项中断: "+err.Error())
+			return
+		}
 	}
 
 	shopSQL := "SELECT DISTINCT shop_name FROM op_customer_comment WHERE shop_name<>''"
@@ -263,6 +271,10 @@ func (h *DashboardHandler) CommentOptions(w http.ResponseWriter, r *http.Request
 			if srows.Scan(&s) == nil {
 				shops = append(shops, s)
 			}
+		}
+		if err := srows.Err(); err != nil {
+			writeError(w, http.StatusInternalServerError, "查询店铺选项中断: "+err.Error())
+			return
 		}
 	}
 	writeJSON(w, map[string]interface{}{"platforms": platforms, "shops": shops})
@@ -337,6 +349,11 @@ func (h *DashboardHandler) CommentExport(w http.ResponseWriter, r *http.Request)
 		xf.SetCellValue(sheet, "G"+n, content)
 		xf.SetCellValue(sheet, "H"+n, scoreText)
 		rn++
+	}
+	// 必须在写响应前查迭代错误 — 否则中途断连会导出"看起来完整"的半截文件
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "导出查询中断, 数据不全: "+err.Error())
+		return
 	}
 	xf.SetColWidth(sheet, "A", "A", 10)
 	xf.SetColWidth(sheet, "B", "B", 24)

@@ -149,12 +149,12 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	}
 
 	// 规则 1: 发起人部门 末级 (员工提交人部门, raw_json.u_提交人部门 = hesi_flow.owner_department)
-	if r := ruleDeptLeaf(h.DB, ownerDeptID, "发起人部门 (规则 1)"); r != "" {
+	if r := h.ruleDeptLeaf(ownerDeptID, "发起人部门 (规则 1)"); r != "" {
 		rejectReasons = append(rejectReasons, r)
 	}
 
 	// 规则 2: 报销/借款部门 末级 (= 费用承担部门, raw_json.expenseDepartment = hesi_flow.department_id)
-	if r := ruleDeptLeaf(h.DB, departmentID, "报销/借款部门 (规则 2)"); r != "" {
+	if r := h.ruleDeptLeaf(departmentID, "报销/借款部门 (规则 2)"); r != "" {
 		rejectReasons = append(rejectReasons, r)
 	}
 
@@ -425,21 +425,91 @@ func (h *DashboardHandler) ruleRequisitionLink(raw map[string]interface{}, expen
 	return ""
 }
 
+// hesiDeptNode 部门缓存节点 (进程级, 5min TTL — 表 ~511 行, 每天 04:30 BI-SyncHesiDepartment 同步)
+// 修部门树 N+1: 原来每张单据 2×末级判定 + 2×递归祖先链 (每层 1 SELECT), 待审批列表一刷 ~2200 条部门小查询卡 2-3 秒
+type hesiDeptNode struct {
+	name     string
+	parentID string
+	hasChild bool
+	active   bool
+}
+
+var (
+	hesiDeptTreeCache   map[string]hesiDeptNode
+	hesiDeptTreeCacheAt time.Time
+	hesiDeptTreeCacheMu sync.Mutex
+)
+
+// loadhesiDeptTreeCache 一次性加载全部门表进内存 (加载失败时退回过期缓存兜底, 都没有则空 map → 各规则按"部门不在表"宽松跳过)
+func (h *DashboardHandler) loadhesiDeptTreeCache() map[string]hesiDeptNode {
+	hesiDeptTreeCacheMu.Lock()
+	defer hesiDeptTreeCacheMu.Unlock()
+	if hesiDeptTreeCache != nil && time.Since(hesiDeptTreeCacheAt) < 5*time.Minute {
+		return hesiDeptTreeCache
+	}
+	m := map[string]hesiDeptNode{}
+	rows, err := h.DB.Query(`SELECT id, name, IFNULL(parent_id,''), IFNULL(has_child,0), IFNULL(active,0) FROM hesi_department`)
+	if err != nil {
+		log.Printf("[hesi-audit] 部门表加载失败: %v", err)
+		if hesiDeptTreeCache != nil {
+			return hesiDeptTreeCache
+		}
+		return m
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, name, parent string
+		var hasChild, active int
+		if err := rows.Scan(&id, &name, &parent, &hasChild, &active); err != nil {
+			continue
+		}
+		m[id] = hesiDeptNode{name: name, parentID: parent, hasChild: hasChild == 1, active: active == 1}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[hesi-audit] 部门表读取中断: %v", err)
+		if hesiDeptTreeCache != nil {
+			return hesiDeptTreeCache
+		}
+		// 没有旧缓存可兜底: 本次将就用残缺数据, 但不能存成缓存被信任 5 分钟, 下次调用重新加载
+		return m
+	}
+	hesiDeptTreeCache = m
+	hesiDeptTreeCacheAt = time.Now()
+	return m
+}
+
+// deptChainContains 沿 parent_id 链向上找部门名含 keyword 的祖先 (含自身), 最多 10 层 — 跟原递归 SELECT 语义一致
+func deptChainContains(m map[string]hesiDeptNode, deptID, keyword string) bool {
+	cur := deptID
+	for i := 0; i < 10 && cur != ""; i++ {
+		node, ok := m[cur]
+		if !ok {
+			return false
+		}
+		if strings.Contains(node.name, keyword) {
+			return true
+		}
+		if node.parentID == cur {
+			break
+		}
+		cur = node.parentID
+	}
+	return false
+}
+
 // ruleDeptLeaf 部门必须末级 (hesi_department.has_child = 0)
 // label 用于区分调用方 (例: "提交人部门 (规则 1)")
-func ruleDeptLeaf(db *sql.DB, deptID string, label string) string {
+func (h *DashboardHandler) ruleDeptLeaf(deptID string, label string) string {
 	if deptID == "" {
 		return label + " 为空"
 	}
-	var hasChild int
-	var name string
-	err := db.QueryRow(`SELECT name, has_child FROM hesi_department WHERE id = ? AND active = 1 LIMIT 1`, deptID).Scan(&name, &hasChild)
-	if err != nil {
-		// 部门不在表 (新部门 / 未同步 / 已停用) → 跳过此规则
+	node, ok := h.loadhesiDeptTreeCache()[deptID]
+	if !ok || !node.active {
+		// 部门不在表 (新部门 / 未同步 / 已停用) → 跳过此规则 (原 SQL 带 active=1 条件, 语义同)
 		return ""
 	}
-	if hasChild == 1 {
-		return label + "「" + name + "」非末级"
+	if node.hasChild {
+		return label + "「" + node.name + "」非末级"
 	}
 	return ""
 }
@@ -552,22 +622,10 @@ func getStandardAmount(v interface{}) (float64, bool) {
 // isBrandCenterDept 判定部门在品牌中心子树 (递归 parent_id)
 // 复用 isResearchDept 模式
 func (h *DashboardHandler) isBrandCenterDept(deptID string) bool {
-	cur := deptID
-	for i := 0; i < 10 && cur != ""; i++ {
-		var name, parent string
-		err := h.DB.QueryRow(`SELECT name, IFNULL(parent_id,'') FROM hesi_department WHERE id = ? LIMIT 1`, cur).Scan(&name, &parent)
-		if err != nil {
-			return false
-		}
-		if strings.Contains(name, "品牌中心") {
-			return true
-		}
-		if parent == cur {
-			break
-		}
-		cur = parent
+	if deptID == "" {
+		return false
 	}
-	return false
+	return deptChainContains(h.loadhesiDeptTreeCache(), deptID, "品牌中心")
 }
 
 // ruleDriveRecordCheck 规则 12-1 自动化 (跑哥 2026-06-12: 行车记录已可拉取, 不再一律人工核)
@@ -761,22 +819,10 @@ func (h *DashboardHandler) ruleSubsidyStandard(raw map[string]interface{}, submi
 // 用于规则 10 豁免 1: 研发部门样品采买无票豁免
 // 实查: 应用研发部 / 技术研发部 / 产品研发中心 / 研发一二三组 等
 func (h *DashboardHandler) isResearchDept(deptID string) bool {
-	cur := deptID
-	for i := 0; i < 10 && cur != ""; i++ {
-		var name, parent string
-		err := h.DB.QueryRow(`SELECT name, IFNULL(parent_id,'') FROM hesi_department WHERE id = ? LIMIT 1`, cur).Scan(&name, &parent)
-		if err != nil {
-			return false
-		}
-		if strings.Contains(name, "研发") {
-			return true
-		}
-		if parent == cur {
-			break
-		}
-		cur = parent
+	if deptID == "" {
+		return false
 	}
-	return false
+	return deptChainContains(h.loadhesiDeptTreeCache(), deptID, "研发")
 }
 
 // ruleInvoiceChecks 规则 8: 发票审核 4 项 + 规则 10: 无票判定 + 豁免

@@ -268,6 +268,11 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 			}
 			attachMap[fid] = c
 		}
+		if err := arows.Err(); err != nil {
+			arows.Close()
+			writeServerError(w, 500, "附件统计读取中断", err)
+			return
+		}
 		arows.Close()
 
 		for i := range items {
@@ -610,6 +615,9 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 				&o.Traveler, &o.DepartTime, &o.OrderAmount, &o.PayMethod, &o.ReimburseStatus, &o.OverStandard, &o.OrderState) == nil {
 				out = append(out, o)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[hesi] 行程订单读取中断 req=%s: %v", reqCode, err)
 		}
 		return out
 	}

@@ -151,3 +151,16 @@ func (r *cacheResponseRecorder) Write(b []byte) (int, error) {
 	}
 	return r.ResponseWriter.Write(b)
 }
+
+// Unwrap 让 http.NewResponseController 能穿透到底层连接 (SetWriteDeadline/Flush 等)
+// 没有它, 经缓存包装的 handler 用 ResponseController 会静默失效 — statusRecorder 同款病 (e682e82 修过第一例)
+func (r *cacheResponseRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
+// Flush 透传给底层 Flusher — 流式端点万一被套上缓存包装时进度推送不至于憋死
+func (r *cacheResponseRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
