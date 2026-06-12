@@ -24,6 +24,10 @@ type Config struct {
 		Password string `json:"password"`
 		Dbname   string `json:"dbname"`
 	} `json:"database"`
+	Hesi struct {
+		AppKey string `json:"appKey"`
+		Secret string `json:"secret"`
+	} `json:"hesi"`
 }
 
 func main() {
@@ -50,7 +54,8 @@ func main() {
 	}
 	defer db.Close()
 
-	h := &handler.DashboardHandler{DB: db}
+	// 合思凭证: 规则 18 (广告费发票项目名称) 要现场调合思接口, 没凭证会降级为人工核提示
+	h := &handler.DashboardHandler{DB: db, HesiAppKey: cfg.Hesi.AppKey, HesiSecret: cfg.Hesi.Secret}
 
 	// 樊雪娇 approver_id = ID01FfMgoeP7cz:ID01Fp0nSy11h5
 	// 拉她审批过的日常报销单 (archived + paid + rejected) — 她真实见过的单 + 此次实测样本
