@@ -40,7 +40,7 @@ interface Channel {
 
 // mode: 'platform' 按平台聚合（电商/货品看板），'department' 按部门聚合（综合看板）
 const GoodsChannelExpand: React.FC<{ channels: Channel[]; mode?: 'platform' | 'department'; hidePlatSection?: boolean }> = ({ channels, mode = 'platform', hidePlatSection = false }) => {
-  if (channels.length === 0) return <span style={{ color: '#64748b' }}>暂无渠道数据</span>;
+  if (channels.length === 0) return <span style={{ color: 'var(--text-tertiary)' }}>暂无渠道数据</span>;
   const totalSales = channels.reduce((s, c) => s + c.sales, 0);
 
   // 聚合

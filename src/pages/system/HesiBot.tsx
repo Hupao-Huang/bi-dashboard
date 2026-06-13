@@ -428,11 +428,11 @@ const HesiBot: React.FC = () => {
           return (
             <Tooltip title={`审批人: ${record.approverName}${record.currentApproverCode ? ' (' + record.currentApproverCode + ')' : ''}`}>
               <div><strong>{v}</strong></div>
-              <div style={{ fontSize: 11, color: '#666' }}>{record.approverName}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{record.approverName}</div>
             </Tooltip>
           );
         }
-        return v || <span style={{ color: '#999' }}>-</span>;
+        return v || <span style={{ color: 'var(--text-tertiary)' }}>-</span>;
       },
     },
     {
@@ -533,7 +533,7 @@ const HesiBot: React.FC = () => {
         <Card size="small" style={{ marginBottom: 16, background: '#fafafa' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <UserOutlined style={{ color: '#1677ff' }} />
-            <span style={{ color: '#666' }}>管理员视角 · 查看谁的待审批:</span>
+            <span style={{ color: 'var(--text-secondary)' }}>管理员视角 · 查看谁的待审批:</span>
             <Select
               showSearch
               allowClear
@@ -567,7 +567,7 @@ const HesiBot: React.FC = () => {
         <Card size="small" style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <Input
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              prefix={<SearchOutlined style={{ color: 'var(--text-tertiary)' }} />}
               placeholder="搜索 单据编码 / 标题 / 发起人"
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
@@ -715,7 +715,7 @@ const HesiBot: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ background: '#f8fafc', padding: 10, borderRadius: 4, fontSize: 13 }}>
               <div style={{ marginBottom: 4 }}><strong>{approveTarget.title}</strong></div>
-              <div style={{ color: '#64748b', fontSize: 12 }}>
+              <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
                 {formTypeMap[approveTarget.formType]?.label || approveTarget.formType}
                 {(() => {
                   const m = getMoney(approveTarget);
@@ -725,7 +725,7 @@ const HesiBot: React.FC = () => {
               </div>
             </div>
             <div>
-              <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>审批结果</div>
+              <div style={{ marginBottom: 6, fontSize: 13, color: 'var(--text-tertiary)' }}>审批结果</div>
               <Radio.Group
                 value={approveAction}
                 onChange={(e) => setApproveAction(e.target.value)}
@@ -739,7 +739,7 @@ const HesiBot: React.FC = () => {
             {approveAction === 'reject' && (
               <>
                 <div>
-                  <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>驳回节点 (单子退给谁处理)</div>
+                  <div style={{ marginBottom: 6, fontSize: 13, color: 'var(--text-tertiary)' }}>驳回节点 (单子退给谁处理)</div>
                   <Select
                     value={rejectTo}
                     onChange={setRejectTo}
@@ -752,7 +752,7 @@ const HesiBot: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>重审路径 (改完重新提交后从哪开始审)</div>
+                  <div style={{ marginBottom: 6, fontSize: 13, color: 'var(--text-tertiary)' }}>重审路径 (改完重新提交后从哪开始审)</div>
                   <Radio.Group value={resubmitMethod} onChange={(e) => setResubmitMethod(e.target.value)}>
                     <Radio value="TO_REJECTOR">从当前节点开始审批 (默认, 前面已审过的不重审)</Radio>
                     <Radio value="FROM_START">从提交人节点开始审批 (重走完整流程)</Radio>
@@ -761,7 +761,7 @@ const HesiBot: React.FC = () => {
               </>
             )}
             <div>
-              <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>
+              <div style={{ marginBottom: 6, fontSize: 13, color: 'var(--text-tertiary)' }}>
                 备注{approveAction === 'reject' ? <span style={{ color: '#ef4444' }}> (驳回必填)</span> : ' (可选)'}
               </div>
               <Input.TextArea
@@ -797,17 +797,17 @@ const HesiBot: React.FC = () => {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ background: '#f8fafc', padding: 10, borderRadius: 4, fontSize: 13, maxHeight: 160, overflowY: 'auto' }}>
-            <div style={{ marginBottom: 6, color: '#64748b' }}>
+            <div style={{ marginBottom: 6, color: 'var(--text-tertiary)' }}>
               金额合计 ¥{selectedAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
             </div>
             {selectedItems.map(it => (
-              <div key={it.flowId} style={{ fontSize: 12, color: '#475569' }}>
+              <div key={it.flowId} style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                 {it.code} · {it.title}{(() => { const m = getMoney(it); return m ? ` · ¥${m.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : ''; })()}
               </div>
             ))}
           </div>
           <div>
-            <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>审批结果 (整批统一)</div>
+            <div style={{ marginBottom: 6, fontSize: 13, color: 'var(--text-tertiary)' }}>审批结果 (整批统一)</div>
             <Radio.Group
               value={batchAction}
               onChange={(e) => setBatchAction(e.target.value)}
@@ -820,7 +820,7 @@ const HesiBot: React.FC = () => {
           </div>
           {batchAction === 'reject' && (
             <div>
-              <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>
+              <div style={{ marginBottom: 6, fontSize: 13, color: 'var(--text-tertiary)' }}>
                 重审路径 (整批统一; 批量驳回固定退给各单提交人, 想退到指定环节请单笔驳回)
               </div>
               <Radio.Group value={batchResubmitMethod} onChange={(e) => setBatchResubmitMethod(e.target.value)}>
@@ -830,7 +830,7 @@ const HesiBot: React.FC = () => {
             </div>
           )}
           <div>
-            <div style={{ marginBottom: 6, fontSize: 13, color: '#64748b' }}>
+            <div style={{ marginBottom: 6, fontSize: 13, color: 'var(--text-tertiary)' }}>
               备注{batchAction === 'reject' ? <span style={{ color: '#ef4444' }}> (驳回必填, 整批共用)</span> : ' (可选, 整批共用)'}
             </div>
             <Input.TextArea

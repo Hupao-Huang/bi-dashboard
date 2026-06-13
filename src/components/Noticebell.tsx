@@ -132,7 +132,7 @@ const NoticeBell: React.FC = () => {
                       {item.isPinned && <PushpinOutlined style={{ color: '#f5222d' }} />}
                       <span style={{ fontWeight: isRead ? 400 : 600, flex: 1 }}>{item.title}</span>
                     </div>
-                    <div style={{ color: '#999', fontSize: 12 }}>
+                    <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
                       {item.createdBy} · {item.createdAt}
                     </div>
                   </div>
@@ -159,7 +159,7 @@ const NoticeBell: React.FC = () => {
       >
         {detailNotice && (
           <>
-            <div style={{ color: '#999', fontSize: 12, marginBottom: 12 }}>
+            <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginBottom: 12 }}>
               发布人：{detailNotice.createdBy} · {detailNotice.createdAt}
             </div>
             <Paragraph style={{ whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.8 }}>

@@ -511,11 +511,11 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
             {isPddShop && <Tag color="red">拼多多运营数据</Tag>}
             {isJdShop && <Tag color="red">京东运营数据</Tag>}
             {isTmallcsShop && <Tag color="cyan">天猫超市运营数据</Tag>}
-            {isAllShops && dept !== 'offline' && <span style={{ color: '#8c8c8c', fontSize: 12 }}>运营数据仅支持单店查看</span>}
+            {isAllShops && dept !== 'offline' && <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>运营数据仅支持单店查看</span>}
           </Col>
         </Row>
         {opsHint && (
-          <div style={{ marginTop: 12, color: '#8c8c8c', fontSize: 12 }}>
+          <div style={{ marginTop: 12, color: 'var(--text-tertiary)', fontSize: 12 }}>
             {opsSupportedShops.length > 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span>{opsHint}</span>
@@ -547,7 +547,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
 
       {detailLoading ? <Spin style={{ display: 'block', margin: '40px auto' }} /> : (
         <>
-          {isExpanded && <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>深色柱为选中日期，浅色柱为趋势参考</div>}
+          {isExpanded && <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginBottom: 8 }}>深色柱为选中日期，浅色柱为趋势参考</div>}
           {/* ========== 第一块：经营数据（所有平台） ========== */}
           <Card title={`经营数据${isExpanded ? '（蓝色区域为选中日期）' : ''}`} style={{ marginBottom: 16 }}
             styles={{ header: { background: 'linear-gradient(90deg, #f0f5ff 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
@@ -559,12 +559,12 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                 { title: '客单价', value: avgOrderValue, precision: 2, prefix: '¥', accentColor: '#1e40af',
                   hint: avgOrderValue >= 10000 ? `≈ ${(avgOrderValue / 10000).toFixed(1)}万` : '' },
                 { title: `${unit}数量`, value: shopTotalCount || shopList.length, suffix: '家', accentColor: '#7c3aed',
-                  hintNode: shopRank > 0 ? <span style={{ color: shopRank <= 3 ? '#10b981' : '#64748b', fontWeight: shopRank <= 3 ? 600 : 400 }}>排名 #{shopRank}/{shopTotalCount || shopList.length}</span> : null },
+                  hintNode: shopRank > 0 ? <span style={{ color: shopRank <= 3 ? '#10b981' : 'var(--text-tertiary)', fontWeight: shopRank <= 3 ? 600 : 400 }}>排名 #{shopRank}/{shopTotalCount || shopList.length}</span> : null },
               ].map((card: any, idx: number) => (
                 <Col xs={12} sm={6} key={card.title}>
                   <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%' }}>
                     <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.hintNode || card.hint || ' '}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.hintNode || card.hint || ' '}</div>
                     {idx === 0 && targetAmount > 0 && (
                       <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
                         <Progress
@@ -574,33 +574,33 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                           format={p => <span style={{ color: targetPctColor, fontWeight: 700, fontSize: 13 }}>{p}%</span>}
                           size="small"
                         />
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
                           目标 ￥{(targetAmount / 10000).toFixed(1)}万
                         </div>
                       </div>
                     )}
                     {idx === 1 && targetAmount > 0 && (
                       <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>
-                          {dailyAvgQty.toLocaleString()} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>件/日</span>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          {dailyAvgQty.toLocaleString()} <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400 }}>件/日</span>
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{daysInRange} 天平均</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{daysInRange} 天平均</div>
                       </div>
                     )}
                     {idx === 2 && targetAmount > 0 && (
                       <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>
-                          ￥{(avgShopSales / 10000).toFixed(1)}万 <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>店均</span>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          ￥{(avgShopSales / 10000).toFixed(1)}万 <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400 }}>店均</span>
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>单店平均销售额</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>单店平均销售额</div>
                       </div>
                     )}
                     {idx === 3 && targetAmount > 0 && (
                       <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: achievedCount > 0 ? '#10b981' : '#94a3b8' }}>
-                          {achievedCount} / {shopList.length} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>达标</span>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: achievedCount > 0 ? '#10b981' : 'var(--text-tertiary)' }}>
+                          {achievedCount} / {shopList.length} <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400 }}>达标</span>
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>完成率 ≥100% 的大区数</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>完成率 ≥100% 的大区数</div>
                       </div>
                     )}
                   </Card>
@@ -659,7 +659,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                       <Col xs={12} sm={4} key={card.title}>
                         <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
                           <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.value >= 10000 ? `≈ ${(card.value / 10000).toFixed(1)}万` : ' '}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.value >= 10000 ? `≈ ${(card.value / 10000).toFixed(1)}万` : ' '}</div>
                         </Card>
                       </Col>
                     ))}
@@ -672,7 +672,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
 
           {/* ========== 第三块：推广摘要（天猫独有，详情见营销费用页面） ========== */}
           {isTmallShop && (
-            <Card title="推广摘要" extra={<span style={{ color: '#999', fontSize: 12 }}>详细数据请查看「营销费用」页面</span>}
+            <Card title="推广摘要" extra={<span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>详细数据请查看「营销费用」页面</span>}
               style={{ marginBottom: 16 }}
               styles={{ header: { background: 'linear-gradient(90deg, #fff1f0 0%, #fff 100%)', fontWeight: 600, fontSize: 16 } }}>
               {(campaigns.length > 0 || cps.length > 0) ? (
@@ -688,7 +688,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                     <Col xs={12} sm={4} key={card.title}>
                       <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
                         <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.value >= 10000 ? `≈ ${(card.value / 10000).toFixed(1)}万` : ' '}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.value >= 10000 ? `≈ ${(card.value / 10000).toFixed(1)}万` : ' '}</div>
                       </Card>
                     </Col>
                   ))}
@@ -713,7 +713,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
                       <Col xs={12} sm={6} key={card.title}>
                         <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
                           <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.value >= 10000 ? `≈ ${(card.value / 10000).toFixed(1)}万` : ' '}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{card.value >= 10000 ? `≈ ${(card.value / 10000).toFixed(1)}万` : ' '}</div>
                         </Card>
                       </Col>
                     ))}

@@ -364,7 +364,7 @@ const CommentData: React.FC = () => {
       >
         <div style={{ marginBottom: 8 }}>
           <Text type="secondary">RPA 原始名称（永久保留，不会被改动）：</Text>
-          <div style={{ marginTop: 4, color: '#64748b' }}>{editOriginal}</div>
+          <div style={{ marginTop: 4, color: 'var(--text-tertiary)' }}>{editOriginal}</div>
         </div>
         <div>
           <Text type="secondary">改成：</Text>

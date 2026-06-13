@@ -120,7 +120,7 @@ const RequirementKanban: React.FC = () => {
           {item.targetVersion && <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>{item.targetVersion}</Tag>}
         </div>
         <div style={{ fontWeight: 500, marginBottom: 4, lineHeight: 1.4 }}>{item.title}</div>
-        <div style={{ color: '#94a3b8', fontSize: 11 }}>
+        <div style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>
           {item.submitterName}{item.submitterDept ? ` · ${item.submitterDept}` : ''}
         </div>
       </div>
@@ -157,8 +157,8 @@ const RequirementKanban: React.FC = () => {
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: hex }} />
-                  <span style={{ fontWeight: 600, color: '#0f172a' }}>{STATUS_LABEL[status]}</span>
-                  <span style={{ color: '#94a3b8', fontSize: 12 }}>{items.length}</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{STATUS_LABEL[status]}</span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{items.length}</span>
                 </div>
                 {items.length === 0 ? (
                   <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span style={{ color: '#cbd5e1', fontSize: 12 }}>暂无</span>} />

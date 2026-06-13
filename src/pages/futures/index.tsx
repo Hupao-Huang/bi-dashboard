@@ -44,8 +44,8 @@ const QuoteCard: React.FC<QuoteCardProps> = ({ q }) => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: '#0f172a' }}>{q.nameCn}</div>
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>{q.nameCn}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
               {exchangeLabel[q.exchange] || q.exchange} · {q.code}
             </div>
           </div>
@@ -53,7 +53,7 @@ const QuoteCard: React.FC<QuoteCardProps> = ({ q }) => {
         </div>
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <span style={{ fontSize: 26, fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{q.close.toLocaleString()}</span>
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>{q.unit}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{q.unit}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, color, fontSize: 13, fontWeight: 500 }}>
           {q.change > 0 ? <CaretUpOutlined /> : q.change < 0 ? <CaretDownOutlined /> : null}
@@ -63,7 +63,7 @@ const QuoteCard: React.FC<QuoteCardProps> = ({ q }) => {
         <div style={{ height: 50, marginTop: 8 }}>
           <ReactECharts option={miniOption} style={{ height: '100%' }} notMerge />
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
           <span>开 {q.open.toLocaleString()}</span>
           <span>高 <span style={{ color: upColor }}>{q.high.toLocaleString()}</span></span>
           <span>低 <span style={{ color: downColor }}>{q.low.toLocaleString()}</span></span>
@@ -201,7 +201,7 @@ const FuturesOverview: React.FC = () => {
 
 const RankList: React.FC<{ list: FuturesQuote[] }> = ({ list }) => {
   if (list.length === 0) {
-    return <div style={{ padding: 20, color: '#94a3b8', textAlign: 'center' }}>暂无</div>;
+    return <div style={{ padding: 20, color: 'var(--text-tertiary)', textAlign: 'center' }}>暂无</div>;
   }
   return (
     <div>
@@ -212,16 +212,16 @@ const RankList: React.FC<{ list: FuturesQuote[] }> = ({ list }) => {
           style={{
             display: 'flex', alignItems: 'center', padding: '10px 16px',
             borderTop: idx === 0 ? 'none' : '1px solid #f1f5f9',
-            textDecoration: 'none', color: '#0f172a',
+            textDecoration: 'none', color: 'var(--text-primary)',
           }}
         >
           <span style={{
             width: 22, height: 22, borderRadius: 6, background: '#f1f5f9',
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 11, color: '#64748b', marginInlineEnd: 10, flex: 'none', fontWeight: 600,
+            fontSize: 11, color: 'var(--text-tertiary)', marginInlineEnd: 10, flex: 'none', fontWeight: 600,
           }}>{idx + 1}</span>
           <span style={{ flex: 1, fontWeight: 500 }}>{q.nameCn}</span>
-          <span style={{ marginInlineEnd: 12, color: '#475569', fontVariantNumeric: 'tabular-nums' }}>{q.close.toLocaleString()}</span>
+          <span style={{ marginInlineEnd: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{q.close.toLocaleString()}</span>
           <span style={{ color: trendColor(q.change), fontWeight: 500, minWidth: 70, textAlign: 'right' }}>
             {q.changePct > 0 ? '+' : ''}{q.changePct.toFixed(2)}%
           </span>

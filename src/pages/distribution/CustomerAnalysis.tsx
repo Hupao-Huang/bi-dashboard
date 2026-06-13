@@ -181,19 +181,19 @@ const CustomerAnalysis: React.FC = () => {
         <Col span={6}>
           <Card className="bi-stat-card">
             <Statistic title="高价值客户数" value={kpi?.hvCustomers || 0} suffix="个" />
-            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>S+A 级 全量</div>
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>S+A 级 全量</div>
           </Card>
         </Col>
         <Col span={6}>
           <Card className="bi-stat-card">
             <Statistic title="高价值贡献销售额" value={kpi?.hvAmount || 0} precision={2} prefix="¥" />
-            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>≈ {formatWan(kpi?.hvAmount || 0)}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>≈ {formatWan(kpi?.hvAmount || 0)}</div>
           </Card>
         </Col>
         <Col span={6}>
           <Card className="bi-stat-card">
             <Statistic title="占分销总销售额" value={kpi?.hvShare || 0} precision={2} suffix="%" />
-            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>分销总额 {formatWan(kpi?.totalAmount || 0)}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>分销总额 {formatWan(kpi?.totalAmount || 0)}</div>
           </Card>
         </Col>
         <Col span={6}>
@@ -204,9 +204,8 @@ const CustomerAnalysis: React.FC = () => {
               precision={2}
               suffix="%"
               prefix={(kpi?.momChange || 0) >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: (kpi?.momChange || 0) >= 0 ? '#3f8600' : '#cf1322' }}
             />
-            <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>对比上一同等长度时段</div>
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>对比上一同等长度时段</div>
           </Card>
         </Col>
       </Row>

@@ -162,7 +162,7 @@ const QCAlert: React.FC = () => {
     { title: '检验单号', dataIndex: 'code', key: 'code', width: 160,
       render: (v: string, r: InsRow) => <a onClick={() => openDetail(r)}>{v}</a> },
     { title: '物料', dataIndex: 'materialName', key: 'materialName', ellipsis: true,
-      render: (v: string, r: InsRow) => <span>{v} <span style={{ color: '#94a3b8' }}>({r.materialCode})</span></span> },
+      render: (v: string, r: InsRow) => <span>{v} <span style={{ color: 'var(--text-tertiary)' }}>({r.materialCode})</span></span> },
     { title: '批次', dataIndex: 'batch', key: 'batch', width: 120 },
     { title: '判定', dataIndex: 'result', key: 'result', width: 80,
       render: (v: string) => v === '2' ? <Tag color="red">不合格</Tag> : <Tag color="green">合格</Tag> },
@@ -183,7 +183,7 @@ const QCAlert: React.FC = () => {
   return (
     <div style={{ padding: 16 }}>
       <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
-      <div style={{ color: '#888', fontSize: 13, marginBottom: 12 }}>
+      <div style={{ color: 'var(--text-tertiary)', fontSize: 13, marginBottom: 12 }}>
         🔬 来料/入库质检预警：按到货单看每批货的检验判定（来源用友来料检验单，每天 09:40 自动更新）。点「查看详情」看这批货下每张检验单合格/不合格。
       </div>
 
@@ -213,7 +213,7 @@ const QCAlert: React.FC = () => {
         title="到货质检清单（按到货单）"
         extra={
           <Space>
-            <span style={{ color: '#888', fontSize: 13 }}>只看有问题的到货</span>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>只看有问题的到货</span>
             <Switch checked={onlyBad} onChange={(v) => { setOnlyBad(v); setPage(1); }} />
           </Space>
         }
@@ -238,7 +238,7 @@ const QCAlert: React.FC = () => {
         width={1000}
       >
         {arrivalRow && (
-          <div style={{ marginBottom: 12, color: '#64748b', fontSize: 13 }}>
+          <div style={{ marginBottom: 12, color: 'var(--text-tertiary)', fontSize: 13 }}>
             采购单 {arrivalRow.purchaseOrder || '—'} · {arrivalRow.billType} · 共 {arrivalRow.total} 张检验单（合格 {arrivalRow.pass} / 不合格 {arrivalRow.bad}）
           </div>
         )}

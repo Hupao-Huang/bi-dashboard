@@ -248,16 +248,16 @@ const InventoryWarning: React.FC = () => {
       {
         title: '可用库存', dataIndex: 'usableQty', key: 'usableQty', width: 100, align: 'right' as const,
         render: (v: number) => {
-          const color = v <= 0 ? '#ef4444' : v < 100 ? '#f59e0b' : '#1e293b';
+          const color = v <= 0 ? '#ef4444' : v < 100 ? '#f59e0b' : 'var(--text-primary)';
           return <span style={{ fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{v.toLocaleString()}</span>;
         },
       },
       {
         title: '可售天数', dataIndex: 'sellableDays', key: 'sellableDays', width: 100, align: 'right' as const,
         render: (v: number, r: StockChild) => {
-          if (r.monthQty === 0) return <span style={{ color: '#94a3b8' }}>-</span>;
+          if (r.monthQty === 0) return <span style={{ color: 'var(--text-tertiary)' }}>-</span>;
           if (v <= 0) return <span style={{ color: '#ef4444', fontWeight: 700 }}>0</span>;
-          const color = v < 7 ? '#ef4444' : v < 14 ? '#f59e0b' : v > 90 ? '#7c3aed' : '#1e293b';
+          const color = v < 7 ? '#ef4444' : v < 14 ? '#f59e0b' : v > 90 ? '#7c3aed' : 'var(--text-primary)';
           return <span style={{ fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{v}</span>;
         },
       },
@@ -320,7 +320,7 @@ const InventoryWarning: React.FC = () => {
           <span style={{ color: '#1e40af' }}>{r.whCount}个仓</span>
           {(r.whStockout || 0) > 0 && <span style={{ color: '#ef4444', marginLeft: 4 }}>{r.whStockout}仓缺货</span>}
         </span>
-        : <span style={{ color: '#94a3b8', fontSize: 12 }}>{r.warehouses?.[0]?.warehouse || '1个仓'}</span>,
+        : <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{r.warehouses?.[0]?.warehouse || '1个仓'}</span>,
     });
   }
 
@@ -329,7 +329,7 @@ const InventoryWarning: React.FC = () => {
       title: '可用库存', key: 'usableQty', width: 100, align: 'right' as const,
       sorter: (a: StockItem, b: StockItem) => a.usableQty - b.usableQty,
       render: (_: any, r: StockItem) => {
-        const color = r.usableQty <= 0 ? '#ef4444' : r.usableQty < 100 ? '#f59e0b' : '#1e293b';
+        const color = r.usableQty <= 0 ? '#ef4444' : r.usableQty < 100 ? '#f59e0b' : 'var(--text-primary)';
         return <span style={{ fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{r.usableQty.toLocaleString()}</span>;
       },
     },
@@ -339,9 +339,9 @@ const InventoryWarning: React.FC = () => {
       render: (_: any, r: StockItem) => {
         if (r.monthQty === 0 && (r.currentQty || 0) === 0 && r.usableQty <= 0) return '-';
         // v1.x: 靠调拨走量的货(吉客云 monthQty=0 但 allotQty>0)显示后端按调拨算的可售天数, 不再显示"无销量"
-        if (r.monthQty === 0 && !((r.allotQty || 0) > 0)) return <span style={{ color: '#94a3b8' }}>无销量</span>;
+        if (r.monthQty === 0 && !((r.allotQty || 0) > 0)) return <span style={{ color: 'var(--text-tertiary)' }}>无销量</span>;
         if (r.sellableDays <= 0) return <span style={{ color: '#ef4444', fontWeight: 700 }}>0</span>;
-        const color = r.sellableDays < 7 ? '#ef4444' : r.sellableDays < 14 ? '#f59e0b' : r.sellableDays > 90 ? '#7c3aed' : '#1e293b';
+        const color = r.sellableDays < 7 ? '#ef4444' : r.sellableDays < 14 ? '#f59e0b' : r.sellableDays > 90 ? '#7c3aed' : 'var(--text-primary)';
         return <span style={{ fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{r.sellableDays}</span>;
       },
     },
@@ -361,11 +361,11 @@ const InventoryWarning: React.FC = () => {
   return (
     <div>
       {/* 数据来源 + 指标说明 */}
-      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#64748b', lineHeight: '20px' }}>
+      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: 'var(--text-tertiary)', lineHeight: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ flex: 1 }}>
             <InfoCircleOutlined style={{ marginRight: 6, color: '#1e40af' }} />
-            <span style={{ color: '#1e293b', fontWeight: 600 }}>数据来源：</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>数据来源：</span>
             南京委外成品仓、南京自营成品仓、天津委外仓、西安仓库成品、松鲜鲜&大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共 8 个仓库）
           </div>
           {syncInfo.lastFinishedAt && (
@@ -376,7 +376,7 @@ const InventoryWarning: React.FC = () => {
           )}
         </div>
         <div style={{ marginTop: 4 }}>
-          <span style={{ color: '#1e293b', fontWeight: 600, marginLeft: 20 }}>核心公式：</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600, marginLeft: 20 }}>核心公式：</span>
           可用库存 = 当前库存 − 锁定库存；&nbsp;&nbsp;日均销量 = 近 30 天销量 ÷ 30；&nbsp;&nbsp;可售天数 = 可用库存 ÷ 日均销量
         </div>
         <div style={{ marginTop: 4, marginLeft: 20 }}>
@@ -403,11 +403,11 @@ const InventoryWarning: React.FC = () => {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{card.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4 }}>{card.title}</div>
                   <div style={{ fontSize: 24, fontWeight: 700, color: card.color, fontVariantNumeric: 'tabular-nums' }}>
                     {card.value}
                   </div>
-                  <div style={{ fontSize: 11, color: '#b0b8c4', marginTop: 4, lineHeight: '14px' }}>{card.desc}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, lineHeight: '14px' }}>{card.desc}</div>
                 </div>
                 <div style={{ fontSize: 24, color: card.color, opacity: 0.15 }}>{card.icon}</div>
               </div>
@@ -416,11 +416,11 @@ const InventoryWarning: React.FC = () => {
         ))}
         <Col xs={12} sm={8} lg={4} xl={4}>
           <Card style={{ borderLeft: '3px solid #1e40af' }}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>成品SKU总数</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4 }}>成品SKU总数</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: '#1e40af', fontVariantNumeric: 'tabular-nums' }}>
               {summary.total}
             </div>
-            <div style={{ fontSize: 11, color: '#b0b8c4', marginTop: 4, lineHeight: '14px' }}>货品属性为成品的SKU</div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, lineHeight: '14px' }}>货品属性为成品的SKU</div>
           </Card>
         </Col>
       </Row>
@@ -448,9 +448,9 @@ const InventoryWarning: React.FC = () => {
             style={{ width: 240 }}
             onSearch={v => setKeyword(v)}
           />
-          <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 'auto' }}>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 12, marginLeft: 'auto' }}>
             共 {items.length} {isAggMode ? '个商品' : '条记录'}
-            {isAggMode && <span style={{ marginLeft: 8, color: '#b0b8c4' }}>点击行展开仓库明细</span>}
+            {isAggMode && <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>点击行展开仓库明细</span>}
           </span>
           <Tooltip title={syncing
             ? `正在拉取吉客云全量库存（已 ${liveElapsedSec}s），约 2-3 分钟。可关闭页面，下次回来自动刷新。`

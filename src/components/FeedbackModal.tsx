@@ -162,7 +162,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ open, onClose, defaultTyp
               </Upload>
             </Form.Item>
           )}
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
             {isReq
               ? '需求提交后跑哥会评估、排期上线，进度可在「系统设置 → 需求与反馈 → 需求」查看'
               : `当前页面：${window.location.pathname}`}

@@ -64,7 +64,7 @@ const SkuTrendPopover: React.FC<{ skuCode: string; children: React.ReactNode }> 
   const content = (
     <div style={{ width: 720 }}>
       <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14 }}>{data?.goods_name || skuCode}</div>
-      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>近 13 个月实际销量趋势 (大区合计)</div>
+      <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>近 13 个月实际销量趋势 (大区合计)</div>
       {loading || !data ? (
         <div style={{ height: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin /></div>
       ) : data.items.length === 0 ? (
@@ -406,7 +406,7 @@ const SalesForecast: React.FC = () => {
                 // 春节主算法只用去年同月, 把它放首行加粗; 近3月均仅作参考
                 <>
                   <div>去年同月 <b>{yoy!.toFixed(1)}</b> 件</div>
-                  {base != null && base > 0 && <div style={{ color: '#94a3b8' }}>近3月均 {base.toFixed(1)} 件 (参考)</div>}
+                  {base != null && base > 0 && <div style={{ color: 'var(--text-tertiary)' }}>近3月均 {base.toFixed(1)} 件 (参考)</div>}
                 </>
               ) : (
                 <>
@@ -420,7 +420,7 @@ const SalesForecast: React.FC = () => {
               {!isSpring && trend && trend !== 1 && (
                 <div>× {region}近12月趋势 {trend.toFixed(2)} ({trend > 1 ? '上升' : '下降'})</div>
               )}
-              <div style={{ marginTop: 4, color: '#94a3b8', fontSize: 12 }}>
+              <div style={{ marginTop: 4, color: 'var(--text-tertiary)', fontSize: 12 }}>
                 {springByYoy
                   ? '春节: 去年同月 × 大区增长'
                   : isSpring
@@ -491,7 +491,7 @@ const SalesForecast: React.FC = () => {
         <div style={{ lineHeight: 1.8 }}>
           <div><b>分而治之</b>: 不同月份用各自最准的算法 (整体回测准确度比旧版明显提升)</div>
           <div style={{ marginTop: 6 }}><b>春节月 (1月 / 2月)</b> — 直接看 <b>去年同月 × 大区增长</b></div>
-          <div style={{ color: '#64748b', paddingLeft: 12 }}>线下经销商节前集中囤货是稳定规律, 按去年同期推算最稳; 不再叠季节/节假日, 避免被一次性高量带偏</div>
+          <div style={{ color: 'var(--text-tertiary)', paddingLeft: 12 }}>线下经销商节前集中囤货是稳定规律, 按去年同期推算最稳; 不再叠季节/节假日, 避免被一次性高量带偏</div>
           <div style={{ marginTop: 6 }}><b>平淡月 (3-12月)</b> — <b>近3月均 + 同比 + 环比</b> 按月加权, 再乘节假日因子和大区趋势</div>
           <ol style={{ marginTop: 4, marginBottom: 8, paddingLeft: 20 }}>
             <li><b>3-5月 (春节后)</b> — 主用近3月均</li>

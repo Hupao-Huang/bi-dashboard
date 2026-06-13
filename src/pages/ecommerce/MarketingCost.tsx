@@ -202,7 +202,7 @@ const MarketingCostPage: React.FC = () => {
               />
             </Col>
           )}
-          <Col style={{ color: '#64748b', fontSize: 13 }}>
+          <Col style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
             数据来源：{PLATFORM_SOURCES[platform] || ''}
           </Col>
         </Row>
@@ -220,7 +220,7 @@ const MarketingCostPage: React.FC = () => {
                 <Col xs={12} sm={6} md={3} key={card.title}>
                   <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
                     <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
                   </Card>
                 </Col>
               );
@@ -228,7 +228,7 @@ const MarketingCostPage: React.FC = () => {
           </Row>
 
           {/* CPC趋势 + CPS趋势 */}
-          {isExpanded && <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>深色柱为选中日期，浅色柱为趋势参考</div>}
+          {isExpanded && <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginBottom: 8 }}>深色柱为选中日期，浅色柱为趋势参考</div>}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
             <Col xs={24} lg={hasCps ? 12 : 24}>
               <Card title="CPC每日趋势">
@@ -277,7 +277,7 @@ const MarketingCostPage: React.FC = () => {
                       onFilter: (value: any, record: any) => record.platform === value },
                     { title: '推广类型/场景', dataIndex: 'name', key: 'name',
                       render: (v: string, r: any) => r.isContent
-                        ? <span>{v} <span style={{ marginLeft: 4, fontSize: 11, color: '#64748b' }}>无投放费用</span></span>
+                        ? <span>{v} <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--text-tertiary)' }}>无投放费用</span></span>
                         : v },
                     { title: '花费', dataIndex: 'cost', key: 'cost', sorter: (a: any, b: any) => a.cost - b.cost,
                       render: (v: number, r: any) => r.isContent ? <span style={{ color: '#cbd5e1' }}>-</span> : `¥${v?.toLocaleString()}` },
@@ -289,7 +289,7 @@ const MarketingCostPage: React.FC = () => {
                       render: (v: number, r: any) => {
                         if (!v) return '-';
                         return r.isContent
-                          ? <span>{v.toLocaleString()} <span style={{ marginLeft: 4, fontSize: 11, color: '#64748b' }}>(商品点击)</span></span>
+                          ? <span>{v.toLocaleString()} <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--text-tertiary)' }}>(商品点击)</span></span>
                           : v.toLocaleString();
                       } },
                     { title: '平均CPC', dataIndex: 'avgCpc', key: 'avgCpc',
@@ -329,7 +329,7 @@ const MarketingCostPage: React.FC = () => {
             <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
               <Col xs={24}>
                 <Card className="bi-table-card" title="天猫万象台 - 商品级 ROI 排行 Top 20"
-                  extra={<span style={{ fontSize: 12, color: '#64748b' }}>按花费倒排，可点列头切换排序</span>}>
+                  extra={<span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>按花费倒排，可点列头切换排序</span>}>
                   <Table
                     dataSource={tmallSkuTop}
                     rowKey={(r: any) => `${r.shopName}-${r.productId}`}
@@ -338,7 +338,7 @@ const MarketingCostPage: React.FC = () => {
                     columns={[
                       { title: '排名', key: 'rank', width: 60, align: 'center' as const,
                         render: (_: any, __: any, idx: number) => (
-                          <span style={{ fontWeight: 600, color: idx < 3 ? '#dc2626' : '#64748b' }}>{idx + 1}</span>
+                          <span style={{ fontWeight: 600, color: idx < 3 ? '#dc2626' : 'var(--text-tertiary)' }}>{idx + 1}</span>
                         ) },
                       { title: '店铺', dataIndex: 'shopName', key: 'shopName', width: 180, ellipsis: true,
                         filters: Array.from(new Set(tmallSkuTop.map((s: any) => s.shopName))).map((s: any) => ({ text: s, value: s })),
@@ -374,7 +374,7 @@ const MarketingCostPage: React.FC = () => {
             <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
               <Col xs={24}>
                 <Card className="bi-table-card" title="拼多多商品推广 - 商品级 ROI 排行 Top 20"
-                  extra={<span style={{ fontSize: 12, color: '#64748b' }}>按花费倒排，可点列头切换排序</span>}>
+                  extra={<span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>按花费倒排，可点列头切换排序</span>}>
                   <Table
                     dataSource={pddSkuTop}
                     rowKey={(r: any) => `${r.shopName}-${r.productId}`}
@@ -383,7 +383,7 @@ const MarketingCostPage: React.FC = () => {
                     columns={[
                       { title: '排名', key: 'rank', width: 60, align: 'center' as const,
                         render: (_: any, __: any, idx: number) => (
-                          <span style={{ fontWeight: 600, color: idx < 3 ? '#dc2626' : '#64748b' }}>{idx + 1}</span>
+                          <span style={{ fontWeight: 600, color: idx < 3 ? '#dc2626' : 'var(--text-tertiary)' }}>{idx + 1}</span>
                         ) },
                       { title: '店铺', dataIndex: 'shopName', key: 'shopName', width: 180, ellipsis: true,
                         filters: Array.from(new Set(pddSkuTop.map((s: any) => s.shopName))).map((s: any) => ({ text: s, value: s })),

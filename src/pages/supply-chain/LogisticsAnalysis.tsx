@@ -379,17 +379,17 @@ const LogisticsAnalysis: React.FC = () => {
   return (
     <div style={{ padding: 0 }}>
       {/* 数据来源 + 指标说明（对齐库存预警样式） */}
-      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#64748b', lineHeight: '20px' }}>
+      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: 'var(--text-tertiary)', lineHeight: '20px' }}>
         <div>
           <InfoCircleOutlined style={{ marginRight: 6, color: '#1e40af' }} />
-          <span style={{ color: '#1e293b', fontWeight: 600 }}>数据来源：</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>数据来源：</span>
           南京委外成品仓、南京自营成品仓、天津委外仓、西安仓库成品、松鲜鲜&大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共 8 个仓库）
           &nbsp;·&nbsp;
-          <span style={{ color: '#1e293b', fontWeight: 600 }}>统计口径：</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>统计口径：</span>
           按<span style={{ color: '#dc2626', fontWeight: 600 }}>发货时间 consign_time</span> 分月，主表均为已发货订单
         </div>
         <div style={{ marginTop: 4, marginLeft: 20 }}>
-          <span style={{ color: '#1e293b', fontWeight: 600 }}>核心指标：</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>核心指标：</span>
           <span style={{ color: '#1e40af', fontWeight: 600 }}>发货订单数</span>
           ＝ 不重复 trade_id 数（已按发货时间过滤）
           &nbsp;&nbsp;|&nbsp;&nbsp;
@@ -397,7 +397,7 @@ const LogisticsAnalysis: React.FC = () => {
           ＝ trade_id × 物流单号去重（一单可拆多包裹分发）
         </div>
         <div style={{ marginTop: 4, marginLeft: 20 }}>
-          <span style={{ color: '#1e293b', fontWeight: 600 }}>过滤规则：</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>过滤规则：</span>
           排除取消单 · 排除收货省为空 · 排除 trade_type 8/12（补差/对账特殊单，不产生物流包裹）· 仓库白名单与"采购计划看板/库存预警"完全一致
         </div>
       </div>
@@ -412,7 +412,7 @@ const LogisticsAnalysis: React.FC = () => {
               style={{ width: 130 }}
               onChange={setYm}
               options={(overview?.ymList || []).map(m => ({ value: m, label: m }))}
-              suffixIcon={<CalendarOutlined style={{ color: '#94a3b8' }} />}
+              suffixIcon={<CalendarOutlined style={{ color: 'var(--text-tertiary)' }} />}
             />
           </Col>
 
@@ -435,7 +435,7 @@ const LogisticsAnalysis: React.FC = () => {
               value={shop || undefined} onChange={(v) => setShop(v || '')}
               options={(overview?.shops || []).map(s => ({ value: s, label: s }))}
               showSearch optionFilterProp="label"
-              suffixIcon={<ShopOutlined style={{ color: '#94a3b8' }} />}
+              suffixIcon={<ShopOutlined style={{ color: 'var(--text-tertiary)' }} />}
             />
           </Col>
 
@@ -446,7 +446,7 @@ const LogisticsAnalysis: React.FC = () => {
               value={warehouse || undefined} onChange={(v) => setWarehouse(v || '')}
               options={(overview?.warehouses || []).map(w => ({ value: w.name, label: w.name }))}
               showSearch optionFilterProp="label"
-              suffixIcon={<CarOutlined style={{ color: '#94a3b8' }} />}
+              suffixIcon={<CarOutlined style={{ color: 'var(--text-tertiary)' }} />}
             />
           </Col>
 
@@ -457,7 +457,7 @@ const LogisticsAnalysis: React.FC = () => {
               value={province || undefined} onChange={(v) => setProvince(v || '')}
               options={(overview?.provinces || []).map(p => ({ value: p.name, label: p.name }))}
               showSearch optionFilterProp="label"
-              suffixIcon={<EnvironmentOutlined style={{ color: '#94a3b8' }} />}
+              suffixIcon={<EnvironmentOutlined style={{ color: 'var(--text-tertiary)' }} />}
             />
           </Col>
 
@@ -465,7 +465,7 @@ const LogisticsAnalysis: React.FC = () => {
             <span style={{ fontWeight: 500, marginRight: 8 }}>SKU：</span>
             <Input
               allowClear placeholder="搜 SKU 名称/编码"
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              prefix={<SearchOutlined style={{ color: 'var(--text-tertiary)' }} />}
               style={{ width: 220 }}
               value={skuKw} onChange={(e) => setSkuKw(e.target.value)}
               onPressEnter={fetchAll}
@@ -494,14 +494,14 @@ const LogisticsAnalysis: React.FC = () => {
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#1e40af' }}>
             <Statistic title="发货订单数" value={k.orders} suffix="单" formatter={(v: any) => fmt(Number(v))}
               prefix={<AppstoreOutlined style={{ color: '#1e40af' }} />} />
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>按发货时间 consign_time 统计</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>按发货时间 consign_time 统计</div>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#0ea5e9' }}>
             <Statistic title="物流包裹数" value={k.packages} suffix="包" formatter={(v: any) => fmt(Number(v))}
               prefix={<CarOutlined style={{ color: '#0ea5e9' }} />} />
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
               {k.orders > 0 ? `平均 ${(k.packages / k.orders).toFixed(2)} 包/单` : '—'}
             </div>
           </Card>
@@ -510,14 +510,14 @@ const LogisticsAnalysis: React.FC = () => {
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#f59e0b' }}>
             <Statistic title="销往省级行政区" value={k.provinceCnt} suffix="个"
               prefix={<EnvironmentOutlined style={{ color: '#f59e0b' }} />} />
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>覆盖区域</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>覆盖区域</div>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#7c3aed' }}>
             <Statistic title="出货仓库" value={k.warehouseCnt} suffix="个"
               prefix={<ShopOutlined style={{ color: '#7c3aed' }} />} />
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>白名单 8 仓内</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>白名单 8 仓内</div>
           </Card>
         </Col>
       </Row>
@@ -540,7 +540,7 @@ const LogisticsAnalysis: React.FC = () => {
             {mapReady ? (
               <ReactECharts echarts={echarts} option={mapOption} style={{ height: 880 }} notMerge />
             ) : (
-              <div style={{ height: 880, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+              <div style={{ height: 880, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)' }}>
                 <Spin tip="加载地图..." />
               </div>
             )}
@@ -572,7 +572,7 @@ const LogisticsAnalysis: React.FC = () => {
                   onClick={() => setFocusedWh(focusedWh === w.name ? '' : w.name)}
                   style={{
                     fontSize: 12,
-                    color: focusedWh === w.name ? '#fff' : '#475569',
+                    color: focusedWh === w.name ? '#fff' : 'var(--text-secondary)',
                     background: focusedWh === w.name ? '#f97316' : undefined,
                     borderColor: focusedWh === w.name ? '#f97316' : undefined,
                   }}
@@ -584,9 +584,9 @@ const LogisticsAnalysis: React.FC = () => {
 
             {/* 省份占比榜 */}
             <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 8, marginBottom: 6 }}>
-              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
                 <span>{focusedWh ? `${shortenWarehouse(focusedWh)} → 各省 ${metricLabel[metric]}占比` : `8 仓汇总 → 各省 ${metricLabel[metric]}占比`}</span>
-                <span style={{ color: '#0f172a', fontWeight: 600 }}>{fmt(focusedTotal)} {metricUnit[metric]}</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{fmt(focusedTotal)} {metricUnit[metric]}</span>
               </div>
             </div>
 
@@ -595,15 +595,15 @@ const LogisticsAnalysis: React.FC = () => {
                 focusedProvBreakdown.map((p, i) => (
                   <div key={p.name} style={{ marginBottom: 8, fontSize: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                      <span style={{ color: '#1e293b', fontWeight: i < 3 ? 600 : 400 }}>
+                      <span style={{ color: 'var(--text-primary)', fontWeight: i < 3 ? 600 : 400 }}>
                         <span style={{
-                          display: 'inline-block', width: 18, color: i < 3 ? '#f97316' : '#94a3b8', fontWeight: 600,
+                          display: 'inline-block', width: 18, color: i < 3 ? '#f97316' : 'var(--text-tertiary)', fontWeight: 600,
                         }}>{i + 1}</span>
                         {p.name}
                       </span>
-                      <span style={{ color: '#475569' }}>
-                        <b style={{ color: '#0f172a' }}>{(p.ratio * 100).toFixed(1)}%</b>
-                        <span style={{ color: '#94a3b8', fontSize: 11, marginLeft: 6 }}>{fmt(p.value)}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        <b style={{ color: 'var(--text-primary)' }}>{(p.ratio * 100).toFixed(1)}%</b>
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: 11, marginLeft: 6 }}>{fmt(p.value)}</span>
                       </span>
                     </div>
                     <Progress
@@ -632,7 +632,7 @@ const LogisticsAnalysis: React.FC = () => {
       </Card>
 
       {/* 仓 × 省 矩阵 */}
-      <Card size="small" title={<>仓 × 省 流向矩阵 <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 'normal', marginLeft: 8 }}>行=仓 列=省 (Top 10 + 其它) · 单位 {metricUnit[metric]}</span></>} style={{ marginBottom: 12 }}>
+      <Card size="small" title={<>仓 × 省 流向矩阵 <span style={{ color: 'var(--text-tertiary)', fontSize: 12, fontWeight: 'normal', marginLeft: 8 }}>行=仓 列=省 (Top 10 + 其它) · 单位 {metricUnit[metric]}</span></>} style={{ marginBottom: 12 }}>
         {matrixView && matrixView.warehouses.length ? (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', minWidth: '100%', fontSize: 12 }}>
@@ -648,14 +648,14 @@ const LogisticsAnalysis: React.FC = () => {
                     height: 56,
                   }}>
                     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                      <span style={{ position: 'absolute', bottom: 8, left: 14, fontSize: 12, color: '#475569', fontWeight: 600 }}>仓库</span>
-                      <span style={{ position: 'absolute', top: 8, right: 14, fontSize: 12, color: '#475569', fontWeight: 600 }}>省份</span>
+                      <span style={{ position: 'absolute', bottom: 8, left: 14, fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>仓库</span>
+                      <span style={{ position: 'absolute', top: 8, right: 14, fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>省份</span>
                     </div>
                   </th>
                   {matrixView.provinces.map((p, i) => (
                     <th key={p} style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #e2e8f0', minWidth: 100 }}>
                       {p}
-                      <div style={{ color: '#94a3b8', fontWeight: 'normal', fontSize: 11 }}>{fmt(matrixView.colTotals[i])}</div>
+                      <div style={{ color: 'var(--text-tertiary)', fontWeight: 'normal', fontSize: 11 }}>{fmt(matrixView.colTotals[i])}</div>
                     </th>
                   ))}
                   <th style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #e2e8f0', background: '#f1f5f9', minWidth: 100 }}>合计</th>
@@ -678,7 +678,7 @@ const LogisticsAnalysis: React.FC = () => {
                               opacity: 0.18, borderRadius: 2,
                             }} />
                           </div>
-                          <span style={{ position: 'relative', zIndex: 1, color: v > 0 ? '#0f172a' : '#cbd5e1' }}>
+                          <span style={{ position: 'relative', zIndex: 1, color: v > 0 ? 'var(--text-primary)' : '#cbd5e1' }}>
                             {v > 0 ? fmt(v) : '—'}
                           </span>
                         </td>

@@ -193,7 +193,7 @@ const ChannelManagement: React.FC = () => {
         </Col>
         <Col xs={8}>
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: unmappedCount > 0 ? '#f5222d' : '#52c41a' }}>
-            <Statistic title="未映射" value={unmappedCount} valueStyle={{ color: unmappedCount > 0 ? '#f5222d' : '#52c41a' }} />
+            <Statistic title="未映射" value={unmappedCount} />
           </Card>
         </Col>
       </Row>

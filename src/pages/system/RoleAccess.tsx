@@ -183,7 +183,7 @@ const PermissionMatrix: React.FC<{
               gap: 8,
               marginBottom: 8,
             }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', letterSpacing: '-0.01em' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
                 {group.label}
               </span>
               <span style={{
@@ -437,7 +437,7 @@ const RoleAccessPage: React.FC = () => {
               transition: 'width 120ms ease',
             }} />
             <div>
-              <Typography.Text strong style={{ color: isSelected ? accent : '#0f172a' }}>
+              <Typography.Text strong style={{ color: isSelected ? accent : 'var(--text-primary)' }}>
                 {record.name}
               </Typography.Text>
               <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
@@ -511,22 +511,22 @@ const RoleAccessPage: React.FC = () => {
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#1e40af' }} bodyStyle={{ padding: 16 }}>
-            <Statistic title={<><TeamOutlined style={{ marginRight: 6 }} />总角色</>} value={stats.total} valueStyle={{ color: '#1e40af', fontSize: 22 }} />
+            <Statistic title={<><TeamOutlined style={{ marginRight: 6 }} />总角色</>} value={stats.total} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#1677ff' }} bodyStyle={{ padding: 16 }}>
-            <Statistic title={<><BookOutlined style={{ marginRight: 6, color: '#1677ff' }} />内置角色</>} value={stats.builtin} valueStyle={{ color: '#1677ff', fontSize: 22 }} />
+            <Statistic title={<><BookOutlined style={{ marginRight: 6, color: '#1677ff' }} />内置角色</>} value={stats.builtin} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#16a34a' }} bodyStyle={{ padding: 16 }}>
-            <Statistic title={<><ToolOutlined style={{ marginRight: 6, color: '#16a34a' }} />自定义角色</>} value={stats.custom} valueStyle={{ color: '#16a34a', fontSize: 22 }} />
+            <Statistic title={<><ToolOutlined style={{ marginRight: 6, color: '#16a34a' }} />自定义角色</>} value={stats.custom} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card className="bi-stat-card" style={{ ['--accent-color' as any]: '#722ed1' }} bodyStyle={{ padding: 16 }}>
-            <Statistic title={<><UserOutlined style={{ marginRight: 6, color: '#722ed1' }} />使用中</>} value={stats.inUse} valueStyle={{ color: '#722ed1', fontSize: 22 }} />
+            <Statistic title={<><UserOutlined style={{ marginRight: 6, color: '#722ed1' }} />使用中</>} value={stats.inUse} />
           </Card>
         </Col>
       </Row>
@@ -580,14 +580,14 @@ const RoleAccessPage: React.FC = () => {
                     }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontSize: 18, fontWeight: 600, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                          <span style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
                             {roleDetail.name}
                           </span>
-                          <span style={{ fontSize: 12, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
                             {roleDetail.code}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-tertiary)', flexWrap: 'wrap' }}>
                           <span style={{
                             display: 'inline-block',
                             padding: '1px 8px',
@@ -614,12 +614,12 @@ const RoleAccessPage: React.FC = () => {
                               只读
                             </span>
                           )}
-                          <span style={{ fontVariantNumeric: 'tabular-nums', color: '#64748b' }}>
+                          <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-tertiary)' }}>
                             {currentRole.permissionCount} 项权限 · {currentRole.userCount} 个用户在用
                           </span>
                         </div>
                         {roleDetail.description && (
-                          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
                             {roleDetail.description}
                           </div>
                         )}
@@ -647,14 +647,14 @@ const RoleAccessPage: React.FC = () => {
                   </Row>
 
                   <div style={{ marginTop: 8, marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
-                    <Typography.Text strong style={{ fontSize: 14, color: '#0f172a' }}>功能模块权限</Typography.Text>
+                    <Typography.Text strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>功能模块权限</Typography.Text>
                   </div>
                   <Form.Item name="permissions" style={{ marginBottom: 16 }}>
                     <PermissionMatrix groups={permissionLayers.moduleGroups} readOnly={isReadOnly} />
                   </Form.Item>
 
                   <div style={{ marginTop: 16, marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
-                    <Typography.Text strong style={{ fontSize: 14, color: '#0f172a' }}>数据范围权限</Typography.Text>
+                    <Typography.Text strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>数据范围权限</Typography.Text>
                   </div>
                   <Row gutter={12}>
                     <Col xs={24} md={12}>
@@ -687,7 +687,7 @@ const RoleAccessPage: React.FC = () => {
                   {permissionLayers.fieldGroups.length > 0 && (
                     <>
                       <div style={{ marginTop: 16, marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
-                        <Typography.Text strong style={{ fontSize: 14, color: '#0f172a' }}>字段权限</Typography.Text>
+                        <Typography.Text strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>字段权限</Typography.Text>
                         <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
                           敏感字段可见性
                         </Typography.Text>

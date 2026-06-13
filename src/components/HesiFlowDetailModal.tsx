@@ -227,7 +227,7 @@ const ApprovalFlowPane: React.FC<{ url: string }> = ({ url }) => {
           </Space>
           {/* 意见就是"同意/驳回"两个字时和左边标签重复, 不再显示 (跑哥 6/12) */}
           {lg.comment && lg.comment.trim() !== act.label && (
-            <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>“{lg.comment}”</div>
+            <div style={{ color: 'var(--text-tertiary)', fontSize: 13, marginTop: 2 }}>“{lg.comment}”</div>
           )}
         </div>
       ),
@@ -356,7 +356,7 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
       return (
         <div key={key} style={{ width: 150 }}>
           <Image src={url} width={150} height={200} style={{ objectFit: 'cover', borderRadius: 6, border: '1px solid #eee' }} />
-          <div style={{ fontSize: 11, color: '#888', marginTop: 2, wordBreak: 'break-all' }}>{name}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2, wordBreak: 'break-all' }}>{name}</div>
         </div>
       );
     }
@@ -378,7 +378,7 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
   };
 
   const renderAttachments = () => {
-    if (!attachUrls?.items?.[0]?.attachmentList) return <div style={{ color: '#999' }}>无附件</div>;
+    if (!attachUrls?.items?.[0]?.attachmentList) return <div style={{ color: 'var(--text-tertiary)' }}>无附件</div>;
     const list = attachUrls.items[0].attachmentList;
     const typeLabels: Record<string, string> = {
       'flow.body': '单据附件',
@@ -878,7 +878,7 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                   >
                     {attachUrls ? '刷新链接（1小时有效）' : '加载发票/附件'}
                   </Button>
-                  {attachLoading && !attachUrls ? <div style={{ color: '#999' }}>正在加载发票/附件…</div> : attachUrls ? renderAttachments() : (
+                  {attachLoading && !attachUrls ? <div style={{ color: 'var(--text-tertiary)' }}>正在加载发票/附件…</div> : attachUrls ? renderAttachments() : (
                     <Table
                       size="small"
                       dataSource={detailData.attachments || []}

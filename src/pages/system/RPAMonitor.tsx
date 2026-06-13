@@ -283,7 +283,7 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSyn
             const color = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444';
             return (
               <div key={store} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 8px' }}>
-                <span style={{ fontSize: 12, color: '#475569', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store}</span>
                 <span style={{ fontSize: 12, fontWeight: 600, color }}>{pct}%</span>
               </div>
             );
@@ -392,7 +392,7 @@ const PlatformPanel: React.FC<PlatformPanelProps> = ({ platform, onImport, onSyn
 // ─── Legend ───────────────────────────────────────────────────────────────────
 
 const Legend: React.FC = () => (
-  <Space size={16} style={{ fontSize: 12, color: '#64748b' }}>
+  <Space size={16} style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
     {(['complete', 'partial', 'missing', 'no_dir', 'sealed'] as ItemStatus[]).map(s => (
       <Space key={s} size={4}>
         {STATUS_ICON[s]}
@@ -733,7 +733,7 @@ const RPAMonitor: React.FC = () => {
       title: '缺失文件', key: 'missingItems',
       render: (_: any, row: any) => {
         if (row.missingItems.length === 0 && row.status === 'complete') return <span style={{ color: '#10b981', fontSize: 12 }}>文件完整</span>;
-        if (row.missingItems.length === 0) return <span style={{ color: '#94a3b8', fontSize: 12 }}>无文件信息</span>;
+        if (row.missingItems.length === 0) return <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>无文件信息</span>;
         return <span style={{ fontSize: 12, color: '#ef4444' }}>{row.missingItems.join('、')}</span>;
       },
     },
@@ -822,13 +822,13 @@ const RPAMonitor: React.FC = () => {
             {(loading || refreshing) && (
               <Space size={6}>
                 <Spin size="small" />
-                <span style={{ fontSize: 13, color: '#64748b' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
                   {refreshing ? '正在扫描...' : '加载中...'}
                 </span>
               </Space>
             )}
             {data?.scannedAt && !loading && !refreshing && (
-              <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 400 }}>
                 最后扫描时间：{data.scannedAt}
               </span>
             )}
@@ -877,7 +877,7 @@ const RPAMonitor: React.FC = () => {
             <Spin size="large" />
           </div>
         ) : platforms.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
+          <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-tertiary)' }}>
             暂无数据，请点击「刷新」开始扫描
           </div>
         ) : (
@@ -913,7 +913,7 @@ const RPAMonitor: React.FC = () => {
               status={importProg.running ? 'active' : 'success'}
               style={{ marginBottom: 16 }}
             />
-            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 12 }}>
               {importProg.running
                 ? `正在执行: ${importProg.current_tool || ''} (${importProg.current || 0}/${importProg.total || 0})`
                 : `全部完成 (${importProg.total || 0}个工具)`
@@ -930,7 +930,7 @@ const RPAMonitor: React.FC = () => {
                   {r.status === 'pending' && <MinusCircleOutlined style={{ color: '#94a3b8' }} />}
                   {(r.status === '失败' || r.status === '超时') && <CloseCircleOutlined style={{ color: '#ef4444' }} />}
                   <span style={{ flex: 1, fontSize: 12 }}>{r.tool}</span>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>{r.detail || r.status}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{r.detail || r.status}</span>
                 </div>
               ))}
             </div>
@@ -996,7 +996,7 @@ const RPAMonitor: React.FC = () => {
             )}
           />
         )}
-        <div style={{ marginTop: 16, fontSize: 12, color: '#94a3b8' }}>
+        <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-tertiary)' }}>
           💡 同步任务在后台跑，跑完通过钉钉通知。点"查看进度"可以重新打开 Modal 看实时日志。
         </div>
       </Drawer>

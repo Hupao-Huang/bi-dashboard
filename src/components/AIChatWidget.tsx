@@ -197,10 +197,10 @@ const AIChatWidget: React.FC = () => {
       {/* 消息列表 */}
       <div ref={scrollRef} style={{ flex: 1, padding: 12, overflowY: 'auto', background: '#f7f8fa' }}>
         {messages.length === 0 && !loading && (
-          <div style={{ textAlign: 'center', color: '#999', padding: 40, fontSize: 13 }}>
+          <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: 40, fontSize: 13 }}>
             <RobotOutlined style={{ fontSize: 32, color: '#1677ff', marginBottom: 12, display: 'block' }} />
             <div>您好, 我能查 BI 看板数据.</div>
-            <div style={{ marginTop: 12, color: '#666' }}>试试问:</div>
+            <div style={{ marginTop: 12, color: 'var(--text-secondary)' }}>试试问:</div>
             <div style={{ marginTop: 8, color: '#1677ff', cursor: 'pointer' }} onClick={() => setInput('上月电商部销售多少')}>
               · 上月电商部销售多少
             </div>
@@ -231,7 +231,7 @@ const AIChatWidget: React.FC = () => {
                 )}
               </div>
               {m.role === 'assistant' && m.sourceAPI && (
-                <div style={{ marginTop: 4, fontSize: 11, color: '#999' }}>
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-tertiary)' }}>
                   <span title={m.sourceAPI}>🔍 {m.sourceAPI.length > 50 ? m.sourceAPI.slice(0, 50) + '...' : m.sourceAPI}</span>
                   {m.confidence !== undefined && (
                     <Tag style={{ marginLeft: 4, fontSize: 10 }} color={m.confidence > 0.8 ? 'green' : 'orange'}>
@@ -258,7 +258,7 @@ const AIChatWidget: React.FC = () => {
           <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 8, marginBottom: 12 }}>
             <Avatar size={28} icon={<RobotOutlined />} style={{ background: '#1677ff' }} />
             <div style={{ background: '#fff', padding: '8px 12px', borderRadius: 8 }}>
-              <Spin size="small" /> <span style={{ marginLeft: 8, fontSize: 12, color: '#999' }}>思考中...</span>
+              <Spin size="small" /> <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-tertiary)' }}>思考中...</span>
             </div>
           </div>
         )}

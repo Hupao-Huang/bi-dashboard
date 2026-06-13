@@ -138,7 +138,7 @@ const FeiguaDashboard: React.FC = () => {
   const creatorColumns = [
     { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => {
       const rank = i + 1;
-      return <span style={{ color: rank <= 3 ? '#1e40af' : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span>;
+      return <span style={{ color: rank <= 3 ? '#1e40af' : 'var(--text-tertiary)', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span>;
     } },
     { title: '达人昵称', dataIndex: 'creatorName', key: 'creatorName', ellipsis: true, width: 150 },
     { title: '平台', dataIndex: 'platform', key: 'platform', width: 70,
@@ -158,7 +158,7 @@ const FeiguaDashboard: React.FC = () => {
   const followerColumns = [
     { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => {
       const rank = i + 1;
-      return <span style={{ color: rank <= 3 ? '#1e40af' : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span>;
+      return <span style={{ color: rank <= 3 ? '#1e40af' : 'var(--text-tertiary)', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span>;
     } },
     { title: '跟进人', dataIndex: 'follower', key: 'follower', width: 100 },
     { title: 'GMV', dataIndex: 'gmv', key: 'gmv', width: 110, sorter: (a: any, b: any) => a.gmv - b.gmv,
@@ -198,7 +198,7 @@ const FeiguaDashboard: React.FC = () => {
             <Col xs={12} sm={4} key={card.title}>
               <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
                 <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} />
-                <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
               </Card>
             </Col>
           );
@@ -206,7 +206,7 @@ const FeiguaDashboard: React.FC = () => {
       </Row>
 
       {/* GMV趋势 + 平台占比 */}
-      {isExpanded && <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>深色柱为选中日期，浅色柱为趋势参考</div>}
+      {isExpanded && <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginBottom: 8 }}>深色柱为选中日期，浅色柱为趋势参考</div>}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} lg={16}>
           <Card title="GMV每日趋势">

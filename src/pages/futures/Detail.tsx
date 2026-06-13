@@ -187,7 +187,7 @@ const FuturesDetail: React.FC = () => {
         />
       </Card>
 
-      <div style={{ marginTop: 12, color: '#94a3b8', fontSize: 12, textAlign: 'center' }}>
+      <div style={{ marginTop: 12, color: 'var(--text-tertiary)', fontSize: 12, textAlign: 'center' }}>
         数据来源：新浪财经期货 · {symbol.code} 主连合约 · 收盘后 17:30 自动更新
       </div>
     </div>
@@ -196,8 +196,8 @@ const FuturesDetail: React.FC = () => {
 
 const Metric: React.FC<{ label: string; value: string; color?: string }> = ({ label, value, color }) => (
   <div>
-    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>{label}</div>
-    <div style={{ fontSize: 14, fontWeight: 600, color: color || '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>{label}</div>
+    <div style={{ fontSize: 14, fontWeight: 600, color: color || 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
   </div>
 );
 

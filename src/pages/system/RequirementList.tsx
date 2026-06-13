@@ -203,7 +203,7 @@ const RequirementList: React.FC = () => {
     {
       title: '提交人', dataIndex: 'submitterName', width: 100,
       render: (n: string, r) => (
-        <span>{n}{r.submitterDept ? <span style={{ color: '#94a3b8' }}> · {r.submitterDept}</span> : null}</span>
+        <span>{n}{r.submitterDept ? <span style={{ color: 'var(--text-tertiary)' }}> · {r.submitterDept}</span> : null}</span>
       ),
     },
     { title: '状态', dataIndex: 'status', width: 80, render: (s: string) => <StatusChip status={s} /> },
@@ -262,7 +262,6 @@ const RequirementList: React.FC = () => {
                 <Statistic
                   title={<><span style={{ color: hex, marginRight: 6 }}>{card.icon}</span>{card.label}</>}
                   value={n}
-                  valueStyle={{ color: n > 0 ? hex : '#94a3b8', fontSize: 22, fontWeight: n > 0 ? 700 : 400 }}
                 />
               </Card>
             </Col>
@@ -290,7 +289,6 @@ const RequirementList: React.FC = () => {
                 <Statistic
                   title={<span style={{ color: hex, fontSize: 13 }}>{STATUS_LABEL[key]}</span>}
                   value={n}
-                  valueStyle={{ color: hex, fontSize: 18 }}
                 />
               </Card>
             </Col>
@@ -305,7 +303,7 @@ const RequirementList: React.FC = () => {
           <div style={{ display: 'flex', gap: 8 }}>
             <Input
               placeholder="搜索 标题/内容/提交人/标签"
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              prefix={<SearchOutlined style={{ color: 'var(--text-tertiary)' }} />}
               allowClear
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
@@ -372,7 +370,7 @@ const RequirementList: React.FC = () => {
               <StatusChip status={detail.status} />
               {detail.targetVersion && <Tag color="blue">{detail.targetVersion}</Tag>}
               {detail.tag && <Tag>{detail.tag}</Tag>}
-              <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 'auto' }}>
+              <span style={{ color: 'var(--text-tertiary)', fontSize: 12, marginLeft: 'auto' }}>
                 {detail.submitterName} · {detail.submitterDept} · 提交于 {detail.createdAt}
               </span>
             </div>

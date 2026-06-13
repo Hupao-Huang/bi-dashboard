@@ -441,7 +441,7 @@ const OverviewPage: React.FC = () => {
         return (
           <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
             <span style={{ fontWeight: 600 }}>¥{v?.toLocaleString()}</span>
-            {hint && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 6, whiteSpace: 'nowrap' }}>{hint.replace('约', '≈')}</span>}
+            {hint && <span style={{ color: 'var(--text-tertiary)', fontSize: 12, marginLeft: 6, whiteSpace: 'nowrap' }}>{hint.replace('约', '≈')}</span>}
           </span>
         );
       },
@@ -451,7 +451,7 @@ const OverviewPage: React.FC = () => {
       return (
         <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
           {v?.toLocaleString()}
-          {hint && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 4, whiteSpace: 'nowrap' }}>{hint.replace('约', '≈')}</span>}
+          {hint && <span style={{ color: 'var(--text-tertiary)', fontSize: 12, marginLeft: 4, whiteSpace: 'nowrap' }}>{hint.replace('约', '≈')}</span>}
         </span>
       );
     }},
@@ -507,7 +507,7 @@ const OverviewPage: React.FC = () => {
   const yoyAvg = yoyTotals && yoyTotals.qty > 0 ? yoyTotals.sales / yoyTotals.qty : null;
   const renderDelta = (label: string, pct: number | null) => pct === null ? null : (
     <span style={{ whiteSpace: 'nowrap', marginRight: 12 }}>
-      <span style={{ color: '#94a3b8' }}>{label}</span>{' '}
+      <span style={{ color: 'var(--text-tertiary)' }}>{label}</span>{' '}
       <span style={{ color: pct >= 0 ? '#3f8600' : '#cf1322', fontWeight: 600 }}>
         {pct >= 0 ? <ArrowUpOutlined style={{ fontSize: 11 }} /> : <ArrowDownOutlined style={{ fontSize: 11 }} />}
         {Math.abs(pct).toFixed(1)}%
@@ -553,7 +553,7 @@ const OverviewPage: React.FC = () => {
                       precision={card.precision}
                       prefix={card.prefix}
                     />
-                    <div style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
+                    <div style={{ fontSize: 14, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
                       {hint ? hint.replace('约', '≈ ') : ' '}
                     </div>
                     {/* 环比/同比行: 预留高度防止异步数据到达时卡片跳动 */}
@@ -565,7 +565,7 @@ const OverviewPage: React.FC = () => {
                   {card.depts && card.depts.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: '60%' }}>
                       {card.depts.map((d: any) => (
-                        <span key={d.label} style={{ fontSize: 11, color: '#64748b', background: `${d.color}10`, border: `1px solid ${d.color}20`, borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+                        <span key={d.label} style={{ fontSize: 11, color: 'var(--text-tertiary)', background: `${d.color}10`, border: `1px solid ${d.color}20`, borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>
                           <span style={{ color: d.color, fontWeight: 600 }}>{d.label}</span> {d.value}
                         </span>
                       ))}
@@ -610,12 +610,12 @@ const OverviewPage: React.FC = () => {
                   >
                     {cfg.icon}
                   </div>
-                  <span style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}>{cfg.label}</span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 600 }}>{cfg.label}</span>
                 </div>
                 {/* v1.74.3: 主字 = 总和 (新口径). 万元 hint 那一行: 电商部显示销售/调拨拆解, 其它部门显示原万元 hint. 跟其它部门 mini 卡等高 */}
                 <div
                   style={{
-                    color: '#1e293b',
+                    color: 'var(--text-primary)',
                     fontSize: 24,
                     fontWeight: 700,
                     fontVariantNumeric: 'tabular-nums',
@@ -625,14 +625,14 @@ const OverviewPage: React.FC = () => {
                   ¥{dept.sales?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 {(dept as any).allotAmt > 0 ? (
-                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 2, fontVariantNumeric: 'tabular-nums', fontWeight: 400 }}>
-                    销售 <span style={{ color: '#475569', fontWeight: 600 }}>¥{(((dept as any).salesAmt || 0) / 10000).toFixed(2)} 万</span>
+                  <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 2, fontVariantNumeric: 'tabular-nums', fontWeight: 400 }}>
+                    销售 <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>¥{(((dept as any).salesAmt || 0) / 10000).toFixed(2)} 万</span>
                     {' · 调拨 '}
-                    <span style={{ color: '#475569', fontWeight: 600 }}>¥{(((dept as any).allotAmt || 0) / 10000).toFixed(2)} 万</span>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>¥{(((dept as any).allotAmt || 0) / 10000).toFixed(2)} 万</span>
                   </div>
                 ) : (
                   formatWanHint(dept.sales || 0) && (
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2, fontVariantNumeric: 'tabular-nums', fontWeight: 400 }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 2, fontVariantNumeric: 'tabular-nums', fontWeight: 400 }}>
                       {formatWanHint(dept.sales || 0).replace('约', '≈ ')}
                     </div>
                   )
@@ -644,7 +644,7 @@ const OverviewPage: React.FC = () => {
                     justifyContent: 'space-between',
                     gap: 10,
                     marginTop: 10,
-                    color: '#94a3b8',
+                    color: 'var(--text-tertiary)',
                     fontSize: 12,
                   }}
                 >
@@ -664,7 +664,7 @@ const OverviewPage: React.FC = () => {
               <span>
                 {activeCfg.label} 每日销售趋势
                 {isShortRange && (
-                  <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 400, marginLeft: 8 }}>
                     蓝色区域为选中日期
                   </span>
                 )}

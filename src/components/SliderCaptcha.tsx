@@ -138,7 +138,7 @@ const SliderCaptcha: React.FC<SliderCaptchaProps> = ({ open, onSuccess, onCancel
       title="安全验证"
     >
       {loading ? (
-        <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+        <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)' }}>
           加载中...
         </div>
       ) : (
