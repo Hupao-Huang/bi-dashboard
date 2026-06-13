@@ -85,9 +85,9 @@ const buildColumns = (data: ReportData): any[] => {
     if (!c || c.amount === 0) return <Text type="secondary">-</Text>;
     const hint = formatWanHint(c.amount);
     return (
-      <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined }}>
+      <div style={{ textAlign: 'right', color: isChannel ? 'var(--text-tertiary)' : undefined }}>
         <div>{c.amount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</div>
-        {hint && <div style={{ fontSize: 11, color: '#94a3b8' }}>{hint}</div>}
+        {hint && <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{hint}</div>}
       </div>
     );
   };
@@ -95,7 +95,7 @@ const buildColumns = (data: ReportData): any[] => {
   const formatRatio = (c: FinCell | undefined, row: FinRow) => {
     if (row.level === 1 || isGmvRow(row)) return null;
     if (!c || c.ratio === undefined || c.ratio === null || !isFinite(c.ratio)) return <Text type="secondary">-</Text>;
-    return <div style={{ textAlign: 'right', color: '#64748b', fontSize: 11 }}>{(c.ratio * 100).toFixed(2)}%</div>;
+    return <div style={{ textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 11 }}>{(c.ratio * 100).toFixed(2)}%</div>;
   };
 
   const divider = {
@@ -131,7 +131,7 @@ const buildColumns = (data: ReportData): any[] => {
       fixed: 'left' as const,
       render: (_: any, row: FinRow) => {
         if (row.level === 1) {
-          return <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>{row.name}</div>;
+          return <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 13 }}>{row.name}</div>;
         }
         const indent = (row.level - 1) * 16;
         const bold = row.level === 2 && HIGHLIGHT_CODES.has(row.code);
@@ -590,13 +590,13 @@ const FinanceReportPage: React.FC = () => {
                 <Radio value="full" style={{ alignItems: 'flex-start', padding: 12, border: '1px solid #e2e8f0', borderRadius: 6, margin: 0, background: importModal.mode === 'full' ? '#eff6ff' : '#fff' }}>
                   <div style={{ marginLeft: 4 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>📊 累积版（全年覆盖）</div>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>Excel 含 1-12 月（业务方常规做法）。导入会清空当年所有相关部门数据，再写入整张表。</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Excel 含 1-12 月（业务方常规做法）。导入会清空当年所有相关部门数据，再写入整张表。</div>
                   </div>
                 </Radio>
                 <Radio value="incremental" style={{ alignItems: 'flex-start', padding: 12, border: '1px solid #e2e8f0', borderRadius: 6, margin: 0, background: importModal.mode === 'incremental' ? '#eff6ff' : '#fff' }}>
                   <div style={{ marginLeft: 4 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>📅 增量版（按月精确替换）</div>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>Excel 只填了部分月份。导入会只删除并重写 Excel 里有数据的月份，其他月份的旧值保留。</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Excel 只填了部分月份。导入会只删除并重写 Excel 里有数据的月份，其他月份的旧值保留。</div>
                   </div>
                 </Radio>
               </div>
@@ -608,7 +608,7 @@ const FinanceReportPage: React.FC = () => {
                 <UploadOutlined style={{ fontSize: 28, color: '#1e40af' }} />
               </p>
               <p style={{ margin: '8px 0 4px', fontWeight: 600 }}>点击或拖拽 Excel 到此区域</p>
-              <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>仅支持 .xlsx 格式，文件名需含 "YYYY年"（如 2026年财务管理报表.xlsx）</p>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-tertiary)' }}>仅支持 .xlsx 格式，文件名需含 "YYYY年"（如 2026年财务管理报表.xlsx）</p>
             </Upload.Dragger>
 
             {importModal.file && (
@@ -663,14 +663,14 @@ const ImportPreviewView: React.FC<{ preview: any }> = ({ preview }) => {
       {/* 摘要 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
         <div style={{ padding: 10, background: '#f1f5f9', borderRadius: 6, textAlign: 'center' }}>
-          <div style={{ fontSize: 11, color: '#64748b' }}>年份 / 模式</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>年份 / 模式</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#1e40af' }}>{year} 年</div>
-          <div style={{ fontSize: 11, color: '#64748b' }}>{mode === 'incremental' ? '按月增量' : '全年覆盖'}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{mode === 'incremental' ? '按月增量' : '全年覆盖'}</div>
         </div>
         <div style={{ padding: 10, background: '#f1f5f9', borderRadius: 6, textAlign: 'center' }}>
-          <div style={{ fontSize: 11, color: '#64748b' }}>涉及部门 / Sheet</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{(departments || []).length} 部门</div>
-          <div style={{ fontSize: 11, color: '#64748b' }}>{sheetCount} 个 sheet</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>涉及部门 / Sheet</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{(departments || []).length} 部门</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{sheetCount} 个 sheet</div>
         </div>
         <div style={{ padding: 10, background: '#fef3c7', borderRadius: 6, textAlign: 'center' }}>
           <div style={{ fontSize: 11, color: '#92400e' }}>即将删除（旧）</div>
@@ -747,7 +747,7 @@ const ImportPreviewView: React.FC<{ preview: any }> = ({ preview }) => {
             render: (v: number, r) => {
               if (r.action === 'new') return <Tag color="green">新增</Tag>;
               if (r.action === 'delete') return <Tag color="red">清除</Tag>;
-              if (r.action === 'unchanged' || (r.oldAmount === 0 && r.newAmount === 0)) return <span style={{ color: '#94a3b8' }}>-</span>;
+              if (r.action === 'unchanged' || (r.oldAmount === 0 && r.newAmount === 0)) return <span style={{ color: 'var(--text-tertiary)' }}>-</span>;
               const color = v > 50 || v < -30 ? '#dc2626' : v > 10 || v < -10 ? '#ea580c' : '#16a34a';
               return <span style={{ color, fontWeight: 600 }}>{v > 0 ? '+' : ''}{v.toFixed(1)}%</span>;
             },
@@ -759,7 +759,7 @@ const ImportPreviewView: React.FC<{ preview: any }> = ({ preview }) => {
         ]}
       />
 
-      <div style={{ marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
+      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>
         预览缓存有效期至 {expiresAt ? new Date(expiresAt).toLocaleTimeString() : '30 分钟内'}，过期后需重新上传。
       </div>
     </div>

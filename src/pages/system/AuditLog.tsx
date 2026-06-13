@@ -64,7 +64,7 @@ const AuditLog: React.FC = () => {
       title: '时间',
       dataIndex: 'createdAt',
       width: 170,
-      render: (v: string) => <span style={{ fontSize: 12, color: '#64748b' }}>{v}</span>,
+      render: (v: string) => <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{v}</span>,
     },
     {
       title: '用户',
@@ -72,7 +72,7 @@ const AuditLog: React.FC = () => {
       render: (_: any, r: any) => (
         <div>
           <div style={{ fontWeight: 500, fontSize: 13 }}>{r.realName || r.username}</div>
-          {r.realName && <div style={{ fontSize: 11, color: '#94a3b8' }}>@{r.username}</div>}
+          {r.realName && <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>@{r.username}</div>}
         </div>
       ),
     },
@@ -97,7 +97,7 @@ const AuditLog: React.FC = () => {
           return (
             <div>
               <div style={{ fontSize: 13 }}>{label}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>{v}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{v}</div>
             </div>
           );
         }
@@ -112,9 +112,9 @@ const AuditLog: React.FC = () => {
         if (!v) return '-';
         try {
           const obj = JSON.parse(v);
-          return <span style={{ fontSize: 12, color: '#64748b' }}>{JSON.stringify(obj, null, 0)}</span>;
+          return <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{JSON.stringify(obj, null, 0)}</span>;
         } catch {
-          return <span style={{ fontSize: 12, color: '#64748b' }}>{v}</span>;
+          return <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{v}</span>;
         }
       },
     },
@@ -122,7 +122,7 @@ const AuditLog: React.FC = () => {
       title: 'IP',
       dataIndex: 'ip',
       width: 130,
-      render: (v: string) => <span style={{ color: '#64748b' }}>{v || '-'}</span>,
+      render: (v: string) => <span style={{ color: 'var(--text-tertiary)' }}>{v || '-'}</span>,
     },
   ];
 

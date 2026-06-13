@@ -186,22 +186,22 @@ const buildColumns = (data: BBRData): any[] => {
     const bold = level === 1;
     if (kind === 'budget') {
       if (c.budget == null) return <Text type="secondary">-</Text>;
-      return <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined, fontWeight: bold ? 700 : 400 }}>{fmtNum(c.budget)}</div>;
+      return <div style={{ textAlign: 'right', color: isChannel ? 'var(--text-tertiary)' : undefined, fontWeight: bold ? 700 : 400 }}>{fmtNum(c.budget)}</div>;
     }
     if (kind === 'actual') {
       if (c.actual == null) return <Text type="secondary">-</Text>;
-      return <div style={{ textAlign: 'right', color: isChannel ? '#64748b' : undefined, fontWeight: bold ? 700 : 500 }}>{fmtNum(c.actual)}</div>;
+      return <div style={{ textAlign: 'right', color: isChannel ? 'var(--text-tertiary)' : undefined, fontWeight: bold ? 700 : 500 }}>{fmtNum(c.actual)}</div>;
     }
     // ratio = 科目实际 / 营业收入（xlsx 原值"占比销售"列）
     if (c.ratio == null || !isFinite(c.ratio)) return <Text type="secondary">-</Text>;
-    return <div style={{ textAlign: 'right', color: '#64748b', fontSize: 12 }}>{(c.ratio * 100).toFixed(2)}%</div>;
+    return <div style={{ textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 12 }}>{(c.ratio * 100).toFixed(2)}%</div>;
   };
   const _suppress = achColor; void _suppress;
   const isGmvRow = (row: BBRRow) => row.category === 'GMV数据';
   const formatRatio = (c: BBRCell | undefined, row: BBRRow) => {
     if (isGmvRow(row)) return null;
     if (!c || c.ratio === undefined || c.ratio === null || !isFinite(c.ratio)) return <Text type="secondary">-</Text>;
-    return <div style={{ textAlign: 'right', color: '#64748b', fontSize: 11 }}>{(c.ratio * 100).toFixed(2)}%</div>;
+    return <div style={{ textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 11 }}>{(c.ratio * 100).toFixed(2)}%</div>;
   };
   const divider = {
     onCell: () => ({ style: { borderRight: '2px solid #94a3b8' } }),
@@ -245,7 +245,7 @@ const buildColumns = (data: BBRData): any[] => {
       fixed: 'left' as const,
       render: (_: any, row: BBRRow) => {
         if (row.level === 1) {
-          return <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>{row.name}</div>;
+          return <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 13 }}>{row.name}</div>;
         }
         const indent = (row.level - 1) * 16;
         const label = row.subChannel ? `· ${row.subChannel}` : row.name;

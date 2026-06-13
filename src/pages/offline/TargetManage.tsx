@@ -158,7 +158,7 @@ const TargetManage: React.FC = () => {
         </Card>
       </Spin>
 
-      <div style={{ marginTop: 12, color: '#64748b', fontSize: 13 }}>
+      <div style={{ marginTop: 12, color: 'var(--text-tertiary)', fontSize: 13 }}>
         提示：单位为元，留空表示未设置目标。修改后点击右上角"保存"生效。
       </div>
     </div>

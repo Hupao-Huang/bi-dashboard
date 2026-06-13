@@ -113,16 +113,16 @@ const PurchasePlan: React.FC = () => {
   const renderInTransitPopover = (goodsNo: string, kind: 'purchase' | 'subcontract') => {
     const detail = inTransitCache[goodsNo];
     if (!detail || detail.loading) {
-      return <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8' }}><Spin size="small" /> 加载中...</div>;
+      return <div style={{ padding: 12, textAlign: 'center', color: 'var(--text-tertiary)' }}><Spin size="small" /> 加载中...</div>;
     }
     const orders = kind === 'purchase' ? detail.purchaseOrders : detail.subcontractOrders;
     if (!orders || orders.length === 0) {
-      return <div style={{ padding: 12, color: '#94a3b8' }}>暂无在途{kind === 'purchase' ? '采购' : '委外'}订单</div>;
+      return <div style={{ padding: 12, color: 'var(--text-tertiary)' }}>暂无在途{kind === 'purchase' ? '采购' : '委外'}订单</div>;
     }
     const totalIn = orders.reduce((s, o) => s + (o.inTransitQty || 0), 0);
     return (
       <div style={{ maxHeight: 420, overflow: 'auto' }}>
-        <div style={{ marginBottom: 6, fontSize: 12, color: '#64748b' }}>
+        <div style={{ marginBottom: 6, fontSize: 12, color: 'var(--text-tertiary)' }}>
           共 <b style={{ color: kind === 'purchase' ? '#1e40af' : '#7c3aed' }}>{orders.length}</b> 单, 在途合计 <b>{fmtQty(totalIn)}</b>
         </div>
         <Table
@@ -213,7 +213,7 @@ const PurchasePlan: React.FC = () => {
             <div style={{ marginTop: 8, color: '#dc2626' }}>
               ⚠ 总耗时 4-6 分钟, 期间无法再触发新一轮
             </div>
-            <div style={{ marginTop: 4, color: '#64748b' }}>
+            <div style={{ marginTop: 4, color: 'var(--text-tertiary)' }}>
               系统每小时会自动同步一次, 没有特殊情况不用手动点
             </div>
           </div>
@@ -371,7 +371,7 @@ const PurchasePlan: React.FC = () => {
       {/* 状态分布 (公式说明已在列名 Tooltip 体现, 不重复) */}
       <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6,
                     padding: '8px 14px', marginBottom: 12, fontSize: 13 }}>
-        <span style={{ color: '#1e293b', fontWeight: 600, marginRight: 6 }}>状态分布:</span>
+        <span style={{ color: 'var(--text-primary)', fontWeight: 600, marginRight: 6 }}>状态分布:</span>
         {['断货', '紧急', '偏低', '正常', '积压'].map((s) => {
           const cnt = suggested.filter((x) => x.type === typeFilter && x.status === s).length;
           return (
@@ -380,7 +380,7 @@ const PurchasePlan: React.FC = () => {
             </Tag>
           );
         })}
-        <span style={{ color: '#64748b' }}>当前 {typeFilter} 共 {suggested.filter((x) => x.type === typeFilter).length} 项</span>
+        <span style={{ color: 'var(--text-tertiary)' }}>当前 {typeFilter} 共 {suggested.filter((x) => x.type === typeFilter).length} 项</span>
       </div>
 
       {/* 4 KPI 卡片 */}
@@ -390,11 +390,11 @@ const PurchasePlan: React.FC = () => {
             <Card bodyStyle={{ padding: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{k.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4 }}>{k.title}</div>
                   <div style={{ fontSize: 22, fontWeight: 700, color: k.color }}>
-                    {k.value}<span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8', marginLeft: 4 }}>{k.suffix}</span>
+                    {k.value}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 4 }}>{k.suffix}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{k.desc}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>{k.desc}</div>
                 </div>
                 <div style={{ fontSize: 28, color: k.color, opacity: 0.6 }}>{k.icon}</div>
               </div>
@@ -621,7 +621,7 @@ const PurchasePlan: React.FC = () => {
               render: (date: string, r: SuggestRow) => {
                 if (!date) return <span style={{ color: '#cbd5e1' }}>—</span>;
                 const d = r.nextArriveDays;
-                if (d === 999) return <Tooltip title="采购员未填到货日期, 用 vouchdate+30天 估算"><span style={{ color: '#94a3b8' }}>{date} (估)</span></Tooltip>;
+                if (d === 999) return <Tooltip title="采购员未填到货日期, 用 vouchdate+30天 估算"><span style={{ color: 'var(--text-tertiary)' }}>{date} (估)</span></Tooltip>;
                 let color = '#16a34a', label = `${d} 天后`;
                 if (d < 0) { color = '#dc2626'; label = `逾期 ${-d} 天`; }
                 else if (d <= 7) color = '#dc2626';
@@ -653,7 +653,7 @@ const PurchasePlan: React.FC = () => {
               status={syncProgress.done ? 'success' : 'active'}
               strokeColor={syncProgress.done ? '#52c41a' : '#1677ff'}
             />
-            <div style={{ marginTop: 12, fontSize: 13, color: '#475569' }}>
+            <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
               {!syncProgress.done && (
                 <div>
                   ⏱ 已用时 <b>{syncProgress.elapsedSec}s</b> / 第 <b>{syncProgress.currentStep}/{syncProgress.totalSteps}</b> 步
@@ -667,14 +667,14 @@ const PurchasePlan: React.FC = () => {
               )}
             </div>
             <div style={{ marginTop: 12, padding: 12, background: '#f8fafc', borderRadius: 6, fontSize: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6, color: '#1e293b' }}>步骤明细:</div>
+              <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text-primary)' }}>步骤明细:</div>
               {syncProgress.results.length === 0 && !syncProgress.done && (
-                <div style={{ color: '#94a3b8' }}>等待第一步开始...</div>
+                <div style={{ color: 'var(--text-tertiary)' }}>等待第一步开始...</div>
               )}
               {syncProgress.results.map((r, idx) => (
                 <div key={idx} style={{ marginBottom: 4, color: r.failed ? '#dc2626' : '#16a34a' }}>
                   {r.failed ? '✗' : '✓'} <b>{r.name}</b>
-                  <span style={{ marginLeft: 8, color: '#64748b' }}>
+                  <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>
                     新增 {r.ins} / 更新 {r.upd} / 失败 {r.err} ({r.durationSec}s)
                   </span>
                   {r.failed && r.message && (

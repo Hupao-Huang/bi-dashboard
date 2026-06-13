@@ -427,7 +427,7 @@ const UserAccessPage: React.FC = () => {
               transition: 'width 120ms ease',
             }} />
             <div>
-              <Typography.Text strong style={{ color: isSelected ? accent : '#0f172a' }}>
+              <Typography.Text strong style={{ color: isSelected ? accent : 'var(--text-primary)' }}>
                 {record.realName}
               </Typography.Text>
               <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
@@ -500,7 +500,7 @@ const UserAccessPage: React.FC = () => {
             bodyStyle={{ padding: 16 }}
             onClick={() => setStatusFilter('')}
           >
-            <Statistic title={<><TeamOutlined style={{ marginRight: 6 }} />总用户</>} value={stats.total} valueStyle={{ color: '#1e40af', fontSize: 22 }} />
+            <Statistic title={<><TeamOutlined style={{ marginRight: 6 }} />总用户</>} value={stats.total} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
@@ -514,7 +514,7 @@ const UserAccessPage: React.FC = () => {
             bodyStyle={{ padding: 16 }}
             onClick={() => setStatusFilter(statusFilter === 'active' ? '' : 'active')}
           >
-            <Statistic title={<><CheckCircleOutlined style={{ marginRight: 6, color: '#16a34a' }} />已启用</>} value={stats.active} valueStyle={{ color: '#16a34a', fontSize: 22 }} />
+            <Statistic title={<><CheckCircleOutlined style={{ marginRight: 6, color: '#16a34a' }} />已启用</>} value={stats.active} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
@@ -528,7 +528,7 @@ const UserAccessPage: React.FC = () => {
             bodyStyle={{ padding: 16 }}
             onClick={() => setStatusFilter(statusFilter === 'disabled' ? '' : 'disabled')}
           >
-            <Statistic title={<><StopOutlined style={{ marginRight: 6, color: '#94a3b8' }} />已停用</>} value={stats.disabled} valueStyle={{ color: '#64748b', fontSize: 22 }} />
+            <Statistic title={<><StopOutlined style={{ marginRight: 6, color: '#94a3b8' }} />已停用</>} value={stats.disabled} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
@@ -545,7 +545,6 @@ const UserAccessPage: React.FC = () => {
             <Statistic
               title={<><ClockCircleOutlined style={{ marginRight: 6, color: '#f59e0b' }} />待审批</>}
               value={stats.pending}
-              valueStyle={{ color: stats.pending > 0 ? '#f59e0b' : '#94a3b8', fontSize: 22, fontWeight: stats.pending > 0 ? 700 : 400 }}
             />
           </Card>
         </Col>
@@ -584,7 +583,7 @@ const UserAccessPage: React.FC = () => {
           >
             <Input
               placeholder="搜索 姓名 / 账号 / 手机号"
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              prefix={<SearchOutlined style={{ color: 'var(--text-tertiary)' }} />}
               allowClear
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
@@ -658,14 +657,14 @@ const UserAccessPage: React.FC = () => {
                       }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                            <span style={{ fontSize: 18, fontWeight: 600, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                            <span style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
                               {access.realName}
                             </span>
-                            <span style={{ fontSize: 12, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+                            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
                               @{access.username}
                             </span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-tertiary)' }}>
                             <span style={{
                               display: 'inline-block',
                               padding: '1px 8px',

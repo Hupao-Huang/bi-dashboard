@@ -78,7 +78,7 @@ const StoreTmallCsSection: React.FC<StoreTmallCsSectionProps> = ({ tmallcsOps, i
               <Col span={4} key={card.title}>
                 <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
                   <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
+                  <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
                     {card.value >= 10000 ? `≈ ${(card.value / 10000).toFixed(1)}万` : ' '}
                   </div>
                 </Card>

@@ -90,8 +90,8 @@ const DateFilter: React.FC<Props> = ({ start, end, onChange }) => {
 
   const content = (
     <div className="bi-date-filter">
-      <CalendarOutlined style={{ color: '#94a3b8', fontSize: 14, marginRight: 2 }} />
-      <span style={{ fontWeight: 500, color: '#64748b', marginRight: 4, fontSize: 13 }}>时间</span>
+      <CalendarOutlined style={{ color: 'var(--text-tertiary)', fontSize: 14, marginRight: 2 }} />
+      <span style={{ fontWeight: 500, color: 'var(--text-tertiary)', marginRight: 4, fontSize: 13 }}>时间</span>
       <RangePicker
         value={[dayjs(start), dayjs(end)]}
         onChange={handleRange as any}

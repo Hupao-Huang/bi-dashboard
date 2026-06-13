@@ -132,7 +132,7 @@ const TradeAuditPage: React.FC = () => {
                   );
                 }}
               />
-              <div style={{ marginTop: 12, color: '#666', fontSize: 13 }}>
+              <div style={{ marginTop: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
                 按发货日期统计当月每天的销售单数、明细行数、包裹数，用于和吉客云后台逐日核对差异。
               </div>
             </>

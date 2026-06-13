@@ -17,7 +17,7 @@ import { API_BASE, DATA_START_DATE, DATA_END_DATE } from '../../config';
 import { getBaseOption, barItemStyle, formatMoney, CHART_COLORS, GRADE_COLORS } from '../../chartTheme';
 
 // v1.02: 每个 Card 数据来源 Tooltip 业务白话说明 (跑哥要求)
-const cardTipStyle: React.CSSProperties = { color: '#94a3b8', marginLeft: 6, fontSize: 12, cursor: 'help' };
+const cardTipStyle: React.CSSProperties = { color: 'var(--text-tertiary)', marginLeft: 6, fontSize: 12, cursor: 'help' };
 const TitleTip: React.FC<{ title: string; tip: React.ReactNode }> = ({ title, tip }) => (
   <span>
     {title}
@@ -199,13 +199,13 @@ const PlanDashboard: React.FC = () => {
 
   // ========== 销售TOP20 ==========
   const topCols = [
-    { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#1e40af' : '#94a3b8', fontWeight: i < 3 ? 700 : 400 }}>{i + 1}</span> },
+    { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#1e40af' : 'var(--text-tertiary)', fontWeight: i < 3 ? 700 : 400 }}>{i + 1}</span> },
     { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
     { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 200, ellipsis: true },
     { title: '分类', dataIndex: 'category', key: 'category', width: 80, ellipsis: true, render: (v: string) => v ? v.replace(/^成品\//, '') : '-' },
     { title: '定位', dataIndex: 'grade', key: 'grade', width: 70, render: (v: string) => {
       if (!v) return '-';
-      return <span style={{ color: GRADE_COLORS[v] || '#64748b', fontWeight: 600, fontSize: 12 }}>{v}</span>;
+      return <span style={{ color: GRADE_COLORS[v] || 'var(--text-tertiary)', fontWeight: 600, fontSize: 12 }}>{v}</span>;
     }},
     { title: '销售额', dataIndex: 'sales', key: 'sales', width: 120, align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600 }}>¥{v?.toLocaleString()}</span> },
     { title: '数量', dataIndex: 'qty', key: 'qty', width: 80, align: 'right' as const, render: (v: number) => v?.toLocaleString() },
@@ -262,7 +262,7 @@ const PlanDashboard: React.FC = () => {
       {/* 加载遮罩（暂时关闭） */}
 
       <DateFilter start={startDate} end={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
-      <div style={{ fontSize: 12, color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 12px', marginBottom: 16 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-tertiary)', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 12px', marginBottom: 16 }}>
         数据来源：南京委外成品仓、南京自营成品仓、天津委外仓、西安仓库成品、松鲜鲜&amp;大地密码云仓、长沙委外成品仓、安徽郎溪成品、南京分销虚拟仓（共8个仓库）
       </div>
 
@@ -273,19 +273,19 @@ const PlanDashboard: React.FC = () => {
             <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.color }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
                     {card.title}
                     {(card as any).tip && (
                       <Tooltip title={(card as any).tip} overlayStyle={{ maxWidth: 320 }}>
                         <QuestionCircleOutlined style={{ color: '#cbd5e1', fontSize: 11, cursor: 'help' }} />
                       </Tooltip>
                     )}
-                    {(card as any).tag && <span style={{ fontSize: 10, color: '#94a3b8', background: '#f1f5f9', borderRadius: 3, padding: '0 4px', lineHeight: '16px' }}>{(card as any).tag}</span>}
+                    {(card as any).tag && <span style={{ fontSize: 10, color: 'var(--text-tertiary)', background: '#f1f5f9', borderRadius: 3, padding: '0 4px', lineHeight: '16px' }}>{(card as any).tag}</span>}
                   </div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                     {(card as any).animated ? <AnimatedNumber value={card.num} formatter={card.fmt} /> : card.fmt(card.num)}
                   </div>
-                  <div style={{ fontSize: 11, color: '#b0b8c4', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.desc}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.desc}</div>
                 </div>
                 <div style={{ fontSize: 20, color: card.color, opacity: 0.15, flexShrink: 0, marginLeft: 4 }}>{card.icon}</div>
               </div>
@@ -471,13 +471,13 @@ const PlanDashboard: React.FC = () => {
         <div style={{ flex: 1, minWidth: 0 }}>
           <Card title={<TitleTip title="销售数量 TOP20" tip="本期 10 个核心调味品类下，按销售件数排前 20 的商品。" />}>
             <Table dataSource={data.topQtyProducts || []} columns={[
-              { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#1e40af' : '#94a3b8', fontWeight: i < 3 ? 700 : 400 }}>{i + 1}</span> },
+              { title: '#', key: 'rank', width: 40, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#1e40af' : 'var(--text-tertiary)', fontWeight: i < 3 ? 700 : 400 }}>{i + 1}</span> },
               { title: '商品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
               { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', width: 200, ellipsis: true },
               { title: '分类', dataIndex: 'category', key: 'category', width: 80, ellipsis: true, render: (v: string) => v ? v.replace(/^成品\//, '') : '-' },
               { title: '定位', dataIndex: 'grade', key: 'grade', width: 70, render: (v: string) => {
                 if (!v) return '-';
-                return <span style={{ color: GRADE_COLORS[v] || '#64748b', fontWeight: 600, fontSize: 12 }}>{v}</span>;
+                return <span style={{ color: GRADE_COLORS[v] || 'var(--text-tertiary)', fontWeight: 600, fontSize: 12 }}>{v}</span>;
               }},
               { title: '数量', dataIndex: 'qty', key: 'qty', width: 80, align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600 }}>{v?.toLocaleString()}</span> },
               { title: '销售额', dataIndex: 'sales', key: 'sales', width: 110, align: 'right' as const, render: (v: number) => `¥${v?.toLocaleString()}` },

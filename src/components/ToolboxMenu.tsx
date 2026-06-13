@@ -49,7 +49,7 @@ const ToolboxMenu: React.FC<ToolboxMenuProps> = ({ isMobile }) => {
       <Button
         type="text"
         icon={<ToolOutlined />}
-        style={{ color: '#64748b', fontSize: 14 }}
+        style={{ color: 'var(--text-tertiary)', fontSize: 14 }}
       >
         {!isMobile && '工具箱'}
       </Button>

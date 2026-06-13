@@ -150,7 +150,7 @@ const Profile: React.FC = () => {
               ? `${profile.realName}-${profile.dingtalkRealName}`
               : (profile.realName || profile.username)}
           </h2>
-          <div style={{ color: '#999', marginBottom: 12 }}>@{profile.username}</div>
+          <div style={{ color: 'var(--text-tertiary)', marginBottom: 12 }}>@{profile.username}</div>
           <div>
             {(profile.roles || []).map((r: string) => (
               <Tag key={r} color="blue">{roleLabelMap[r] || r}</Tag>

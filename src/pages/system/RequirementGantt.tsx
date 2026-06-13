@@ -79,7 +79,7 @@ const RequirementGantt: React.FC = () => {
   }, [data.main]);
 
   if (error) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>{error}</div>;
+    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>{error}</div>;
   }
 
   const renderCard = (r: GanttRow) => {
@@ -103,14 +103,14 @@ const RequirementGantt: React.FC = () => {
           borderRadius: 3, fontWeight: 600, fontSize: 11,
         }}>{r.priority}</span>
         <span style={{ flex: 1, fontWeight: 500 }}>{r.title}</span>
-        <span style={{ color: '#64748b', fontSize: 11 }}>{r.submitter}</span>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>{r.submitter}</span>
         <span style={{
           display: 'inline-block', padding: '0 6px',
           background: `${statHex}12`, color: statHex, border: `1px solid ${statHex}30`,
           borderRadius: 3, fontSize: 11,
         }}>{STATUS_LABEL[r.status]}</span>
         {r.expectedDate && (
-          <span style={{ color: '#94a3b8', fontSize: 11, minWidth: 80, textAlign: 'right' }}>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 11, minWidth: 80, textAlign: 'right' }}>
             {r.actualDate ? `✓ ${r.actualDate}` : `预 ${r.expectedDate}`}
           </span>
         )}
@@ -138,7 +138,7 @@ const RequirementGantt: React.FC = () => {
                   ) : (
                     <Tag color="blue" style={{ fontSize: 14, padding: '2px 10px', fontWeight: 600 }}>{version}</Tag>
                   )}
-                  <span style={{ color: '#94a3b8', fontSize: 12 }}>{items.length} 条</span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{items.length} 条</span>
                 </div>
                 {items.map(renderCard)}
               </div>
@@ -149,7 +149,7 @@ const RequirementGantt: React.FC = () => {
             <div style={{ marginTop: 30, padding: 16, background: '#f8fafc', borderRadius: 6 }}>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8,
-                color: '#64748b', fontSize: 13, fontWeight: 600,
+                color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 600,
               }}>
                 📦 暂缓清单（已搁置/已拒绝）· {data.shelved.length} 条
               </div>

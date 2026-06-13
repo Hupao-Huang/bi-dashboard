@@ -422,7 +422,7 @@ const ServiceScore: React.FC = () => {
               const key = (['s1', 's2', 's3'] as const)[i];
               return (
                 <div key={m.key}>
-                  <div style={{ marginBottom: 4, fontSize: 13, color: '#64748b' }}>
+                  <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--text-tertiary)' }}>
                     {m.label}{editItem.platform === '拼多多' && i !== 1 ? ' (斜杠双值原样填, 如 4.4/2.6)' : ''}
                   </div>
                   <Input value={editVals[key]} onChange={e => setEditVals(v => ({ ...v, [key]: e.target.value }))} />

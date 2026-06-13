@@ -157,7 +157,7 @@ const DBDictionary: React.FC = () => {
                   {t}
                 </div>
                 {info?.table_comment && (
-                  <div style={{ fontSize: 11, color: '#999', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {info.table_comment}
                   </div>
                 )}
@@ -165,7 +165,7 @@ const DBDictionary: React.FC = () => {
             );
           })}
         </div>
-        <div style={{ padding: '8px 12px', borderTop: '1px solid #f0f0f0', color: '#999', fontSize: 12 }}>
+        <div style={{ padding: '8px 12px', borderTop: '1px solid #f0f0f0', color: 'var(--text-tertiary)', fontSize: 12 }}>
           共 {filteredTables.length} / {tableList.length} 张表
         </div>
       </div>
@@ -181,7 +181,7 @@ const DBDictionary: React.FC = () => {
               {selectedInfo.table_comment && (
                 <Text type="secondary" style={{ fontSize: 13 }}>{selectedInfo.table_comment}</Text>
               )}
-              <Text style={{ fontSize: 12, color: '#999', marginLeft: selectedInfo.table_comment ? 12 : 0 }}>
+              <Text style={{ fontSize: 12, color: 'var(--text-tertiary)', marginLeft: selectedInfo.table_comment ? 12 : 0 }}>
                 {selectedInfo.columns?.length ?? 0} 个字段
               </Text>
             </div>

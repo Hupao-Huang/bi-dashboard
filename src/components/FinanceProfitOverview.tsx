@@ -114,7 +114,7 @@ const OverviewTabContent: React.FC = () => {
     return (
       <div style={{ textAlign: 'right' as const, fontVariantNumeric: 'tabular-nums' as const, lineHeight: 1.4 }}>
         <div style={{ fontWeight: 600 }}>¥{fmtAmount(c.sales)}</div>
-        <div style={{ fontSize: 11, color: '#64748b' }}>毛利 ¥{fmtAmount(c.profit)} <span style={{ color: profitRateColor(rate), fontWeight: 600 }}>({(rate * 100).toFixed(1)}%)</span></div>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>毛利 ¥{fmtAmount(c.profit)} <span style={{ color: profitRateColor(rate), fontWeight: 600 }}>({(rate * 100).toFixed(1)}%)</span></div>
       </div>
     );
   };
@@ -123,7 +123,7 @@ const OverviewTabContent: React.FC = () => {
     return (
       <div style={{ textAlign: 'right' as const, fontVariantNumeric: 'tabular-nums' as const, lineHeight: 1.4 }}>
         <div style={{ fontWeight: 700 }}>¥{fmtAmount(c.sales)}</div>
-        <div style={{ fontSize: 11, color: '#475569' }}>毛利 ¥{fmtAmount(c.profit)} <span style={{ color: profitRateColor(rate), fontWeight: 600 }}>({(rate * 100).toFixed(1)}%)</span></div>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>毛利 ¥{fmtAmount(c.profit)} <span style={{ color: profitRateColor(rate), fontWeight: 600 }}>({(rate * 100).toFixed(1)}%)</span></div>
       </div>
     );
   };
@@ -132,8 +132,8 @@ const OverviewTabContent: React.FC = () => {
       title: '产品定位', dataIndex: 'grade', key: 'grade', width: 100, fixed: 'left' as const,
       align: 'center' as const,
       render: (v: string) => v === '合计'
-        ? <span style={{ fontWeight: 700, color: '#0f172a' }}>{v}</span>
-        : <span style={{ fontWeight: 600, color: '#0f172a' }}>{v}</span>,
+        ? <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{v}</span>
+        : <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{v}</span>,
     },
     ...matrixDeptOrder.map(d => ({
       title: d, dataIndex: d, key: d, align: 'right' as const,

@@ -366,14 +366,14 @@ const ExpenseControl: React.FC = () => {
           const tip = record.preApprovedNode
             ? `已结束 (上一步: ${record.preApprovedNode})`
             : '已结束';
-          return <Tooltip title={tip}><span style={{color:'#999'}}>已结束</span></Tooltip>;
+          return <Tooltip title={tip}><span style={{color:'var(--text-tertiary)'}}>已结束</span></Tooltip>;
         }
         // v1.58.0: 进行中单据, 优先显示真实审批人 (合思 approveStates 接口)
         if (record.currentApproverName && record.currentStageName) {
           return (
             <Tooltip title={`节点: ${record.currentStageName}  审批人: ${record.currentApproverName}${record.currentApproverCode ? ' (' + record.currentApproverCode + ')' : ''}`}>
               <div><strong>{record.currentApproverName}</strong></div>
-              <div style={{fontSize:11, color:'#666'}}>{record.currentStageName}</div>
+              <div style={{fontSize:11, color:'var(--text-secondary)'}}>{record.currentStageName}</div>
             </Tooltip>
           );
         }
@@ -383,11 +383,11 @@ const ExpenseControl: React.FC = () => {
           const tStr = t > 0 ? dayjs(t).format('MM-DD HH:mm') : '';
           return (
             <Tooltip title={tStr ? `上一步 ${record.preApprovedNode} 于 ${tStr} 通过, 待下游` : record.preApprovedNode}>
-              <span style={{color:'#666'}}>{record.preApprovedNode} ✓</span>
+              <span style={{color:'var(--text-secondary)'}}>{record.preApprovedNode} ✓</span>
             </Tooltip>
           );
         }
-        return <span style={{color:'#999'}}>未启动</span>;
+        return <span style={{color:'var(--text-tertiary)'}}>未启动</span>;
       },
     },
     {
@@ -436,7 +436,7 @@ const ExpenseControl: React.FC = () => {
     <div>
       {/* v1.57.1 顶部工具栏: 上次同步时间 + 立即同步 + 看日志 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ color: 'var(--text-tertiary)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
           <ClockCircleOutlined />
           <span>
             上次同步时间:{' '}
@@ -444,7 +444,7 @@ const ExpenseControl: React.FC = () => {
               {lastSyncAt || '未知'}
             </Typography.Text>
             <Tooltip title="后台定时任务每 15 分钟自动同步合思一次; 想立即同步请点右侧按钮 (5-10 分钟)">
-              <span style={{ marginLeft: 6, color: '#94a3b8', cursor: 'help' }}>?</span>
+              <span style={{ marginLeft: 6, color: 'var(--text-tertiary)', cursor: 'help' }}>?</span>
             </Tooltip>
           </span>
         </div>
@@ -583,7 +583,7 @@ const ExpenseControl: React.FC = () => {
         ]}
         width={900}
       >
-        <div style={{ color: '#666', fontSize: 12, marginBottom: 8 }}>
+        <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 8 }}>
           每 3 秒自动刷新, 显示末尾 300 行 (来自 sync-hesi.log)
         </div>
         <pre

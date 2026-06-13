@@ -117,7 +117,7 @@ const DepartmentPage: React.FC<Props> = ({ dept, title, color  }) => {
   // 商品排行表
   const indexedGoods = (data.goods || []).map((g: any, i: number) => ({ ...g, _rank: i + 1 }));
   const goodsColumns = [
-    { title: '#', dataIndex: '_rank', key: 'rank', width: 40, render: (v: number) => <span style={{ color: v <= 3 ? color : '#94a3b8', fontWeight: v <= 3 ? 700 : 400 }}>{v}</span> },
+    { title: '#', dataIndex: '_rank', key: 'rank', width: 40, render: (v: number) => <span style={{ color: v <= 3 ? color : 'var(--text-tertiary)', fontWeight: v <= 3 ? 700 : 400 }}>{v}</span> },
     { title: '编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 110 },
     { title: '商品名称', dataIndex: 'goodsName', key: 'goodsName', ellipsis: true },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 80 },

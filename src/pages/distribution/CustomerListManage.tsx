@@ -200,7 +200,7 @@ const CustomerListManage: React.FC = () => {
         width={520}
       >
         {editTarget && (
-          <div style={{ marginBottom: 12, color: '#64748b', fontSize: 13 }}>
+          <div style={{ marginBottom: 12, color: 'var(--text-tertiary)', fontSize: 13 }}>
             客户编码: {editTarget.customerCode}<br />
             累计销售额 ¥{editTarget.totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })} · 订单数 {editTarget.totalOrders} 单
           </div>

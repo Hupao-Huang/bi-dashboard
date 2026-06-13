@@ -60,7 +60,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   const indexedShops = shops.map((g: any, i: number) => ({ ...g, _rank: i + 1 }));
   const columns = [
     { title: '排名', dataIndex: '_rank', key: 'rank', width: 60, align: 'center' as const,
-      render: (rank: number) => <span style={{ color: rank <= 3 ? color : '#94a3b8', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span> },
+      render: (rank: number) => <span style={{ color: rank <= 3 ? color : 'var(--text-tertiary)', fontWeight: rank <= 3 ? 700 : 400 }}>{rank}</span> },
     { title: `${unit}名称`, dataIndex: 'shopName', key: 'shopName', ellipsis: true, width: 300 },
     { title: '销售额', dataIndex: 'sales', key: 'sales', width: 130, sorter: (a: any, b: any) => a.sales - b.sales,
       render: (v: number) => `¥${v?.toLocaleString()}` },
@@ -333,7 +333,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
             <Col xs={24} sm={6} key={card.title}>
               <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%', position: 'relative' }}>
                 <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-                <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
                   {hint || ' '}
                 </div>
                 {idx < 3 && shopBreakdown.length > 0 && (
@@ -345,7 +345,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
                           ? (d.qty >= 10000 ? (d.qty / 10000).toFixed(1) + '万' : d.qty.toLocaleString())
                           : (d.qty > 0 ? '¥' + (d.sales / d.qty).toFixed(0) : '-');
                       return (
-                        <span key={d.label} style={{ display: 'inline-flex', alignItems: 'center', fontSize: 10, color: '#64748b', background: d.color + '10', border: '1px solid ' + d.color + '20', borderRadius: 4, padding: '1px 4px' }}>
+                        <span key={d.label} style={{ display: 'inline-flex', alignItems: 'center', fontSize: 10, color: 'var(--text-tertiary)', background: d.color + '10', border: '1px solid ' + d.color + '20', borderRadius: 4, padding: '1px 4px' }}>
                           <span style={{ color: d.color, fontWeight: 600 }}>{d.label}</span>
                           <span style={{ marginLeft: 2 }}>{val}</span>
                         </span>
@@ -362,7 +362,7 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
                       format={p => <span style={{ color: pctColor, fontWeight: 700, fontSize: 13 }}>{p}%</span>}
                       size="small"
                     />
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
                       目标 ￥{(totalTarget / 10000).toFixed(1)}万
                     </div>
                   </div>
@@ -371,30 +371,30 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
                   <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
                     {idx === 1 && (
                       <>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>
-                          {Math.round(dailyAvgQty).toLocaleString()} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>件/日</span>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          {Math.round(dailyAvgQty).toLocaleString()} <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400 }}>件/日</span>
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
                           {daysInRange} 天平均
                         </div>
                       </>
                     )}
                     {idx === 2 && (
                       <>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>
-                          ￥{(avgShopSales / 10000).toFixed(1)}万 <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>店均</span>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          ￥{(avgShopSales / 10000).toFixed(1)}万 <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400 }}>店均</span>
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
                           单店平均销售额
                         </div>
                       </>
                     )}
                     {idx === 3 && (
                       <>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: achievedCount > 0 ? '#10b981' : '#94a3b8' }}>
-                          {achievedCount} / {shops.length} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>达标</span>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: achievedCount > 0 ? '#10b981' : 'var(--text-tertiary)' }}>
+                          {achievedCount} / {shops.length} <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400 }}>达标</span>
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
                           完成率 ≥100% 的大区数
                         </div>
                       </>

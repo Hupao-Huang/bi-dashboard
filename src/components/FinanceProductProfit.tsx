@@ -261,7 +261,7 @@ const FinanceProductProfit: React.FC = () => {
             <div style={{ flex: 1, height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
               <div style={{ width: pct + '%', height: '100%', background: '#1e40af' }} />
             </div>
-            <span style={{ width: 50, textAlign: 'right' as const, fontSize: 12, color: '#475569', fontVariantNumeric: 'tabular-nums' as const }}>{pct.toFixed(1)}%</span>
+            <span style={{ width: 50, textAlign: 'right' as const, fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' as const }}>{pct.toFixed(1)}%</span>
           </div>
         );
       },
@@ -323,7 +323,7 @@ const FinanceProductProfit: React.FC = () => {
       onFilter: (value: any, record: any) => (record.grade || '') === value,
       render: (v: string) => v
         ? <span style={{ fontWeight: 600, color: GRADE_COLORS[v] || '#0f172a' }}>{v}</span>
-        : <span style={{ color: '#94a3b8' }}>—</span>,
+        : <span style={{ color: 'var(--text-tertiary)' }}>—</span>,
     },
     {
       title: '销售额',
@@ -417,7 +417,7 @@ const FinanceProductProfit: React.FC = () => {
               ]}
             />
             {pieDim === 'channel' && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
                 <Switch
                   size="small"
                   checked={showAllChannels}
@@ -448,7 +448,7 @@ const FinanceProductProfit: React.FC = () => {
         title="产品定位 × 店铺 明细（跨部门全口径）"
         style={{ marginTop: 16 }}
       >
-        <div style={{ fontWeight: 600, color: '#475569', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 12 }}>
           <span>选择产品定位</span>
           <Select
             value={gradeTabs.includes(selectedGrade) ? selectedGrade : (gradeTabs[0] || 'S')}
@@ -457,7 +457,7 @@ const FinanceProductProfit: React.FC = () => {
             style={{ width: 200 }}
             size="small"
           />
-          <span style={{ marginLeft: 'auto', color: '#64748b', fontWeight: 400, fontSize: 12 }}>
+          <span style={{ marginLeft: 'auto', color: 'var(--text-tertiary)', fontWeight: 400, fontSize: 12 }}>
             {selectedGrade} 品合计：销售 ¥{shopGradeTotal.toLocaleString()} · 毛利 <span style={{ color: '#10b981', fontWeight: 600 }}>¥{shopGradeProfitTotal.toLocaleString()}</span>
             {shopGradeTotal > 0 && (
               <span style={{ color: profitRateColor(shopGradeProfitTotal / shopGradeTotal), fontWeight: 600 }}> ({(shopGradeProfitTotal / shopGradeTotal * 100).toFixed(1)}%)</span>

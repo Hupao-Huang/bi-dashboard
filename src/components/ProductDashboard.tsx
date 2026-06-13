@@ -169,7 +169,7 @@ const ProductDashboard: React.FC<Props> = ({ dept }) => {
             <Col xs={24} sm={6} key={card.title}>
               <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor }}>
                 <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-                <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>{hint || ' '}</div>
               </Card>
             </Col>
           );

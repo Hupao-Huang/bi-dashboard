@@ -107,7 +107,7 @@ const ForecastBacktestCard: React.FC = () => {
     {
       title: '差值', dataIndex: 'diff', width: 110, align: 'right' as const,
       render: (v: number) => (
-        <span style={{ color: v > 0 ? '#dc2626' : v < 0 ? '#16a34a' : '#64748b' }}>
+        <span style={{ color: v > 0 ? '#dc2626' : v < 0 ? '#16a34a' : 'var(--text-tertiary)' }}>
           {v > 0 ? '+' : ''}{v.toLocaleString()}
         </span>
       ),
@@ -123,7 +123,7 @@ const ForecastBacktestCard: React.FC = () => {
       title: '当月公式', dataIndex: 'formulaText',
       render: (v: string) => (
         <Tooltip title={v}>
-          <span style={{ fontSize: 11, color: '#64748b', cursor: 'help' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', cursor: 'help' }}>
             {v.length > 50 ? v.slice(0, 50) + '...' : v}
           </span>
         </Tooltip>
@@ -208,7 +208,7 @@ const ForecastBacktestCard: React.FC = () => {
               style={{ marginTop: 12 }}
             />
 
-            <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
               💡 回测原理: 对每个历史月份, 用截至上月底的销量历史数据 + 当前混合版算法 (春节月按去年同期 / 平淡月按近3月均+同比+环比加权) 算预测值, 跟实际销量对比.
               误差颜色: <Tag color="success" style={{ marginInlineEnd: 4 }}>绿 ≤ 5%</Tag>
               <Tag color="warning" style={{ marginInlineEnd: 4 }}>橙 ≤ 15%</Tag>

@@ -167,7 +167,7 @@ const NoticesPage: React.FC = () => {
     { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
     {
       title: '内容', dataIndex: 'content', key: 'content', ellipsis: true, width: 300,
-      render: (v: string) => <span style={{ color: '#666' }}>{v?.slice(0, 60)}{v?.length > 60 ? '...' : ''}</span>,
+      render: (v: string) => <span style={{ color: 'var(--text-secondary)' }}>{v?.slice(0, 60)}{v?.length > 60 ? '...' : ''}</span>,
     },
     { title: '发布人', dataIndex: 'createdBy', key: 'createdBy', width: 80 },
     { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 140 },

@@ -138,7 +138,7 @@ const SkillsTab: React.FC<SkillsTabProps> = ({ onSelectSkill }) => {
               borderRadius: 16,
               border: activeCategory === cat ? '1px solid #3b82f6' : '1px solid #e2e8f0',
               background: activeCategory === cat ? '#3b82f6' : '#fff',
-              color: activeCategory === cat ? '#fff' : '#64748b',
+              color: activeCategory === cat ? '#fff' : 'var(--text-tertiary)',
               transition: 'all 0.2s',
             }}
           >
@@ -166,9 +166,9 @@ const SkillsTab: React.FC<SkillsTabProps> = ({ onSelectSkill }) => {
                 {skill.name[0]}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', marginBottom: 2 }}>{skill.name}</div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', marginBottom: 2 }}>{skill.name}</div>
                 <p style={{
-                  color: '#64748b', fontSize: 12, margin: '2px 0 8px',
+                  color: 'var(--text-tertiary)', fontSize: 12, margin: '2px 0 8px',
                   lineHeight: 1.5,
                   overflow: 'hidden', textOverflow: 'ellipsis',
                   display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
@@ -189,7 +189,7 @@ const SkillsTab: React.FC<SkillsTabProps> = ({ onSelectSkill }) => {
         ))}
       </div>
       {filtered.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>没有找到匹配的技能</div>
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)' }}>没有找到匹配的技能</div>
       )}
     </div>
   );
@@ -232,7 +232,7 @@ const McpTab: React.FC<McpTabProps> = ({ onSelectMcp }) => {
               borderRadius: 16,
               border: activeCategory === cat ? '1px solid #10b981' : '1px solid #e2e8f0',
               background: activeCategory === cat ? '#10b981' : '#fff',
-              color: activeCategory === cat ? '#fff' : '#64748b',
+              color: activeCategory === cat ? '#fff' : 'var(--text-tertiary)',
               transition: 'all 0.2s',
             }}
           >
@@ -260,9 +260,9 @@ const McpTab: React.FC<McpTabProps> = ({ onSelectMcp }) => {
                 {item.name[0]}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', marginBottom: 2 }}>{item.name}</div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', marginBottom: 2 }}>{item.name}</div>
                 <p style={{
-                  color: '#64748b', fontSize: 12, margin: '2px 0 8px',
+                  color: 'var(--text-tertiary)', fontSize: 12, margin: '2px 0 8px',
                   lineHeight: 1.5,
                   overflow: 'hidden', textOverflow: 'ellipsis',
                   display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
@@ -281,7 +281,7 @@ const McpTab: React.FC<McpTabProps> = ({ onSelectMcp }) => {
         ))}
       </div>
       {filtered.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>没有找到匹配的MCP服务</div>
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)' }}>没有找到匹配的MCP服务</div>
       )}
     </div>
   );
@@ -351,8 +351,8 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
                 {selectedSkill.name[0]}
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: '#1e293b' }}>{selectedSkill.name}</h3>
-                <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 2 }}>{selectedSkill.category}</div>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>{selectedSkill.name}</h3>
+                <div style={{ color: 'var(--text-tertiary)', fontSize: 13, marginTop: 2 }}>{selectedSkill.category}</div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -360,7 +360,7 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
                 <Tag key={tag} color="blue" style={{ borderRadius: 12, fontSize: 13 }}>{tag}</Tag>
               ))}
             </div>
-            <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.8, marginBottom: 20 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.8, marginBottom: 20 }}>
               {selectedSkill.desc}
             </p>
             <div style={{
@@ -369,22 +369,22 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <UserOutlined style={{ color: '#3b82f6' }} />
-                <span style={{ fontSize: 14, fontWeight: 500, color: '#1e293b' }}>钉钉官方出品</span>
+                <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>钉钉官方出品</span>
               </div>
-              <div style={{ color: '#64748b', fontSize: 13 }}>作者：钉钉（中国）信息技术有限公司</div>
+              <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>作者：钉钉（中国）信息技术有限公司</div>
             </div>
             <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
               <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px', borderRadius: 12, border: '1px solid #f0f0f0', background: '#fff' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>类型</div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>AI 技能</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>类型</div>
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4 }}>AI 技能</div>
               </div>
               <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px', borderRadius: 12, border: '1px solid #f0f0f0', background: '#fff' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>分类</div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>{selectedSkill.category}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>分类</div>
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4 }}>{selectedSkill.category}</div>
               </div>
               <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px', borderRadius: 12, border: '1px solid #f0f0f0', background: '#fff' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>来源</div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>钉钉官方</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>来源</div>
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4 }}>钉钉官方</div>
               </div>
             </div>
             <Button
@@ -402,7 +402,7 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
             >
               在钉钉中使用
             </Button>
-            <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, marginTop: 16, marginBottom: 0 }}>
+            <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, marginTop: 16, marginBottom: 0 }}>
               此技能由钉钉官方提供，可在钉钉中直接使用。
             </p>
           </div>
@@ -430,8 +430,8 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
                 {selectedMcp.name[0]}
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: '#1e293b' }}>{selectedMcp.name}</h3>
-                <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 2 }}>{selectedMcp.category}</div>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>{selectedMcp.name}</h3>
+                <div style={{ color: 'var(--text-tertiary)', fontSize: 13, marginTop: 2 }}>{selectedMcp.category}</div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -444,7 +444,7 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
               </Tag>
               <Tag color="processing" style={{ borderRadius: 12, fontSize: 13 }}>{selectedMcp.type}</Tag>
             </div>
-            <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.8, marginBottom: 20 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.8, marginBottom: 20 }}>
               {selectedMcp.desc}
             </p>
             <div style={{
@@ -453,21 +453,21 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <UserOutlined style={{ color: '#10b981' }} />
-                <span style={{ fontSize: 14, fontWeight: 500, color: '#1e293b' }}>钉钉官方出品</span>
+                <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>钉钉官方出品</span>
               </div>
-              <div style={{ color: '#64748b', fontSize: 13 }}>作者：钉钉（中国）信息技术有限公司</div>
+              <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>作者：钉钉（中国）信息技术有限公司</div>
             </div>
             <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
               <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px', borderRadius: 12, border: '1px solid #f0f0f0', background: '#fff' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>类型</div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>MCP 服务</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>类型</div>
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4 }}>MCP 服务</div>
               </div>
               <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px', borderRadius: 12, border: '1px solid #f0f0f0', background: '#fff' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>分类</div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>{selectedMcp.category}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>分类</div>
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4 }}>{selectedMcp.category}</div>
               </div>
               <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px', borderRadius: 12, border: '1px solid #f0f0f0', background: '#fff' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>费用</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>费用</div>
                 <div style={{ fontSize: 13, color: selectedMcp.free ? '#10b981' : '#f59e0b', marginTop: 4 }}>
                   {selectedMcp.free ? '免费使用' : '按量付费'}
                 </div>
@@ -488,7 +488,7 @@ const AIToolboxDrawer: React.FC<AIToolboxDrawerProps> = ({ open, onClose }) => {
             >
               在钉钉中使用
             </Button>
-            <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, marginTop: 16, marginBottom: 0 }}>
+            <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, marginTop: 16, marginBottom: 0 }}>
               此MCP服务由钉钉官方提供，可在钉钉中直接使用。
             </p>
           </div>

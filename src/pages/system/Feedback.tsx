@@ -233,13 +233,13 @@ const Feedback: React.FC = () => {
               <Button
                 type="link"
                 onClick={() => openDetail(record)}
-                style={{ padding: 0, height: 'auto', textAlign: 'left', color: '#0f172a', fontWeight: 500 }}
+                style={{ padding: 0, height: 'auto', textAlign: 'left', color: 'var(--text-primary)', fontWeight: 500 }}
               >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 220 }}>
                   {title}
                 </span>
               </Button>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
                 {record.realName || record.username}
               </div>
             </div>
@@ -266,7 +266,7 @@ const Feedback: React.FC = () => {
       ellipsis: true,
       render: (content: string) => (
         <Tooltip title={<div style={{ whiteSpace: 'pre-wrap', maxWidth: 400 }}>{content}</div>} placement="topLeft">
-          <span style={{ color: '#475569', fontSize: 12 }}>{content}</span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{content}</span>
         </Tooltip>
       ),
     },
@@ -280,7 +280,7 @@ const Feedback: React.FC = () => {
         const name = formatPageName(url);
         return (
           <Tooltip title={url || '未知'}>
-            <Typography.Text style={{ fontSize: 12, color: name === url || name === '-' ? '#94a3b8' : '#1e40af' }}>{name}</Typography.Text>
+            <Typography.Text style={{ fontSize: 12, color: name === url || name === '-' ? 'var(--text-tertiary)' : '#1e40af' }}>{name}</Typography.Text>
           </Tooltip>
         );
       },
@@ -305,7 +305,7 @@ const Feedback: React.FC = () => {
                 />
               ))}
               {attachments.length > 2 && (
-                <span style={{ fontSize: 11, color: '#64748b', alignSelf: 'center', marginLeft: 2 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', alignSelf: 'center', marginLeft: 2 }}>
                   +{attachments.length - 2}
                 </span>
               )}
@@ -321,7 +321,7 @@ const Feedback: React.FC = () => {
       responsive: ['xl' as const],
       sorter: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       defaultSortOrder: 'descend' as const,
-      render: (v: string) => <span style={{ fontSize: 12, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{v}</span>,
+      render: (v: string) => <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>{v}</span>,
     },
   ];
 
@@ -363,7 +363,6 @@ const Feedback: React.FC = () => {
             <Statistic
               title={<><ClockCircleOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.pending }} />待处理</>}
               value={stats.pending}
-              valueStyle={{ color: stats.pending > 0 ? STATUS_HEX_MAP.pending : '#94a3b8', fontSize: 22, fontWeight: stats.pending > 0 ? 700 : 400 }}
             />
           </Card>
         </Col>
@@ -381,7 +380,6 @@ const Feedback: React.FC = () => {
             <Statistic
               title={<><SyncOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.processing }} />处理中</>}
               value={stats.processing}
-              valueStyle={{ color: STATUS_HEX_MAP.processing, fontSize: 22 }}
             />
           </Card>
         </Col>
@@ -399,7 +397,6 @@ const Feedback: React.FC = () => {
             <Statistic
               title={<><CheckCircleOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.resolved }} />已解决</>}
               value={stats.resolved}
-              valueStyle={{ color: STATUS_HEX_MAP.resolved, fontSize: 22 }}
             />
           </Card>
         </Col>
@@ -417,7 +414,6 @@ const Feedback: React.FC = () => {
             <Statistic
               title={<><MinusCircleOutlined style={{ marginRight: 6, color: STATUS_HEX_MAP.closed }} />已关闭</>}
               value={stats.closed}
-              valueStyle={{ color: STATUS_HEX_MAP.closed, fontSize: 22 }}
             />
           </Card>
         </Col>
@@ -509,12 +505,12 @@ const Feedback: React.FC = () => {
                 borderRadius: 6,
               }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                  <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
                     {detailItem.title}
                   </span>
                   <StatusChip status={detailItem.status} />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-tertiary)', flexWrap: 'wrap' }}>
                   <span>{detailItem.realName || detailItem.username}</span>
                   <span style={{ color: '#cbd5e1' }}>·</span>
                   <span style={{ fontVariantNumeric: 'tabular-nums' }}>{detailItem.createdAt}</span>
@@ -536,7 +532,7 @@ const Feedback: React.FC = () => {
 
               <div>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>问题描述</Typography.Text>
-                <div style={{ whiteSpace: 'pre-wrap', background: '#f8fafc', padding: 12, borderRadius: 6, marginTop: 4, fontSize: 13, color: '#334155' }}>
+                <div style={{ whiteSpace: 'pre-wrap', background: '#f8fafc', padding: 12, borderRadius: 6, marginTop: 4, fontSize: 13, color: 'var(--text-secondary)' }}>
                   {detailItem.content}
                 </div>
               </div>
