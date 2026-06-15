@@ -378,11 +378,9 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	shopBreakdown := map[string]*ShopBreakdownEntry{}
 	if len(topShops) > 0 {
-		shopList := make([]string, 0, len(topShops))
 		ph := make([]string, 0, len(topShops))
 		breakdownArgs := make([]interface{}, 0, len(topShops)+2+len(scopeArgs))
 		for _, s := range topShops {
-			shopList = append(shopList, s.ShopName)
 			ph = append(ph, "?")
 			breakdownArgs = append(breakdownArgs, s.ShopName)
 			shopBreakdown[s.ShopName] = &ShopBreakdownEntry{TotalSales: s.Sales}
