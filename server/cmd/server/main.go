@@ -635,6 +635,10 @@ func main() {
 	// v1.75.20: 综合看板后台预热 ticker, 让 /api/overview 默认视图始终是热缓存 (秒开)
 	go h.StartOverviewPrewarm()
 
+	// 2026-06-15: 合思行车记录缓存启动预热 + 10min 后台刷新, 让审批列表/详情不在请求路径里现拉
+	// (重启后冷缓存撞上 = 樊雪娇 35 单审批页加载卡几分钟, 已改 LookupDriveRecord 非阻塞 + 本预热)
+	go h.StartDriveRecordPrewarm()
+
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,

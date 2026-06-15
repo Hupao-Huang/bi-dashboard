@@ -29,28 +29,69 @@ type DriveRecord struct {
 }
 
 var (
-	hesiDriveRecCache   map[string]*DriveRecord
-	hesiDriveRecCacheAt time.Time
-	hesiDriveRecMu      sync.Mutex
+	hesiDriveRecCache      map[string]*DriveRecord
+	hesiDriveRecCacheAt    time.Time
+	hesiDriveRecRefreshing bool // 是否有后台重拉在途 (防并发重复全量拉)
+	hesiDriveRecMu         sync.Mutex
 )
 
-// LookupDriveRecord 行车记录实例 ID → 解析后的记录; 缓存未过期直接命中, 否则全量重拉
+// LookupDriveRecord 行车记录实例 ID → 解析后的记录。
+// 非阻塞 (跑哥 2026-06-15 修): 缓存冷/过期只触发【后台异步】重拉, 当场返回已有缓存(可能略旧)
+// 或 nil, 绝不在请求路径里同步全量拉合思 (634 条 / 7 页 API, 每页超时 30s)。
+// 旧实现把全量拉放在锁内 + 请求路径, 重启后冷缓存撞上 = 合思审批列表加载卡几分钟 (樊雪娇 35 单案例)。
+// 返回 nil 时规则 12-1 降级"人工核"(安全兜底), 后台刷完下次自动恢复自动对账。
 func (h *DashboardHandler) LookupDriveRecord(id string) *DriveRecord {
 	if id == "" {
 		return nil
 	}
 	hesiDriveRecMu.Lock()
-	defer hesiDriveRecMu.Unlock()
-	if hesiDriveRecCache == nil || time.Since(hesiDriveRecCacheAt) >= 15*time.Minute {
-		m, err := h.fetchAllDriveRecords()
-		if err != nil {
-			log.Printf("[hesi-drive] 拉行车记录失败: %v", err)
-			return nil
-		}
-		hesiDriveRecCache = m
-		hesiDriveRecCacheAt = time.Now()
+	cache := hesiDriveRecCache
+	stale := cache == nil || time.Since(hesiDriveRecCacheAt) >= 15*time.Minute
+	hesiDriveRecMu.Unlock()
+	if stale {
+		h.triggerDriveRecRefresh()
 	}
-	return hesiDriveRecCache[id]
+	if cache == nil {
+		return nil
+	}
+	return cache[id]
+}
+
+// triggerDriveRecRefresh 若无在途重拉, 起一个后台 goroutine 全量重拉行车记录 (非阻塞)。
+func (h *DashboardHandler) triggerDriveRecRefresh() {
+	hesiDriveRecMu.Lock()
+	if hesiDriveRecRefreshing {
+		hesiDriveRecMu.Unlock()
+		return
+	}
+	hesiDriveRecRefreshing = true
+	hesiDriveRecMu.Unlock()
+	go h.refreshDriveRecordsAsync()
+}
+
+// refreshDriveRecordsAsync 后台全量重拉行车记录并换缓存 (不持锁拉, 只在换缓存瞬间持锁)。
+func (h *DashboardHandler) refreshDriveRecordsAsync() {
+	m, err := h.fetchAllDriveRecords()
+	hesiDriveRecMu.Lock()
+	defer hesiDriveRecMu.Unlock()
+	hesiDriveRecRefreshing = false
+	if err != nil {
+		log.Printf("[hesi-drive] 后台拉行车记录失败: %v", err)
+		return
+	}
+	hesiDriveRecCache = m
+	hesiDriveRecCacheAt = time.Now()
+}
+
+// StartDriveRecordPrewarm 启动即预热 + 每 10 分钟后台刷新行车记录缓存,
+// 让合思审批列表/详情永远命中暖缓存 (15min TTL 内), 把"重启后冷缓存现拉"窗口降到最小。
+func (h *DashboardHandler) StartDriveRecordPrewarm() {
+	h.triggerDriveRecRefresh()
+	t := time.NewTicker(10 * time.Minute)
+	defer t.Stop()
+	for range t.C {
+		h.triggerDriveRecRefresh()
+	}
 }
 
 // fetchAllDriveRecords 分页拉行车记录全量 (v2.1 datalink, 每页上限 100)
