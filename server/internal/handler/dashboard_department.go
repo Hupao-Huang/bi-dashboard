@@ -238,6 +238,14 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// 店铺数据概览 KPI 销售/调拨拆分: 先记录纯销售单口径 (allot 加入前的常规店铺合计)
+	// 电商部 shopListSQL 已剔除 2 调拨渠道, 故 shopSalesAmt = 销售口径; 下方 allot 块累加 shopAllotAmt = 调拨口径
+	// 与综合看板 applyEcommerceAllotAdjustment 同口径 (SalesAmt=Sales-salesExcluded, AllotAmt=调拨), 两页数字对齐
+	var shopSalesAmt, shopAllotAmt float64
+	for _, s := range shops {
+		shopSalesAmt += s.Sales
+	}
+
 	// v1.74.3 拓范 T6h: 电商部 "店铺数据概览" 合并 2 调拨渠道 (跑哥 5/25 追加)
 	// shopListSQL 因 ecommerceExcludeAllotCond 排除了 2 渠道, 这里用 helper 加回 2 entry (调拨口径)
 	// 兜底: helper 失败 → log + shop list 保持 v1.04 排除行为
@@ -290,6 +298,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 					Profit:   0,
 				})
 				addedAllotShops++
+				shopAllotAmt += allot.allotAmt
 			}
 			if addedAllotShops > 0 {
 				sort.SliceStable(shops, func(i, j int) bool {
@@ -316,6 +325,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			if amt <= 0 {
 				continue
 			}
+			shopAllotAmt += amt
 			shopName := instantRetailAllotShop[ck]
 			found := false
 			for i := range shops {
@@ -1050,6 +1060,8 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	writeJSON(w, map[string]interface{}{
 		"daily":             daily,
 		"shops":             shops,
+		"salesAmt":          shopSalesAmt, // 店铺概览 KPI: 纯销售单口径 (调拨加入前的常规店铺合计)
+		"allotAmt":          shopAllotAmt, // 店铺概览 KPI: 调拨当销售口径 (电商 2 渠道 / 即时零售朴朴等)
 		"shopTotalCount":    totalShopCount,
 		"goods":             goods,
 		"totalSales":        totalSales,

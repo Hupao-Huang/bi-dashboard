@@ -55,6 +55,9 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
   const totalQty = shops.reduce((s: number, d: any) => s + d.qty, 0);
   const avgOrderValue = totalQty > 0 ? totalSales / totalQty : 0;
   const baseOpt = getBaseOption();
+  // 总销售额 = 销售单 + 调拨当销售 (电商/即时零售). 后端已拆好 salesAmt/allotAmt, 有调拨才分行展示, 口径同综合看板
+  const salesAmt = data.salesAmt || 0;
+  const allotAmt = data.allotAmt || 0;
 
   // 店铺排名表
   const indexedShops = shops.map((g: any, i: number) => ({ ...g, _rank: i + 1 }));
@@ -333,9 +336,17 @@ const StorePreview: React.FC<Props> = ({ dept, title, color  }) => {
             <Col xs={24} sm={6} key={card.title}>
               <Card className="bi-stat-card" style={{ ['--accent-color' as any]: card.accentColor, height: '100%', position: 'relative' }}>
                 <Statistic title={card.title} value={card.value} precision={card.precision} prefix={card.prefix} suffix={card.suffix} />
-                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
-                  {hint || ' '}
-                </div>
+                {idx === 0 && allotAmt > 0 ? (
+                  <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', minHeight: '1.4em' }}>
+                    销售 <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>¥{(salesAmt / 10000).toFixed(2)}万</span>
+                    {' · 调拨 '}
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>¥{(allotAmt / 10000).toFixed(2)}万</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4, fontVariantNumeric: 'tabular-nums', fontWeight: 400, minHeight: '1.4em' }}>
+                    {hint || ' '}
+                  </div>
+                )}
                 {idx < 3 && shopBreakdown.length > 0 && (
                   <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: '60%' }}>
                     {shopBreakdown.map((d: any) => {
