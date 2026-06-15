@@ -139,6 +139,57 @@ func TestSyncServiceScoreAlreadyRunning(t *testing.T) {
 	}
 }
 
+// ============ SyncComment ============
+
+func TestSyncCommentForbiddenWithoutSecret(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/sync-comment", nil)
+	(&DashboardHandler{DB: db, WebhookSecret: "expected-secret"}).SyncComment(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("无 X-Webhook-Secret 应 403, got %d", rec.Code)
+	}
+}
+
+func TestSyncCommentMethodNotAllowed(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/webhook/sync-comment", nil)
+	(&DashboardHandler{DB: db, WebhookSecret: "x"}).SyncComment(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET 应 405, got %d", rec.Code)
+	}
+}
+
+func TestSyncCommentAlreadyRunning(t *testing.T) {
+	commentMu.Lock()
+	commentRunning = true
+	commentMu.Unlock()
+	defer func() {
+		commentMu.Lock()
+		commentRunning = false
+		commentMu.Unlock()
+	}()
+
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/sync-comment", nil)
+	req.Header.Set("X-Webhook-Secret", "x")
+	(&DashboardHandler{DB: db, WebhookSecret: "x"}).SyncComment(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Errorf("running 应 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // ============ ClearCache ============
 
 func TestClearCacheForbiddenWithoutSecret(t *testing.T) {
