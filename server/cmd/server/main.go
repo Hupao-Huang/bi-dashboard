@@ -446,6 +446,7 @@ func main() {
 	mux.HandleFunc("/api/offline/sales-forecast/sku-trend", pageProtected("offline.sales_forecast:view", h.GetOfflineSalesForecastSKUTrend))
 	mux.HandleFunc("/api/webhook/sync-ops", corsHandler(h.SyncOps))
 	mux.HandleFunc("/api/webhook/sync-service-score", corsHandler(h.SyncServiceScore))
+	mux.HandleFunc("/api/webhook/sync-comment", corsHandler(h.SyncComment))
 	mux.HandleFunc("/api/webhook/sync-status", corsHandler(h.SyncStatus))
 	mux.HandleFunc("/api/webhook/clear-cache", corsHandler(h.ClearCache))
 	mux.HandleFunc("/api/stock/warning", pageProtected("supply_chain.inventory_warning:view", cache24h(h.GetStockWarning)))

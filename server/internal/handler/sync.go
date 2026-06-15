@@ -249,6 +249,80 @@ func (h *DashboardHandler) SyncServiceScore(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+var (
+	commentMu      sync.Mutex
+	commentRunning bool
+)
+
+// SyncComment webhook接口：客服评论 RPA 抓完文件后调用，立即全量导入。
+// 跟服务分同款 — 修"评论文件下午才落地(14:53-17:24)、要等晚上定时任务才入库"的延迟。
+// POST /api/webhook/sync-comment  (必须带 X-Webhook-Secret)
+// 同步执行(秒级)，import-comment.exe 无参数 = 全量扫目录按内容 hash 去重幂等。
+func (h *DashboardHandler) SyncComment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	token := r.Header.Get("X-Webhook-Secret")
+	if !hmac.Equal([]byte(token), []byte(h.WebhookSecret)) {
+		writeError(w, 403, "unauthorized")
+		return
+	}
+
+	commentMu.Lock()
+	if commentRunning {
+		commentMu.Unlock()
+		writeError(w, 409, "评论导入正在进行中，请稍后")
+		return
+	}
+	commentRunning = true
+	commentMu.Unlock()
+	defer func() {
+		commentMu.Lock()
+		commentRunning = false
+		commentMu.Unlock()
+	}()
+
+	exeDir := filepath.Dir(getExePath())
+	toolPath := filepath.Join(exeDir, "import-comment.exe")
+
+	// 用 Background ctx：RPA 端 HTTP 超时断开也让导入跑完，不中途夭折
+	ctx, cancel := context.WithTimeout(context.Background(), toolTimeout)
+	defer cancel()
+
+	start := time.Now()
+	log.Printf("[sync-comment] 开始全量导入评论")
+	cmd := exec.CommandContext(ctx, toolPath) // 无参数 = 全量扫目录幂等
+	cmd.Dir = exeDir
+	outputBytes, err := cmd.CombinedOutput()
+	duration := time.Since(start).Round(time.Second)
+	output := strings.TrimSpace(string(outputBytes))
+	digest := summarizeToolOutput(output)
+
+	if err != nil {
+		status := "失败"
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			status = "超时"
+			digest = fmt.Sprintf("执行超过 %s (Z 盘可能不可达)", toolTimeout)
+		} else if digest == "" {
+			digest = err.Error()
+		}
+		log.Printf("[sync-comment] %s (%s): %s", status, duration, digest)
+		writeError(w, 500, fmt.Sprintf("评论导入%s: %s", status, digest))
+		return
+	}
+
+	if digest == "" {
+		digest = "无输出"
+	}
+	log.Printf("[sync-comment] 成功 (%s): %s", duration, digest)
+	writeJSON(w, map[string]interface{}{
+		"status":   "成功",
+		"duration": duration.String(),
+		"detail":   digest,
+	})
+}
+
 func (h *DashboardHandler) runSync(date string) {
 	defer func() {
 		syncMu.Lock()
