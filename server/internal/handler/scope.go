@@ -162,17 +162,6 @@ func requireShopAccess(r *http.Request, shop string) error {
 	return errDataScopeForbidden
 }
 
-func requireWarehouseAccess(r *http.Request, warehouse string) error {
-	payload, ok := authPayloadFromContext(r)
-	if !ok || payload == nil || payload.IsSuperAdmin || len(payload.DataScopes.Warehouses) == 0 || warehouse == "" || warehouse == "all" {
-		return nil
-	}
-	if containsString(payload.DataScopes.Warehouses, warehouse) {
-		return nil
-	}
-	return errDataScopeForbidden
-}
-
 func buildWarehouseScopeCond(r *http.Request, requestedWarehouse, warehouseColumn string) (string, []interface{}, error) {
 	payload, ok := authPayloadFromContext(r)
 	if requestedWarehouse != "" && requestedWarehouse != "all" {

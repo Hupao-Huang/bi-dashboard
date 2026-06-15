@@ -2,8 +2,7 @@ package jackyun
 
 // client_http_test.go — jackyun SDK 4 个 fetch 接口 + Call 路径 httptest.Server mock
 // 已 Read client.go (Call line 41), channel.go (FetchChannels line 105),
-//          sales_summary.go (FetchSalesSummary line 96), stock_io.go (FetchStockIO line 54),
-//          trade.go (FetchTrades line 161).
+//          sales_summary.go (FetchSalesSummary line 96), stock_io.go (FetchStockIO line 54).
 
 import (
 	"net/http"
@@ -229,88 +228,6 @@ func TestFetchStockIOAPIError(t *testing.T) {
 	err := c.FetchStockIO("erp.in.get", StockIOQuery{}, func(items []StockIOItem) error { return nil })
 	if err == nil {
 		t.Error("403 应返 err")
-	}
-}
-
-// ---------- FetchTrades ----------
-
-func TestFetchTradesSinglePageWithTotal(t *testing.T) {
-	// TotalResults=2, 单页返 2 条 → fetched>=total break
-	srv := newMockServer(func(method string) string {
-		return `{"code":200,"msg":"ok","result":{"data":{
-			"totalResults":2,
-			"trades":[
-				{"tradeNo":"T001","shopName":"天猫店"},
-				{"tradeNo":"T002","shopName":"京东店"}
-			],
-			"scrollId":""
-		}}}`
-	})
-	defer srv.Close()
-
-	c := NewClient("k", "s", srv.URL)
-	var collected []Trade
-	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 4, 30, 23, 59, 59, 0, time.UTC)
-	err := c.FetchTrades(start, end, func(items []Trade) error {
-		collected = append(collected, items...)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if len(collected) != 2 {
-		t.Errorf("应收到 2 条 trade, got %d", len(collected))
-	}
-}
-
-func TestFetchTradesEmptyData(t *testing.T) {
-	srv := newMockServer(func(method string) string {
-		return `{"code":200,"msg":"ok","result":{"data":{"totalResults":0,"trades":[]}}}`
-	})
-	defer srv.Close()
-
-	c := NewClient("k", "s", srv.URL)
-	called := 0
-	err := c.FetchTrades(time.Now(), time.Now(), func(items []Trade) error {
-		called++
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if called != 0 {
-		t.Errorf("空 trades 不应回调 callback")
-	}
-}
-
-func TestFetchTradesProgressFn(t *testing.T) {
-	srv := newMockServer(func(method string) string {
-		return `{"code":200,"msg":"ok","result":{"data":{
-			"totalResults":3,
-			"trades":[{"tradeNo":"T01"},{"tradeNo":"T02"},{"tradeNo":"T03"}]
-		}}}`
-	})
-	defer srv.Close()
-
-	c := NewClient("k", "s", srv.URL)
-	progressCalled := false
-	var lastFetched, lastTotal int
-	err := c.FetchTrades(time.Now(), time.Now(),
-		func([]Trade) error { return nil },
-		func(fetched, total int) {
-			progressCalled = true
-			lastFetched = fetched
-			lastTotal = total
-		})
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if !progressCalled {
-		t.Error("progressFn 应被调用")
-	}
-	if lastFetched != 3 || lastTotal != 3 {
-		t.Errorf("fetched/total: %d/%d, want 3/3", lastFetched, lastTotal)
 	}
 }
 

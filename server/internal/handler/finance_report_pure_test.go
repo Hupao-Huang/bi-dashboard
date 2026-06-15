@@ -1,7 +1,7 @@
 package handler
 
 // finance_report_pure_test.go — finance_report.go pure 函数测试
-// 已 Read finance_report.go: sortIntsAsc(77-85) / placeholders(87-93) / nullStr(95-100) /
+// 已 Read finance_report.go: placeholders(87-93) / nullStr(95-100) /
 // trimStrings(102-110) / displayName(1070-1075) / isGmvCategory(1077) /
 // findChannelSeries(1079-1086) / urlEscape(1088-...)
 
@@ -9,32 +9,6 @@ import (
 	"database/sql"
 	"testing"
 )
-
-// === sortIntsAsc (line 77-85) — 简单冒泡排序 ===
-func TestSortIntsAsc(t *testing.T) {
-	cases := []struct {
-		input []int
-		want  []int
-	}{
-		{[]int{}, []int{}},
-		{[]int{1}, []int{1}},
-		{[]int{3, 1, 2}, []int{1, 2, 3}},
-		{[]int{5, 5, 5}, []int{5, 5, 5}},
-		{[]int{-3, 0, -1}, []int{-3, -1, 0}},
-		{[]int{10, 9, 8, 7, 6, 5, 4, 3, 2, 1}, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}},
-	}
-	for _, c := range cases {
-		input := make([]int, len(c.input))
-		copy(input, c.input)
-		sortIntsAsc(input)
-		for i := range input {
-			if input[i] != c.want[i] {
-				t.Errorf("sortIntsAsc(%v) → %v want %v", c.input, input, c.want)
-				break
-			}
-		}
-	}
-}
 
 // === placeholders (line 87-93) — 生成 SQL "?,?,?" ===
 func TestPlaceholders(t *testing.T) {

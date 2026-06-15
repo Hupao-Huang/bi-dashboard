@@ -2,11 +2,9 @@ package jackyun
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // FlexString 兼容吉客云返回的 string/number 不一致问题
@@ -181,92 +179,3 @@ type GoodsItem struct {
 	Unit        FlexString `json:"unit"`
 }
 
-// FetchTrades 拉取销售单（支持游标分页）
-// progressFn 可选，用于打印翻页进度
-// 注意: 当前无生产调用方 (仅单测覆盖) — sync-daily-trades 用自己的按小时拆窗循环拉单,
-// 且自带 scrollId 缺失防护。本函数的 emptyScroll 守卫是库函数加固, 供未来调用方继承。
-func (c *Client) FetchTrades(start, end time.Time, callback func([]Trade) error, progressFn ...func(fetched, total int)) error {
-	scrollId := ""
-	pageIndex := 0
-	fetched := 0
-	emptyScroll := 0 // 连续几页没回 scrollId (游标不前进时防原地重拉死循环)
-
-	fields := "tradeNo,tradeStatus,tradeType,shopName,shopId,warehouseName,warehouseId," +
-		"goodsDetail.goodsNo,goodsDetail.goodsName,goodsDetail.goodsId," +
-		"goodsDetail.sellCount,goodsDetail.sellPrice,goodsDetail.specName," +
-		"goodsDetail.barcode,goodsDetail.skuId,goodsDetail.cost," +
-		"goodsDetail.discountFee,goodsDetail.taxFee,goodsDetail.cateName," +
-		"goodsDetail.brandName,goodsDetail.unit,goodsDetail.sellTotal," +
-		"sourceTradeNo,scrollId,billDate"
-
-	// 按发货时间查询，不过滤状态——有发货时间就说明已发货，状态过滤反而会漏数据
-	for {
-		query := TradeQuery{
-			StartConsignTime: start.Format("2006-01-02 15:04:05"),
-			EndConsignTime:   end.Format("2006-01-02 15:04:05"),
-			PageIndex:        pageIndex,
-			PageSize:         200,
-			HasTotal:         1,
-			ScrollId:         scrollId,
-			Fields:           fields,
-		}
-
-		resp, err := c.Call("oms.trade.fullinfoget", query)
-		if err != nil {
-			return fmt.Errorf("call trade api page %d: %w", pageIndex, err)
-		}
-		if resp.Code != 200 {
-			return fmt.Errorf("trade api error page %d: code=%d msg=%s", pageIndex, resp.Code, resp.Msg)
-		}
-
-		// 解析 result -> data
-		var wrapper struct {
-			Data json.RawMessage `json:"data"`
-		}
-		if err := json.Unmarshal(resp.Result, &wrapper); err != nil {
-			return fmt.Errorf("unmarshal result page %d: %w", pageIndex, err)
-		}
-
-		var result TradeResult
-		if err := json.Unmarshal(wrapper.Data, &result); err != nil {
-			return fmt.Errorf("unmarshal data page %d: %w", pageIndex, err)
-		}
-
-		if len(result.Trades) == 0 {
-			break
-		}
-
-		if err := callback(result.Trades); err != nil {
-			return fmt.Errorf("callback page %d: %w", pageIndex, err)
-		}
-
-		fetched += len(result.Trades)
-
-		// 打印进度
-		if len(progressFn) > 0 && progressFn[0] != nil {
-			progressFn[0](fetched, result.TotalResults)
-		}
-
-		if result.TotalResults > 0 && fetched >= result.TotalResults {
-			break
-		}
-
-		// 使用游标翻页
-		if result.ScrollId != "" {
-			scrollId = result.ScrollId
-			emptyScroll = 0
-		} else {
-			// 游标没回来 (空 scrollId 真实发生过, 见 cmd/probe-trade-empty-scrollid):
-			// 整页满 = 数据没拉完, 旧游标再查只会原地重拉同一页; 连续两轮缺失 = 游标已卡死
-			// 报错让同步任务失败重跑, 不能无限循环也不能静默截断
-			emptyScroll++
-			if len(result.Trades) >= 200 || emptyScroll >= 2 {
-				return fmt.Errorf("scrollId 缺失 page %d (本页 %d 条, 已拉 %d 条), 中止防原地重拉", pageIndex, len(result.Trades), fetched)
-			}
-			// 非整页 + 首次缺失: 大概率已是最后一页, 按原行为再查一次等空页正常收尾
-		}
-		pageIndex++
-	}
-
-	return nil
-}

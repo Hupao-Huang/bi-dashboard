@@ -6,7 +6,7 @@ package yonsuite
 //   - 4 业务接口 line 35-42 (purchase/subcontract/materialOut/stock)
 //   - AccessToken (106) + refreshTokenLocked (117) cache + safety margin
 //   - QueryStockList (386) data 是直接 array (不是 data.recordList)
-// 测试时必须 SetMinInterval(0) 关 1.1s 节流, 否则 test 卡死.
+// 测试时必须把 minInterval 置 0 关 1.1s 节流, 否则 test 卡死.
 
 import (
 	"encoding/json"
@@ -44,7 +44,7 @@ func tokenJSON(token string, expireSec int) string {
 
 func newTestClient(t *testing.T, baseURL string) *Client {
 	c := NewClient("test-app-key", "test-app-secret", baseURL)
-	c.SetMinInterval(0) // 关节流, 否则 1.1s 卡 test
+	c.minInterval = 0 // 关节流, 否则 1.1s 卡 test
 	return c
 }
 

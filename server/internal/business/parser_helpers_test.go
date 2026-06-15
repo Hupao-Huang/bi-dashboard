@@ -2,13 +2,12 @@ package business
 
 // parser_helpers_test.go — parser.go 9+ 个纯 helper 函数测试
 // 已 Read parser.go:
-//   - isValidHeader (354) / isGroupHeader (361) / detectLevel (384)
+//   - isGroupHeader (361) / detectLevel (384)
 //   - safeCol (477) / parseNum (485) / parsePct (508) / isExcelError (536)
-//   - hasAnyValue (551) / nullIfNil (635) / FormatTimestamp (643)
+//   - hasAnyValue (551) / nullIfNil (635)
 
 import (
 	"testing"
-	"time"
 )
 
 // ---------- safeCol ----------
@@ -213,15 +212,6 @@ func TestIsGroupHeader(t *testing.T) {
 	}
 }
 
-// ---------- isValidHeader ----------
-
-func TestIsValidHeader(t *testing.T) {
-	// 全为空的 row → unknown layout → false
-	if isValidHeader([]string{"", ""}) {
-		t.Error("全空 row 不应识别为 valid header")
-	}
-}
-
 // ---------- hasAnyValue ----------
 
 func TestHasAnyValue(t *testing.T) {
@@ -259,17 +249,6 @@ func TestNullIfNil(t *testing.T) {
 	got := nullIfNil(&v)
 	if g, ok := got.(float64); !ok || g != 3.14 {
 		t.Errorf("nullIfNil(&3.14) 应返 float64 3.14, got %v", got)
-	}
-}
-
-// ---------- FormatTimestamp ----------
-
-func TestFormatTimestamp(t *testing.T) {
-	tm := time.Date(2026, 5, 10, 15, 30, 45, 0, time.UTC)
-	got := FormatTimestamp(tm)
-	want := "2026-05-10 15:30:45"
-	if got != want {
-		t.Errorf("FormatTimestamp=%q want %q", got, want)
 	}
 }
 

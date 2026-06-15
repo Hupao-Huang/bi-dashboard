@@ -82,14 +82,6 @@ func (s *Service) CacheStats() (hits, misses, size int64) {
 	return
 }
 
-// CacheClear 清空所有缓存 (sync 完调 / 手动操作用)
-func (s *Service) CacheClear() {
-	s.cache.Range(func(k, _ interface{}) bool {
-		s.cache.Delete(k)
-		return true
-	})
-}
-
 // cloneResult 浅拷贝 AskResult (cache hit 时返副本, 每次请求不同 DurationMs/SessionID/MessageID/FromCache)
 // RawData/Intent 是指针/interface, 浅拷贝即可 (cache 后业务代码不应再 mutate, 当 read-only 看)
 func cloneResult(src *AskResult) *AskResult {

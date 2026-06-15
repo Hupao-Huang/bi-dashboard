@@ -428,13 +428,6 @@ func toFloat(s string) float64 {
 	return importutil.ParseFloat(s)
 }
 
-func gs(d []string, i int) interface{} {
-	if i >= len(d) || d[i] == "" {
-		return nil
-	}
-	return d[i]
-}
-
 func gs2(d []string, i int) interface{} {
 	if i >= len(d) || d[i] == "" {
 		return nil

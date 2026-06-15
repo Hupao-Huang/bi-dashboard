@@ -4,60 +4,10 @@ package handler
 // 已 Read 各源码 (line 引用见每段)
 
 import (
-	"database/sql"
 	"testing"
 )
 
 // === business_report.go ===
-
-// formatSnapshotLabel (line 287-293) — sy != y 时加"(覆盖 X 年)"
-func TestFormatSnapshotLabel(t *testing.T) {
-	cases := []struct {
-		sy, sm, y int
-		want      string
-	}{
-		{2026, 5, 2026, "2026-05"},
-		{2026, 12, 2026, "2026-12"},
-		{2026, 1, 2026, "2026-01"},
-		{2026, 5, 2025, "2026-05 (覆盖 2025 年)"}, // sy != y
-		{2025, 12, 2024, "2025-12 (覆盖 2024 年)"},
-	}
-	for _, c := range cases {
-		if got := formatSnapshotLabel(c.sy, c.sm, c.y); got != c.want {
-			t.Errorf("formatSnapshotLabel(%d,%d,%d)=%q want %q", c.sy, c.sm, c.y, got, c.want)
-		}
-	}
-}
-
-// zeroPad (line 295-301) — 单位补 0, 多位原样
-func TestZeroPad(t *testing.T) {
-	cases := map[int]string{
-		0:   "00",
-		1:   "01",
-		9:   "09",
-		10:  "10",
-		99:  "99",
-		100: "100", // > 2 位原样, 不会变 "0100"
-	}
-	for n, want := range cases {
-		if got := zeroPad(n); got != want {
-			t.Errorf("zeroPad(%d)=%q want %q", n, got, want)
-		}
-	}
-}
-
-// nullToPtr (line 303-309)
-func TestNullToPtr(t *testing.T) {
-	// Valid → 取 Float64
-	v := nullToPtr(sql.NullFloat64{Float64: 12.5, Valid: true})
-	if v == nil || *v != 12.5 {
-		t.Errorf("Valid 应返指针, got %v", v)
-	}
-	// !Valid → nil
-	if got := nullToPtr(sql.NullFloat64{Float64: 99.9, Valid: false}); got != nil {
-		t.Error("!Valid 应返 nil")
-	}
-}
 
 // splitCsv (line 762-772)
 func TestSplitCsv(t *testing.T) {

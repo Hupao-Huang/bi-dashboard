@@ -242,43 +242,6 @@ func getFloat(m map[string]interface{}, k string) interface{} {
 	}
 }
 
-func getBool(m map[string]interface{}, k string) interface{} {
-	v, ok := m[k]
-	if !ok || v == nil {
-		return nil
-	}
-	switch x := v.(type) {
-	case bool:
-		if x {
-			return 1
-		}
-		return 0
-	case string:
-		if strings.EqualFold(x, "true") || x == "1" {
-			return 1
-		}
-		if strings.EqualFold(x, "false") || x == "0" || x == "" {
-			return 0
-		}
-		return nil
-	case json.Number:
-		if i, err := x.Int64(); err == nil {
-			if i != 0 {
-				return 1
-			}
-			return 0
-		}
-		return nil
-	case float64:
-		if x != 0 {
-			return 1
-		}
-		return 0
-	default:
-		return nil
-	}
-}
-
 func getTime(m map[string]interface{}, k string) interface{} {
 	v, ok := m[k]
 	if !ok || v == nil {
@@ -295,18 +258,6 @@ func getTime(m map[string]interface{}, k string) interface{} {
 		}
 	}
 	return nil
-}
-
-func getJSON(m map[string]interface{}, k string) interface{} {
-	v, ok := m[k]
-	if !ok || v == nil {
-		return nil
-	}
-	b, err := json.Marshal(v)
-	if err != nil || len(b) == 0 || string(b) == "null" {
-		return nil
-	}
-	return string(b)
 }
 
 func nullableJSON(b []byte) interface{} {

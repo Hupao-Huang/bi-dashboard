@@ -99,11 +99,6 @@ func doRPAScan() *rpaScanResult {
 	}
 
 	// 并行扫描每个平台
-	type platformResult struct {
-		idx  int
-		info rpaPlatformInfo
-	}
-
 	// 保持平台顺序：先收集 key 列表
 	platforms := make([]string, 0, len(itemsMap))
 	for p := range itemsMap {

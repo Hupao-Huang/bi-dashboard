@@ -1,8 +1,7 @@
 package handler
 
-// dingtalk_handlers_test.go — DingtalkLogin/Bind 边界 + fill*TaskStatus + RequireAnyPermission happy
+// dingtalk_handlers_test.go — DingtalkLogin/Bind 边界 + RequireAnyPermission happy
 // 已 Read auth.go (line 1732 DingtalkLogin, 2034 DingtalkBind, 1343 RequireAnyPermission, 1360 RequireAllPermissions).
-// 已 Read task_monitor.go (line 226 fillLogBasedTaskStatus, 263 fillOpsTaskStatus, 289 fillServiceTaskStatus).
 
 import (
 	"bytes"
@@ -234,102 +233,6 @@ func TestDingtalkBindEmptyCode(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("空 code 应 400, got %d", rec.Code)
-	}
-}
-
-// ============ fill*TaskStatus ============
-
-func TestFillLogBasedTaskStatusEmptyLogFile(t *testing.T) {
-	ts := &TaskStatus{}
-	cfg := TaskConfig{LogFile: ""}
-	fillLogBasedTaskStatus(ts, cfg)
-	// 空 LogFile → 不动 ts
-	if ts.Status != "" || ts.LastRun != "" {
-		t.Errorf("空 LogFile 应不改 ts, got %+v", ts)
-	}
-}
-
-func TestFillLogBasedTaskStatusFileNotExist(t *testing.T) {
-	ts := &TaskStatus{}
-	cfg := TaskConfig{LogFile: "definitely-nonexistent-12345.log"}
-	fillLogBasedTaskStatus(ts, cfg)
-	// 文件不存在 → 不动 ts
-	if ts.Status != "" {
-		t.Errorf("文件不存在应不改 ts, got %+v", ts)
-	}
-}
-
-func TestFillOpsTaskStatusRunning(t *testing.T) {
-	syncMu.Lock()
-	syncRunning = true
-	syncLastLog = ""
-	syncLastAt = ""
-	syncMu.Unlock()
-	defer func() {
-		syncMu.Lock()
-		syncRunning = false
-		syncMu.Unlock()
-	}()
-
-	ts := &TaskStatus{}
-	(&DashboardHandler{}).fillOpsTaskStatus(ts)
-
-	if ts.Status != "running" {
-		t.Errorf("syncRunning=true 应 status=running, got %s", ts.Status)
-	}
-}
-
-func TestFillOpsTaskStatusFailed(t *testing.T) {
-	syncMu.Lock()
-	syncRunning = false
-	syncLastAt = "2026-05-10 03:00:00"
-	syncLastLog = "同步失败：连接错误"
-	syncMu.Unlock()
-	defer func() {
-		syncMu.Lock()
-		syncLastAt = ""
-		syncLastLog = ""
-		syncMu.Unlock()
-	}()
-
-	ts := &TaskStatus{}
-	(&DashboardHandler{}).fillOpsTaskStatus(ts)
-
-	if ts.Status != "failed" {
-		t.Errorf("含'失败'应 status=failed, got %s", ts.Status)
-	}
-}
-
-func TestFillOpsTaskStatusSuccess(t *testing.T) {
-	syncMu.Lock()
-	syncRunning = false
-	syncLastAt = "2026-05-10 03:00:00"
-	syncLastLog = "同步完成"
-	syncMu.Unlock()
-	defer func() {
-		syncMu.Lock()
-		syncLastAt = ""
-		syncLastLog = ""
-		syncMu.Unlock()
-	}()
-
-	ts := &TaskStatus{}
-	(&DashboardHandler{}).fillOpsTaskStatus(ts)
-
-	if ts.Status != "success" {
-		t.Errorf("含'完成'应 status=success, got %s", ts.Status)
-	}
-}
-
-func TestFillServiceTaskStatusPortNotListening(t *testing.T) {
-	// 默认 8080 不一定监听 (test 环境)
-	// 不论 listening 与否, 都不应 panic
-	ts := &TaskStatus{}
-	cfg := TaskConfig{LogFile: ""}
-	fillServiceTaskStatus(ts, cfg)
-	// status 必填 (running 或 failed)
-	if ts.Status != "running" && ts.Status != "failed" {
-		t.Errorf("status 应 running 或 failed, got %s", ts.Status)
 	}
 }
 
