@@ -174,6 +174,81 @@ func (h *DashboardHandler) SyncStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+var (
+	serviceScoreMu      sync.Mutex
+	serviceScoreRunning bool
+)
+
+// SyncServiceScore webhook接口：客服服务分 RPA 抓完文件后调用，立即全量导入。
+// 修"RPA 文件下午才落地、要等晚上 19:30 定时任务才入库"的延迟 — RPA 回调即时补，不用等定时任务。
+// POST /api/webhook/sync-service-score  (必须带 X-Webhook-Secret)
+// 同步执行：导入很快(秒级)，直接把结果回给 RPA。import-service-score.exe 无参数 = 全量扫目录幂等覆盖。
+// 服务分接口不走 cache，导完无需清缓存，前端刷新直读库即见。
+func (h *DashboardHandler) SyncServiceScore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	token := r.Header.Get("X-Webhook-Secret")
+	if !hmac.Equal([]byte(token), []byte(h.WebhookSecret)) {
+		writeError(w, 403, "unauthorized")
+		return
+	}
+
+	serviceScoreMu.Lock()
+	if serviceScoreRunning {
+		serviceScoreMu.Unlock()
+		writeError(w, 409, "服务分导入正在进行中，请稍后")
+		return
+	}
+	serviceScoreRunning = true
+	serviceScoreMu.Unlock()
+	defer func() {
+		serviceScoreMu.Lock()
+		serviceScoreRunning = false
+		serviceScoreMu.Unlock()
+	}()
+
+	exeDir := filepath.Dir(getExePath())
+	toolPath := filepath.Join(exeDir, "import-service-score.exe")
+
+	// 用 Background ctx(不绑 r.Context())：RPA 端 HTTP 超时断开也让导入跑完，不中途夭折
+	ctx, cancel := context.WithTimeout(context.Background(), toolTimeout)
+	defer cancel()
+
+	start := time.Now()
+	log.Printf("[sync-service-score] 开始全量导入服务分")
+	cmd := exec.CommandContext(ctx, toolPath) // 无参数 = 全量扫目录幂等覆盖
+	cmd.Dir = exeDir
+	outputBytes, err := cmd.CombinedOutput()
+	duration := time.Since(start).Round(time.Second)
+	output := strings.TrimSpace(string(outputBytes))
+	digest := summarizeToolOutput(output)
+
+	if err != nil {
+		status := "失败"
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			status = "超时"
+			digest = fmt.Sprintf("执行超过 %s (Z 盘可能不可达)", toolTimeout)
+		} else if digest == "" {
+			digest = err.Error()
+		}
+		log.Printf("[sync-service-score] %s (%s): %s", status, duration, digest)
+		writeError(w, 500, fmt.Sprintf("服务分导入%s: %s", status, digest))
+		return
+	}
+
+	if digest == "" {
+		digest = "无输出"
+	}
+	log.Printf("[sync-service-score] 成功 (%s): %s", duration, digest)
+	writeJSON(w, map[string]interface{}{
+		"status":   "成功",
+		"duration": duration.String(),
+		"detail":   digest,
+	})
+}
+
 func (h *DashboardHandler) runSync(date string) {
 	defer func() {
 		syncMu.Lock()
