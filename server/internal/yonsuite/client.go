@@ -50,7 +50,6 @@ const (
 
 	// defaultMinInterval YS 免费标准配置限流 60 次/分钟 = 1 次/秒
 	// 默认间隔 1.1s 留 10% 余量，避免边界踩限流
-	// 付费版可通过 SetMinInterval(0) 关闭节流
 	defaultMinInterval = 1100 * time.Millisecond
 )
 
@@ -80,14 +79,6 @@ func NewClient(appkey, appsecret, baseURL string) *Client {
 		HTTP:        &http.Client{Timeout: 60 * time.Second},
 		minInterval: defaultMinInterval,
 	}
-}
-
-// SetMinInterval 设置 HTTP 调用最小间隔 (限流保护)
-// d=0 关闭节流 (付费版无限流时使用)
-func (c *Client) SetMinInterval(d time.Duration) {
-	c.rateMu.Lock()
-	defer c.rateMu.Unlock()
-	c.minInterval = d
 }
 
 // waitRateLimit 阻塞直到距上次调用 ≥ minInterval

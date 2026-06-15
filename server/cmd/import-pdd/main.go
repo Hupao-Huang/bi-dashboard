@@ -816,13 +816,6 @@ func getFloat(d []string, i int) float64 {
 	return toF(d, i)
 }
 
-func getStr(d []string, i int) interface{} {
-	if i < 0 || i >= len(d) || d[i] == "" {
-		return nil
-	}
-	return d[i]
-}
-
 func importVideo(db *sql.DB, fpath, date, shop string) (int, error) {
 	data, err := os.ReadFile(fpath)
 	if err != nil {

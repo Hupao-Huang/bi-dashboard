@@ -4,9 +4,8 @@ import (
 	"strings"
 )
 
-// excludeAnhuiOrg v0.52: 跑哥要求所有 YS 数据屏蔽"安徽香松自然调味品有限公司" 组织
+// v0.52: 跑哥要求所有 YS 数据屏蔽"安徽香松自然调味品有限公司" 组织
 // 改这一处即可同步影响所有 YS 表 (ys_stock / ys_material_out / ys_purchase_orders / ys_subcontract_orders) 查询
-const excludeAnhuiOrg = "安徽香松自然调味品有限公司"
 const excludeAnhuiOrgWHERE = " AND org_name != '安徽香松自然调味品有限公司'"
 const excludeAnhuiOrgYsWHERE = " AND ys.org_name != '安徽香松自然调味品有限公司'"
 

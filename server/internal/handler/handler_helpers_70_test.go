@@ -1,10 +1,9 @@
 package handler
 
 // handler_helpers_70_test.go — 推 70% 一波: buildHealthAlertMessage / flowFilter.buildWhere / revokeUserSessions
-//   GetRPAMapping / GetDBDictionary / requireWarehouseAccess / cleanupOldTasks
+//   GetRPAMapping / GetDBDictionary / cleanupOldTasks
 // 已 Read auth.go (line 1680 revokeUserSessions), warehouse_flow.go (line 166 buildWhere),
-//   task_health.go (line 93 buildHealthAlertMessage), docs.go (line 19 GetRPAMapping, 128 GetDBDictionary),
-//   scope.go (line 165 requireWarehouseAccess).
+//   task_health.go (line 93 buildHealthAlertMessage), docs.go (line 19 GetRPAMapping, 128 GetDBDictionary).
 
 import (
 	"context"
@@ -269,57 +268,6 @@ func TestGetDBDictionaryDBError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("DB err 应 500, got %d", rec.Code)
-	}
-}
-
-// ============ requireWarehouseAccess ============
-
-func TestRequireWarehouseAccessNoPayload(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
-	if err := requireWarehouseAccess(req, "华东仓"); err != nil {
-		t.Errorf("无 payload 应放行 (无认证), got %v", err)
-	}
-}
-
-func TestRequireWarehouseAccessSuperAdminAllowAll(t *testing.T) {
-	payload := &authPayload{IsSuperAdmin: true}
-	req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
-	ctx := context.WithValue(req.Context(), currentAuthPayloadKey, payload)
-	if err := requireWarehouseAccess(req.WithContext(ctx), "华东仓"); err != nil {
-		t.Errorf("super_admin 应放行, got %v", err)
-	}
-}
-
-func TestRequireWarehouseAccessAllKeyword(t *testing.T) {
-	payload := &authPayload{
-		DataScopes: authDataScopes{Warehouses: []string{"华东仓"}},
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
-	ctx := context.WithValue(req.Context(), currentAuthPayloadKey, payload)
-	if err := requireWarehouseAccess(req.WithContext(ctx), "all"); err != nil {
-		t.Errorf("'all' 关键字应放行, got %v", err)
-	}
-}
-
-func TestRequireWarehouseAccessAllowed(t *testing.T) {
-	payload := &authPayload{
-		DataScopes: authDataScopes{Warehouses: []string{"华东仓", "华南仓"}},
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
-	ctx := context.WithValue(req.Context(), currentAuthPayloadKey, payload)
-	if err := requireWarehouseAccess(req.WithContext(ctx), "华东仓"); err != nil {
-		t.Errorf("允许的仓应放行, got %v", err)
-	}
-}
-
-func TestRequireWarehouseAccessForbidden(t *testing.T) {
-	payload := &authPayload{
-		DataScopes: authDataScopes{Warehouses: []string{"华东仓"}},
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/x", nil)
-	ctx := context.WithValue(req.Context(), currentAuthPayloadKey, payload)
-	if err := requireWarehouseAccess(req.WithContext(ctx), "华南仓"); err == nil {
-		t.Error("禁止的仓应返 err")
 	}
 }
 

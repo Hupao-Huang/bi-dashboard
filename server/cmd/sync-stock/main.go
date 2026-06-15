@@ -171,40 +171,6 @@ func main() {
 	saveSnapshot(db)
 }
 
-func saveDetailSnapshot(db *sql.DB) {
-	now := time.Now()
-	snapTime := now.Format("2006-01-02 15:04:05")
-	tableMonth := now.Format("200601")
-	tableName := "stock_snapshot_" + tableMonth
-
-	// 确保月表存在
-	var count int
-	db.QueryRow("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", tableName).Scan(&count)
-	if count == 0 {
-		// v1.71.0: CREATE TABLE 失败必须 Fatal 阻断 — 否则后续 INSERT 全挂
-		if _, err := db.Exec(fmt.Sprintf("CREATE TABLE %s LIKE stock_snapshot_template", tableName)); err != nil {
-			log.Fatalf("[sync-stock] CREATE TABLE %s 失败, 后续 INSERT 会全失败, 退出: %v", tableName, err)
-		}
-		log.Printf("自动创建快照表: %s", tableName)
-	}
-
-	result, err := db.Exec(fmt.Sprintf(`INSERT INTO %s
-		(snap_time, goods_id, goods_no, goods_name, sku_id, sku_name,
-		 warehouse_id, warehouse_name, current_qty, locked_qty, locking_quantity,
-		 defective_qty, cost_price, month_qty, goods_attr)
-		SELECT ?, goods_id, goods_no, goods_name, sku_id, sku_name,
-		 warehouse_id, warehouse_name, current_qty, locked_qty, locking_quantity,
-		 defective_qty, cost_price, month_qty, goods_attr
-		FROM stock_quantity
-		WHERE goods_attr = 1 AND warehouse_name != ''`, tableName), snapTime)
-	if err != nil {
-		log.Printf("保存明细快照失败: %v", err)
-		return
-	}
-	rows, _ := result.RowsAffected()
-	log.Printf("保存明细快照成功: %s %d 条", tableName, rows)
-}
-
 func saveSnapshot(db *sql.DB) {
 	log.Println("保存当日库存快照...")
 	_, err := db.Exec(`INSERT INTO stock_daily_snapshot

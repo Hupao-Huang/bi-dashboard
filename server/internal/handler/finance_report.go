@@ -67,16 +67,6 @@ type FinReportRow struct {
 	ByChannel  []FinChannelSeries `json:"byChannel,omitempty"` // 各渠道明细；仅在 channels>1 时返回
 }
 
-func sortIntsAsc(a []int) {
-	for i := 0; i < len(a); i++ {
-		for j := i + 1; j < len(a); j++ {
-			if a[i] > a[j] {
-				a[i], a[j] = a[j], a[i]
-			}
-		}
-	}
-}
-
 func placeholders(n int) string {
 	if n <= 0 {
 		return ""

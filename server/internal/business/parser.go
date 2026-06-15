@@ -34,7 +34,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -356,11 +355,6 @@ func detectLayout(r []string) sheetLayout {
 	return layoutUnknown
 }
 
-// isValidHeader Row 3 是否标准业务报表表头
-func isValidHeader(r []string) bool {
-	return detectLayout(r) != layoutUnknown
-}
-
 // isGroupHeader 分组 header 行：只识别已知的"GMV数据"/"财务数据" + 中后台 sheet 的"品牌费用/管理费用/财务费用"
 // 跑哥 2026-04-30 反馈：旧版本"全 cell 为 0 即 group header"会误判全 0 数据科目（如"样品费用"）
 // 必须用白名单严判，避免误吞数据行
@@ -643,11 +637,6 @@ func nullIfNil(p *float64) interface{} {
 		return nil
 	}
 	return *p
-}
-
-// FormatTimestamp 给日志用
-func FormatTimestamp(t time.Time) string {
-	return t.Format("2006-01-02 15:04:05")
 }
 
 // parseBackOfficeSheet 解析 "中后台合计" sheet

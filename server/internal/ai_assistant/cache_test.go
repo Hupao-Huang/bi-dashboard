@@ -125,17 +125,6 @@ func TestCacheStats(t *testing.T) {
 	}
 }
 
-func TestCacheClear(t *testing.T) {
-	s := &Service{CacheEnabled: true, CacheTTL: time.Hour}
-	s.cacheSet(s.cacheKey("a"), &AskResult{Answer: "a", SourceType: "api"})
-	s.cacheSet(s.cacheKey("b"), &AskResult{Answer: "b", SourceType: "api"})
-	s.CacheClear()
-	_, _, size := s.CacheStats()
-	if size != 0 {
-		t.Errorf("after Clear size should be 0, got %d", size)
-	}
-}
-
 func TestCloneResult(t *testing.T) {
 	src := &AskResult{Answer: "原", DurationMs: 100, FromCache: false}
 	cp := cloneResult(src)

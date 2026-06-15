@@ -108,59 +108,6 @@ type replacedMap map[string]map[int]bool
 // 客观度污染阈值 — 单 SKU 同月份 2 年销量波动 >30% 视为"营销污染", 换用品类中位数
 const objectivePollutionThreshold = 0.30
 
-// computeOfflineRegionMoM 大区环比加速度 — 近 1 月销量 ÷ 近 3 月均
-// 反映最近月份是上升趋势 (>1) 还是下降 (<1)
-// clamp [0.85, 1.15] 防春节那种异常月带飞 (异常月用季节系数 + 春节修正已处理)
-func computeOfflineRegionMoM(db *sql.DB, ym string) (map[string]float64, error) {
-	curr3Start, curr3End := monthsBack(ym, 3)
-	curr1Start, curr1End := monthsBack(ym, 1)
-	cateCond, cateArgs := offlineForecastCateCond()
-	args := []interface{}{curr1Start, curr1End, curr3Start, curr3End, curr3Start, curr3End}
-	args = append(args, cateArgs...)
-
-	rows, err := db.Query(`
-		SELECT region,
-			SUM(CASE WHEN stat_date BETWEEN ? AND ? THEN goods_qty ELSE 0 END) AS last1_qty,
-			SUM(CASE WHEN stat_date BETWEEN ? AND ? THEN goods_qty ELSE 0 END) AS last3_qty
-		FROM (
-			SELECT goods_qty, stat_date, `+offlineForecastRegionExpr+` AS region
-			FROM sales_goods_summary
-			WHERE department='offline'
-				AND stat_date BETWEEN ? AND ?`+cateCond+`
-		) t
-		WHERE region IS NOT NULL
-		GROUP BY region`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	mom := map[string]float64{}
-	for rows.Next() {
-		var region string
-		var last1, last3 float64
-		if err := rows.Scan(&region, &last1, &last3); err != nil {
-			return nil, err
-		}
-		v := 1.0
-		if last3 > 0 {
-			m3avg := last3 / 3.0
-			if m3avg > 0 {
-				v = last1 / m3avg
-				// clamp ±8% — 环比对季节异常月(春节回声)敏感, 收紧防带飞
-				if v < 0.92 {
-					v = 0.92
-				}
-				if v > 1.08 {
-					v = 1.08
-				}
-			}
-		}
-		mom[region] = v
-	}
-	return mom, rows.Err()
-}
-
 // computeOfflineRegionGrowth 算每个大区"近 3 月销量"vs"去年同期 3 月"的同比增长率
 // 用于捕获年度业务扩张趋势, 防止季节系数算法低估增长期
 // clamp 到 [0.7, 1.6] 防异常 (单月暴增/暴跌不影响)

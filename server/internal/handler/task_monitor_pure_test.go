@@ -1,7 +1,7 @@
 package handler
 
-// task_monitor_pure_test.go — buildTaskStatus / fillNextRun / cleanupOldTasks 纯函数 + 全局 map 测试
-// 已 Read task_monitor.go (line 168 buildTaskStatus, 315 fillNextRun, 607 cleanupOldTasks).
+// task_monitor_pure_test.go — buildTaskStatus / cleanupOldTasks 纯函数 + 全局 map 测试
+// 已 Read task_monitor.go (buildTaskStatus, cleanupOldTasks).
 
 import (
 	"strings"
@@ -103,53 +103,6 @@ func TestBuildTaskStatusUnknownTask(t *testing.T) {
 	}
 	if ts.Category != "other" {
 		t.Errorf("无 meta 应 category=other, got %q", ts.Category)
-	}
-}
-
-// ============ fillNextRun ============
-
-func TestFillNextRun8AM(t *testing.T) {
-	ts := &TaskStatus{}
-	fillNextRun(ts, TaskConfig{Schedule: "每天 08:00"})
-	// NextRun 必填且解析成功
-	if ts.NextRun == "" {
-		t.Error("应填 NextRun")
-	}
-	parsed, err := time.ParseInLocation("2006-01-02 15:04:05", ts.NextRun, time.Local)
-	if err != nil {
-		t.Errorf("parse next: %v", err)
-	}
-	if parsed.Hour() != 8 || parsed.Minute() != 0 {
-		t.Errorf("应是 08:00, got %v:%v", parsed.Hour(), parsed.Minute())
-	}
-}
-
-func TestFillNextRun830(t *testing.T) {
-	ts := &TaskStatus{}
-	fillNextRun(ts, TaskConfig{Schedule: "每天 08:30"})
-	parsed, _ := time.ParseInLocation("2006-01-02 15:04:05", ts.NextRun, time.Local)
-	if parsed.Hour() != 8 || parsed.Minute() != 30 {
-		t.Errorf("应 08:30, got %v:%v", parsed.Hour(), parsed.Minute())
-	}
-}
-
-func TestFillNextRunMultiTimes(t *testing.T) {
-	// 9:00/15:00/21:00 三次, 取距今最近的下一个
-	ts := &TaskStatus{}
-	fillNextRun(ts, TaskConfig{Schedule: "每天 09:00/15:00/21:00"})
-	parsed, _ := time.ParseInLocation("2006-01-02 15:04:05", ts.NextRun, time.Local)
-	hour := parsed.Hour()
-	if hour != 9 && hour != 15 && hour != 21 {
-		t.Errorf("应是 9/15/21 之一, got %d", hour)
-	}
-}
-
-func TestFillNextRun9AM(t *testing.T) {
-	ts := &TaskStatus{}
-	fillNextRun(ts, TaskConfig{Schedule: "每天 09:00"})
-	parsed, _ := time.ParseInLocation("2006-01-02 15:04:05", ts.NextRun, time.Local)
-	if parsed.Hour() != 9 || parsed.Minute() != 0 {
-		t.Errorf("应 09:00, got %d:%d", parsed.Hour(), parsed.Minute())
 	}
 }
 

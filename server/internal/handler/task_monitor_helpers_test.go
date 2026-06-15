@@ -1,14 +1,13 @@
 package handler
 
-// task_monitor_helpers_test.go — readLastNLines / readLastNLinesScanner / formatDuration 纯函数
-// 已 Read task_monitor.go (line 397 readLastNLines, 474 readLastNLinesScanner, 499 formatDuration).
+// task_monitor_helpers_test.go — readLastNLines 纯函数
+// 已 Read task_monitor.go (readLastNLines).
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // ============ readLastNLines ============
@@ -122,75 +121,5 @@ func TestReadLastNLinesSkipBlankLines(t *testing.T) {
 	got := readLastNLines(path, 10)
 	if len(got) != 3 {
 		t.Errorf("len=%d want 3, got %v", len(got), got)
-	}
-}
-
-// ============ readLastNLinesScanner ============
-
-func TestReadLastNLinesScannerHappyPath(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "scanner.log")
-	content := "a\nb\nc\nd\ne\n"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	got := readLastNLinesScanner(path, 3)
-	if len(got) != 3 {
-		t.Errorf("len=%d want 3", len(got))
-	}
-	if got[2] != "e" {
-		t.Errorf("末行应 'e', got %v", got)
-	}
-}
-
-func TestReadLastNLinesScannerNonExistent(t *testing.T) {
-	got := readLastNLinesScanner("/no/such/file", 3)
-	if got != nil {
-		t.Errorf("不存在文件应 nil, got %v", got)
-	}
-}
-
-func TestReadLastNLinesScannerSkipBlank(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "scanner_blank.log")
-	content := "x\n\n\ny\n"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	got := readLastNLinesScanner(path, 5)
-	if len(got) != 2 {
-		t.Errorf("len=%d want 2 (跳空行), got %v", len(got), got)
-	}
-}
-
-// ============ formatDuration ============
-
-func TestFormatDurationSeconds(t *testing.T) {
-	got := formatDuration(45 * time.Second)
-	if got != "45秒" {
-		t.Errorf("got %q want 45秒", got)
-	}
-}
-
-func TestFormatDurationMinutes(t *testing.T) {
-	got := formatDuration(3*time.Minute + 7*time.Second)
-	if got != "3分7秒" {
-		t.Errorf("got %q want 3分7秒", got)
-	}
-}
-
-func TestFormatDurationHours(t *testing.T) {
-	got := formatDuration(2*time.Hour + 15*time.Minute + 30*time.Second)
-	if got != "2时15分30秒" {
-		t.Errorf("got %q want 2时15分30秒", got)
-	}
-}
-
-func TestFormatDurationZero(t *testing.T) {
-	got := formatDuration(0)
-	if got != "0秒" {
-		t.Errorf("got %q want 0秒", got)
 	}
 }

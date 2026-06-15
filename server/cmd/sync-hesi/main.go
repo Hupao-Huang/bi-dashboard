@@ -66,27 +66,6 @@ func getAccessToken() (string, error) {
 	return result.Value.AccessToken, nil
 }
 
-// 获取单据列表
-func getFlowList(token, formType string, start, count int) (int, []map[string]interface{}, error) {
-	url := fmt.Sprintf("%s/api/openapi/v1.1/docs/getApplyList?type=%s&start=%d&count=%d&accessToken=%s",
-		hesiAPIBase, formType, start, count, token)
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		return 0, nil, err
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-
-	var result struct {
-		Count int                      `json:"count"`
-		Items []map[string]interface{} `json:"items"`
-	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return 0, nil, fmt.Errorf("解析失败: %w, body: %s", err, string(data[:min(len(data), 300)]))
-	}
-	return result.Count, result.Items, nil
-}
-
 // v1.58.0: 拉单据当前审批节点 + 审批人信息
 // GET /api/openapi/v2/approveStates/[id1,id2,...]?accessToken=xxx
 // Response: {items:[{flowId, stageName, operators:[{id,name,code}], delegateData}]}

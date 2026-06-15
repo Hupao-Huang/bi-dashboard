@@ -106,24 +106,6 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
-// === SetMinInterval / waitRateLimit (line 83-104) ===
-
-func TestSetMinInterval(t *testing.T) {
-	c := NewClient("k", "s", "https://x.com")
-	if c.minInterval != defaultMinInterval {
-		t.Errorf("默认应为 1100ms, got %v", c.minInterval)
-	}
-	c.SetMinInterval(2 * time.Second)
-	if c.minInterval != 2*time.Second {
-		t.Errorf("Set 后应改为 2s, got %v", c.minInterval)
-	}
-	// 关节流 (付费版)
-	c.SetMinInterval(0)
-	if c.minInterval != 0 {
-		t.Errorf("Set 0 应关节流, got %v", c.minInterval)
-	}
-}
-
 // === NewClient ===
 
 func TestNewClientStripsTrailingSlash(t *testing.T) {

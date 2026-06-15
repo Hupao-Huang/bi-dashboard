@@ -62,11 +62,6 @@ type authDataScopes struct {
 	Domains    []string `json:"domains"`
 }
 
-type loginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
 func uniqueSortedStrings(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	result := make([]string, 0, len(values))
