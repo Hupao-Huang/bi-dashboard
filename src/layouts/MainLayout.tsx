@@ -235,7 +235,7 @@ const MainLayout: React.FC = () => {
       {/* 侧边栏底部功能套区 (v1.15: 仅保留 用户菜单) */}
       <div style={{
         borderTop: '1px solid #f0f0f0',
-        padding: '6px 0',
+        padding: 0,
         display: 'flex',
         flexDirection: 'column',
         gap: 0,
@@ -262,7 +262,6 @@ const MainLayout: React.FC = () => {
             justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
             gap: 10,
             cursor: 'pointer',
-            borderTop: '1px solid #e2e8f0',
             transition: 'background 0.15s',
           }}
             onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
