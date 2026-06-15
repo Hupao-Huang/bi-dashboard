@@ -606,6 +606,9 @@ func main() {
 	mux.HandleFunc("/api/finance/report/import/confirm", pageProtected("finance.report:import", h.ImportFinanceConfirm))
 	mux.HandleFunc("/api/finance/report/export", pageAllProtected(h.ExportFinanceReport, "finance.report:view", "data:export"))
 
+	// SKU动销率 (2026-06-15, 权限位暂只给超管, 未发财务角色)
+	mux.HandleFunc("/api/finance/sku-movement", pageProtected("finance.sku_movement:view", h.GetSKUMovement))
+
 	// 业务预决算报表 (v0.58/v0.59)
 	mux.HandleFunc("/api/finance/business-report", pageProtected("finance.report:view", h.GetBusinessReportFinanceLike))
 	mux.HandleFunc("/api/finance/business-report/channels", pageProtected("finance.report:view", h.GetBusinessReportChannelsList))

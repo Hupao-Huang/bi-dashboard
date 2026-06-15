@@ -70,6 +70,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "finance.expense:view", Name: "财务-费控管理", Type: "page"},
 	{Code: "finance.report:view", Name: "财务-财务报表", Type: "page"},
 	{Code: "finance.report:import", Name: "财务-财务报表导入", Type: "action"},
+	{Code: "finance.sku_movement:view", Name: "财务-SKU动销率", Type: "page"}, // 2026-06-15 暂不发 finance 角色, 仅超管可见(验收后再放)
 	{Code: "customer:view", Name: "客服部门", Type: "menu"},
 	{Code: "customer.overview:view", Name: "客服-客服总览", Type: "page"},
 	{Code: "customer.comment:view", Name: "客服-评论数据", Type: "page"},

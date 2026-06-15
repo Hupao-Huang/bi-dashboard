@@ -49,6 +49,7 @@ const FinanceMonthlyProfit = lazy(() => import('./pages/finance/MonthlyProfit'))
 const FinanceProductProfit = lazy(() => import('./pages/finance/ProductProfit'));
 const FinanceExpenseControl = lazy(() => import('./pages/finance/ExpenseControl'));
 const FinanceReport = lazy(() => import('./pages/finance/Report'));
+const FinanceSkuMovement = lazy(() => import('./pages/finance/SkuMovement'));
 const CustomerOverview = lazy(() => import('./pages/customer/Overview'));
 const CommentData = lazy(() => import('./pages/customer/CommentData'));
 const ServiceScore = lazy(() => import('./pages/customer/ServiceScore'));
@@ -183,6 +184,7 @@ const App: React.FC = () => (
               <Route path="/finance/product-profit" element={guard('finance.product_profit:view', <FinanceProductProfit />)} />
               <Route path="/finance/expense-control" element={guard('finance.expense:view', <FinanceExpenseControl />)} />
               <Route path="/finance/report" element={guard('finance.report:view', <FinanceReport />)} />
+              <Route path="/finance/sku-movement" element={guard('finance.sku_movement:view', <FinanceSkuMovement />)} />
               <Route path="/customer/overview" element={guard('customer.overview:view', <CustomerOverview />)} />
               <Route path="/customer/comment" element={guard('customer.comment:view', <CommentData />)} />
               <Route path="/customer/service-score" element={guard('customer.service_score:view', <ServiceScore />)} />

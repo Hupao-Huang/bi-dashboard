@@ -168,6 +168,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/finance/product-profit', icon: <RiseOutlined />, label: '产品利润统计', permission: 'finance.product_profit:view' },
       { key: '/finance/expense-control', icon: <AccountBookOutlined />, label: '费控管理', permission: 'finance.expense:view' },
       { key: '/finance/report', icon: <FileTextOutlined />, label: '财务报表', permission: 'finance.report:view' },
+      { key: '/finance/sku-movement', icon: <LineChartOutlined />, label: 'SKU动销率', permission: 'finance.sku_movement:view' },
     ],
   },
   {
@@ -275,6 +276,7 @@ export const pageTitleMap: Record<string, string> = {
   '/finance/product-profit': '产品利润统计',
   '/finance/expense-control': '费控管理',
   '/finance/report': '财务报表',
+  '/finance/sku-movement': 'SKU动销率',
   '/customer': '客服部门',
   '/customer/overview': '客服总览',
   '/customer/comment': '评论数据',
@@ -386,6 +388,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/finance/monthly-profit', permission: 'finance.monthly_profit:view' },
   { path: '/finance/product-profit', permission: 'finance.product_profit:view' },
   { path: '/finance/expense-control', permission: 'finance.expense:view' },
+  { path: '/finance/sku-movement', permission: 'finance.sku_movement:view' },
   { path: '/customer/overview', permission: 'customer.overview:view' },
   { path: '/customer/comment', permission: 'customer.comment:view' },
   { path: '/customer/service-score', permission: 'customer.service_score:view' },
