@@ -50,6 +50,7 @@ const FinanceProductProfit = lazy(() => import('./pages/finance/ProductProfit'))
 const FinanceExpenseControl = lazy(() => import('./pages/finance/ExpenseControl'));
 const FinanceReport = lazy(() => import('./pages/finance/Report'));
 const FinanceSkuMovement = lazy(() => import('./pages/finance/SkuMovement'));
+const SystemDataMap = lazy(() => import('./pages/system/DataMap'));
 const CustomerOverview = lazy(() => import('./pages/customer/Overview'));
 const CommentData = lazy(() => import('./pages/customer/CommentData'));
 const ServiceScore = lazy(() => import('./pages/customer/ServiceScore'));
@@ -213,6 +214,7 @@ const App: React.FC = () => (
               <Route path="/system/trade-audit" element={guard('role.manage', <TradeAuditPage />)} />
               <Route path="/system/yonbip" element={guard('system.yonbip:use', <YonbipOutboundPage />)} />
               <Route path="/system/batch-convert" element={guard('system.yonbip:use', <BatchConvertPage />)} />
+              <Route path="/system/data-map" element={guard('system.data_map:view', <SystemDataMap />)} />
               {/* 旧路由兼容跳转 */}
               <Route path="/system/tasks" element={<Navigate to="/system/ops" replace />} />
               <Route path="/system/rpa-mapping" element={<Navigate to="/system/rpa" replace />} />

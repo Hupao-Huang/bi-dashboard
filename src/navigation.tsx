@@ -231,6 +231,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/system/db-dict', icon: <DatabaseOutlined />, label: '数据库字典', permission: 'role.manage' },
       { key: '/system/trade-audit', icon: <AuditOutlined />, label: '销售单核对', permission: 'role.manage' },
       { key: '/system/ops', icon: <MonitorOutlined />, label: '运维监控', permission: 'role.manage' },
+      { key: '/system/data-map', icon: <ShareAltOutlined />, label: '数据关联图', permission: 'system.data_map:view' },
     ],
   },
 ];
@@ -408,6 +409,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/system/db-dict', permission: 'role.manage' },
   { path: '/system/trade-audit', permission: 'role.manage' },
   { path: '/system/ops', permission: 'role.manage' },
+  { path: '/system/data-map', permission: 'system.data_map:view' },
 ];
 
 const filterMenuDefinitions = (
