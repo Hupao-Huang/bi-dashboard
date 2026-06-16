@@ -96,6 +96,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "profile.hesi_bot:view", Name: "个人中心-合思机器人", Type: "page"},
 	{Code: "system.yonbip:use", Name: "YS工具(批量出库/批次转换,写用友不可逆)", Type: "action"},
 	{Code: "ai.assistant:use", Name: "AI 智能助手(全公司数据口径)", Type: "action"},
+	{Code: "system.data_map:view", Name: "系统-数据关联图(仅超管)", Type: "page"},
 }
 
 var roleSeeds = []roleSeed{
