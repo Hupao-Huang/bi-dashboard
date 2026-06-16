@@ -14,7 +14,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 )
+
+// parseTaxRatePct 从货品进项税率名称解析税率% (如 "13%增值税税率" → 13)。
+func parseTaxRatePct(name string) float64 {
+	i := strings.Index(name, "%")
+	if i <= 0 {
+		return 0
+	}
+	f, _ := strconv.ParseFloat(strings.TrimSpace(name[:i]), 64)
+	return f
+}
 
 const (
 	orgListPath         = "/iuap-api-gateway/yonbip/digitalModel/openapi/orgdatasync/getallorgdeptbaseinfo"
@@ -92,11 +104,13 @@ func (c *Client) QueryPurchaseOrgs() ([]OrgInfo, error) {
 // ProductDetail 物料档案详情精简 — 采购单需要的单位三件套 + 税目编码, 都从货品档案直接读。
 // 实测(2026-06-16) batchdetailnew 对香松 02030063 返回: 采购/计价/主计量编码=01, incomeTaxRates=10004。
 type ProductDetail struct {
-	Code          string // 物料编码
-	UnitCode      string // 主计量单位编码
-	PurUOMCode    string // 采购单位编码
-	PriceUOMCode  string // 采购计价单位编码
-	TaxitemsCode  string // 税目编码 (= 货品进项税率 incomeTaxRates), 直接喂采购单 taxitems_code
+	Code         string  // 物料编码
+	UnitCode     string  // 主计量单位编码
+	PurUOMCode   string  // 采购单位编码
+	PriceUOMCode string  // 采购计价单位编码
+	TaxitemsCode string  // 税目编码 (= 货品进项税率 incomeTaxRates), 直接喂采购单 taxitems_code
+	TaxRatePct   float64 // 进项税率% (从 incomeTaxRatesName "13%增值税税率" 解析, 算价以此为准)
+	TaxRateName  string  // 进项税率名称 (展示用, 如 "13%增值税税率")
 }
 
 // productDetailResp batchdetailnew 返回 (code 字符串 "200"; data 是数组, 每项含顶层字段 + 嵌套 detail)
@@ -109,6 +123,7 @@ type productDetailResp struct {
 			PurchaseUnitCode      string `json:"purchaseUnitCode"`
 			PurchasePriceUnitCode string `json:"purchasePriceUnitCode"`
 			IncomeTaxRates        string `json:"incomeTaxRates"`
+			IncomeTaxRatesName    string `json:"incomeTaxRatesName"`
 		} `json:"detail"`
 	} `json:"data"`
 	Message string `json:"message"`
@@ -180,6 +195,8 @@ func (c *Client) QueryProductDetails(orgCode string, productCodes []string) (map
 				PurUOMCode:   d.Detail.PurchaseUnitCode,
 				PriceUOMCode: d.Detail.PurchasePriceUnitCode,
 				TaxitemsCode: d.Detail.IncomeTaxRates,
+				TaxRatePct:   parseTaxRatePct(d.Detail.IncomeTaxRatesName),
+				TaxRateName:  d.Detail.IncomeTaxRatesName,
 			}
 			if pd.PurUOMCode == "" {
 				pd.PurUOMCode = pd.UnitCode // 采购单位缺省=主计量

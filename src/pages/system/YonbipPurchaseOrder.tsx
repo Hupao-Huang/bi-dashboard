@@ -14,10 +14,12 @@ interface PreviewRow {
   vendorName: string; vendorCode: string;
   productCode: string; productName: string;
   unitCode: string; taxitemsCode: string;
+  taxRatePct: number; taxRateName: string;
   qty: number; taxInclPrice: number;
   oriSum: number; oriMoney: number; oriTax: number;
   arriveDate: string;
   problems: string[];
+  warnings: string[];
 }
 interface OrderSummary {
   orgCode: string; orgName: string;
@@ -126,17 +128,28 @@ const YonbipPurchaseOrder: React.FC = () => {
     },
     {
       title: '物料', dataIndex: 'productCode', width: 200, ellipsis: true,
-      render: (v: string, r: PreviewRow) => <span>{v} {r.productName} {r.unitCode ? <Text type="secondary">[{r.unitCode}/税{r.taxitemsCode}]</Text> : <Tag color="red">查不到</Tag>}</span>,
+      render: (v: string, r: PreviewRow) => <span>{v} {r.productName} {r.unitCode ? <Text type="secondary">[{r.unitCode}]</Text> : <Tag color="red">查不到</Tag>}</span>,
     },
-    { title: '数量', dataIndex: 'qty', width: 80, align: 'right' as const },
-    { title: '含税单价', dataIndex: 'taxInclPrice', width: 90, align: 'right' as const, render: (v: number) => v },
-    { title: '含税金额', dataIndex: 'oriSum', width: 100, align: 'right' as const, render: (v: number) => fmtMoney(v) },
-    { title: '无税', dataIndex: 'oriMoney', width: 100, align: 'right' as const, render: (v: number) => fmtMoney(v) },
-    { title: '税额', dataIndex: 'oriTax', width: 90, align: 'right' as const, render: (v: number) => fmtMoney(v) },
-    { title: '计划到货', dataIndex: 'arriveDate', width: 110, render: (v: string) => v ? v.slice(0, 10) : '-' },
+    { title: '数量', dataIndex: 'qty', width: 70, align: 'right' as const },
+    { title: '含税单价', dataIndex: 'taxInclPrice', width: 85, align: 'right' as const, render: (v: number) => v },
     {
-      title: '检查', dataIndex: 'problems', width: 160,
-      render: (p: string[]) => p && p.length ? <Tag color="red">{p.join('; ')}</Tag> : <Tag color="green">OK</Tag>,
+      title: '税率', dataIndex: 'taxRatePct', width: 70, align: 'right' as const,
+      render: (v: number, r: PreviewRow) => v ? <span title={r.taxRateName}>{v}%</span> : '-',
+    },
+    { title: '含税金额', dataIndex: 'oriSum', width: 95, align: 'right' as const, render: (v: number) => fmtMoney(v) },
+    { title: '无税', dataIndex: 'oriMoney', width: 95, align: 'right' as const, render: (v: number) => fmtMoney(v) },
+    { title: '税额', dataIndex: 'oriTax', width: 85, align: 'right' as const, render: (v: number) => fmtMoney(v) },
+    { title: '计划到货', dataIndex: 'arriveDate', width: 105, render: (v: string) => v ? v.slice(0, 10) : '-' },
+    {
+      title: '检查', key: 'check', width: 220,
+      render: (_: any, r: PreviewRow) => (
+        <span>
+          {r.problems && r.problems.length
+            ? <Tag color="red">{r.problems.join('; ')}</Tag>
+            : (!r.warnings || !r.warnings.length) && <Tag color="green">OK</Tag>}
+          {r.warnings && r.warnings.map((w, i) => <Tag color="orange" key={i}>{w}</Tag>)}
+        </span>
+      ),
     },
   ];
 
@@ -225,7 +238,7 @@ const YonbipPurchaseOrder: React.FC = () => {
             }>
             <Table rowKey="rowNo" size="small" columns={previewCols}
               dataSource={selectedOrder === null ? rows : rows.filter(r => r.orderIndex === selectedOrder)}
-              pagination={false} scroll={{ x: 1300, y: 440 }} sticky={false}
+              pagination={false} scroll={{ x: 1550, y: 440 }} sticky={false}
               rowClassName={(r) => (r.problems && r.problems.length ? 'po-row-bad' : '')} />
           </Card>
         </div>
