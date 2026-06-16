@@ -309,6 +309,7 @@ export const pageTitleMap: Record<string, string> = {
   '/system/trade-audit': '销售单核对',
   '/system/ops': '运维监控',
   '/system/yonbip': '用友批量出库',
+  '/system/yonbip-purchase': '新增采购订单',
   '/system/batch-convert': '用友批次/状态转换',
   '/profile': '个人中心',
   '/profile/info': '个人信息',

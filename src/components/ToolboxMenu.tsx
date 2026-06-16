@@ -16,6 +16,7 @@ interface ToolItem {
 
 const TOOLS: ToolItem[] = [
   { key: '/system/yonbip', label: '批量出库', group: 'YS工具', permission: 'system.yonbip:use' },
+  { key: '/system/yonbip-purchase', label: '新增采购订单', group: 'YS工具', permission: 'system.yonbip:use' },
   { key: '/system/batch-convert', label: '批次转换', group: 'YS工具', permission: 'system.yonbip:use' },
 ];
 
