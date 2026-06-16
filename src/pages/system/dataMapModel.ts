@@ -16,11 +16,11 @@ export interface DataMapLink {
   target: string;
 }
 
-// 三层配色 (BI 经典青蓝调色盘: 源=青蓝 / 数据域=金黄 / 看板=翡翠)
+// 三层配色 (深色底发光档: 源=亮青 / 数据域=琥珀金 / 看板=翡翠绿, 在深空背景上发光醒目)
 export const LAYER_META: Record<DataMapLayer, { label: string; color: string }> = {
-  source: { label: '外部数据源', color: '#1e40af' },
-  domain: { label: '数据域', color: '#f59e0b' },
-  board: { label: '看板模块', color: '#10b981' },
+  source: { label: '外部数据源', color: '#38bdf8' },
+  domain: { label: '数据域', color: '#fbbf24' },
+  board: { label: '看板模块', color: '#34d399' },
 };
 
 export const DATA_MAP_NODES: DataMapNode[] = [
