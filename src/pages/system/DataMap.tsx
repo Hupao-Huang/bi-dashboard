@@ -1,7 +1,9 @@
-// 数据关联三维图 (仅超管) — 可旋转的 3D 数据架构网络
-// 外部数据源 → 数据域 → 看板模块 三层, 点节点看它的上下游。
+// 数据关联三维图 (仅超管)
+// 节点 = 半透明方块(清晰亮边框) + 名字, 始终正对观测者(billboard), 靠透视近大远小区分远近;
+// 额外纵深线索: 场景雾(远节点/连线往背景色淡化)。点节点高亮其上下游、淡化其余。
 import React, { useRef, useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { Card, Spin, Typography, Tag, Empty } from 'antd';
+import * as THREE from 'three';
 import SpriteText from 'three-spritetext';
 import {
   DATA_MAP_NODES,
@@ -18,14 +20,21 @@ const NODE_BY_ID: Record<string, DataMapNode> = Object.fromEntries(
   DATA_MAP_NODES.map((n) => [n.id, n]),
 );
 
+const BG = '#070b16'; // 深空底
+
+const hexToRgba = (hex: string, a: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+};
+
 const DataMap: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<any>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [selected, setSelected] = useState<DataMapNode | null>(null);
-  const [highlightLinks, setHighlightLinks] = useState<Set<any>>(new Set());
+  const [highlightNodes, setHighlightNodes] = useState<Set<string>>(new Set());
+  const [highlightLinks, setHighlightLinks] = useState<Set<string>>(new Set());
 
-  // 克隆一份给图库内部改坐标, 不动原模型
   const graphData = useMemo(
     () => ({
       nodes: DATA_MAP_NODES.map((n) => ({ ...n })),
@@ -34,18 +43,22 @@ const DataMap: React.FC = () => {
     [],
   );
 
-  // 有向邻接: 上游(数据来自) / 下游(流向)
-  const { upstream, downstream } = useMemo(() => {
+  const { degree, upstream, downstream, neighbors } = useMemo(() => {
+    const deg: Record<string, number> = {};
     const up: Record<string, string[]> = {};
     const down: Record<string, string[]> = {};
+    const nb: Record<string, Set<string>> = {};
     DATA_MAP_LINKS.forEach((l) => {
+      deg[l.source] = (deg[l.source] || 0) + 1;
+      deg[l.target] = (deg[l.target] || 0) + 1;
       (down[l.source] ||= []).push(l.target);
       (up[l.target] ||= []).push(l.source);
+      (nb[l.source] ||= new Set()).add(l.target);
+      (nb[l.target] ||= new Set()).add(l.source);
     });
-    return { upstream: up, downstream: down };
+    return { degree: deg, upstream: up, downstream: down, neighbors: nb };
   }, []);
 
-  // 容器尺寸自适应
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -56,49 +69,61 @@ const DataMap: React.FC = () => {
     return () => ro.disconnect();
   }, []);
 
-  const linkId = (l: any) => {
-    const s = typeof l.source === 'object' ? l.source.id : l.source;
-    const t = typeof l.target === 'object' ? l.target.id : l.target;
-    return `${s}->${t}`;
-  };
+  const linkEndId = (e: any) => (typeof e === 'object' ? e.id : e);
+  const linkKey = (l: any) => `${linkEndId(l.source)}->${linkEndId(l.target)}`;
+
+  // 场景雾 = 远近纵深线索 (远的往背景色淡化, 浓度已调淡到远处仍可读)
+  const installFog = useCallback(() => {
+    const scene = fgRef.current?.scene?.();
+    if (scene && !scene.fog) scene.fog = new THREE.FogExp2(BG, 0.0012);
+  }, []);
 
   const handleNodeClick = useCallback(
     (node: any) => {
-      const ll = new Set<any>();
+      const nn = new Set<string>([node.id]);
+      (neighbors[node.id] || new Set()).forEach((id) => nn.add(id));
+      const ll = new Set<string>();
       graphData.links.forEach((l: any) => {
-        const s = typeof l.source === 'object' ? l.source.id : l.source;
-        const t = typeof l.target === 'object' ? l.target.id : l.target;
-        if (s === node.id || t === node.id) ll.add(linkId(l));
+        const s = linkEndId(l.source);
+        const t = linkEndId(l.target);
+        if (s === node.id || t === node.id) ll.add(`${s}->${t}`);
       });
+      setHighlightNodes(nn);
       setHighlightLinks(ll);
       setSelected(NODE_BY_ID[node.id] || null);
-      // 镜头飞向该节点
       const { x = 0, y = 0, z = 0 } = node;
       const r = Math.hypot(x, y, z) || 1;
-      const k = 1 + 90 / r;
+      const k = 1 + 110 / r;
       fgRef.current?.cameraPosition({ x: x * k, y: y * k, z: z * k }, node, 900);
     },
-    [graphData],
+    [neighbors, graphData],
   );
 
   const clearSel = useCallback(() => {
     setSelected(null);
+    setHighlightNodes(new Set());
     setHighlightLinks(new Set());
   }, []);
 
-  // 节点 = 彩色文字标签 (始终显示, 一眼看懂)
-  const nodeThreeObject = useCallback((node: any) => {
-    const meta = LAYER_META[node.layer as DataMapLayer];
-    const sprite = new SpriteText(node.name);
-    sprite.color = meta.color;
-    sprite.textHeight =
-      node.layer === 'source' ? 6 : node.layer === 'domain' ? 5 : 4.5;
-    sprite.fontWeight = '600';
-    sprite.backgroundColor = 'rgba(10,16,33,0.72)';
-    sprite.padding = 2;
-    sprite.borderRadius = 3;
-    return sprite;
-  }, []);
+  // 节点 = 半透明方块(亮色清晰边框) + 名字, SpriteText 自带 billboard + 透视近大远小
+  const nodeThreeObject = useCallback(
+    (node: any) => {
+      const meta = LAYER_META[node.layer as DataMapLayer];
+      const dim = highlightNodes.size > 0 && !highlightNodes.has(node.id);
+      const s = new SpriteText(node.name);
+      s.color = dim ? 'rgba(220,225,235,0.22)' : '#eaf0ff';
+      const base = node.layer === 'source' ? 4.6 : node.layer === 'domain' ? 4 : 3.6;
+      s.textHeight = base + Math.min(degree[node.id] || 0, 6) * 0.28; // 关联越多越大
+      s.fontWeight = '600';
+      s.backgroundColor = dim ? 'rgba(40,48,66,0.1)' : hexToRgba(meta.color, 0.18); // 半透明填充
+      s.borderColor = dim ? 'rgba(120,130,150,0.3)' : meta.color; // 清晰亮边框(棱)
+      s.borderWidth = 1.4;
+      s.borderRadius = 1.5;
+      s.padding = 3;
+      return s;
+    },
+    [highlightNodes, degree],
+  );
 
   return (
     <Card
@@ -113,10 +138,9 @@ const DataMap: React.FC = () => {
       }
     >
       <Paragraph type="secondary" style={{ marginTop: -4, marginBottom: 12 }}>
-        数据从哪来 → 汇成哪些数据 → 喂给哪些看板的全景架构。鼠标拖动旋转、滚轮缩放、点节点看它的上下游。
+        数据从哪来 → 汇成哪些数据 → 喂给哪些看板的全景架构。鼠标拖动旋转、滚轮缩放、点节点看它的上下游。方块越大代表关联越多；越近越大越清晰、越远越小越淡。
       </Paragraph>
 
-      {/* 图例 */}
       <div style={{ display: 'flex', gap: 18, marginBottom: 10, flexWrap: 'wrap' }}>
         {(Object.keys(LAYER_META) as DataMapLayer[]).map((k) => (
           <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -124,8 +148,9 @@ const DataMap: React.FC = () => {
               style={{
                 width: 12,
                 height: 12,
-                borderRadius: '50%',
-                background: LAYER_META[k].color,
+                borderRadius: 2,
+                border: `1.5px solid ${LAYER_META[k].color}`,
+                background: hexToRgba(LAYER_META[k].color, 0.25),
                 display: 'inline-block',
               }}
             />
@@ -135,14 +160,13 @@ const DataMap: React.FC = () => {
       </div>
 
       <div style={{ display: 'flex', gap: 12 }}>
-        {/* 3D 图 */}
         <div
           ref={containerRef}
           style={{
             flex: 1,
             height: 'calc(100vh - 280px)',
             minHeight: 460,
-            background: '#0b1021',
+            background: BG,
             borderRadius: 8,
             overflow: 'hidden',
             position: 'relative',
@@ -160,18 +184,18 @@ const DataMap: React.FC = () => {
               graphData={graphData}
               width={size.w}
               height={size.h}
-              backgroundColor="#0b1021"
+              backgroundColor={BG}
               nodeThreeObject={nodeThreeObject}
+              nodeThreeObjectExtend={false}
               nodeLabel={(n: any) => `${n.name}｜${n.desc}`}
               linkColor={(l: any) =>
-                highlightLinks.has(linkId(l)) ? '#ffffff' : 'rgba(180,200,255,0.22)'
+                highlightLinks.has(linkKey(l)) ? '#a5b4fc' : 'rgba(140,160,200,0.16)'
               }
-              linkWidth={(l: any) => (highlightLinks.has(linkId(l)) ? 2.5 : 0.6)}
-              linkOpacity={0.5}
-              linkDirectionalArrowLength={3.5}
-              linkDirectionalArrowRelPos={1}
-              linkDirectionalParticles={(l: any) => (highlightLinks.has(linkId(l)) ? 3 : 0)}
-              linkDirectionalParticleWidth={2.5}
+              linkWidth={(l: any) => (highlightLinks.has(linkKey(l)) ? 2 : 0.4)}
+              linkDirectionalParticles={(l: any) => (highlightLinks.has(linkKey(l)) ? 4 : 2)}
+              linkDirectionalParticleWidth={(l: any) => (highlightLinks.has(linkKey(l)) ? 2.4 : 1)}
+              linkDirectionalParticleSpeed={0.006}
+              onEngineStop={installFog}
               onNodeClick={handleNodeClick}
               onBackgroundClick={clearSel}
               enableNodeDrag={false}
@@ -179,7 +203,6 @@ const DataMap: React.FC = () => {
           </Suspense>
         </div>
 
-        {/* 右侧节点详情 */}
         <div
           style={{
             width: 268,
