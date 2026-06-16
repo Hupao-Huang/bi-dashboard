@@ -611,6 +611,10 @@ func main() {
 	// SKU动销率 (2026-06-15, 权限位暂只给超管, 未发财务角色)
 	mux.HandleFunc("/api/finance/sku-movement", pageProtected("finance.sku_movement:view", h.GetSKUMovement))
 
+	// 凭证查询 (2026-06-16, 实时查用友 YS 凭证, 权限位暂只给超管)
+	mux.HandleFunc("/api/finance/voucher/accbooks", pageProtected("finance.voucher:view", h.GetVoucherAccbooks))
+	mux.HandleFunc("/api/finance/voucher/list", pageProtected("finance.voucher:view", h.GetVoucherList))
+
 	// 业务预决算报表 (v0.58/v0.59)
 	mux.HandleFunc("/api/finance/business-report", pageProtected("finance.report:view", h.GetBusinessReportFinanceLike))
 	mux.HandleFunc("/api/finance/business-report/channels", pageProtected("finance.report:view", h.GetBusinessReportChannelsList))
