@@ -124,6 +124,7 @@ func poAtof(s string) float64 {
 
 type poPreviewRowDTO struct {
 	RowNo        int      `json:"rowNo"`
+	OrderIndex   int      `json:"orderIndex"` // 属于第几张订单(前端点订单筛明细用)
 	OrgName      string   `json:"orgName"`
 	OrgCode      string   `json:"orgCode"`
 	VendorName   string   `json:"vendorName"`
@@ -295,7 +296,7 @@ func (h *DashboardHandler) YonbipPOPreview(w http.ResponseWriter, r *http.Reques
 	type gk struct{ org, vendor, date string }
 	idx := map[gk]int{}
 	var orders []poPreviewOrder
-	for _, c := range calcs {
+	for ci, c := range calcs {
 		vouchDate := yonsuite.NormDate(c.row.VouchDate)
 		k := gk{orgCodeByName[c.row.OrgName], vendorCodeByName[c.row.VendorName], vouchDate}
 		i, ok := idx[k]
@@ -307,6 +308,7 @@ func (h *DashboardHandler) YonbipPOPreview(w http.ResponseWriter, r *http.Reques
 				VendorCode: k.vendor, VendorName: c.row.VendorName, VouchDate: k.date,
 			})
 		}
+		previewRows[ci].OrderIndex = i // 回填: 该明细行属于第 i 张订单
 		orders[i].Lines = append(orders[i].Lines, c.line)
 		orders[i].LineCount++
 		orders[i].TotalSum = roundMoney(orders[i].TotalSum + c.dto.OriSum)
