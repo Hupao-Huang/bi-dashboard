@@ -133,6 +133,8 @@ type poPreviewRowDTO struct {
 	ProductName  string   `json:"productName"`
 	UnitCode     string   `json:"unitCode"`
 	TaxitemsCode string   `json:"taxitemsCode"`
+	TaxRatePct   float64  `json:"taxRatePct"`  // 实际使用税率%(以货品档案为准)
+	TaxRateName  string   `json:"taxRateName"` // 货品税率名称
 	Qty          float64  `json:"qty"`
 	TaxInclPrice float64  `json:"taxInclPrice"`
 	OriSum       float64  `json:"oriSum"`
@@ -140,6 +142,7 @@ type poPreviewRowDTO struct {
 	OriTax       float64  `json:"oriTax"`
 	ArriveDate   string   `json:"arriveDate"`
 	Problems     []string `json:"problems"`
+	Warnings     []string `json:"warnings"`
 }
 
 // YonbipPOPreview 上传 Excel → 翻译+算价+组装 → 预览(不建单)。
@@ -241,9 +244,20 @@ func (h *DashboardHandler) YonbipPOPreview(w http.ResponseWriter, r *http.Reques
 		vouchDate := yonsuite.NormDate(r.VouchDate)
 		qty := poAtof(r.Qty)
 		taxPrice := poAtof(r.TaxInclPrice)
-		prices := yonsuite.ComputeLinePrices(taxPrice, qty, poAtof(r.TaxRate))
+		tmplRate := poAtof(r.TaxRate)
+		// 税率以货品档案为准(权威); 货品查不到时才退回模板(此时本就因物料缺失标红)
+		taxRate := tmplRate
+		if prod != nil && prod.TaxRatePct > 0 {
+			taxRate = prod.TaxRatePct
+		}
+		prices := yonsuite.ComputeLinePrices(taxPrice, qty, taxRate)
 
 		var probs []string
+		var warns []string
+		// 模板税率与货品档案不一致 → 橙色提醒(不拦, 已按货品权威税率算)
+		if prod != nil && prod.TaxRatePct > 0 && tmplRate > 0 && tmplRate != prod.TaxRatePct {
+			warns = append(warns, fmt.Sprintf("模板填%.0f%%与货品档案%.0f%%不符, 已按货品%.0f%%算", tmplRate, prod.TaxRatePct, prod.TaxRatePct))
+		}
 		if orgCode == "" {
 			probs = append(probs, "组织查不到编码")
 		}
@@ -266,17 +280,18 @@ func (h *DashboardHandler) YonbipPOPreview(w http.ResponseWriter, r *http.Reques
 			probs = append(probs, fmt.Sprintf("含税金额%.2f≠单价×数量%.2f", amt, prices.OriSum))
 		}
 
-		unit, taxitems := "", ""
+		unit, taxitems, taxName := "", "", ""
 		if prod != nil {
-			unit, taxitems = prod.PurUOMCode, prod.TaxitemsCode
+			unit, taxitems, taxName = prod.PurUOMCode, prod.TaxitemsCode, prod.TaxRateName
 		}
 		dto := poPreviewRowDTO{
 			RowNo: r.rowNo, OrgName: r.OrgName, OrgCode: orgCode,
 			VendorName: r.VendorName, VendorCode: vendorCode,
 			ProductCode: r.ProductCode, ProductName: r.ProductName,
-			UnitCode: unit, TaxitemsCode: taxitems, Qty: qty, TaxInclPrice: taxPrice,
+			UnitCode: unit, TaxitemsCode: taxitems, TaxRatePct: taxRate, TaxRateName: taxName,
+			Qty: qty, TaxInclPrice: taxPrice,
 			OriSum: prices.OriSum, OriMoney: prices.OriMoney, OriTax: prices.OriTax,
-			ArriveDate: yonsuite.NormDate(r.ArriveDt), Problems: probs,
+			ArriveDate: yonsuite.NormDate(r.ArriveDt), Problems: probs, Warnings: warns,
 		}
 		previewRows = append(previewRows, dto)
 
@@ -285,7 +300,7 @@ func (h *DashboardHandler) YonbipPOPreview(w http.ResponseWriter, r *http.Reques
 			line = yonsuite.POLineInput{
 				ProductCode: r.ProductCode, UnitCode: prod.UnitCode, PurUOMCode: prod.PurUOMCode,
 				PriceUOMCode: prod.PriceUOMCode, TaxitemsCode: prod.TaxitemsCode,
-				Qty: qty, TaxInclUnitPrice: taxPrice, TaxRatePct: poAtof(r.TaxRate),
+				Qty: qty, TaxInclUnitPrice: taxPrice, TaxRatePct: taxRate,
 				ArriveDate: yonsuite.NormDate(r.ArriveDt),
 			}
 		}
