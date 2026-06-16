@@ -193,13 +193,15 @@ const YonbipPurchaseOrder: React.FC = () => {
             <Alert type="warning" showIcon style={{ marginBottom: 12 }}
               message="有订单存在红色问题(组织/供应商/物料查不到、数量异常等), 这些订单会自动跳过, 只建绿色的。" />
           )}
-          <Text strong>订单汇总({orders.length} 张)</Text>
-          <Table rowKey={(_, i) => `o${i}`} size="small" columns={orderCols} dataSource={orders}
-            pagination={false} style={{ marginBottom: 16, marginTop: 8 }} scroll={{ x: 700 }} />
-          <Text strong>明细行({rows.length} 行)</Text>
-          <Table rowKey="rowNo" size="small" columns={previewCols} dataSource={rows}
-            pagination={false} style={{ marginTop: 8 }} scroll={{ x: 1300 }}
-            rowClassName={(r) => (r.problems && r.problems.length ? 'po-row-bad' : '')} />
+          <Card size="small" type="inner" title={`订单汇总（${orders.length} 张）`} style={{ marginBottom: 16 }}>
+            <Table rowKey={(_, i) => `o${i}`} size="small" columns={orderCols} dataSource={orders}
+              pagination={false} scroll={{ x: 700 }} />
+          </Card>
+          <Card size="small" type="inner" title={`明细行（${rows.length} 行）`}>
+            <Table rowKey="rowNo" size="small" columns={previewCols} dataSource={rows}
+              pagination={false} scroll={{ x: 1300, y: 440 }} sticky={false}
+              rowClassName={(r) => (r.problems && r.problems.length ? 'po-row-bad' : '')} />
+          </Card>
         </div>
       )}
 
