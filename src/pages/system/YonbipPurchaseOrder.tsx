@@ -9,6 +9,7 @@ const { Paragraph, Text } = Typography;
 
 interface PreviewRow {
   rowNo: number;
+  orderIndex: number;
   orgName: string; orgCode: string;
   vendorName: string; vendorCode: string;
   productCode: string; productName: string;
@@ -39,13 +40,16 @@ const YonbipPurchaseOrder: React.FC = () => {
   const [committing, setCommitting] = useState(false);
   const [results, setResults] = useState<CommitResult[]>([]);
   const [force, setForce] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<number | null>(null); // 点订单筛明细
 
   const reset = () => {
-    setStep(0); setRows([]); setOrders([]); setToken(''); setResults([]); setForce(false);
+    setStep(0); setRows([]); setOrders([]); setToken(''); setResults([]); setForce(false); setSelectedOrder(null);
   };
 
   const doUpload = async (file: File) => {
     setUploading(true);
+    setSelectedOrder(null);
+    message.open({ key: 'po-up', type: 'loading', content: '正在解析并查用友翻译编码（组织/物料/供应商），通常 5–20 秒，请别关页面…', duration: 0 });
     const fd = new FormData();
     fd.append('file', file);
     try {
@@ -66,6 +70,7 @@ const YonbipPurchaseOrder: React.FC = () => {
     } catch {
       message.error('网络错误, 上传失败');
     } finally {
+      message.destroy('po-up');
       setUploading(false);
     }
   };
@@ -172,7 +177,7 @@ const YonbipPurchaseOrder: React.FC = () => {
           </Paragraph>
           <Upload.Dragger {...uploadProps} disabled={uploading} style={{ maxWidth: 520 }}>
             <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-            <p className="ant-upload-text">{uploading ? '解析中…(要查用友, 通常几秒)' : '点击或拖拽 .xlsx 文件到此上传'}</p>
+            <p className="ant-upload-text">{uploading ? '正在解析并查用友翻译编码…（通常 5–20 秒，请别关页面）' : '点击或拖拽 .xlsx 文件到此上传'}</p>
           </Upload.Dragger>
         </div>
       )}
@@ -193,12 +198,33 @@ const YonbipPurchaseOrder: React.FC = () => {
             <Alert type="warning" showIcon style={{ marginBottom: 12 }}
               message="有订单存在红色问题(组织/供应商/物料查不到、数量异常等), 这些订单会自动跳过, 只建绿色的。" />
           )}
-          <Card size="small" type="inner" title={`订单汇总（${orders.length} 张）`} style={{ marginBottom: 16 }}>
+          <Card size="small" type="inner"
+            title={<span>订单汇总（{orders.length} 张）<Text type="secondary" style={{ fontWeight: 400, marginLeft: 8 }}>点某行只看该订单的明细</Text></span>}
+            style={{ marginBottom: 16 }}>
             <Table rowKey={(_, i) => `o${i}`} size="small" columns={orderCols} dataSource={orders}
-              pagination={false} scroll={{ x: 700 }} />
+              pagination={false} scroll={{ x: 700 }}
+              rowClassName={(_, i) => (i === selectedOrder ? 'po-row-sel' : '')}
+              onRow={(_, i) => ({
+                style: { cursor: 'pointer' },
+                onClick: () => setSelectedOrder(selectedOrder === i ? null : (i ?? null)),
+              })} />
           </Card>
-          <Card size="small" type="inner" title={`明细行（${rows.length} 行）`}>
-            <Table rowKey="rowNo" size="small" columns={previewCols} dataSource={rows}
+          <Card size="small" type="inner"
+            title={
+              <span>
+                明细行（{selectedOrder === null ? rows.length : rows.filter(r => r.orderIndex === selectedOrder).length} 行）
+                {selectedOrder !== null && (
+                  <>
+                    <Text type="secondary" style={{ fontWeight: 400, marginLeft: 8 }}>
+                      已筛选: {orders[selectedOrder]?.vendorName}
+                    </Text>
+                    <Button size="small" type="link" onClick={() => setSelectedOrder(null)}>显示全部</Button>
+                  </>
+                )}
+              </span>
+            }>
+            <Table rowKey="rowNo" size="small" columns={previewCols}
+              dataSource={selectedOrder === null ? rows : rows.filter(r => r.orderIndex === selectedOrder)}
               pagination={false} scroll={{ x: 1300, y: 440 }} sticky={false}
               rowClassName={(r) => (r.problems && r.problems.length ? 'po-row-bad' : '')} />
           </Card>
@@ -216,7 +242,8 @@ const YonbipPurchaseOrder: React.FC = () => {
             pagination={false} scroll={{ x: 900 }} />
         </div>
       )}
-      <style>{`.po-row-bad td { background: #fff1f0 !important; }`}</style>
+      <style>{`.po-row-bad td { background: #fff1f0 !important; }
+        .po-row-sel td { background: #e6f4ff !important; }`}</style>
     </Card>
   );
 };
