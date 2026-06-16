@@ -2,7 +2,8 @@ package yonsuite
 
 // 新增采购订单工具用到的用友接口:
 //   - 采购组织字典 (getallorgdeptbaseinfo, orgunit 职能) → 组织名↔编码
-//   - 物料按编码查 (listproductbycondition) → 拿主计量单位编码
+//   - 物料档案批量详情 (product/batchdetailnew) → 拿采购/计价/主计量单位编码 + 税目编码(进项税率)
+//   - 供应商分页 (vendor/list) → 名称↔编码字典
 //   - 采购订单单个保存 (purchaseorder/singleSave_v1) → 建单(开立态, 不审核)
 // 接口已实测授权通过(2026-06-16)。写用友=不可逆, 调用方须走两步向导+幂等防重。
 
@@ -264,4 +265,31 @@ func (c *Client) QueryVendorsPage(pageIndex, pageSize int) ([]VendorInfo, int, e
 // resubmitCheckKey 做幂等防重。复用 rawPost 的 token/签名/限流/UseNumber 管道。
 func (c *Client) PurchaseOrderSingleSave(body interface{}) (*WriteResp, error) {
 	return c.rawPost(poSingleSavePath, body)
+}
+
+// SavePurchaseOrder 建单并"严格判成功": code=="200" 不够(用友业务失败也可能返200, 二审#2),
+// 必须从 data 里拿到采购订单主表 id 才算真建成。返回 (订单id, 原始resp, err)。
+func (c *Client) SavePurchaseOrder(body interface{}) (string, *WriteResp, error) {
+	resp, err := c.PurchaseOrderSingleSave(body)
+	if err != nil {
+		return "", resp, err
+	}
+	var d struct {
+		ID   json.Number `json:"id"`
+		Code string      `json:"code"`
+	}
+	if resp != nil && len(resp.Data) > 0 {
+		dec := json.NewDecoder(bytes.NewReader(resp.Data))
+		dec.UseNumber()
+		_ = dec.Decode(&d) // data 非预期结构时下面统一按"无id=失败"兜
+	}
+	if id := d.ID.String(); id != "" && id != "0" {
+		return id, resp, nil
+	}
+	return "", resp, fmt.Errorf("用友未返回采购订单id(疑业务失败), data=%s", func() string {
+		if resp != nil {
+			return truncate(string(resp.Data), 800)
+		}
+		return "<nil>"
+	}())
 }

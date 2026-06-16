@@ -6,6 +6,7 @@ package main
 import (
 	"database/sql"
 	"log"
+	"strings"
 	"time"
 
 	"bi-dashboard/internal/config"
@@ -43,32 +44,55 @@ func main() {
 
 	c := yonsuite.NewClient(cfg.YonSuite.AppKey, cfg.YonSuite.AppSecret, cfg.YonSuite.BaseURL)
 
-	const pageSize = 1000
-	total := 0
+	// 供应商企业级共享, 同一家按使用组织在多页重复出现(实测10万行→2千多家)。
+	// 先内存去重(按编码), 再批量 upsert, 避免几十倍冗余的单条 DB 往返(二审#7)。
+	uniq := map[string]string{} // code → name
 	pageCount := 1
 	for page := 1; page <= pageCount; page++ {
-		vendors, pc, err := c.QueryVendorsPage(page, pageSize)
+		vendors, pc, err := c.QueryVendorsPage(page, 500)
 		if err != nil {
 			log.Fatalf("query vendors page %d: %v", page, err)
 		}
+		// pageCount 兜底: 接口给了就用, 没给但本页满 500 就继续翻(防 pageCount=0 早停, 二审#1)
 		if pc > 0 {
 			pageCount = pc
+		} else if len(vendors) >= 500 && page >= pageCount {
+			pageCount = page + 1
 		}
 		for _, v := range vendors {
-			if v.Code == "" {
-				continue
+			if v.Code != "" {
+				uniq[v.Code] = v.Name
 			}
-			if _, err := db.Exec(
-				"REPLACE INTO ys_vendor_dict (code, name) VALUES (?, ?)",
-				v.Code, v.Name,
-			); err != nil {
-				log.Printf("upsert vendor %s: %v", v.Code, err)
-				continue
-			}
-			total++
 		}
-		log.Printf("[sync-ys-vendors] page %d/%d done, 累计 %d", page, pageCount, total)
+		log.Printf("[sync-ys-vendors] page %d/%d, 去重后累计 %d 家", page, pageCount, len(uniq))
 	}
 
-	log.Printf("[sync-ys-vendors] 完成: 共同步 %d 个供应商 @ %s", total, time.Now().Format("2006-01-02 15:04:05"))
+	// 批量 upsert, 每批 500 行
+	codes := make([]string, 0, len(uniq))
+	for code := range uniq {
+		codes = append(codes, code)
+	}
+	const batch = 500
+	for start := 0; start < len(codes); start += batch {
+		end := start + batch
+		if end > len(codes) {
+			end = len(codes)
+		}
+		var sb strings.Builder
+		sb.WriteString("INSERT INTO ys_vendor_dict (code, name) VALUES ")
+		args := make([]interface{}, 0, (end-start)*2)
+		for i, code := range codes[start:end] {
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			sb.WriteString("(?,?)")
+			args = append(args, code, uniq[code])
+		}
+		sb.WriteString(" ON DUPLICATE KEY UPDATE name=VALUES(name)")
+		if _, err := db.Exec(sb.String(), args...); err != nil {
+			log.Fatalf("batch upsert [%d:%d]: %v", start, end, err)
+		}
+	}
+
+	log.Printf("[sync-ys-vendors] 完成: 共同步 %d 家供应商 @ %s", len(uniq), time.Now().Format("2006-01-02 15:04:05"))
 }
