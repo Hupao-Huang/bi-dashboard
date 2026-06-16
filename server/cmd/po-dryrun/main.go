@@ -206,6 +206,7 @@ func main() {
 				Qty:              atof(lc.row.Qty),
 				TaxInclUnitPrice: atof(lc.row.TaxInclPrice),
 				TaxRatePct:       atof(lc.row.TaxRate),
+				ArriveDate:       yonsuite.NormDate(lc.row.ArriveDt),
 			})
 		}
 		payload := yonsuite.BuildPurchaseOrderPayload(
@@ -235,6 +236,9 @@ func main() {
 				return
 			}
 			fmt.Printf(">>> ✅ 建单成功! 采购订单id=%s (开立态, 可在用友删除)\n", id)
+			if resp != nil {
+				fmt.Printf(">>> 用友返回单据(看 recieveDate 存没存住):\n%s\n", string(resp.Data))
+			}
 			return // 测试只发一张
 		}
 	}

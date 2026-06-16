@@ -35,6 +35,7 @@ type POLineInput struct {
 	Qty              float64
 	TaxInclUnitPrice float64 // 含税单价
 	TaxRatePct       float64 // 税率(百分数, 如 13)
+	ArriveDate       string  // 计划到货日期(已归一 yyyy-MM-dd HH:mm:ss), 空则不传; 落标准字段 recieveDate
 }
 
 // LinePrices 一行的价税分解(全部以"含税金额"为锚点保持自洽)。
@@ -81,8 +82,9 @@ func BuildPurchaseOrderPayload(h POHeaderInput, lines []POLineInput) map[string]
 			ln.ProductCode,
 			strconv.FormatFloat(ln.Qty, 'f', -1, 64),
 			strconv.FormatFloat(ln.TaxInclUnitPrice, 'f', -1, 64),
+			ln.ArriveDate,
 		)
-		poLines = append(poLines, map[string]interface{}{
+		line := map[string]interface{}{
 			"_status":               "Insert",
 			"rowno":                 strconv.Itoa((i + 1) * 10),
 			"inOrg_code":            h.OrgCode,
@@ -110,7 +112,11 @@ func BuildPurchaseOrderPayload(h POHeaderInput, lines []POLineInput) map[string]
 			"natMoney":              p.OriMoney,
 			"natTax":                p.OriTax,
 			"isGiftProduct":         false,
-		})
+		}
+		if ln.ArriveDate != "" {
+			line["recieveDate"] = ln.ArriveDate // 计划到货日期(标准字段, 用友拼写为 recieve)
+		}
+		poLines = append(poLines, line)
 	}
 	return map[string]interface{}{
 		"data": map[string]interface{}{
