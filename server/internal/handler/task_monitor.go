@@ -70,6 +70,14 @@ var taskMetaByName = map[string]TaskConfig{
 	"BI-SyncFuturesRealtime":        {Name: "期货实时快照", Description: "新浪盘中最新价(原料行情总览准实时,自带交易时段闸门)", Schedule: "每5分钟(盘中)", LogFile: "sync-futures-realtime.log", Category: "sync"},
 	"BI-TrainProphet":               {Name: "Prophet 模型重训", Description: "销量预测 Prophet 季节模型每周自动重训", Schedule: "每周日 03:00", LogFile: "", Category: "ai"},
 	"BI-TrainStatsForecast":         {Name: "StatsForecast 模型重训", Description: "销量预测多模型集成 (Nixtla) 每周重训", Schedule: "每周日 03:30", LogFile: "", Category: "ai"},
+	"BI-SyncServiceScore":           {Name: "客服服务分/评论同步", Description: "客服店铺服务分 + 评论数据(RPA 下午文件, 晚间兜底导入)", Schedule: "每天 19:30", LogFile: "sync-service-score.log", Category: "sync"},
+	"BI-SyncHesiOrders":             {Name: "合思商旅订单同步", Description: "合思商旅订单(机票/火车/酒店/用车, 行程一致性校验数据源)", Schedule: "每天 07:40", LogFile: "sync-hesi-orders.log", Category: "sync"},
+	"BI-SyncHesiDepartment":         {Name: "合思部门同步", Description: "合思部门组织架构(审批部门树/末级判定数据源)", Schedule: "每天 04:30", LogFile: "", Category: "sync"},
+	"BI-SyncHesiPayee":              {Name: "合思收款方同步", Description: "合思收款人/收款账户档案", Schedule: "每天 04:40", LogFile: "", Category: "sync"},
+	"BI-SyncHesiFull":               {Name: "合思全量回补", Description: "合思单据周度全量回补 (sync-hesi --full)", Schedule: "每周 02:30", LogFile: "sync-hesi.log", Category: "sync"},
+	"BI-SyncDingtalkContract":       {Name: "钉钉合同主体同步", Description: "钉钉花名册合同公司(劳动主体, 费控法人实体校验数据源)", Schedule: "每天 03:00", LogFile: "sync-dingtalk-contract.log", Category: "sync"},
+	"BI-SyncAllocateRefresh":        {Name: "调拨单状态刷新", Description: "重拉待入库调拨单最新状态(修老单状态老化)", Schedule: "每天 03:00", LogFile: "logs/sync-allocate-refresh.log", Category: "sync"},
+	"BI-APIServer-Logon":            {Name: "API 服务(登录自启)", Description: "登录时拉起后端服务(免密码自启, 配合 BI-APIServer)", Schedule: "登录自启", LogFile: "bi-server.err", Category: "service-legacy"},
 }
 
 const (
