@@ -271,6 +271,137 @@ func parseTollPassDates(remark string) (start, end int64) {
 	return start, end
 }
 
+// invDetailLine 发票货物明细行(只取过路费要用的通行日期; 用 interface{} 兼容数字/字符串, 防类型异常整批解析失败)。
+type invDetailLine struct {
+	MasterID  string      `json:"masterId"`
+	PassStart interface{} `json:"E_system_发票明细_通行日期起"`
+	PassEnd   interface{} `json:"E_system_发票明细_通行日期止"`
+}
+
+// asMs 把合思明细行的通行日期字段转毫秒戳, 兼容 float64/json.Number/字符串; 解析不出返回 0。
+func asMs(v interface{}) int64 {
+	switch x := v.(type) {
+	case float64:
+		return int64(x)
+	case json.Number:
+		n, _ := x.Int64()
+		return n
+	case string:
+		if f, err := strconv.ParseFloat(x, 64); err == nil {
+			return int64(f)
+		}
+	}
+	return 0
+}
+
+// fetchTollPassFromDetails 批量拉发票货物明细行的"通行日期起/止"(毫秒)。
+// 背景: 过路费有两种票 —— 全电(FULL_DIGITAl_NORMAL)通行日期在发票备注(parseTollPassDates 解析);
+//       普票(ELECTRONIC_PAPER_FEE 等)备注为空, 通行日期在货物明细行 E_system_发票明细_通行日期起/止 (跑哥 2026-06-17)。
+// 返回 invoiceID(masterId) → [起, 止] 毫秒; 同一发票多明细行取最早的"起"(及其对应"止")。
+func fetchTollPassFromDetails(token string, invoiceIDs []string) map[string][2]int64 {
+	out := map[string][2]int64{}
+	for i := 0; i < len(invoiceIDs); i += 100 { // detailBatch 上限 100 (同发票主体口径)
+		end := i + 100
+		if end > len(invoiceIDs) {
+			end = len(invoiceIDs)
+		}
+		body, _ := json.Marshal(map[string]interface{}{"invoiceIds": invoiceIDs[i:end]})
+		resp, err := httpClient.Post(
+			fmt.Sprintf("%s/api/openapi/v2/extension/INVOICE/object/invoice/detailBatch?accessToken=%s", hesiAPIBase, token),
+			"application/json", bytes.NewReader(body))
+		if err != nil {
+			log.Printf("过路费明细行拉取失败(batch %d-%d): %v", i, end, err)
+			continue
+		}
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			log.Printf("过路费明细行 HTTP %d: %s", resp.StatusCode, string(data[:min(len(data), 200)]))
+			continue
+		}
+		var parsed struct {
+			Items []invDetailLine `json:"items"`
+		}
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			log.Printf("过路费明细行解析失败: %v (body: %s)", err, string(data[:min(len(data), 200)]))
+			continue
+		}
+		mergeTollPass(out, parsed.Items)
+		time.Sleep(300 * time.Millisecond)
+	}
+	return out
+}
+
+// mergeTollPass 把明细行的通行日期合并进 out (invoiceID → [起,止] 毫秒): 跳过无起始日的(全电票明细行无此字段),
+// 同一发票多明细行取最早的"起"。抽成纯函数便于单测。
+func mergeTollPass(out map[string][2]int64, items []invDetailLine) {
+	for _, it := range items {
+		if it.MasterID == "" {
+			continue
+		}
+		start := asMs(it.PassStart)
+		if start <= 0 { // 全电票明细行无此字段, 跳过(它走备注)
+			continue
+		}
+		pair := [2]int64{start, asMs(it.PassEnd)}
+		if cur, ok := out[it.MasterID]; !ok || start < cur[0] { // 多明细行取最早起
+			out[it.MasterID] = pair
+		}
+	}
+}
+
+// backfillTollPassFromDetails 对待审单里"过路费明细 + toll_pass_start 仍为空"的发票(主要是普票),
+// 调 detailBatch 取货物明细行的通行日期补进 toll_pass_start/end。
+// 只补待审单(规则只对待审单生效)且只在 toll_pass_start 为空时写(幂等, 不覆盖备注已解析的全电票)。
+func backfillTollPassFromDetails(db *sql.DB) {
+	rows, err := db.Query(`SELECT DISTINCT i.invoice_id FROM hesi_flow_invoice i
+		JOIN hesi_flow_detail d ON i.detail_id = d.detail_id
+		JOIN hesi_flow f ON d.flow_id = f.flow_id
+		WHERE d.fee_type_id='ID01KhLSijR8FV' AND f.state IN ('approving','pending')
+		  AND i.toll_pass_start IS NULL
+		  AND i.invoice_id IS NOT NULL AND i.invoice_id != ''
+		LIMIT 5000`)
+	if err != nil {
+		log.Printf("过路费明细行回补查询失败: %v", err)
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return
+	}
+	// 本阶段在 sync 末尾, 距开头取 token 已隔附件+发票主体两个长阶段(full 可达 20+ 分钟), token 可能过期
+	// → detailBatch 静默 401 致普票全补不上。这里重取保证本阶段 token 新鲜 (二审)。
+	token, err := getAccessToken()
+	if err != nil {
+		log.Printf("过路费回补取 token 失败, 跳过本轮: %v", err)
+		return
+	}
+	log.Printf("=== 过路费普票通行日期回补(货物明细行): 待补 %d 张 ===", len(ids))
+	passMap := fetchTollPassFromDetails(token, ids)
+	updated := 0
+	for invID, pair := range passMap {
+		// AND toll_pass_start IS NULL: 幂等 + 不覆盖全电备注已解析的; toll_pass_end 为 0 时存 NULL
+		res, err := db.Exec(`UPDATE hesi_flow_invoice SET toll_pass_start=?, toll_pass_end=?
+			WHERE invoice_id=? AND toll_pass_start IS NULL`,
+			nullInt64(pair[0]), nullInt64(pair[1]), invID)
+		if err != nil {
+			log.Printf("过路费通行日期回补失败 inv=%s: %v", invID, err)
+			continue
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			updated++
+		}
+	}
+	log.Printf("过路费普票通行日期回补完成: 命中 %d 张 / 写入 %d 行", len(passMap), updated)
+}
+
 // 保存发票主体信息到数据库
 func saveInvoiceDetails(db *sql.DB, items []map[string]interface{}) int {
 	updated := 0
@@ -1114,6 +1245,9 @@ func main() {
 		remaining = notFound
 	}
 	log.Printf("发票主体信息更新: %d 条, 未匹配: %d 条", totalInvoiceUpdated, len(remaining))
+
+	// 普票过路费通行日期回补: 备注没有(普票), 从货物明细行取 (跑哥 2026-06-17)。内部重取 token 防末尾过期
+	backfillTollPassFromDetails(db)
 
 	// 删除草稿数据（如果之前全量导入过）
 	result, _ := db.Exec("DELETE FROM hesi_flow WHERE state='draft'")
