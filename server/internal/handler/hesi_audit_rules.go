@@ -62,26 +62,6 @@ var travelExpenseFeeTypes = map[string]string{
 	"ID01KhLSijR8pp": "地铁",
 }
 
-// tripReqExemptFeeTypes 规则 7-1 豁免: 私车公用 / 过路费 无需关联出差申请单 (跑哥 2026-06-17)。
-// 私车公用走行车记录核账(规则 12-1), 过路费零星不强制申请单; 其余交通及差旅费仍须关联。
-var tripReqExemptFeeTypes = map[string]bool{
-	"ID01Fr2mX8KP2T": true, // 私车公用
-	"ID01KhLSijR8FV": true, // 过路费
-}
-
-// travelExpenseRequiringTrip = 交通及差旅费 去掉上面豁免的两类, 作为规则 7-1 的触发集合。
-// 从 travelExpenseFeeTypes 派生(不复制清单), 加减交通类型时自动跟随; 其他规则(如 15-1.2 豁免)
-// 仍用全量 travelExpenseFeeTypes, 互不影响。
-var travelExpenseRequiringTrip = func() map[string]string {
-	m := make(map[string]string, len(travelExpenseFeeTypes))
-	for id, name := range travelExpenseFeeTypes {
-		if !tripReqExemptFeeTypes[id] {
-			m[id] = name
-		}
-	}
-	return m
-}()
-
 // 出差申请单 specification_id 前缀 (合思预置, corp_prefix=ID01FfMgoeP7cz)
 const reqTripSpecPrefix = "ID01FfMgoeP7cz:PRESET_REQUISITION_TRIP"
 
@@ -419,9 +399,12 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		rejectReasons = append(rejectReasons, r)
 	}
 
-	// 规则 7-1: 交通及差旅费 关联出差申请单 + 金额不超 (私车公用/过路费 豁免, 见 travelExpenseRequiringTrip)
-	if r := h.ruleRequisitionLink(raw, expenseMoney, travelExpenseRequiringTrip, reqTripSpecPrefix, "交通及差旅费", "出差申请单", "规则 7-1"); r != "" {
-		rejectReasons = append(rejectReasons, r)
+	// 规则 7-1: 交通及差旅费(含私车公用/过路费) 关联出差申请单 + 金额不超
+	// 仅集团: 线下(世创/世用)交通差旅费全部无需关联; 集团则全部(含私车/过路)都要关联 (跑哥 2026-06-17)
+	if !isOfflineFlow {
+		if r := h.ruleRequisitionLink(raw, expenseMoney, travelExpenseFeeTypes, reqTripSpecPrefix, "交通及差旅费", "出差申请单", "规则 7-1"); r != "" {
+			rejectReasons = append(rejectReasons, r)
+		}
 	}
 
 	// 规则 7-2: 飞机/客车/汽车明细需人工核座位等级 (合思未存舱位字段, manual 提示)
