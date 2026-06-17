@@ -99,6 +99,41 @@ var accommodationStandard = map[string]map[string]float64{
 	"主管和其他": {"一线": 400, "新一线": 300, "二线": 300, "其他": 300},
 }
 
+// accommodationStandardOffline 线下(世创/世用)住宿标准矩阵 (¥/晚, 线下 PDF 2.2; 樊雪娇 2026-06-17)
+// 线下只有 一线/二线/国内其他 3 档城市 + 其他员工/大区经理及以上/集团总监 3 档职级,
+// 跟集团那套 (4 城市档×5 职级) 结构不同; 同住上浮 20% 与集团一致。
+var accommodationStandardOffline = map[string]map[string]float64{
+	"集团总监":    {"一线": 500, "二线": 400, "国内其他": 300},
+	"大区经理及以上": {"一线": 450, "二线": 350, "国内其他": 280},
+	"其他员工":    {"一线": 350, "二线": 280, "国内其他": 230},
+}
+
+// offlineHotelLevel 把花名册职级映射到线下住宿 3 档 (樊雪娇 2026-06-17, 同线下补贴口径延伸)
+// 集团总监/副总裁/总裁 → "集团总监"; 集团经理(大区经理归此档) → "大区经理及以上"; 其余 → "其他员工"
+func offlineHotelLevel(position string) string {
+	switch position {
+	case "集团总监", "副总裁", "总裁":
+		return "集团总监"
+	case "集团经理":
+		return "大区经理及以上"
+	default:
+		return "其他员工"
+	}
+}
+
+// offlineCityTier 把集团 4 档城市分级映射到线下 3 档 (新一线→二线, 跑哥 2026-06-17)
+// extractTier 只会返回 一线/新一线/二线/其他, 这里收口到线下的 一线/二线/国内其他
+func offlineCityTier(tier string) string {
+	switch tier {
+	case "一线":
+		return "一线"
+	case "新一线", "二线":
+		return "二线"
+	default: // "其他" 及兜底
+		return "国内其他"
+	}
+}
+
 // 城市分级缓存 (5min TTL, hesi_city_tier 表 68 城市)
 var (
 	cityTierCache   map[string]string
@@ -154,6 +189,7 @@ func (h *DashboardHandler) ensureHesiAuditParamTable() {
 			}
 		}
 		seed("accommodation_standard", accommodationStandard, "住宿费单晚标准: 职级×城市分级 (规则 7-3)")
+		seed("accommodation_standard_offline", accommodationStandardOffline, "线下(世创/世用)住宿费单晚标准: 3档职级×3档城市 (规则 7-3 线下)")
 		seed("subsidy_standard", subsidyStandard, "出差补贴标准 ¥/天: 职级 (规则 11)")
 	})
 }
@@ -222,6 +258,48 @@ func (h *DashboardHandler) loadHesiAuditParams() (map[string]map[string]float64,
 	accomStdCache, subsidyStdCache = accom, subsidy
 	hesiAuditParamAt = time.Now()
 	return accom, subsidy
+}
+
+// 线下住宿标准缓存 (独立 5min TTL, 不与集团标准共缓存)
+var (
+	accomOfflineStdCache map[string]map[string]float64
+	accomOfflineAt       time.Time
+)
+
+// loadOfflineAccomStd 返回线下(世创/世用)住宿矩阵, DB 配置优先(accommodation_standard_offline),
+// 缺档用代码默认值补齐, 读不到/解析失败回落代码默认值 — 跟 loadHesiAuditParams 同套路。
+func (h *DashboardHandler) loadOfflineAccomStd() map[string]map[string]float64 {
+	if h.DB == nil {
+		return accommodationStandardOffline
+	}
+	h.ensureHesiAuditParamTable()
+	hesiAuditParamMu.Lock()
+	defer hesiAuditParamMu.Unlock()
+	if accomOfflineStdCache != nil && time.Since(accomOfflineAt) < 5*time.Minute {
+		return accomOfflineStdCache
+	}
+	accom := accommodationStandardOffline
+	var j string
+	if err := h.DB.QueryRow(`SELECT param_json FROM hesi_audit_param WHERE param_key='accommodation_standard_offline' LIMIT 1`).Scan(&j); err == nil {
+		var m map[string]map[string]float64
+		if e := json.Unmarshal([]byte(j), &m); e == nil && len(m) > 0 {
+			merged := map[string]map[string]float64{}
+			for pos, tiers := range accommodationStandardOffline {
+				merged[pos] = tiers
+			}
+			for pos, tiers := range m {
+				merged[pos] = tiers
+			}
+			accom = merged
+		} else {
+			log.Printf("[hesi-audit] accommodation_standard_offline JSON 异常, 用代码默认值: %v", e)
+		}
+	} else if err != sql.ErrNoRows {
+		log.Printf("[hesi-audit] 线下住宿参数读取失败, 用代码默认值: %v", err)
+	}
+	accomOfflineStdCache = accom
+	accomOfflineAt = time.Now()
+	return accom
 }
 
 // AuditSuggestion 审批建议输出
@@ -307,8 +385,8 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		}
 	}
 
-	// 规则 7-3: 住宿费单晚价 ≤ 城市×职级标准 (同住上浮 20%)
-	if rejectMsg, warnMsg := h.ruleAccommodationStandard(raw, submitterID); rejectMsg != "" || warnMsg != "" {
+	// 规则 7-3: 住宿费单晚价 ≤ 城市×职级标准 (同住上浮 20%); 线下(世创/世用)用线下住宿表
+	if rejectMsg, warnMsg := h.ruleAccommodationStandard(raw, submitterID, isOfflineFlow); rejectMsg != "" || warnMsg != "" {
 		if rejectMsg != "" {
 			rejectReasons = append(rejectReasons, rejectMsg)
 		}
@@ -1892,10 +1970,11 @@ func uniqueInts(s []int) []int {
 
 // ruleAccommodationStandard 规则 7-3: 住宿费明细单晚价 ≤ 城市×职级标准
 // 跑哥规则: 一线/新一线/二线/其他城市 × 总裁/副总裁/集团总监/集团经理/主管和其他 5 档 (PDF V7.0)
+// 线下(世创/世用 isOffline=true): 改用线下住宿表(3档城市×3档职级), 新一线→二线 (樊雪娇 2026-06-17)
 // 同住上浮: u_是否两人同住 非空 → 上浮 20% (按职位高者标准, 简化按当前人)
 // 单晚价算法: amount / 出差天数 (feeDatePeriod.end - start)/86400000 + 1
 // 返回: (reject 原因, warn 原因), 任一非空即触发
-func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{}, submitterID string) (string, string) {
+func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{}, submitterID string, isOffline bool) (string, string) {
 	details, _ := raw["details"].([]interface{})
 
 	type hotelLine struct {
@@ -1963,10 +2042,27 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 		positionForDisplay = "主管和其他 (花名册未匹配)"
 		isFallback = true
 	}
-	accomStd, _ := h.loadHesiAuditParams() // DB 配置优先, 财务改口径 5 分钟生效
-	standards, ok := accomStd[position]
-	if !ok {
-		return "", "岗位职级「" + position + "」非标准 5 档, 住宿标准未配置 (规则 7-3)"
+	var standards map[string]float64
+	if isOffline {
+		// 线下(世创/世用)用线下住宿表: 职级先收口到 3 档 (其他员工/大区经理及以上/集团总监)
+		olevel := offlineHotelLevel(position)
+		s, ok := h.loadOfflineAccomStd()[olevel]
+		if !ok {
+			return "", "线下住宿职级「" + olevel + "」未配置 (规则 7-3 线下)"
+		}
+		standards = s
+		if isFallback {
+			positionForDisplay = olevel + " (线下, 花名册未匹配)"
+		} else {
+			positionForDisplay = olevel + " (线下)"
+		}
+	} else {
+		accomStd, _ := h.loadHesiAuditParams() // DB 配置优先, 财务改口径 5 分钟生效
+		s, ok := accomStd[position]
+		if !ok {
+			return "", "岗位职级「" + position + "」非标准 5 档, 住宿标准未配置 (规则 7-3)"
+		}
+		standards = s
 	}
 
 	tierMap := h.loadCityTierCache()
@@ -1978,6 +2074,9 @@ func (h *DashboardHandler) ruleAccommodationStandard(raw map[string]interface{},
 			continue
 		}
 		tier := extractTier(line.cityRaw, tierMap)
+		if isOffline {
+			tier = offlineCityTier(tier) // 集团 4 档 → 线下 3 档 (新一线→二线)
+		}
 		std := standards[tier]
 		if std == 0 {
 			warnMsgs = append(warnMsgs, fmt.Sprintf("住宿明细#%d 城市分级未识别 (规则 7-3)", line.idx))
