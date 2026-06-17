@@ -379,3 +379,141 @@ func TestToFloatPayment(t *testing.T) {
 		t.Error("nil 应返回 0")
 	}
 }
+
+// Bug 1: A13 付款单 consumptionReasons 含「阳光天际」→ 应触发驳回
+// 付款单的事由在 details[].feeTypeForm.consumptionReasons，不在 description
+func TestA13SunshinePaymentVoucher(t *testing.T) {
+	// 付款单: consumptionReasons 含「阳光天际」, 所属公司非悦伍 → extractPaymentReasonText 应包含关键词
+	rawPaymentSunshine := map[string]interface{}{
+		"details": []interface{}{
+			map[string]interface{}{
+				"feeTypeForm": map[string]interface{}{
+					"consumptionReasons": "阳光天际项目推广款",
+				},
+			},
+		},
+	}
+	reasonText := extractPaymentReasonText(rawPaymentSunshine, "payment")
+	if !strings.Contains(reasonText, "阳光天际") {
+		t.Errorf("付款单 details consumptionReasons 含阳光天际, extractPaymentReasonText 应包含该词, got %q", reasonText)
+	}
+	// 再验证 sunshineRule 对提取出的 reason 能正确触发
+	if r := sunshineRule(reasonText, "杭州松鲜鲜自然调味品"); r == "" {
+		t.Error("A13: 付款单事由含阳光天际且非悦伍公司应驳回")
+	}
+	// 付款单 description 也含「阳光天际」→ belt-and-suspenders 也能被提取
+	rawPaymentDescSunshine := map[string]interface{}{
+		"description": "阳光天际补充款",
+	}
+	reasonText2 := extractPaymentReasonText(rawPaymentDescSunshine, "payment")
+	if !strings.Contains(reasonText2, "阳光天际") {
+		t.Errorf("付款单 description 含阳光天际, extractPaymentReasonText 应包含, got %q", reasonText2)
+	}
+	// 预付款单: description 含「阳光天际」→ 也能提取 (prepay 走 description)
+	rawPrepaySunshine := map[string]interface{}{
+		"description": "阳光天际项目预付款",
+	}
+	reasonText3 := extractPaymentReasonText(rawPrepaySunshine, "prepay")
+	if !strings.Contains(reasonText3, "阳光天际") {
+		t.Errorf("预付款单 description 含阳光天际, extractPaymentReasonText 应包含, got %q", reasonText3)
+	}
+	// 付款单事由正常 (无阳光天际关键词) → sunshineRule 不触发
+	rawNormal := map[string]interface{}{
+		"details": []interface{}{
+			map[string]interface{}{
+				"feeTypeForm": map[string]interface{}{
+					"consumptionReasons": "支付供应商货款",
+				},
+			},
+		},
+	}
+	reasonNormal := extractPaymentReasonText(rawNormal, "payment")
+	if r := sunshineRule(reasonNormal, "杭州松鲜鲜自然调味品"); r != "" {
+		t.Errorf("无阳光天际关键词应通过, got %q", r)
+	}
+}
+
+// Bug 2: B4 预付款单用 loanMoney 做金额提取, amount>0 才不早返
+func TestB4PrepayLoanMoneyAmount(t *testing.T) {
+	// payMoney=0 (预付款单无此字段), loanMoney=5000 → amount 应取到 5000
+	amount := extractDupCheckAmount(map[string]interface{}{
+		"payMoney":  float64(0),
+		"loanMoney": float64(5000),
+	})
+	if amount != 5000 {
+		t.Errorf("预付款单 loanMoney=5000, payMoney=0 → amount 应为 5000, got %v", amount)
+	}
+	// payMoney>0 时优先用 payMoney
+	amount2 := extractDupCheckAmount(map[string]interface{}{
+		"payMoney":  float64(3000),
+		"loanMoney": float64(5000),
+	})
+	if amount2 != 3000 {
+		t.Errorf("payMoney=3000 优先, got %v", amount2)
+	}
+	// 两者均缺失 → 0
+	amount3 := extractDupCheckAmount(map[string]interface{}{})
+	if amount3 != 0 {
+		t.Errorf("两者均缺失应为 0, got %v", amount3)
+	}
+}
+
+// Bug 3: B2 仅 buyers 为空 (sellers 存在) → 应产生 B2 人工提醒
+func TestB2BuyerEmptyManualWarning(t *testing.T) {
+	// buyers 为空, sellers 存在 → 应有 B2 提醒
+	_, warn := rulePaymentInvoicePartiesLogic(
+		nil,              // buyers 为空
+		[]string{"卖方A"}, // sellers 存在
+		"卖方A",            // payeeName
+		"某公司",            // owner
+	)
+	hasB2Warn := false
+	for _, w := range warn {
+		if strings.Contains(w, "B2") {
+			hasB2Warn = true
+		}
+	}
+	if !hasB2Warn {
+		t.Errorf("buyers 为空但 sellers 存在时, 应产生 B2 人工提醒, got warn=%v", warn)
+	}
+
+	// sellers 为空, buyers 存在 → 应有 B1 提醒
+	_, warn2 := rulePaymentInvoicePartiesLogic(
+		[]string{"买方A"}, // buyers 存在
+		nil,              // sellers 为空
+		"买方A",            // payeeName (即便匹配也无 sellers 可比)
+		"买方A",            // owner = buyers[0] → buyerMismatch 通过
+	)
+	hasB1Warn := false
+	for _, w := range warn2 {
+		if strings.Contains(w, "B1") {
+			hasB1Warn = true
+		}
+	}
+	if !hasB1Warn {
+		t.Errorf("sellers 为空时应产生 B1 提醒, got warn2=%v", warn2)
+	}
+
+	// buyers 和 sellers 均为空 → 原有 B1/B2 合并兜底提醒仍触发
+	_, warn3 := rulePaymentInvoicePartiesLogic(nil, nil, "", "某公司")
+	hasBothWarn := false
+	for _, w := range warn3 {
+		if strings.Contains(w, "B1") && strings.Contains(w, "B2") {
+			hasBothWarn = true
+		}
+	}
+	if !hasBothWarn {
+		t.Errorf("buyers 和 sellers 均为空, 应产生 B1/B2 合并提醒, got warn3=%v", warn3)
+	}
+
+	// buyers 和 sellers 均存在且一致 → 无提醒
+	rej4, warn4 := rulePaymentInvoicePartiesLogic(
+		[]string{"买方X"},
+		[]string{"卖方Y"},
+		"卖方Y", // 收款方匹配卖方
+		"买方X", // 所属公司匹配买方
+	)
+	if len(rej4) > 0 || len(warn4) > 0 {
+		t.Errorf("数据完整且一致时应全通过, got rej=%v warn=%v", rej4, warn4)
+	}
+}
