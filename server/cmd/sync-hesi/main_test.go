@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -26,5 +27,54 @@ func TestParseTollPassDatesNonToll(t *testing.T) {
 		if a, b := parseTollPassDates(s); a != 0 || b != 0 {
 			t.Errorf("无通行日期应返回 0,0, 输入 %q got %d/%d", s, a, b)
 		}
+	}
+}
+
+// asMs 要兼容合思明细行的数字/json.Number/字符串三种形态 (普票通行日期字段在不同链路类型不一)
+func TestAsMs(t *testing.T) {
+	const want = int64(1775059200000)
+	cases := []struct {
+		name string
+		in   interface{}
+		want int64
+	}{
+		{"float64", float64(1775059200000), want},
+		{"jsonNumber", json.Number("1775059200000"), want},
+		{"string整数", "1775059200000", want},
+		{"string科学计数", "1.7750592e12", want},
+		{"nil全电无字段", nil, 0},
+		{"空串", "", 0},
+		{"垃圾串", "abc", 0},
+		{"map非法", map[string]interface{}{"x": 1}, 0},
+	}
+	for _, c := range cases {
+		if got := asMs(c.in); got != c.want {
+			t.Errorf("%s: asMs(%v)=%d, 期望 %d", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+// mergeTollPass: 普票明细行取毫秒; 全电(无通行日期字段, nil)跳过; 同一发票多明细行取最早起
+func TestMergeTollPass(t *testing.T) {
+	out := map[string][2]int64{}
+	mergeTollPass(out, []invDetailLine{
+		{MasterID: "PU", PassStart: float64(1775059200000), PassEnd: float64(1776182400000)}, // 普票
+		{MasterID: "QD", PassStart: nil, PassEnd: nil},                                        // 全电: 明细行无通行日期 → 跳过
+		{MasterID: "", PassStart: float64(1775059200000)},                                     // 空 masterId → 跳过
+		{MasterID: "MULTI", PassStart: float64(3000000000000), PassEnd: float64(3000000000001)},
+		{MasterID: "MULTI", PassStart: float64(2000000000000), PassEnd: float64(2000000000001)}, // 更早, 应胜出
+		{MasterID: "MULTI", PassStart: float64(5000000000000), PassEnd: float64(5000000000001)},
+	})
+	if p, ok := out["PU"]; !ok || p[0] != 1775059200000 || p[1] != 1776182400000 {
+		t.Errorf("普票应解析出通行日期, got %v ok=%v", out["PU"], ok)
+	}
+	if _, ok := out["QD"]; ok {
+		t.Errorf("全电票明细行无通行日期, 不应写入 (它走备注)")
+	}
+	if _, ok := out[""]; ok {
+		t.Errorf("空 masterId 不应写入")
+	}
+	if p := out["MULTI"]; p[0] != 2000000000000 {
+		t.Errorf("同一发票多明细行应取最早起, got %d 期望 2000000000000", p[0])
 	}
 }
