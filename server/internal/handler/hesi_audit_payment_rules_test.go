@@ -219,3 +219,150 @@ func TestDuplicatePayment(t *testing.T) {
 		t.Errorf("空切片应空, got %q", w)
 	}
 }
+
+// A5: 事由必填 + 不含合计/小计
+func TestRulePaymentReason(t *testing.T) {
+	// 预付款单: description 为空 → 驳回
+	if rulePaymentReason(map[string]interface{}{"description": ""}, "prepay") == "" {
+		t.Error("预付款单 付款事由为空应驳回 (A5)")
+	}
+	// 预付款单: description 含"合计" → 驳回
+	if rulePaymentReason(map[string]interface{}{"description": "本月合计"}, "prepay") == "" {
+		t.Error("含合计应驳回 (A5)")
+	}
+	// 预付款单: description 含"小计" → 驳回
+	if rulePaymentReason(map[string]interface{}{"description": "各项小计"}, "prepay") == "" {
+		t.Error("含小计应驳回 (A5)")
+	}
+	// 预付款单: 正常事由 → 通过
+	if r := rulePaymentReason(map[string]interface{}{"description": "支付6月推广服务费"}, "prepay"); r != "" {
+		t.Errorf("正常事由应通过, got %q", r)
+	}
+	// 付款单: 无明细 → 通过 (A8 兜底, A5 不重复驳)
+	if r := rulePaymentReason(map[string]interface{}{}, "payment"); r != "" {
+		t.Errorf("付款单无明细 A5 应放行, got %q", r)
+	}
+	// 付款单: 明细消费事由为空 → 驳回
+	rawPayment := map[string]interface{}{
+		"details": []interface{}{
+			map[string]interface{}{
+				"feeTypeForm": map[string]interface{}{"consumptionReasons": ""},
+			},
+		},
+	}
+	if rulePaymentReason(rawPayment, "payment") == "" {
+		t.Error("付款单明细消费事由为空应驳回 (A5)")
+	}
+	// 付款单: 消费事由含"合计" → 驳回
+	rawPayment2 := map[string]interface{}{
+		"details": []interface{}{
+			map[string]interface{}{
+				"feeTypeForm": map[string]interface{}{"consumptionReasons": "第3行合计"},
+			},
+		},
+	}
+	if rulePaymentReason(rawPayment2, "payment") == "" {
+		t.Error("付款单消费事由含合计应驳回 (A5)")
+	}
+	// 付款单: 消费事由正常 → 通过
+	rawPayment3 := map[string]interface{}{
+		"details": []interface{}{
+			map[string]interface{}{
+				"feeTypeForm": map[string]interface{}{"consumptionReasons": "支付供应商货款"},
+			},
+		},
+	}
+	if r := rulePaymentReason(rawPayment3, "payment"); r != "" {
+		t.Errorf("付款单正常消费事由应通过, got %q", r)
+	}
+}
+
+// A17: 大额付款缺附件 → 转人工提醒
+func TestRulePaymentLargeContract(t *testing.T) {
+	// 付款单 > 2万, 无附件 → 提醒
+	rawBig := map[string]interface{}{
+		"payMoney":    float64(25000),
+		"attachments": []interface{}{},
+	}
+	if w := rulePaymentLargeContract(rawBig, "payment"); w == "" {
+		t.Error("付款单>2万无附件应提醒 (A17)")
+	}
+	// 付款单 > 2万, 有附件 → 通过
+	rawBigAtt := map[string]interface{}{
+		"payMoney": float64(25000),
+		"attachments": []interface{}{
+			map[string]interface{}{"fileId": "X"},
+		},
+	}
+	if w := rulePaymentLargeContract(rawBigAtt, "payment"); w != "" {
+		t.Errorf("付款单>2万有附件应通过, got %q", w)
+	}
+	// 付款单 ≤ 2万 → 通过
+	rawSmall := map[string]interface{}{
+		"payMoney":    float64(20000),
+		"attachments": []interface{}{},
+	}
+	if w := rulePaymentLargeContract(rawSmall, "payment"); w != "" {
+		t.Errorf("付款单≤2万不提醒, got %q", w)
+	}
+	// 预付款单 > 2万, 无附件, 取 loanMoney → 提醒
+	rawPrepay := map[string]interface{}{
+		"loanMoney":   float64(30000),
+		"attachments": []interface{}{},
+	}
+	if w := rulePaymentLargeContract(rawPrepay, "prepay"); w == "" {
+		t.Error("预付款单>2万无附件应提醒 (A17)")
+	}
+	// 合思金额对象格式 (生产真实格式) → 能正确解析
+	rawMoneyObj := map[string]interface{}{
+		"payMoney": map[string]interface{}{
+			"standard": "25844.00",
+		},
+		"attachments": []interface{}{},
+	}
+	if w := rulePaymentLargeContract(rawMoneyObj, "payment"); w == "" {
+		t.Error("合思金额对象格式>2万无附件应提醒 (A17)")
+	}
+}
+
+// B3: 税额份数对账 (纯逻辑)
+func TestTaxCountReconcile(t *testing.T) {
+	// 发票张数 != 申报张数 → 转人工
+	if w := taxCountMismatch(2, 3); w == "" {
+		t.Error("张数不符应转人工 (B3)")
+	}
+	// 发票张数 == 申报张数 → 通过
+	if w := taxCountMismatch(2, 2); w != "" {
+		t.Errorf("张数一致应通过, got %q", w)
+	}
+	// 申报 0 份 → 不判 (安全底线)
+	if w := taxCountMismatch(5, 0); w != "" {
+		t.Errorf("申报0份应跳过不判, got %q", w)
+	}
+	// 申报 1 张, 实际 1 张 → 通过
+	if w := taxCountMismatch(1, 1); w != "" {
+		t.Errorf("1张一致应通过, got %q", w)
+	}
+	// 提示文案含张数信息
+	msg := taxCountMismatch(3, 5)
+	if !strings.Contains(msg, "3") || !strings.Contains(msg, "5") {
+		t.Errorf("提示应含实际张数和申报张数, got %q", msg)
+	}
+}
+
+// toFloatPayment: 合思金额对象格式测试
+func TestToFloatPayment(t *testing.T) {
+	// 普通 float64 (测试用)
+	if toFloatPayment(float64(1234.5)) != 1234.5 {
+		t.Error("普通 float64 应正确返回")
+	}
+	// 合思对象格式
+	obj := map[string]interface{}{"standard": "25844.00"}
+	if got := toFloatPayment(obj); got != 25844.0 {
+		t.Errorf("合思金额对象应解析为 25844.0, got %v", got)
+	}
+	// nil/空 → 0
+	if toFloatPayment(nil) != 0 {
+		t.Error("nil 应返回 0")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -109,6 +110,23 @@ func (h *DashboardHandler) AuditPayment(flowID, specID, rawJSON string, firstSub
 	// B4: 防重复付款 — 付款单+预付款单都做
 	if w := h.rulePaymentDuplicate(flowID, raw); w != "" {
 		warnings = append(warnings, w)
+	}
+
+	// A5: 事由必填 + 不含合计/小计 — 付款单+预付款单都做
+	if r := rulePaymentReason(raw, tmpl); r != "" {
+		rejectReasons = append(rejectReasons, r)
+	}
+
+	// A17: 大额(>2万)缺附件 → 转人工提醒 — 付款单+预付款单都做
+	if w := rulePaymentLargeContract(raw, tmpl); w != "" {
+		warnings = append(warnings, w)
+	}
+
+	// B3: 税额份数对账 — 仅付款单 (预付款单无发票跳过)
+	if tmpl == "payment" {
+		if w := h.rulePaymentTaxCount(flowID, raw); w != "" {
+			warnings = append(warnings, w)
+		}
 	}
 
 	if len(rejectReasons) > 0 {
@@ -339,10 +357,17 @@ func (h *DashboardHandler) rulePaymentDuplicate(flowID string, raw map[string]in
 
 // ----- 内部 helpers -----
 
-// toFloatPayment 安全转 float64 (JSON number 解析为 float64)
+// toFloatPayment 安全转 float64。
+// 合思金额字段为 {"standard":"25844.00",...} 结构, 复用 getStandardAmount 解析。
+// 普通 float64 (测试用) 也能正确处理。
 func toFloatPayment(v interface{}) float64 {
-	f, _ := v.(float64)
-	return f
+	if f, ok := v.(float64); ok {
+		return f
+	}
+	if f, ok := getStandardAmount(v); ok {
+		return f
+	}
+	return 0
 }
 
 // strOfPayment 安全转 string
@@ -355,4 +380,116 @@ func strOfPayment(v interface{}) string {
 func codeOf(raw map[string]interface{}) string {
 	s, _ := raw["code"].(string)
 	return s
+}
+
+// ----- A5: 事由必填 + 不含合计/小计 -----
+
+var vagueReasonWords = []string{"合计", "小计"}
+
+// rulePaymentReason A5 事由校验:
+// 预付款单 → 单据级 description 必填 + 不含模糊词;
+// 付款单 → 逐行 details[].feeTypeForm.consumptionReasons 必填 + 不含模糊词。
+// 两模板都做, 违规 → reject。
+func rulePaymentReason(raw map[string]interface{}, tmpl string) string {
+	checkReason := func(s, where string) string {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return where + "为空 (A5)"
+		}
+		for _, w := range vagueReasonWords {
+			if strings.Contains(s, w) {
+				return where + "含模糊词「" + w + "」(A5)"
+			}
+		}
+		return ""
+	}
+	if tmpl == "prepay" {
+		s, _ := raw["description"].(string)
+		return checkReason(s, "付款事由")
+	}
+	// 付款单: 遍历 details[].feeTypeForm.consumptionReasons
+	details, _ := raw["details"].([]interface{})
+	if len(details) == 0 {
+		return "" // 无明细由 A8 处理, 此处不重复驳
+	}
+	for i, d := range details {
+		dm, _ := d.(map[string]interface{})
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		s, _ := form["consumptionReasons"].(string)
+		if r := checkReason(s, fmt.Sprintf("第%d行消费事由", i+1)); r != "" {
+			return r
+		}
+	}
+	return ""
+}
+
+// ----- A17: 大额付款缺附件 → 提醒 (两模板都做) -----
+
+// rulePaymentLargeContract A17 对外付款>2万元未见附件 → 转人工提醒 (非 reject)。
+// 两模板都做: 付款单取 payMoney, 预付款单取 loanMoney。
+func rulePaymentLargeContract(raw map[string]interface{}, tmpl string) string {
+	var amount float64
+	if tmpl == "prepay" {
+		amount = toFloatPayment(raw["loanMoney"])
+	} else {
+		amount = toFloatPayment(raw["payMoney"])
+	}
+	if amount <= 20000 {
+		return ""
+	}
+	atts, _ := raw["attachments"].([]interface{})
+	if len(atts) == 0 {
+		return fmt.Sprintf("对外付款 ¥%.2f 超2万元未见附件, 请确认是否已附盖章合同 (A17)", amount)
+	}
+	return ""
+}
+
+// ----- B3: 税额份数对账 (仅付款单) -----
+
+// taxCountMismatch B3 纯逻辑: 发票实际张数 vs 申报张数, 不一致 → 转人工。
+// 0 份/空申报 → 不判 (安全底线: 不误驳)。
+func taxCountMismatch(invCount int, declCount int) string {
+	if declCount == 0 {
+		return "" // 申报 0 或未填, 跳过
+	}
+	if invCount != declCount {
+		return fmt.Sprintf("发票张数(%d)与申报份数(%d)不符, 请人工核对 (B3)", invCount, declCount)
+	}
+	return ""
+}
+
+// invoiceCount 从 hesi_flow_invoice 查 flowID 对应的发票行数 (5s 超时)。
+// 查询失败/DB 为 nil → 返回 -1 (表示无法获取, 由调用方转人工兜底)。
+func (h *DashboardHandler) invoiceCount(flowID string) int {
+	if h.DB == nil {
+		return -1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var cnt int
+	err := h.DB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM hesi_flow_invoice WHERE flow_id=?`, flowID).Scan(&cnt)
+	if err != nil {
+		return -1
+	}
+	return cnt
+}
+
+// rulePaymentTaxCount B3 税额份数对账: 发票实际张数 vs raw_json 申报张数, 不符 → 转人工。
+// 仅付款单调用; 预付款单无发票跳过。
+func (h *DashboardHandler) rulePaymentTaxCount(flowID string, raw map[string]interface{}) string {
+	declRaw, _ := raw["u_WmLv_税额份数总计"].(string)
+	declRaw = strings.TrimSpace(declRaw)
+	if declRaw == "" || declRaw == "0" {
+		return "" // 未填或申报0份, 不判
+	}
+	declCount, err := strconv.Atoi(declRaw)
+	if err != nil || declCount == 0 {
+		return "" // 解析失败 → 不误驳, 安全底线
+	}
+	invCnt := h.invoiceCount(flowID)
+	if invCnt < 0 {
+		return "税额份数申报字段存在但无法核验发票张数, 请人工核对 (B3)"
+	}
+	return taxCountMismatch(invCnt, declCount)
 }
