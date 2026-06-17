@@ -6,8 +6,9 @@
 //  2. 业务接口 (POST application/json) → query 带 access_token
 //
 // 签名算法 (getAccessToken 用):
-//   sign = Base64(HmacSHA256(parameterMap, AppSecret))
-//   parameterMap 按 key 排序后 key+value 直接拼接 (除 signature 外)
+//
+//	sign = Base64(HmacSHA256(parameterMap, AppSecret))
+//	parameterMap 按 key 排序后 key+value 直接拼接 (除 signature 外)
 //
 // Token cache: 内存 cache，过期前 5min 主动刷新。
 package yonsuite
@@ -183,6 +184,47 @@ func (c *Client) sign(params map[string]string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
+// postJSON 业务接口通用 POST 管道: token → 限流 → marshal body → POST(application/json,
+// access_token 走 query) → 读取响应体, 返回原始字节。
+// 只统一"发请求 + 读 body"这段样板; 各接口的响应结构差异很大 (data 是直接 array / recordList /
+// {id} 都有), code 字段也有 string "200" 和 json.Number 200 两种, 所以解码 + code 校验
+// 一律留在调用方 —— 调用方必须用 json.UseNumber() 解码, 防 19 位 id 被 float64 截断精度。
+// label 仅用于错误信息里定位是哪个接口 (如 "purchase list")。
+func (c *Client) postJSON(path, label string, body interface{}) ([]byte, error) {
+	token, err := c.AccessToken()
+	if err != nil {
+		return nil, err
+	}
+	c.waitRateLimit()
+
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal %s req: %w", label, err)
+	}
+
+	q := url.Values{}
+	q.Set("access_token", token)
+	fullURL := c.BaseURL + path + "?" + q.Encode()
+
+	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(b))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("yonsuite %s http: %w", label, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	return respBody, nil
+}
+
 // SimpleVO 查询条件 (op: eq/neq/lt/gt/between/in/nin/like/leftlike/rightlike/is_null/is_not_null/and/or)
 type SimpleVO struct {
 	Field  string `json:"field"`
@@ -222,37 +264,9 @@ type PurchaseListResp struct {
 
 // QueryPurchaseList 调采购订单列表接口 (POST + access_token query)
 func (c *Client) QueryPurchaseList(req *PurchaseListReq) (*PurchaseListResp, error) {
-	token, err := c.AccessToken()
+	respBody, err := c.postJSON(purchaseListPath, "purchase list", req)
 	if err != nil {
 		return nil, err
-	}
-
-	c.waitRateLimit()
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal purchase list req: %w", err)
-	}
-
-	q := url.Values{}
-	q.Set("access_token", token)
-	fullURL := c.BaseURL + purchaseListPath + "?" + q.Encode()
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite purchase list http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
 	}
 
 	// 关键: 用 UseNumber() 防止 19 位 id (long) 被默认 float64 截断精度
@@ -273,36 +287,9 @@ func (c *Client) QueryPurchaseList(req *PurchaseListReq) (*PurchaseListResp, err
 // 实测: vouchdate top-level filter 不工作, 用 simpleVOs vouchdate between 模式
 // 复用 PurchaseListReq/Resp 结构 (字段一致)
 func (c *Client) QuerySubcontractList(req *PurchaseListReq) (*PurchaseListResp, error) {
-	token, err := c.AccessToken()
+	respBody, err := c.postJSON(subcontractListPath, "subcontract list", req)
 	if err != nil {
 		return nil, err
-	}
-	c.waitRateLimit()
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal subcontract req: %w", err)
-	}
-
-	q := url.Values{}
-	q.Set("access_token", token)
-	fullURL := c.BaseURL + subcontractListPath + "?" + q.Encode()
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite subcontract list http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
 	}
 
 	var pr PurchaseListResp
@@ -320,35 +307,9 @@ func (c *Client) QuerySubcontractList(req *PurchaseListReq) (*PurchaseListResp, 
 // QueryMaterialOutList 调材料出库单列表接口
 // 委外入库后自动生成出库单 (bustype="生产倒冲"), 是包材实际消耗的金标准
 func (c *Client) QueryMaterialOutList(req *PurchaseListReq) (*PurchaseListResp, error) {
-	token, err := c.AccessToken()
+	respBody, err := c.postJSON(materialOutListPath, "materialout list", req)
 	if err != nil {
 		return nil, err
-	}
-	c.waitRateLimit()
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal materialout req: %w", err)
-	}
-	q := url.Values{}
-	q.Set("access_token", token)
-	fullURL := c.BaseURL + materialOutListPath + "?" + q.Encode()
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite materialout list http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
 	}
 
 	var pr PurchaseListResp
@@ -379,35 +340,9 @@ type StockListResp struct {
 
 // QueryStockList 调现存量接口 (data 是直接 array)
 func (c *Client) QueryStockList(req *StockListReq) (*StockListResp, error) {
-	token, err := c.AccessToken()
+	respBody, err := c.postJSON(stockListPath, "stock", req)
 	if err != nil {
 		return nil, err
-	}
-	c.waitRateLimit()
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal stock req: %w", err)
-	}
-	q := url.Values{}
-	q.Set("access_token", token)
-	fullURL := c.BaseURL + stockListPath + "?" + q.Encode()
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite stock list http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
 	}
 
 	var pr StockListResp
@@ -431,8 +366,9 @@ type InspectionSimple struct {
 
 // InspectionListReq 检验单列表请求
 // billnum 检验单类型: 来料检验 qms_incominspectorder_list / 产品检验 qms_prodinspectorder_list /
-//   在库检验 qms_stockinspectorder_list / 其他 qms_otherinspectorder_list / 工序 qms_procedureinspectorder_list /
-//   发退货 qms_deliveryinspectorder_list. 默认来料检验。
+//
+//	在库检验 qms_stockinspectorder_list / 其他 qms_otherinspectorder_list / 工序 qms_procedureinspectorder_list /
+//	发退货 qms_deliveryinspectorder_list. 默认来料检验。
 type InspectionListReq struct {
 	Billnum     string            `json:"billnum"`
 	PageIndex   int               `json:"pageIndex"`
@@ -445,35 +381,9 @@ type InspectionListReq struct {
 
 // QueryInspectionList 调检验单列表接口 (POST + access_token query). 返回结构同采购 (复用 PurchaseListResp)
 func (c *Client) QueryInspectionList(req *InspectionListReq) (*PurchaseListResp, error) {
-	token, err := c.AccessToken()
+	respBody, err := c.postJSON(inspectionListPath, "inspection list", req)
 	if err != nil {
 		return nil, err
-	}
-	c.waitRateLimit()
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal inspection req: %w", err)
-	}
-	q := url.Values{}
-	q.Set("access_token", token)
-	fullURL := c.BaseURL + inspectionListPath + "?" + q.Encode()
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite inspection list http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
 	}
 
 	// UseNumber() 防 19 位 id 精度丢失

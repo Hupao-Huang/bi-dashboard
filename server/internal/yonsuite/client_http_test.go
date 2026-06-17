@@ -204,7 +204,7 @@ func TestQueryPurchaseListTokenFails(t *testing.T) {
 
 func TestQuerySubcontractListHappyPath(t *testing.T) {
 	srv := mockServer(t, map[string]string{
-		"/getAccessToken":      tokenJSON("tok", 7200),
+		"/getAccessToken": tokenJSON("tok", 7200),
 		"/subcontractorder/list": `{
 			"code":"200","message":"ok",
 			"data":{"pageIndex":1,"pageSize":100,"recordCount":1,"pageCount":1,
@@ -228,7 +228,7 @@ func TestQuerySubcontractListHappyPath(t *testing.T) {
 
 func TestQueryMaterialOutListHappyPath(t *testing.T) {
 	srv := mockServer(t, map[string]string{
-		"/getAccessToken":  tokenJSON("tok", 7200),
+		"/getAccessToken": tokenJSON("tok", 7200),
 		"/materialout/list": `{
 			"code":"200","message":"ok",
 			"data":{"pageIndex":1,"pageSize":100,"recordCount":3,"pageCount":1,
@@ -253,7 +253,7 @@ func TestQueryMaterialOutListHappyPath(t *testing.T) {
 func TestQueryStockListHappyPath(t *testing.T) {
 	// memory feedback_ys_stock_data_array: 现存量 data 是直接 array
 	srv := mockServer(t, map[string]string{
-		"/getAccessToken":                       tokenJSON("tok", 7200),
+		"/getAccessToken": tokenJSON("tok", 7200),
 		"/QueryCurrentStocksByCondition": `{
 			"code":"200","message":"ok",
 			"data":[
@@ -279,7 +279,7 @@ func TestQueryStockListHappyPath(t *testing.T) {
 
 func TestQueryStockListEmptyResponse(t *testing.T) {
 	srv := mockServer(t, map[string]string{
-		"/getAccessToken":                       tokenJSON("tok", 7200),
+		"/getAccessToken":                tokenJSON("tok", 7200),
 		"/QueryCurrentStocksByCondition": `{"code":"200","message":"ok","data":[]}`,
 	})
 	defer srv.Close()

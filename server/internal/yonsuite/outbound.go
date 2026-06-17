@@ -9,9 +9,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strconv"
 )
 
@@ -41,36 +38,9 @@ type WriteResp struct {
 // 用 UseNumber() 解码, 防止响应里 19 位主表 id 被 float64 截断精度。
 // code != "200" 时返回 error, 但 WriteResp 仍带回供排查。
 func (c *Client) rawPost(path string, body interface{}) (*WriteResp, error) {
-	token, err := c.AccessToken()
+	respBody, err := c.postJSON(path, "write "+path, body)
 	if err != nil {
 		return nil, err
-	}
-	c.waitRateLimit()
-
-	b, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal write body: %w", err)
-	}
-
-	q := url.Values{}
-	q.Set("access_token", token)
-	fullURL := c.BaseURL + path + "?" + q.Encode()
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(b))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite write %s http: %w", path, err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
 	}
 
 	var wr WriteResp
@@ -162,35 +132,9 @@ func (c *Client) QueryStockByCondition(orgID, productCode, warehouseCode, batchn
 		body["stockStatusDoc"] = statusDoc
 	}
 
-	token, err := c.AccessToken()
+	respBody, err := c.postJSON(stockListPath, "stock-cond", body)
 	if err != nil {
 		return nil, err
-	}
-	c.waitRateLimit()
-
-	b, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal stock cond req: %w", err)
-	}
-	q := url.Values{}
-	q.Set("access_token", token)
-	fullURL := c.BaseURL + stockListPath + "?" + q.Encode()
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(b))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite stock-cond http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
 	}
 
 	var pr StockListResp
@@ -210,38 +154,41 @@ func (c *Client) QueryStockByCondition(orgID, productCode, warehouseCode, batchn
 		if cur == 0 && avail == 0 {
 			continue // 现存量&可用量都为 0 的不要
 		}
-		unitID := jsonStr(it["unit"])
-		stockUnitID := jsonStr(it["stockUnitId"])
+		unitID := JSONString(it["unit"])
+		stockUnitID := JSONString(it["stockUnitId"])
 		if stockUnitID == "" {
 			stockUnitID = unitID
 		}
 		rows = append(rows, StockRow{
-			WarehouseCode:  jsonStr(it["warehouse_code"]),
-			WarehouseName:  jsonStr(it["warehouse_name"]),
-			WarehouseID:    jsonStr(it["warehouse"]),
-			ProductCode:    jsonStr(it["product_code"]),
-			ProductName:    jsonStr(it["product_name"]),
-			ProductID:      jsonStr(it["product"]),
-			ProductskuID:   jsonStr(it["productsku"]),
-			Model:          jsonStr(it["product_modelDescription"]),
-			Batchno:        jsonStr(it["batchno"]),
-			Producedate:    first10(jsonStr(it["producedate"])),
-			Invaliddate:    first10(jsonStr(it["invaliddate"])),
+			WarehouseCode:  JSONString(it["warehouse_code"]),
+			WarehouseName:  JSONString(it["warehouse_name"]),
+			WarehouseID:    JSONString(it["warehouse"]),
+			ProductCode:    JSONString(it["product_code"]),
+			ProductName:    JSONString(it["product_name"]),
+			ProductID:      JSONString(it["product"]),
+			ProductskuID:   JSONString(it["productsku"]),
+			Model:          JSONString(it["product_modelDescription"]),
+			Batchno:        JSONString(it["batchno"]),
+			Producedate:    first10(JSONString(it["producedate"])),
+			Invaliddate:    first10(JSONString(it["invaliddate"])),
 			CurrentQty:     cur,
 			AvailableQty:   avail,
-			Unit:           jsonStr(it["product_unitName"]),
+			Unit:           JSONString(it["product_unitName"]),
 			UnitID:         unitID,
-			ManageClass:    jsonStr(it["manageClass_name"]),
-			Status:         jsonStr(it["stockStatusDoc_statusName"]),
-			StockStatusDoc: jsonStr(it["stockStatusDoc"]),
+			ManageClass:    JSONString(it["manageClass_name"]),
+			Status:         JSONString(it["stockStatusDoc_statusName"]),
+			StockStatusDoc: JSONString(it["stockStatusDoc"]),
 			StockUnitID:    stockUnitID,
 		})
 	}
 	return rows, nil
 }
 
-// jsonStr 把 YS 返回的 interface{} (json.Number / string / nil) 统一成 string。
-func jsonStr(v interface{}) string {
+// JSONString 把 YS 返回的 interface{} (json.Number / string / nil / 数值 / 布尔) 统一成 string。
+// 用 json.UseNumber() 解码时数字是 json.Number; 未知/嵌套结构 (map / array) 返回空串而不是
+// fmt 出 "map[...]"，避免在财务凭证/库存展示里渲染出垃圾值。
+// yonsuite 包内 (现存量行) + handler 凭证页 ysMapStr 共用这一处, 单一事实来源。
+func JSONString(v interface{}) string {
 	switch x := v.(type) {
 	case nil:
 		return ""
@@ -254,7 +201,7 @@ func jsonStr(v interface{}) string {
 	case bool:
 		return strconv.FormatBool(x)
 	default:
-		return fmt.Sprintf("%v", x)
+		return ""
 	}
 }
 
