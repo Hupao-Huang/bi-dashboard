@@ -11,9 +11,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 )
@@ -29,9 +26,9 @@ func parseTaxRatePct(name string) float64 {
 }
 
 const (
-	orgListPath         = "/iuap-api-gateway/yonbip/digitalModel/openapi/orgdatasync/getallorgdeptbaseinfo"
-	productDetailPath   = "/iuap-api-gateway/yonbip/digitalModel/product/batchdetailnew"
-	poSingleSavePath    = "/iuap-api-gateway/yonbip/scm/purchaseorder/singleSave_v1"
+	orgListPath       = "/iuap-api-gateway/yonbip/digitalModel/openapi/orgdatasync/getallorgdeptbaseinfo"
+	productDetailPath = "/iuap-api-gateway/yonbip/digitalModel/product/batchdetailnew"
+	poSingleSavePath  = "/iuap-api-gateway/yonbip/scm/purchaseorder/singleSave_v1"
 )
 
 // OrgInfo 采购组织 (法人主体)
@@ -54,39 +51,14 @@ type orgListResp struct {
 // QueryPurchaseOrgs 拉全部业务单元组织 (isBizUnit=1), 给"组织名→编码"字典用。
 // 香松采购无独立 purchaseorg 职能, 采购组织即业务单元 orgunit。
 func (c *Client) QueryPurchaseOrgs() ([]OrgInfo, error) {
-	token, err := c.AccessToken()
-	if err != nil {
-		return nil, err
-	}
-	c.waitRateLimit()
-
-	reqBody, err := json.Marshal(map[string]interface{}{
+	respBody, err := c.postJSON(orgListPath, "org list", map[string]interface{}{
 		"funcTypeCode": "orgunit",
 		"isBizUnit":    "1",
 		"pageIndex":    "1",
 		"pageSize":     "1000",
 	})
 	if err != nil {
-		return nil, fmt.Errorf("marshal org req: %w", err)
-	}
-
-	q := url.Values{}
-	q.Set("access_token", token)
-	httpReq, err := http.NewRequest("POST", c.BaseURL+orgListPath+"?"+q.Encode(), bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite org list http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, err
 	}
 
 	var r orgListResp
@@ -145,37 +117,14 @@ func (c *Client) QueryProductDetails(orgCode string, productCodes []string) (map
 		}
 		batch := productCodes[start:end]
 
-		token, err := c.AccessToken()
-		if err != nil {
-			return nil, err
-		}
-		c.waitRateLimit()
-
 		items := make([]map[string]interface{}, 0, len(batch))
 		for _, code := range batch {
 			items = append(items, map[string]interface{}{"productCode": code, "orgCode": orgCode})
 		}
-		reqBody, err := json.Marshal(items)
-		if err != nil {
-			return nil, fmt.Errorf("marshal product detail req: %w", err)
-		}
 
-		q := url.Values{}
-		q.Set("access_token", token)
-		httpReq, err := http.NewRequest("POST", c.BaseURL+productDetailPath+"?"+q.Encode(), bytes.NewReader(reqBody))
+		respBody, err := c.postJSON(productDetailPath, "product detail", items)
 		if err != nil {
-			return nil, fmt.Errorf("new request: %w", err)
-		}
-		httpReq.Header.Set("Content-Type", "application/json")
-
-		resp, err := c.HTTP.Do(httpReq)
-		if err != nil {
-			return nil, fmt.Errorf("yonsuite product detail http: %w", err)
-		}
-		respBody, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read body: %w", err)
+			return nil, err
 		}
 
 		var r productDetailResp
@@ -232,37 +181,12 @@ type vendorListResp struct {
 // QueryVendorsPage 拉一页供应商 (企业级共享, 无名称过滤, 全量翻页建字典)。
 // 返回该页供应商 + 总页数。供应商挂"企业账号级"(org 不填=全量)。
 func (c *Client) QueryVendorsPage(pageIndex, pageSize int) ([]VendorInfo, int, error) {
-	token, err := c.AccessToken()
-	if err != nil {
-		return nil, 0, err
-	}
-	c.waitRateLimit()
-
-	reqBody, err := json.Marshal(map[string]interface{}{
+	respBody, err := c.postJSON(vendorListPath, "vendor list", map[string]interface{}{
 		"pageIndex": pageIndex,
 		"pageSize":  pageSize,
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("marshal vendor req: %w", err)
-	}
-
-	q := url.Values{}
-	q.Set("access_token", token)
-	httpReq, err := http.NewRequest("POST", c.BaseURL+vendorListPath+"?"+q.Encode(), bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, 0, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, 0, fmt.Errorf("yonsuite vendor list http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, 0, fmt.Errorf("read body: %w", err)
+		return nil, 0, err
 	}
 
 	var r vendorListResp

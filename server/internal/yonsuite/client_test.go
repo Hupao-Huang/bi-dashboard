@@ -93,10 +93,10 @@ func TestTruncate(t *testing.T) {
 		n     int
 		want  string
 	}{
-		{"abc", 5, "abc"},     // len <= n: 原样返
+		{"abc", 5, "abc"},       // len <= n: 原样返
 		{"abcdef", 3, "abc..."}, // len > n: 截 n + "..."
-		{"", 0, ""},            // 空
-		{"hello", 5, "hello"},  // 边界 ==
+		{"", 0, ""},             // 空
+		{"hello", 5, "hello"},   // 边界 ==
 		{"hello world", 5, "hello..."},
 	}
 	for _, c := range cases {

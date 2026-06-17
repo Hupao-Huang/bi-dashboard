@@ -210,18 +210,10 @@ func mapObj(m map[string]interface{}, key string) map[string]interface{} {
 	return nil
 }
 
+// ysMapStr 取 m[key] 并统一成 string。读 nil map 得零值 nil, JSONString(nil)="" — 无需单独判空。
+// 类型转换 (json.Number / string / nil → string) 与 yonsuite.JSONString 共用一处, 单一事实来源。
 func ysMapStr(m map[string]interface{}, key string) string {
-	if m == nil {
-		return ""
-	}
-	switch t := m[key].(type) {
-	case string:
-		return t
-	case json.Number:
-		return t.String()
-	default:
-		return ""
-	}
+	return yonsuite.JSONString(m[key])
 }
 
 func ysMapFloat(m map[string]interface{}, key string) float64 {

@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 )
 
 // voucherListPath 凭证列表查询
@@ -52,36 +49,9 @@ func (c *Client) QueryVoucherList(req *VoucherListReq) (*VoucherListResp, error)
 		req.Pager.PageSize = 20
 	}
 
-	token, err := c.AccessToken()
+	respBody, err := c.postJSON(voucherListPath, "voucher list", req)
 	if err != nil {
 		return nil, err
-	}
-	c.waitRateLimit()
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal voucher list req: %w", err)
-	}
-
-	q := url.Values{}
-	q.Set("access_token", token)
-	fullURL := c.BaseURL + voucherListPath + "?" + q.Encode()
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite voucher list http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
 	}
 
 	// UseNumber 防止 19 位 id 精度丢失

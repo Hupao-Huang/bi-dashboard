@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 )
 
 // accbookListPath 账簿(法人主体)清单查询 — 凭证查询页下拉用
@@ -27,40 +24,13 @@ type accbookResp struct {
 
 // QueryAccbookList 拉全部账簿 (code + name)
 func (c *Client) QueryAccbookList() ([]Accbook, error) {
-	token, err := c.AccessToken()
-	if err != nil {
-		return nil, err
-	}
-	c.waitRateLimit()
-
-	body, err := json.Marshal(map[string]interface{}{
+	respBody, err := c.postJSON(accbookListPath, "accbook list", map[string]interface{}{
 		"fields":    []string{"code", "name"},
 		"pageIndex": 1,
 		"pageSize":  1000,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("marshal accbook req: %w", err)
-	}
-
-	q := url.Values{}
-	q.Set("access_token", token)
-	fullURL := c.BaseURL + accbookListPath + "?" + q.Encode()
-
-	httpReq, err := http.NewRequest("POST", fullURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("yonsuite accbook list http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, err
 	}
 
 	var ar accbookResp
