@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestParseTollPassDates(t *testing.T) {
@@ -51,6 +53,51 @@ func TestAsMs(t *testing.T) {
 		if got := asMs(c.in); got != c.want {
 			t.Errorf("%s: asMs(%v)=%d, 期望 %d", c.name, c.in, got, c.want)
 		}
+	}
+}
+
+// pruneFlowInvoices 单据级删残留 (跑哥 2026-06-17: 驳回换发票后旧发票/整条明细被删的发票残留致误报)
+func TestPruneFlowInvoices(t *testing.T) {
+	// ① keys 空 → 保守不删, 不碰 db (nil 也不崩)
+	pruneFlowInvoices(nil, "F1", nil)
+	// ② flowId 空 → 不删
+	pruneFlowInvoices(nil, "", [][2]string{{"D1", "inv1"}})
+
+	// ③ keys 非空 → 删 (detail_id,invoice_id) 整对 NOT IN; 整条明细被删的发票也能清
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectExec(`DELETE FROM hesi_flow_invoice WHERE flow_id=\? AND \(detail_id, invoice_id\) NOT IN`).
+		WithArgs("F1", "D1", "inv1", "D1", "inv2", "D2", "inv3").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	pruneFlowInvoices(db, "F1", [][2]string{{"D1", "inv1"}, {"D1", "inv2"}, {"D2", "inv3"}})
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("③非空keys应删整对NOT IN: %v", err)
+	}
+}
+
+// retireGhostFlows: 合思删单/撤回到草稿后 getApplyList 不再返回, 靠 approveStates 报的
+// "已删除/尚未提交"退场 active=0 (跑哥 2026-06-17)。锁死 denylist 只含这两个标记, 防误退真实待审节点。
+func TestRetireGhostFlows(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	// 必须是 UPDATE active=0, 且 denylist 严格等于 已删除/尚未提交 ([\s\S]* 跨换行)
+	mock.ExpectExec(`UPDATE hesi_flow SET active=0[\s\S]*current_stage_name IN \('已删除','尚未提交'\)`).
+		WillReturnResult(sqlmock.NewResult(0, 34))
+	n, err := retireGhostFlows(db)
+	if err != nil {
+		t.Fatalf("retireGhostFlows: %v", err)
+	}
+	if n != 34 {
+		t.Errorf("应退场 34 单, got %d", n)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("退场幽灵单应执行 UPDATE active=0 且只退 已删除/尚未提交: %v", err)
 	}
 }
 
