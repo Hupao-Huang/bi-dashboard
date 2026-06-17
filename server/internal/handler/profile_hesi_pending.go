@@ -242,6 +242,15 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 				firstSubmit = *row.SubmitDate
 			}
 			row.Suggestion = h.AuditDailyExpense(ownerDeptID, deptID, submitterID, row.FlowID, expenseMoney, rawJSON, firstSubmit)
+		} else if strings.Contains(displayName, "张俊") || strings.Contains(queryName, "张俊") || strings.Contains(hesiRealName, "张俊") {
+			// 张俊: 付款单/预付款单 AI 审批建议 (dry-run, 详见 hesi_audit_payment_rules.go)
+			if row.SpecificationId != nil && paymentTemplate(*row.SpecificationId) != "" {
+				firstSubmit := int64(0)
+				if row.SubmitDate != nil {
+					firstSubmit = *row.SubmitDate
+				}
+				row.Suggestion = h.AuditPayment(row.FlowID, *row.SpecificationId, rawJSON, firstSubmit)
+			}
 		}
 		items = append(items, row)
 	}
