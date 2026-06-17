@@ -16,6 +16,7 @@ import {
 import dayjs from 'dayjs';
 import { API_BASE } from '../../config';
 import HesiBotRules from './HesiBotRules';
+import HesiBotRulesZhangJun from './HesiBotRulesZhangJun';
 import HesiFlowDetailModal from '../../components/HesiFlowDetailModal';
 
 interface PendingItem {
@@ -527,6 +528,8 @@ const HesiBot: React.FC = () => {
 
       {/* 判定规则是樊雪娇日常报销单专属, 只在查看她的待审批时展示 (跑哥 6/11) */}
       {((selectedApprover || '') + (queryName || '') + (realName || '')).includes('樊雪娇') && <HesiBotRules />}
+      {/* 张俊对外付款单/预付款单判定规则, 只在查看张俊待审批时展示 (跑哥 2026-06-17) */}
+      {((selectedApprover || '') + (queryName || '') + (realName || '')).includes('张俊') && <HesiBotRulesZhangJun />}
 
       {/* 管理员视角切换 */}
       {isAdmin && (
