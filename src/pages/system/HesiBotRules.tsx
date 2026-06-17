@@ -46,6 +46,14 @@ const FXJ_HOTEL_STD = [
   { level: '主管及其他', t1: 400, t2: 300, t3: 300, other: 300 },
 ];
 
+// 线下（世创/世用）住宿标准 (¥/晚, 3 档城市 一线/二线/国内其他 × 3 档职级; 樊雪娇 2026-06-17)
+// 新一线城市按二线算; 同住上浮 20% 同集团
+const FXJ_HOTEL_STD_OFFLINE = [
+  { level: '集团总监', t1: 500, t2: 400, other: 300 },
+  { level: '大区经理及以上', t1: 450, t2: 350, other: 280 },
+  { level: '其他员工', t1: 350, t2: 280, other: 230 },
+];
+
 // 出差补贴标准 (¥/天)
 const FXJ_SUBSIDY_STD = [
   { level: '总裁', v: 200 }, { level: '副总裁', v: 150 }, { level: '集团总监', v: 100 },
@@ -71,7 +79,7 @@ const HesiBotRules: React.FC = () => {
       />
       <Space align="start" wrap size={32} style={{ marginTop: 16 }}>
         <div>
-          <Typography.Text strong>住宿标准（每晚上限，城市档次 × 职级）</Typography.Text>
+          <Typography.Text strong>住宿标准 · 集团（每晚上限，城市档次 × 职级）</Typography.Text>
           <Table
             style={{ marginTop: 8 }}
             columns={[
@@ -87,6 +95,23 @@ const HesiBotRules: React.FC = () => {
             size="small"
           />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>注：两人同住按职位高者标准上浮 20%。</Typography.Text>
+        </div>
+        <div>
+          <Typography.Text strong>住宿标准 · 线下世创/世用（每晚上限）</Typography.Text>
+          <Table
+            style={{ marginTop: 8 }}
+            columns={[
+              { title: '职级', dataIndex: 'level' },
+              { title: '一线', dataIndex: 't1', align: 'right' as const },
+              { title: '二线', dataIndex: 't2', align: 'right' as const },
+              { title: '国内其他', dataIndex: 'other', align: 'right' as const },
+            ]}
+            dataSource={FXJ_HOTEL_STD_OFFLINE}
+            rowKey="level"
+            pagination={false}
+            size="small"
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>注：新一线城市按二线算；两人同住上浮 20%。</Typography.Text>
         </div>
         <div>
           <Typography.Text strong>出差补贴标准（每天）</Typography.Text>

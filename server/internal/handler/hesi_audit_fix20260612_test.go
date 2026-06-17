@@ -77,7 +77,7 @@ func TestRule73MissingStartGoesManual(t *testing.T) {
 	restore := seedCityTierCache(map[string]string{})
 	defer restore()
 	h := &DashboardHandler{}
-	rej, warn := h.ruleAccommodationStandard(mkHotelRaw("999999", 0, r15June1), "")
+	rej, warn := h.ruleAccommodationStandard(mkHotelRaw("999999", 0, r15June1), "", false)
 	if rej != "" {
 		t.Errorf("日期区间异常不应直接驳回, got %q", rej)
 	}
@@ -91,7 +91,7 @@ func TestRule73ValidPeriodStillJudges(t *testing.T) {
 	restore := seedCityTierCache(map[string]string{})
 	defer restore()
 	h := &DashboardHandler{}
-	rej, warn := h.ruleAccommodationStandard(mkHotelRaw("999", r15June1, r15June1+r15Day), "")
+	rej, warn := h.ruleAccommodationStandard(mkHotelRaw("999", r15June1, r15June1+r15Day), "", false)
 	combined := rej + warn
 	if !strings.Contains(combined, "×2晚") {
 		t.Errorf("正常区间应算出 2 晚并判超标, rej=%q warn=%q", rej, warn)
