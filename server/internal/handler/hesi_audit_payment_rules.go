@@ -69,9 +69,10 @@ func (h *DashboardHandler) AuditPayment(flowID, specID, rawJSON string, firstSub
 	}
 
 	// A13: 阳光天际 → 悦伍公司 — 付款单+预付款单都做 (sunshineRule only, NOT A14)
+	// Bug 1 fix: 付款单事由在 details[].feeTypeForm.consumptionReasons (逐行), 不在 description。
+	// 预付款单事由在 description。两者都 belt-and-suspenders 拼入 reasonText。
 	leName := h.LookupLegalEntityName(strOfPayment(raw["法人实体"]))
-	reason, _ := raw["description"].(string)
-	if r := sunshineRule(reason, leName); r != "" {
+	if r := sunshineRule(extractPaymentReasonText(raw, tmpl), leName); r != "" {
 		rejectReasons = append(rejectReasons, r)
 	}
 
@@ -293,22 +294,38 @@ func (h *DashboardHandler) invoiceParties(flowID string) (buyers, sellers []stri
 	return buyers, sellers
 }
 
-// rulePaymentInvoiceParties B1+B2 发票方核验: 收款方=开票方 (转人工); 购买方=所属公司 (驳回)。
-// 仅付款单调用; 预付款单无发票跳过。
-func (h *DashboardHandler) rulePaymentInvoiceParties(flowID string, raw map[string]interface{}) (reject, warn []string) {
-	buyers, sellers := h.invoiceParties(flowID)
+// rulePaymentInvoicePartiesLogic B1+B2 纯逻辑层 (便于单测, 不依赖 DB/handler)。
+// Bug 3 fix: 原代码仅在 buyers==0 && sellers==0 时才转人工, 漏掉了仅一方缺失的情况。
+// 修复: buyers 为空单独产生 B2 提醒; sellers 为空单独产生 B1 提醒; 两者均空合并为 B1/B2 兜底。
+func rulePaymentInvoicePartiesLogic(buyers, sellers []string, payeeName, owner string) (reject, warn []string) {
 	if len(buyers) == 0 && len(sellers) == 0 {
 		warn = append(warn, "未识别到发票购买方/开票方, 请人工核对 (B1/B2)")
 		return reject, warn
 	}
-	owner := h.LookupLegalEntityName(strOfPayment(raw["法人实体"]))
-	if r := buyerCompanyMismatch(buyers, owner); r != "" {
-		reject = append(reject, r)
+	if len(buyers) == 0 {
+		warn = append(warn, "未识别到发票购买方, 请人工核对 (B2)")
+	} else {
+		if r := buyerCompanyMismatch(buyers, owner); r != "" {
+			reject = append(reject, r)
+		}
 	}
-	if w := payeeSellerMismatch(h.payeeName(strOfPayment(raw["payeeId"])), sellers); w != "" {
-		warn = append(warn, w)
+	if len(sellers) == 0 {
+		warn = append(warn, "未识别到发票开票方, 请人工核对 (B1)")
+	} else {
+		if w := payeeSellerMismatch(payeeName, sellers); w != "" {
+			warn = append(warn, w)
+		}
 	}
 	return reject, warn
+}
+
+// rulePaymentInvoiceParties B1+B2 发票方核验: 收款方=开票方 (转人工); 购买方=所属公司 (驳回)。
+// 仅付款单调用; 预付款单无发票跳过。
+func (h *DashboardHandler) rulePaymentInvoiceParties(flowID string, raw map[string]interface{}) (reject, warn []string) {
+	buyers, sellers := h.invoiceParties(flowID)
+	owner := h.LookupLegalEntityName(strOfPayment(raw["法人实体"]))
+	payee := h.payeeName(strOfPayment(raw["payeeId"]))
+	return rulePaymentInvoicePartiesLogic(buyers, sellers, payee, owner)
 }
 
 // ----- B4: 防重复付款 (付款单+预付款单) -----
@@ -328,20 +345,23 @@ func (h *DashboardHandler) rulePaymentDuplicate(flowID string, raw map[string]in
 		return ""
 	}
 	payeeID, _ := raw["payeeId"].(string)
-	amount := toFloatPayment(raw["payMoney"])
+	// Bug 2 fix: 预付款单金额存 loanMoney，payMoney 为 0，原代码在 amount<=0 时直接返回。
+	// 修复: 先取 payMoney，为 0 时再取 loanMoney (extractDupCheckAmount)。
+	amount := extractDupCheckAmount(raw)
 	if payeeID == "" || amount <= 0 {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// Bug 2 fix: SQL 也要同时检查 pay_money 和 loan_money，覆盖历史预付款单记录。
 	rows, err := h.DB.QueryContext(ctx,
 		`SELECT code FROM hesi_flow
 		 WHERE flow_id<>? AND active=1
 		   AND JSON_UNQUOTE(JSON_EXTRACT(raw_json,'$.payeeId'))=?
-		   AND ABS(IFNULL(pay_money,0)-?)<0.01
+		   AND (ABS(IFNULL(pay_money,0)-?)<0.01 OR ABS(IFNULL(loan_money,0)-?)<0.01)
 		   AND (specification_id LIKE 'ID01KgaO6dcZtR%' OR specification_id LIKE 'ID01FhdI9II9A3%')
 		 LIMIT 5`,
-		flowID, payeeID, amount)
+		flowID, payeeID, amount, amount)
 	if err != nil {
 		return ""
 	}
@@ -370,6 +390,42 @@ func toFloatPayment(v interface{}) float64 {
 		return f
 	}
 	return 0
+}
+
+// extractPaymentReasonText Bug 1 fix: 按模板类型提取「付款事由」文本。
+// 付款单 (payment): 遍历 details[].feeTypeForm.consumptionReasons 并拼接; 同时 belt-and-suspenders 包含 description。
+// 预付款单 (prepay): 直接取 description。
+// A13 sunshineRule 用此函数取 reason，避免付款单永远读空 description。
+func extractPaymentReasonText(raw map[string]interface{}, tmpl string) string {
+	desc, _ := raw["description"].(string)
+	if tmpl != "payment" {
+		return desc
+	}
+	// 付款单: 从所有明细行 consumptionReasons 拼接
+	var parts []string
+	if desc != "" {
+		parts = append(parts, desc)
+	}
+	details, _ := raw["details"].([]interface{})
+	for _, d := range details {
+		dm, _ := d.(map[string]interface{})
+		form, _ := dm["feeTypeForm"].(map[string]interface{})
+		s, _ := form["consumptionReasons"].(string)
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// extractDupCheckAmount Bug 2 fix: B4 防重复付款的金额提取。
+// 优先取 payMoney (付款单); 为 0 时取 loanMoney (预付款单)。
+func extractDupCheckAmount(raw map[string]interface{}) float64 {
+	amount := toFloatPayment(raw["payMoney"])
+	if amount <= 0 {
+		amount = toFloatPayment(raw["loanMoney"])
+	}
+	return amount
 }
 
 // strOfPayment 安全转 string
