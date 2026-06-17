@@ -1161,6 +1161,10 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 		if _, ok := sampleFeeTypes[feeTypeID]; ok && isResearch {
 			continue
 		}
+		// 豁免 D: 私车公用 (按里程核账走规则 12-1, 本就无发票; 跑哥 2026-06-17)
+		if feeTypeID == driveFeeTypeID {
+			continue
+		}
 		// 都不豁免 → reject
 		noInvoiceReject = append(noInvoiceReject, no)
 	}
@@ -1171,7 +1175,7 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 	if len(invoices) == 0 {
 		// 无发票时, 只跑规则 10 — 其他规则 8-1/8-2/8-3/8-4 都不适用
 		if len(noInvoiceReject) > 0 {
-			return []string{fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/特殊截图说明 豁免)", uniqueInts(noInvoiceReject))}, missingFeeTypeWarn
+			return []string{fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/私车公用/特殊截图说明 豁免)", uniqueInts(noInvoiceReject))}, missingFeeTypeWarn
 		}
 		return nil, missingFeeTypeWarn
 	}
@@ -1262,7 +1266,7 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 
 	// 规则 10: 部分明细无票且不豁免 → reject (有票明细的规则 8 已上面跑过)
 	if len(noInvoiceReject) > 0 {
-		rejects = append(rejects, fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/特殊截图说明 豁免)", uniqueInts(noInvoiceReject)))
+		rejects = append(rejects, fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/私车公用/特殊截图说明 豁免)", uniqueInts(noInvoiceReject)))
 	}
 
 	return rejects, warnings
