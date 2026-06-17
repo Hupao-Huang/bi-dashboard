@@ -154,6 +154,35 @@ func TestRule18NoItemsSkips(t *testing.T) {
 	}
 }
 
+// ===== 规则 18 反向 (樊雪娇 2026-06-17): 广告/推广发票报成非广告费 → 驳回 =====
+
+func TestRule18ReverseNonAdWithAdKeywordRejects(t *testing.T) {
+	// 非广告费明细的发票项目名含"推广" → 建议驳回 (应报广告费)
+	invs := []adInvRef{{no: 2, invoiceID: "INV1", number: "26412000009998887776"}}
+	names := map[string][]string{"INV1": {"*现代服务*品牌推广服务费"}}
+	got := strings.Join(checkNonAdInvoiceItems(invs, names), "; ")
+	if !strings.Contains(got, "规则 18 反向") || !strings.Contains(got, "广告费") || !strings.Contains(got, "98887776") {
+		t.Errorf("非广告费发票含推广应驳回并带尾号+提示应报广告费, got %q", got)
+	}
+}
+
+func TestRule18ReverseNonAdNoKeywordPasses(t *testing.T) {
+	// 非广告费发票不含广告/推广 → 不触发
+	invs := []adInvRef{{no: 2, invoiceID: "INV1", number: "111"}}
+	names := map[string][]string{"INV1": {"*办公用品*A4纸", "*印刷品*名片"}}
+	if rej := checkNonAdInvoiceItems(invs, names); len(rej) != 0 {
+		t.Errorf("非广告费发票不含广告/推广不应驳回, got %v", rej)
+	}
+}
+
+func TestRule18ReverseNoItemsSkips(t *testing.T) {
+	// 接口没回明细 → 不冤枉跳过
+	invs := []adInvRef{{no: 2, invoiceID: "INV1", number: "111"}}
+	if rej := checkNonAdInvoiceItems(invs, map[string][]string{}); len(rej) != 0 {
+		t.Errorf("无明细数据反向不应驳回, got %v", rej)
+	}
+}
+
 // ===== 15-1.2 修正: 交通及差旅费豁免付款截图 =====
 
 func TestRule1512TravelFeeTypeExempt(t *testing.T) {
