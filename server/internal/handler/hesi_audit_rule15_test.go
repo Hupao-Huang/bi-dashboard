@@ -32,7 +32,7 @@ func mkOfflineHandler(t *testing.T, invRows *sqlmock.Rows, position string) (*Da
 }
 
 func emptyInvRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"detail_id", "invoice_type", "total_amount", "approve_amount"})
+	return sqlmock.NewRows([]string{"detail_id", "invoice_type", "total_amount", "approve_amount", "toll_pass_start"})
 }
 
 // mkSubsidyDetail 补贴明细: 金额/天数 + 可选 feeDatePeriod (startMs=0 表示不带日期)
@@ -152,7 +152,7 @@ func TestRule15DirtyFeeDatePeriodCapped(t *testing.T) {
 
 func TestRule152AmountMustMatchInvoice(t *testing.T) {
 	// 非豁免明细 ¥100.00 vs 发票合计 ¥100.01 → 驳回; 有付款截图避开 15-1.2 干扰
-	inv := emptyInvRows().AddRow("D-x", "DIGITAL_NORMAL", 100.01, 0)
+	inv := emptyInvRows().AddRow("D-x", "DIGITAL_NORMAL", 100.01, 0, 0)
 	h, done := mkOfflineHandler(t, inv, "集团经理")
 	defer done()
 	raw := rawOf(map[string]interface{}{
@@ -172,7 +172,7 @@ func TestRule152AmountMustMatchInvoice(t *testing.T) {
 
 func TestRule1512NonSpecialInvoiceNeedsPayShot(t *testing.T) {
 	// 非专票 + 没传付款截图 → 15-1.2 驳回; 金额一致避开 15-2
-	inv := emptyInvRows().AddRow("D-x", "DIGITAL_NORMAL", 88.00, 0)
+	inv := emptyInvRows().AddRow("D-x", "DIGITAL_NORMAL", 88.00, 0, 0)
 	h, done := mkOfflineHandler(t, inv, "集团经理")
 	defer done()
 	raw := rawOf(map[string]interface{}{
@@ -194,7 +194,7 @@ func TestRule1512NonSpecialInvoiceNeedsPayShot(t *testing.T) {
 
 func TestRule1512SpecialInvoiceNoPayShotOK(t *testing.T) {
 	// 全专票 → 不要求付款截图
-	inv := emptyInvRows().AddRow("D-x", "PAPER_SPECIAL", 88.00, 0)
+	inv := emptyInvRows().AddRow("D-x", "PAPER_SPECIAL", 88.00, 0, 0)
 	h, done := mkOfflineHandler(t, inv, "集团经理")
 	defer done()
 	raw := rawOf(map[string]interface{}{
@@ -213,7 +213,7 @@ func TestRule1512SpecialInvoiceNoPayShotOK(t *testing.T) {
 func TestRule154AggregateAcrossDetails(t *testing.T) {
 	// 两条私车明细(100+100), 一张¥210大油票挂在第一条 → 整单聚合 210≥200 → 过
 	// (6/12 修: 按明细判会误驳没挂发票的第二条; 樊雪娇口径是"总额"判)
-	inv := emptyInvRows().AddRow("D-drive-a", "DIGITAL_NORMAL", 210.00, 0)
+	inv := emptyInvRows().AddRow("D-drive-a", "DIGITAL_NORMAL", 210.00, 0, 0)
 	h, done := mkOfflineHandler(t, inv, "集团经理")
 	defer done()
 	mk := func(did string, no int) map[string]interface{} {
@@ -236,7 +236,7 @@ func TestRule154AggregateAcrossDetails(t *testing.T) {
 
 func TestRule154DriveFuelInvoiceMustCover(t *testing.T) {
 	// 私车公用 ¥200, 油费发票合计 ¥150 → 驳回 15-4; 补足 ¥200 → 通过
-	inv := emptyInvRows().AddRow("D-drive", "DIGITAL_NORMAL", 150.00, 0)
+	inv := emptyInvRows().AddRow("D-drive", "DIGITAL_NORMAL", 150.00, 0, 0)
 	h, done := mkOfflineHandler(t, inv, "集团经理")
 	defer done()
 	raw := rawOf(mkDriveDetail(1, "200.00", r15June1))
@@ -246,8 +246,8 @@ func TestRule154DriveFuelInvoiceMustCover(t *testing.T) {
 	}
 
 	inv2 := emptyInvRows().
-		AddRow("D-drive", "DIGITAL_NORMAL", 150.00, 0).
-		AddRow("D-drive", "DIGITAL_NORMAL", 50.00, 0)
+		AddRow("D-drive", "DIGITAL_NORMAL", 150.00, 0, 0).
+		AddRow("D-drive", "DIGITAL_NORMAL", 50.00, 0, 0)
 	h2, done2 := mkOfflineHandler(t, inv2, "集团经理")
 	defer done2()
 	rej2, _ := h2.ruleOfflineExtras(rawOf(mkDriveDetail(1, "200.00", r15June1)), "F15", "S1")

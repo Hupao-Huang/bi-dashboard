@@ -237,7 +237,11 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 			if row.SubmitterId != nil {
 				submitterID = *row.SubmitterId
 			}
-			row.Suggestion = h.AuditDailyExpense(ownerDeptID, deptID, submitterID, row.FlowID, expenseMoney, rawJSON)
+			firstSubmit := int64(0) // 稳定的首次提交时间(不随退回重提变), 供发票时效规则用
+			if row.SubmitDate != nil {
+				firstSubmit = *row.SubmitDate
+			}
+			row.Suggestion = h.AuditDailyExpense(ownerDeptID, deptID, submitterID, row.FlowID, expenseMoney, rawJSON, firstSubmit)
 		}
 		items = append(items, row)
 	}

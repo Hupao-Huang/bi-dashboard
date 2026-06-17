@@ -334,14 +334,35 @@ type AuditSuggestion struct {
 //   - departmentID: hesi_flow.department_id 报销/借款部门 ID (= raw_json.expenseDepartment, 规则 2)
 //   - expenseMoney: hesi_flow.expense_money 报销金额 (规则 5 招待费金额对比)
 //   - rawJSON: 合思单据 raw_json (含 payeeId / submitterId / 法人实体 / details / expenseLinks 等)
-func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitterID, flowID string, expenseMoney float64, rawJSON string) *AuditSuggestion {
+//
+// applyStableSubmitDate 用调用方传入的"首次提交时间"(表 hesi_flow.submit_date)覆盖 raw["submitDate"],
+// 供发票时效规则(8-4 发票>1月 / 14 健康证>6月)使用。
+// 为什么必须用表值而非 raw_json.submitDate: 后者会被"退回后重新提交"刷新成最新提交时间, 把发票开票距提交
+// 人为拖长、把没超期的发票误判超期 (跑哥 2026-06-17, B26003023: 发票5/10 首次提交5/29=19天合规, 退回后6/11重提
+// 用6/11算成32天误判超期)。表 submit_date 在 sync-hesi / hesi_pending_sync 两个同步入口的 ON DUPLICATE KEY UPDATE
+// 都不更新, 是冻结的首次入库提交时间。调用方(profile_hesi_pending)本就已查出 submit_date, 传入即可, 不再回查库。
+// 守卫: 只在表值"更早"时才覆盖 —— 发票时效取更早的提交基准(宁严勿松); 若表值因脏数据异常地比 raw 更晚,
+// 保留 raw 原值, 避免把发票距提交算短而漏判真超期(二审守卫)。firstSubmitDate<=0(老单没同步到)或 raw 为 nil 时不动。
+func applyStableSubmitDate(firstSubmitDate int64, raw map[string]interface{}) {
+	if raw == nil || firstSubmitDate <= 0 {
+		return
+	}
+	if cur, ok := raw["submitDate"].(float64); ok && cur > 0 && float64(firstSubmitDate) >= cur {
+		return // raw 已是更早(或相等)的提交时间, 不覆盖
+	}
+	raw["submitDate"] = float64(firstSubmitDate)
+}
+
+// AuditDailyExpense firstSubmitDate = hesi_flow.submit_date(稳定首次提交毫秒戳, 0 表缺失), 见 applyStableSubmitDate。
+func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitterID, flowID string, expenseMoney float64, rawJSON string, firstSubmitDate int64) *AuditSuggestion {
 	var raw map[string]interface{}
 	if rawJSON != "" {
 		_ = json.Unmarshal([]byte(rawJSON), &raw)
 	}
 
-	var rejectReasons []string
-	var warnings []string
+	// 发票时效(规则 8-4 发票>1月 / 规则 14 健康证发票>6月)按"首次提交时间"算:
+	// 用表里稳定的 submit_date 覆盖 raw.submitDate, 避免退回重提把发票拖成超期误判 (详见 applyStableSubmitDate)。
+	applyStableSubmitDate(firstSubmitDate, raw)
 
 	// 线下判定: 法人实体名含 世创/世用 → 走线下专属规则集 (樊雪娇 2026-06-11, 与集团口径不同)
 	isOfflineFlow := false
@@ -353,6 +374,19 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		}
 		isOfflineFlow = strings.Contains(leName, "世创") || strings.Contains(leName, "世用")
 	}
+
+	// 特批: 集团(非线下) + 收款人户名"黄涛" + 实际报销额 ≤ 该单发票总额 → 直接通过, 跳过所有其它规则 (跑哥 2026-06-17)。
+	// 户名匹配(跑哥拍板, 认可同名风险); 发票总额=该单所有发票价税合计; 无发票(合计0)不豁免, 走常规。
+	if !isOfflineFlow {
+		if payeeID, _ := raw["payeeId"].(string); payeeID != "" && expenseMoney > 0 && h.payeeName(payeeID) == "黄涛" {
+			if invoiceTotal := h.sumInvoiceTotal(flowID); invoiceTotal > 0 && expenseMoney <= invoiceTotal+0.01 {
+				return &AuditSuggestion{Action: "agree", Reasons: []string{fmt.Sprintf("集团收款人黄涛特批: 报销额 ¥%.2f ≤ 发票合计 ¥%.2f, 免其它规则", expenseMoney, invoiceTotal)}}
+			}
+		}
+	}
+
+	var rejectReasons []string
+	var warnings []string
 
 	// 规则 1: 发起人部门 末级 (员工提交人部门, raw_json.u_提交人部门 = hesi_flow.owner_department)
 	if r := h.ruleDeptLeaf(ownerDeptID, "发起人部门 (规则 1)"); r != "" {
@@ -748,6 +782,30 @@ func rulePayeeBank(db *sql.DB, payeeID string) string {
 	return "收款信息必须为银行账户, 当前为「" + sortLabel + "」(规则 3)"
 }
 
+// payeeName 查收款人户名 (hesi_payee_info.name); 查不到返回空。用于集团黄涛特批判定。
+func (h *DashboardHandler) payeeName(payeeID string) string {
+	if h.DB == nil || payeeID == "" {
+		return ""
+	}
+	var name string
+	if err := h.DB.QueryRow(`SELECT name FROM hesi_payee_info WHERE id=? AND active=1 LIMIT 1`, payeeID).Scan(&name); err != nil {
+		return ""
+	}
+	return name
+}
+
+// sumInvoiceTotal 该单所有发票价税合计 (hesi_flow_invoice.total_amount 求和); 无发票/查不到返回 0。
+func (h *DashboardHandler) sumInvoiceTotal(flowID string) float64 {
+	if h.DB == nil || flowID == "" {
+		return 0
+	}
+	var sum sql.NullFloat64
+	if err := h.DB.QueryRow(`SELECT SUM(IFNULL(total_amount,0)) FROM hesi_flow_invoice WHERE flow_id=?`, flowID).Scan(&sum); err != nil {
+		return 0
+	}
+	return sum.Float64
+}
+
 // 样品 fee_type 集合 (规则 10 豁免 1: 研发部门 + 样品 = 无票豁免)
 var sampleFeeTypes = map[string]string{
 	"ID01Fk0FsIqhDV": "赠品及样品",
@@ -764,6 +822,9 @@ var subsidyFeeTypes = map[string]string{
 
 // 私车公用 fee_type (规则 12-1 自驾报销)
 const driveFeeTypeID = "ID01Fr2mX8KP2T"
+
+// 过路费 fee_type (规则 15-3 补贴扣减: 消费日按发票通行日期算)
+const tollFeeTypeID = "ID01KhLSijR8FV"
 
 // 健康证及体检 fee_type (规则 14, 合思 feeTypes API 2026-06-11 实查, 无子类)
 const healthExamFeeTypeID = "ID01KTruvX23pl"
@@ -1406,9 +1467,10 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 		dates      []string // feeDate / feeDatePeriod 覆盖的日期 (yyyy-mm-dd)
 		days       float64  // u_天数 (补贴明细)
 		subsidyAmt float64  // u_出差补贴金额
+		driveRecID string   // 私车公用: 行车记录实例ID (消费日按行车记录时间算, 条2)
 	}
 	byID := map[string]det{}
-	var driveDates []string
+	tollDetailIDs := map[string]bool{} // 过路费明细 detail_id → 后面查发票通行日期 (条3)
 	for _, d := range details {
 		dm, _ := d.(map[string]interface{})
 		if dm == nil {
@@ -1442,30 +1504,36 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 				dt.subsidyAmt, _ = strconv.ParseFloat(s, 64)
 			}
 		}
+		// 私车公用: 消费日按行车记录时间算 (条2), 记行车记录实例ID
+		if dt.feeTypeID == driveFeeTypeID {
+			dt.driveRecID, _ = form["u_行车记录"].(string)
+		}
 		if did, ok := form["detailId"].(string); ok && did != "" {
 			byID[did] = dt
-		}
-		if dt.feeTypeID == driveFeeTypeID {
-			driveDates = append(driveDates, dt.dates...)
+			if dt.feeTypeID == tollFeeTypeID {
+				tollDetailIDs[did] = true // 过路费明细, 查发票通行日期 (条3)
+			}
 		}
 	}
 	if len(byID) == 0 {
 		return nil, nil
 	}
 
-	// 拉发票: detail_id → (合计金额, 是否全专票, 非专票存在)
+	// 拉发票: detail_id → (合计金额, 是否全专票, 非专票存在); 顺带取过路费发票通行日期 (条3)
 	invSum := map[string]float64{}
 	hasNonSpecial := map[string]bool{}
+	tollDayByDetail := map[string][]string{} // 过路费明细 → 发票通行日期 (yyyy-mm-dd)
 	if flowID != "" {
 		rows, err := h.DB.Query(`SELECT IFNULL(detail_id,''), IFNULL(invoice_type,''),
-			IFNULL(total_amount,0), IFNULL(approve_amount,0) FROM hesi_flow_invoice WHERE flow_id=?`, flowID)
+			IFNULL(total_amount,0), IFNULL(approve_amount,0), IFNULL(toll_pass_start,0) FROM hesi_flow_invoice WHERE flow_id=?`, flowID)
 		if err == nil {
 			defer rows.Close()
 			invoiceReadBroken := false
 			for rows.Next() {
 				var did, itype string
 				var total, approve float64
-				if err := rows.Scan(&did, &itype, &total, &approve); err != nil {
+				var tollStart int64
+				if err := rows.Scan(&did, &itype, &total, &approve, &tollStart); err != nil {
 					if !invoiceReadBroken { // 只记首条, 防 DB 故障时每行刷一条日志
 						log.Printf("[hesi-audit] 规则15 发票行解析失败 flow=%s: %v", flowID, err)
 					}
@@ -1479,6 +1547,9 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 				invSum[did] += amt
 				if itype != "" && !specialInvoiceTypes[itype] {
 					hasNonSpecial[did] = true
+				}
+				if tollStart > 1e12 && tollDetailIDs[did] {
+					tollDayByDetail[did] = append(tollDayByDetail[did], time.UnixMilli(tollStart).Format("2006-01-02"))
 				}
 			}
 			if err := rows.Err(); err != nil {
@@ -1495,9 +1566,36 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 		}
 	}
 
-	driveDaySet := map[string]bool{}
-	for _, d := range driveDates {
-		driveDaySet[d] = true
+	// 扣交通补的天 = (私车日 ∪ 过路日) ∩ 出差申请单范围:
+	//   私车日按行车记录时间(条2), 过路日按发票通行日期(条3), 只扣落在出差申请单期间的(条4)。
+	driveTollDaySet := map[string]bool{}
+	for _, dt := range byID {
+		if dt.feeTypeID != driveFeeTypeID {
+			continue
+		}
+		if dt.driveRecID != "" {
+			if rec := h.LookupDriveRecord(dt.driveRecID); rec != nil && rec.StartTime > 1e12 {
+				driveTollDaySet[time.UnixMilli(rec.StartTime).Format("2006-01-02")] = true
+				continue
+			}
+		}
+		// 行车记录拉不到(缓存冷/无记录)→ 兜底用明细自填日期, 不漏扣 (安全偏严)
+		for _, d := range dt.dates {
+			driveTollDaySet[d] = true
+		}
+	}
+	for _, days := range tollDayByDetail { // 过路费: 发票通行日期
+		for _, d := range days {
+			driveTollDaySet[d] = true
+		}
+	}
+	tripSpans := h.tripDateSpans(raw)
+	deductDaySet := map[string]bool{}
+	for d := range driveTollDaySet {
+		// 有出差申请单时只扣落在出差期间的; 没关联/拉不到申请单时保守沿用旧行为(都扣, 偏严不放过)
+		if len(tripSpans) == 0 || inAnySpan(d, tripSpans) {
+			deductDaySet[d] = true
+		}
 	}
 
 	// 职级 → 线下补贴日标准
@@ -1526,22 +1624,22 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 			days := math.Ceil(dt.days)
 			// 私车公用日只剩餐补: 补贴明细自带日期时, 只数落在补贴期间内的私车日;
 			// 没填日期时退回全单私车日数 (单行程单据的旧行为) — 规则15二审修
-			driveDays := float64(len(driveDaySet))
+			deductDays := float64(len(deductDaySet))
 			if len(dt.dates) > 0 {
 				n := 0
 				for _, d := range dt.dates {
-					if driveDaySet[d] {
+					if deductDaySet[d] {
 						n++
 					}
 				}
-				driveDays = float64(n)
+				deductDays = float64(n)
 			}
-			if driveDays > days {
-				driveDays = days
+			if deductDays > days {
+				deductDays = days
 			}
-			cap := 50*days + transport*(days-driveDays) // 有私车公用的天只剩50餐补
-			msg := fmt.Sprintf("明细#%d 出差补贴 ¥%.2f > 线下标准 ¥%.2f (50餐补×%.0f天 + %.0f交通补×%.0f天, 私车公用 %.0f 天无交通补, 规则 15-3)",
-				dt.no, dt.subsidyAmt, cap, days, transport, days-driveDays, driveDays)
+			cap := 50*days + transport*(days-deductDays) // 私车/过路且在出差申请单内的天只剩50餐补(扣交通补)
+			msg := fmt.Sprintf("明细#%d 出差补贴 ¥%.2f > 线下标准 ¥%.2f (50餐补×%.0f天 + %.0f交通补×%.0f天, 私车/过路 %.0f 天无交通补, 规则 15-3)",
+				dt.no, dt.subsidyAmt, cap, days, transport, days-deductDays, deductDays)
 			if dt.subsidyAmt > cap+0.005 {
 				if posKnown {
 					rejects = append(rejects, msg)
@@ -1568,6 +1666,50 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 	}
 
 	return rejects, warnings
+}
+
+// tripDateSpans 从 expenseLinks 关联的出差申请单取出差起止日期区间 (yyyy-mm-dd, 可能多张);
+// 供规则 15-3 判断私车/过路消费日是否落在出差期间 (与规则 17 ruleSubsidyDateInTrip 同源逻辑)。
+func (h *DashboardHandler) tripDateSpans(raw map[string]interface{}) [][2]string {
+	links, _ := raw["expenseLinks"].([]interface{})
+	var spans [][2]string
+	for _, l := range links {
+		lid, _ := l.(string)
+		if lid == "" || h.DB == nil {
+			continue
+		}
+		var lraw string
+		if err := h.DB.QueryRow(`SELECT IFNULL(raw_json,'') FROM hesi_flow WHERE flow_id=? LIMIT 1`, lid).Scan(&lraw); err != nil || lraw == "" {
+			continue
+		}
+		var rm map[string]interface{}
+		if json.Unmarshal([]byte(lraw), &rm) != nil {
+			continue
+		}
+		tp, _ := rm["u_出差起止日期"].(map[string]interface{})
+		if tp == nil {
+			continue
+		}
+		s, _ := tp["start"].(float64)
+		e, _ := tp["end"].(float64)
+		if s > 1e12 && e >= s {
+			spans = append(spans, [2]string{
+				time.UnixMilli(int64(s)).Format("2006-01-02"),
+				time.UnixMilli(int64(e)).Format("2006-01-02"),
+			})
+		}
+	}
+	return spans
+}
+
+// inAnySpan 日期 d (yyyy-mm-dd 定长, 可直接字典序比较) 是否落在任一区间内。
+func inAnySpan(d string, spans [][2]string) bool {
+	for _, sp := range spans {
+		if d >= sp[0] && d <= sp[1] {
+			return true
+		}
+	}
+	return false
 }
 
 // extractFeeDates 从明细 form 提取 feeDate / feeDatePeriod 覆盖的日期 (yyyy-mm-dd)

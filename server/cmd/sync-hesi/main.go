@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -248,6 +249,28 @@ func pickFirstMoney(inv map[string]interface{}, suffix string) sql.NullFloat64 {
 	return sql.NullFloat64{}
 }
 
+// tollPassRe 匹配过路费(ETC)发票备注里的"通行日期起/止：起/止"(冒号兼容中英文)。
+// 备注样例: 车牌号：鲁V7BC76\n车辆类型：客车\n通行日期起/止：2026-05-24 11:25:11/2026-05-24 11:48:07\n入/出口站：...
+var tollPassRe = regexp.MustCompile(`通行日期起/止[:：]\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*/\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})`)
+
+// cstZone 固定北京时间 UTC+8 (中国无夏令时); 不依赖宿主 time.Local, 防上云迁 UTC 时区把通行时间解析跨天 (二审)。
+var cstZone = time.FixedZone("CST", 8*3600)
+
+// parseTollPassDates 从过路费发票备注提取"通行日期起/止"的起止毫秒戳; 非过路费/无此字段返回 0,0。
+func parseTollPassDates(remark string) (start, end int64) {
+	m := tollPassRe.FindStringSubmatch(remark)
+	if len(m) != 3 {
+		return 0, 0
+	}
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", m[1], cstZone); err == nil {
+		start = t.UnixMilli()
+	}
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", m[2], cstZone); err == nil {
+		end = t.UnixMilli()
+	}
+	return start, end
+}
+
 // 保存发票主体信息到数据库
 func saveInvoiceDetails(db *sql.DB, items []map[string]interface{}) int {
 	updated := 0
@@ -316,16 +339,21 @@ func saveInvoiceDetails(db *sql.DB, items []map[string]interface{}) int {
 		toStation := pickFirstStr(inv, "_下车车站")
 		passenger := pickFirstStr(inv, "_乘车人姓名")
 
+		// 过路费(ETC)通行日期: 从发票备注"通行日期起/止"解析, 供补贴规则按通行日判 (跑哥 2026-06-17)
+		tollStart, tollEnd := parseTollPassDates(pickFirstStr(inv, "_备注"))
+
 		result, err := db.Exec(`UPDATE hesi_flow_invoice SET
 			invoice_number=?, invoice_code=?, invoice_date=?, invoice_amount=?, total_amount=?,
 			tax_amount=?, invoice_status=?, invoice_type=?,
 			buyer_name=?, buyer_tax_no=?, seller_name=?, seller_tax_no=?, is_verified=?,
-			seat_type=?, train_no=?, carriage=?, seat_no=?, from_station=?, to_station=?, passenger=?
+			seat_type=?, train_no=?, carriage=?, seat_no=?, from_station=?, to_station=?, passenger=?,
+			toll_pass_start=COALESCE(?,toll_pass_start), toll_pass_end=COALESCE(?,toll_pass_end)
 			WHERE invoice_id=?`,
 			nullStr(invNumber), nullStr(invCode), nullInt64(invDate), invAmount, totalAmount,
 			taxAmount, nullStr(invStatus), nullStr(invType),
 			nullStr(buyerName), nullStr(buyerTaxNo), nullStr(sellerName), nullStr(sellerTaxNo), verified,
 			nullStr(seatType), nullStr(trainNo), nullStr(carriage), nullStr(seatNo), nullStr(fromStation), nullStr(toStation), nullStr(passenger),
+			nullInt64(tollStart), nullInt64(tollEnd),
 			invId)
 		if err == nil {
 			if n, _ := result.RowsAffected(); n > 0 {
@@ -1019,7 +1047,16 @@ func main() {
 	log.Printf("=== 同步发票主体信息 ===")
 	var invoiceIds []string
 	{
-		rows, _ := db.Query("SELECT DISTINCT invoice_id FROM hesi_flow_invoice WHERE invoice_id IS NOT NULL AND invoice_id != '' AND (invoice_number IS NULL OR invoice_number = '') LIMIT 10000")
+		// 拉主体: 未拉过的(invoice_number空) + 过路费发票通行日期还没解析的(toll_pass_start空, 补历史; 跑哥 2026-06-17)。
+		// 过路费回补只针对待审单(state in approving/pending): 规则只对待审单生效, 历史已审单不必补, 避免解析不出的票每次sync无限重拉 (二审)
+		rows, _ := db.Query(`SELECT DISTINCT i.invoice_id FROM hesi_flow_invoice i
+			WHERE i.invoice_id IS NOT NULL AND i.invoice_id != ''
+			AND ((i.invoice_number IS NULL OR i.invoice_number = '')
+			   OR (i.toll_pass_start IS NULL AND i.detail_id IN (
+			       SELECT d.detail_id FROM hesi_flow_detail d
+			       JOIN hesi_flow f ON d.flow_id = f.flow_id
+			       WHERE d.fee_type_id='ID01KhLSijR8FV' AND f.state IN ('approving','pending'))))
+			LIMIT 10000`)
 		if rows != nil {
 			for rows.Next() {
 				var id string
