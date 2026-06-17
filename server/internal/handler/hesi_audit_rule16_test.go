@@ -1,7 +1,7 @@
 package handler
 
-// 规则 16 企业支付行程防重复报销 (跑哥 2026-06-11)
-// 同车次+同乘车人+票面价=发票金额 → 驳回; 票价不同 → 人工核; 乘车人不同 → 不触发
+// 规则 16 企业支付行程防重复报销 (跑哥 2026-06-11; 樊雪娇 2026-06-17 收窄)
+// 同车次+同乘车人+票面价=发票金额 → 驳回; 票价不同 → 通过(不再人工核); 乘车人不同 → 不触发
 
 import (
 	"strings"
@@ -61,18 +61,33 @@ func TestRule16ExactFareMatchRejects(t *testing.T) {
 	}
 }
 
-func TestRule16FareMismatchWarns(t *testing.T) {
-	// 同车次同人但票价不同 (118 vs 85) → 转人工核, 不直接驳回
+func TestRule16FareMismatchPasses(t *testing.T) {
+	// 樊雪娇 2026-06-17: 同车次同人但票价不同 (118 vs 85) = 不是同一张票 = 不算重复 → 通过, 不转人工
 	orders := r16OrderRows().AddRow("D7788", "孙东禹", "S26001802", 88.00, `{"票面价":{"standard":"85.00"}}`)
 	inv := r16InvRows().AddRow("D-train", "D7788", "孙东禹", 118.00)
 	h, done := mkR16Handler(t, orders, inv)
 	defer done()
 	rej, warn := h.ruleCorpPaidDuplicate(r16Raw(), "F16")
-	if len(rej) != 0 {
-		t.Errorf("票价不同不应直接驳回, rej=%v", rej)
+	if len(rej) != 0 || len(warn) != 0 {
+		t.Errorf("票价不同应直接通过(不驳回不转人工), rej=%v warn=%v", rej, warn)
 	}
-	if !strings.Contains(strings.Join(warn, "; "), "人工核") {
-		t.Errorf("票价不同应转人工核, warn=%v", warn)
+}
+
+func TestRule16FareMismatchDoesNotConsumeOrder(t *testing.T) {
+	// 防回归: 票价不同的发票不能"用掉"订单, 否则后面真正同价的重复发票会漏判
+	// 1 张企业支付订单(票面119); 同车次同人发票2张: 先一张差价¥130(通过且不消耗), 再一张¥119(真重复→驳回)
+	orders := r16OrderRows().AddRow("G7581", "郑华坤", "S26001802", 122.00, `{"票面价":{"standard":"119.00"}}`)
+	inv := r16InvRows().
+		AddRow("D-train", "G7581", "郑华坤", 130.00).
+		AddRow("D-train", "G7581", "郑华坤", 119.00)
+	h, done := mkR16Handler(t, orders, inv)
+	defer done()
+	rej, warn := h.ruleCorpPaidDuplicate(r16Raw(), "F16")
+	if len(rej) != 1 {
+		t.Errorf("差价发票不应消耗订单, 真重复仍须驳回, rej=%v warn=%v", rej, warn)
+	}
+	if len(warn) != 0 {
+		t.Errorf("不应有人工核, warn=%v", warn)
 	}
 }
 

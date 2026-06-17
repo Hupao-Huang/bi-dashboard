@@ -118,7 +118,9 @@ var subsidyStandard = map[string]float64{
 
 // ====== 审批业务参数 DB 配置化 (2026-06-12 第三批) ======
 // 住宿矩阵/补贴标准是财务最常调的两组参数, 搬进 hesi_audit_param 表后改口径不用改代码:
-//   UPDATE hesi_audit_param SET param_json='{"总裁":220,...}' WHERE param_key='subsidy_standard';
+//
+//	UPDATE hesi_audit_param SET param_json='{"总裁":220,...}' WHERE param_key='subsidy_standard';
+//
 // 5 分钟内自动生效 (loader TTL); 表里没有/JSON 解析失败时回落到上面的代码默认值, 永不空转
 var (
 	hesiAuditParamOnce sync.Once
@@ -367,7 +369,7 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		warnings = append(warnings, offWarn...)
 	}
 
-	// 规则 16: 企业支付行程防重复报销 (跑哥 2026-06-11)
+	// 规则 16: 企业支付行程防重复报销 (跑哥 2026-06-11; 樊雪娇 2026-06-17 收窄: 票价不同→通过)
 	if r16Rej, r16Warn := h.ruleCorpPaidDuplicate(raw, flowID); len(r16Rej) > 0 || len(r16Warn) > 0 {
 		rejectReasons = append(rejectReasons, r16Rej...)
 		warnings = append(warnings, r16Warn...)
@@ -1722,12 +1724,12 @@ func (h *DashboardHandler) ruleAdInvoiceItemName(raw map[string]interface{}, flo
 	return checkAdInvoiceItems(invs, names), nil
 }
 
-// ruleCorpPaidDuplicate 规则 16: 企业支付行程防重复报销 (跑哥 2026-06-11)
+// ruleCorpPaidDuplicate 规则 16: 企业支付行程防重复报销 (跑哥 2026-06-11; 樊雪娇 2026-06-17 收窄)
 // 报销单关联的出差申请单下, 公司已"企业支付"买好的火车/飞机票 (合思商旅订单),
 // 若同车次+同乘车人又出现在本单报销发票里:
 //
 //	票价也一致 (订单"票面价"=发票金额) → 公司已付的票疑似二次报销, 建议驳回
-//	票价不一致 → 可能是同车次的另一张票 (改签/不同坐席/浮动票价), 转人工核
+//	票价不一致 → 不是同一张票, 不算重复报销, 直接通过 (樊雪娇 2026-06-17: 这条只防重复, 不转人工)
 //
 // 数据校准 (2026-06-11 实查): 企业支付金额 = 票面价 + ~3元服务费, 对碰必须用票面价;
 // 商旅订单没有可用出发日期列, 靠"只看本单关联申请单"收口, 不跨行程乱碰
@@ -1841,32 +1843,27 @@ func (h *DashboardHandler) ruleCorpPaidDuplicate(raw map[string]interface{}, flo
 		}
 		// OCR 的乘车人可能带空格 ("郑 华坤"), 去空格再比
 		passenger = strings.ReplaceAll(passenger, " ", "")
-		// 找还没对上号的同车次+同乘车人企业支付订单, 票价一致的优先
+		// 樊雪娇 2026-06-17: 这条只防重复报销, 只认 同车次+同乘车人+"同票价"(票面价=发票金额);
+		// 票价不同 = 不是同一张票 = 不算重复, 直接通过 (不再转人工核)。
+		// 关键: 只在"同票价"命中时才标记订单 used —— 票价不同的不消耗订单, 否则会"用掉"订单,
+		// 害得后面真正同票价的重复发票匹配不到而漏判 (削弱防重复本身)。
 		var hit *corpOrder
 		for _, o := range orders {
 			if o.used || o.tripNo != trainNo || strings.ReplaceAll(o.traveler, " ", "") != passenger {
 				continue
 			}
-			if math.Abs(o.fare-amt) <= 0.005 {
+			if math.Abs(o.fare-amt) <= 0.005 { // 只认同票价
 				hit = o
 				break
 			}
-			if hit == nil {
-				hit = o
-			}
 		}
 		if hit == nil {
-			continue
+			continue // 没有同车次+同人+同票价的企业支付票 = 不是重复报销, 通过 (票价不同走这里)
 		}
 		hit.used = true
 		no := detailNo[did]
-		if math.Abs(hit.fare-amt) <= 0.005 {
-			rejects = append(rejects, fmt.Sprintf("明细#%d 车次 %s (乘车人%s ¥%.2f) 在出差申请单 %s 里公司已企业支付同车次同票价的票, 疑似已付票二次报销 (规则 16)",
-				no, trainNo, passenger, amt, hit.reqCode))
-		} else {
-			warnings = append(warnings, fmt.Sprintf("明细#%d 车次 %s (乘车人%s) 与出差申请单 %s 的企业支付订单同车次, 但票价不同 (发票 ¥%.2f / 订单 ¥%.2f), 请人工核是否重复报销 (规则 16)",
-				no, trainNo, passenger, hit.reqCode, amt, hit.fare))
-		}
+		rejects = append(rejects, fmt.Sprintf("明细#%d 车次 %s (乘车人%s ¥%.2f) 在出差申请单 %s 里公司已企业支付同车次同票价的票, 疑似已付票二次报销 (规则 16)",
+			no, trainNo, passenger, amt, hit.reqCode))
 	}
 	if err := ivRows.Err(); err != nil {
 		ticketReadBroken = true
