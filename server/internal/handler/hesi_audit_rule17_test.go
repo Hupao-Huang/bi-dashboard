@@ -187,7 +187,7 @@ func TestRule18ReverseNoItemsSkips(t *testing.T) {
 
 func TestRule1512TravelFeeTypeExempt(t *testing.T) {
 	// 火车费用类型 + 铁路电子票(非专票) + 没传付款截图 → 不再驳回 (财务 6/12)
-	inv := emptyInvRows().AddRow("D-x", "ELECTRONIC_TRAIN_INVOICE", 88.00, 0)
+	inv := emptyInvRows().AddRow("D-x", "ELECTRONIC_TRAIN_INVOICE", 88.00, 0, 0)
 	h, done := mkOfflineHandler(t, inv, "集团经理")
 	defer done()
 	raw := rawOf(map[string]interface{}{

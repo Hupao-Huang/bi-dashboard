@@ -33,6 +33,7 @@ type Config struct {
 func main() {
 	limit := flag.Int("limit", 200, "拉取多少单 (按 submit_date desc)")
 	verbose := flag.Bool("v", false, "打印每单详情")
+	flowFilter := flag.String("flow", "", "只跑指定 flow_id (验证单单, 忽略 limit/审批人过滤)")
 	flag.Parse()
 
 	cfgBytes, err := os.ReadFile("config.json")
@@ -59,18 +60,23 @@ func main() {
 
 	// 樊雪娇 approver_id = ID01FfMgoeP7cz:ID01Fp0nSy11h5
 	// 拉她审批过的日常报销单 (archived + paid + rejected) — 她真实见过的单 + 此次实测样本
-	rows, err := db.Query(`
-		SELECT flow_id, code, IFNULL(title,''),
+	selectCols := `SELECT flow_id, code, IFNULL(title,''),
 		       IFNULL(owner_department,''), IFNULL(department_id,''),
 		       IFNULL(submitter_id,''),
 		       IFNULL(expense_money,0), IFNULL(raw_json,''),
-		       state
-		FROM hesi_flow
+		       state, IFNULL(submit_date,0)
+		FROM hesi_flow `
+	var rows *sql.Rows
+	if *flowFilter != "" {
+		rows, err = db.Query(selectCols+`WHERE flow_id = ?`, *flowFilter)
+	} else {
+		rows, err = db.Query(selectCols+`
 		WHERE specification_id LIKE 'ID01Fk3qJYYFvp%'
 		  AND current_approver_id LIKE '%ID01Fp0nSy11h5%'
 		  AND state IN ('approving','paying','archived','paid','rejected')
 		ORDER BY submit_date DESC, create_time DESC
 		LIMIT ?`, *limit)
+	}
 	if err != nil {
 		fmt.Println("查待审批失败:", err)
 		os.Exit(1)
@@ -88,11 +94,12 @@ func main() {
 	for rows.Next() {
 		var r result
 		var ownerDept, deptID, submitterID, rawJSON string
-		if err := rows.Scan(&r.FlowID, &r.Code, &r.Title, &ownerDept, &deptID, &submitterID, &r.ExpenseMoney, &rawJSON, &r.State); err != nil {
+		var firstSubmit int64
+		if err := rows.Scan(&r.FlowID, &r.Code, &r.Title, &ownerDept, &deptID, &submitterID, &r.ExpenseMoney, &rawJSON, &r.State, &firstSubmit); err != nil {
 			fmt.Println("scan 失败:", err)
 			continue
 		}
-		sug := h.AuditDailyExpense(ownerDept, deptID, submitterID, r.FlowID, r.ExpenseMoney, rawJSON)
+		sug := h.AuditDailyExpense(ownerDept, deptID, submitterID, r.FlowID, r.ExpenseMoney, rawJSON, firstSubmit)
 		r.Suggestion = sug
 		all = append(all, r)
 		counts[sug.Action]++
