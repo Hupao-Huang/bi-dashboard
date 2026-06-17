@@ -150,18 +150,31 @@ func TestRulePaymentItemRows(t *testing.T) {
 }
 
 // A3: 客户多选 (仅付款单)
+// u_客户多选 经 json.Unmarshal 后是 []interface{}, 不是 string。
+// 测试用例必须用 []interface{}{...} 构造, 模拟真实反序列化后的类型。
 func TestRulePaymentCustomer(t *testing.T) {
-	// 客户多选为空 → 转人工提醒
+	// 字段缺失 → 转人工提醒
 	if w := rulePaymentCustomer(map[string]interface{}{}); w == "" {
-		t.Error("客户多选为空应提醒")
+		t.Error("字段缺失应提醒 (A3)")
 	}
-	// 空 JSON 数组 → 提醒
-	if w := rulePaymentCustomer(map[string]interface{}{"u_客户多选": "[]"}); w == "" {
-		t.Error("u_客户多选=[] 应提醒")
+	// 空数组 ([]interface{}{}) → 提醒
+	if w := rulePaymentCustomer(map[string]interface{}{"u_客户多选": []interface{}{}}); w == "" {
+		t.Error("空数组应提醒 (A3)")
 	}
-	// 有值 → 通过
-	if w := rulePaymentCustomer(map[string]interface{}{"u_客户多选": `["ID01GU1fnDLSmb"]`}); w != "" {
-		t.Errorf("有客户ID应通过, got %q", w)
+	// 非空数组 (真实生产格式) → 通过
+	if w := rulePaymentCustomer(map[string]interface{}{"u_客户多选": []interface{}{"ID01GU1fnDLSmb"}}); w != "" {
+		t.Errorf("非空数组应通过, got %q", w)
+	}
+	// 多个元素 → 通过
+	if w := rulePaymentCustomer(map[string]interface{}{"u_客户多选": []interface{}{"ID01GU1fnDLSmb", "ID01ABC"}}); w != "" {
+		t.Errorf("多个客户ID应通过, got %q", w)
+	}
+	// 旧代码中 .(string) 断言对真实数组必失败 → 修复后不再误报
+	// (此用例等价于"字段类型正确时不触发 A3")
+	realArr := []interface{}{"ID01GU1fnDLSmb"}
+	raw := map[string]interface{}{"u_客户多选": realArr}
+	if w := rulePaymentCustomer(raw); w != "" {
+		t.Errorf("修复后真实数组格式不应误报, got %q (原 .(string) 断言必失败导致全部误报)", w)
 	}
 }
 

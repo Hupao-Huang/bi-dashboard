@@ -224,9 +224,11 @@ func rulePaymentItemRows(raw map[string]interface{}, tmpl, code string) (reject,
 // ----- A3: 客户多选 (仅付款单) -----
 
 // rulePaymentCustomer A3 客户多选: 空→转人工提醒, 不硬驳 (口径未完全定)。
+// u_客户多选 经 json.Unmarshal 后为 []interface{}, 不是 string。
+// 原 .(string) 断言必失败 → 永远当空 → 全部误报 (A3 假阳性 70/70)。
 func rulePaymentCustomer(raw map[string]interface{}) string {
-	v, _ := raw["u_客户多选"].(string) // 存的是 JSON 字符串数组
-	if strings.TrimSpace(v) == "" || v == "[]" || v == "null" {
+	arr, ok := raw["u_客户多选"].([]interface{})
+	if !ok || len(arr) == 0 {
 		return "客户多选为空, 请确认是否应选虚拟客户 (A3)"
 	}
 	return ""
