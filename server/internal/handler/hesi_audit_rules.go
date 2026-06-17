@@ -1738,20 +1738,58 @@ func checkAdInvoiceItems(invs []adInvRef, names map[string][]string) []string {
 	return rejects
 }
 
-// ruleAdInvoiceItemName 规则 18: 广告费发票的项目名称须含"广告"或"推广" (财务 2026-06-12)
-// 例: 广告费明细配"*印刷品*KT板立牌"发票 → 项目名称与费用类型不符, 建议驳回。
-// 发票货物明细行名称本地没存, 现场调合思接口 (5min 缓存); 拉取失败转人工核提示
+// checkNonAdInvoiceItems 规则 18 反向 (樊雪娇 2026-06-17, 跑哥严格口径):
+// 非广告费明细的发票货物行名称含"广告/推广" → 费用类型与发票不符, 应报广告费, 建议驳回。
+// 跑哥拍板严格: 业务宣传费等同家族类型也驳 (广告/推广发票只能报广告费)。
+func checkNonAdInvoiceItems(invs []adInvRef, names map[string][]string) []string {
+	var rejects []string
+	for _, iv := range invs {
+		items := names[iv.invoiceID]
+		if len(items) == 0 {
+			continue
+		}
+		hitName := ""
+		for _, n := range items {
+			if strings.Contains(n, "广告") || strings.Contains(n, "推广") {
+				hitName = n
+				break
+			}
+		}
+		if hitName == "" {
+			continue
+		}
+		show := hitName
+		if r := []rune(show); len(r) > 40 {
+			show = string(r[:40]) + "…"
+		}
+		tail := iv.number
+		if len(tail) > 8 {
+			tail = tail[len(tail)-8:]
+		}
+		rejects = append(rejects, fmt.Sprintf("明细#%d 非广告费发票(尾号%s)项目名称含'广告/推广'(「%s」), 费用类型应为广告费 (规则 18 反向)", iv.no, tail, show))
+	}
+	return rejects
+}
+
+// ruleAdInvoiceItemName 规则 18: 广告费 ⟺ 发票项目名含"广告/推广" 双向校验 (财务 2026-06-12; 樊雪娇 2026-06-17 加反向)
+// 正向: 广告费明细配"*印刷品*KT板立牌"发票 → 项目名与费用类型不符, 建议驳回。
+// 反向(跑哥严格口径): 非广告费明细的发票项目名含"广告/推广" → 应报广告费, 建议驳回(业务宣传费也驳)。
+// 发票货物明细行名称本地没存, 现场调合思接口 (5min 缓存); 拉取失败时正向转人工核, 反向不冤枉(跳过)
 func (h *DashboardHandler) ruleAdInvoiceItemName(raw map[string]interface{}, flowID string) ([]string, []string) {
 	details, _ := raw["details"].([]interface{})
-	adDetails := map[string]int{} // detailId → detailNo
+	// detailId → (明细号, 是否广告费); 广告费走正向, 其余走反向
+	type adMeta struct {
+		no   int
+		isAd bool
+	}
+	detailMap := map[string]adMeta{}
 	for _, d := range details {
 		dm, _ := d.(map[string]interface{})
 		if dm == nil {
 			continue
 		}
-		if ft, _ := dm["feeTypeId"].(string); !adFeeTypes[ft] {
-			continue
-		}
+		ft, _ := dm["feeTypeId"].(string)
+		isAd := adFeeTypes[ft]
 		form, _ := dm["feeTypeForm"].(map[string]interface{})
 		if form == nil {
 			continue
@@ -1762,10 +1800,10 @@ func (h *DashboardHandler) ruleAdInvoiceItemName(raw map[string]interface{}, flo
 			no = int(n)
 		}
 		if did != "" {
-			adDetails[did] = no
+			detailMap[did] = adMeta{no, isAd}
 		}
 	}
-	if len(adDetails) == 0 || flowID == "" {
+	if len(detailMap) == 0 || flowID == "" {
 		return nil, nil
 	}
 
@@ -1776,30 +1814,45 @@ func (h *DashboardHandler) ruleAdInvoiceItemName(raw map[string]interface{}, flo
 		return nil, nil
 	}
 	defer rows.Close()
-	var invs []adInvRef
+	var adInvs, nonAdInvs []adInvRef // 广告费明细发票(正向) / 非广告费明细发票(反向)
 	for rows.Next() {
 		var did, iid, num string
 		if rows.Scan(&did, &iid, &num) != nil {
 			continue
 		}
-		if no, ok := adDetails[did]; ok && iid != "" {
-			invs = append(invs, adInvRef{no, iid, num})
+		meta, ok := detailMap[did]
+		if !ok || iid == "" {
+			continue
+		}
+		if meta.isAd {
+			adInvs = append(adInvs, adInvRef{meta.no, iid, num})
+		} else {
+			nonAdInvs = append(nonAdInvs, adInvRef{meta.no, iid, num})
 		}
 	}
-	if len(invs) == 0 {
+	if len(adInvs) == 0 && len(nonAdInvs) == 0 {
 		return nil, nil
 	}
 
-	ids := make([]string, 0, len(invs))
-	for _, iv := range invs {
+	ids := make([]string, 0, len(adInvs)+len(nonAdInvs))
+	for _, iv := range adInvs {
+		ids = append(ids, iv.invoiceID)
+	}
+	for _, iv := range nonAdInvs {
 		ids = append(ids, iv.invoiceID)
 	}
 	names, err := h.fetchInvoiceItemNames(ids)
 	if err != nil {
 		log.Printf("[hesi-audit] 规则18 拉发票明细失败 flow=%s: %v", flowID, err)
-		return nil, []string{"广告费发票项目名称暂时拉不到, 请人工核是否含'广告/推广' (规则 18)"}
+		// 拉不到: 有广告费发票才提示正向人工核; 反向(非广告费)拉不到不冤枉(跳过)
+		if len(adInvs) > 0 {
+			return nil, []string{"广告费发票项目名称暂时拉不到, 请人工核是否含'广告/推广' (规则 18)"}
+		}
+		return nil, nil
 	}
-	return checkAdInvoiceItems(invs, names), nil
+	rejects := checkAdInvoiceItems(adInvs, names)                          // 正向: 广告费发票须含广告/推广
+	rejects = append(rejects, checkNonAdInvoiceItems(nonAdInvs, names)...) // 反向: 非广告费发票不得含广告/推广
+	return rejects, nil
 }
 
 // ruleCorpPaidDuplicate 规则 16: 企业支付行程防重复报销 (跑哥 2026-06-11; 樊雪娇 2026-06-17 收窄)

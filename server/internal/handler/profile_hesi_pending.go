@@ -7,6 +7,7 @@ package handler
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -151,6 +152,16 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 			JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.preNodeApprovedTime')) AS pre_approved_time,
 			specification_id, IFNULL(raw_json,'')`
 
+	// 整页预热(规则18): 一次性批量拉本页待审"日常报销单"的发票货物行名称灌缓存, 让随后逐单审批的
+	// 规则18(广告费正反向校验)直接命中缓存, 把 per-单串行打合思收成一次批量(待审列表保持秒开)。
+	if isFanXuejiao {
+		if queryStaffID != "" {
+			h.prewarmHesiInvoiceItems(true, queryStaffID, dailyExpenseSpecPrefix)
+		} else {
+			h.prewarmHesiInvoiceItems(false, queryName, dailyExpenseSpecPrefix)
+		}
+	}
+
 	var (
 		rows *sql.Rows
 		err  error
@@ -289,6 +300,41 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		"items":     items,
 		"count":     len(items),
 	})
+}
+
+// prewarmHesiInvoiceItems 整页预热(规则18): 一次性批量拉本页待审"日常报销单"的发票货物行名称灌缓存,
+// 让随后逐单审批的规则18(广告费正反向)直接命中缓存, 把 per-单串行打合思收成一次批量。
+// byStaffID=true 用 current_approver_id 精确匹配, 否则 current_approver_name 兜底 —— WHERE 与主查询的
+// 樊雪娇待审条件保持一致, 改主查询时这里也要同步。预热失败不影响正确性(逐单审批会自行重拉)。
+func (h *DashboardHandler) prewarmHesiInvoiceItems(byStaffID bool, approverLike, specPrefix string) {
+	col := "current_approver_name"
+	if byStaffID {
+		col = "current_approver_id"
+	}
+	rows, err := h.DB.Query(`SELECT DISTINCT IFNULL(i.invoice_id,'') FROM hesi_flow_invoice i
+		WHERE IFNULL(i.invoice_id,'')<>'' AND i.flow_id IN (
+			SELECT flow_id FROM hesi_flow
+			WHERE active=1 AND state IN ('approving','pending')
+			  AND `+col+` LIKE ? AND IFNULL(specification_id,'') LIKE ?
+			LIMIT 500)`, "%"+approverLike+"%", specPrefix+"%")
+	if err != nil {
+		log.Printf("[hesi-audit] 规则18 预热查发票失败(逐单会自行重拉): %v", err)
+		return
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil && id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	if _, err := h.fetchInvoiceItemNames(ids); err != nil {
+		log.Printf("[hesi-audit] 规则18 预热拉项目名失败(逐单会自行重拉): %v", err)
+	}
 }
 
 // authorizeFlowAccess 鉴权: 单据当前审批人本人 / 提交人 / 管理员可看
