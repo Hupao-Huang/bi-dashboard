@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 const (
@@ -77,6 +79,36 @@ func (h *DashboardHandler) AuditPayment(flowID, specID, rawJSON string, firstSub
 		if w := rulePaymentAmountCap(raw, h.sumInvoiceTotal(flowID)); w != "" {
 			warnings = append(warnings, w)
 		}
+	}
+
+	// A8: 明细行数/无票 — 付款单无明细→转人工; 预付款单可无明细→放行
+	if rej, w := rulePaymentItemRows(raw, tmpl, codeOf(raw)); rej != "" || w != "" {
+		if rej != "" {
+			rejectReasons = append(rejectReasons, rej)
+		}
+		if w != "" {
+			warnings = append(warnings, w)
+		}
+	}
+
+	// A3: 客户多选 — 仅付款单 (预付款单无此字段)
+	if tmpl == "payment" {
+		if w := rulePaymentCustomer(raw); w != "" {
+			warnings = append(warnings, w)
+		}
+	}
+
+	// B1/B2: 收款方=开票方 + 购买方=所属公司 — 仅付款单 (预付款单无发票)
+	if tmpl == "payment" {
+		if rej, w := h.rulePaymentInvoiceParties(flowID, raw); len(rej) > 0 || len(w) > 0 {
+			rejectReasons = append(rejectReasons, rej...)
+			warnings = append(warnings, w...)
+		}
+	}
+
+	// B4: 防重复付款 — 付款单+预付款单都做
+	if w := h.rulePaymentDuplicate(flowID, raw); w != "" {
+		warnings = append(warnings, w)
 	}
 
 	if len(rejectReasons) > 0 {
@@ -156,6 +188,155 @@ func rulePaymentAmountCap(raw map[string]interface{}, invoiceTotal float64) stri
 	return ""
 }
 
+// ----- A8: 明细行数/无票 -----
+
+// rulePaymentItemRows A8 明细行数: 预付款单(J)可无明细; 付款单(B)无明细→转人工。
+// 返回 (reject, warn): reject=确定违规; warn=转人工提醒。
+func rulePaymentItemRows(raw map[string]interface{}, tmpl, code string) (reject, warn string) {
+	details, _ := raw["details"].([]interface{})
+	if len(details) == 0 {
+		if tmpl == "prepay" {
+			return "", "" // 先款后票, 可无明细
+		}
+		return "", fmt.Sprintf("付款单 %s 无费用明细, 请人工确认 (A8)", code)
+	}
+	return "", ""
+}
+
+// ----- A3: 客户多选 (仅付款单) -----
+
+// rulePaymentCustomer A3 客户多选: 空→转人工提醒, 不硬驳 (口径未完全定)。
+func rulePaymentCustomer(raw map[string]interface{}) string {
+	v, _ := raw["u_客户多选"].(string) // 存的是 JSON 字符串数组
+	if strings.TrimSpace(v) == "" || v == "[]" || v == "null" {
+		return "客户多选为空, 请确认是否应选虚拟客户 (A3)"
+	}
+	return ""
+}
+
+// ----- B1/B2: 收款方=开票方 + 购买方=所属公司 (仅付款单) -----
+
+// payeeSellerMismatch B1 收款方=开票方: 收款方与任一发票开票方不一致→转人工。
+// 缺数据时返回 "" (由 rulePaymentInvoiceParties 统一兜底)。
+func payeeSellerMismatch(payee string, sellers []string) string {
+	if payee == "" || len(sellers) == 0 {
+		return ""
+	}
+	for _, s := range sellers {
+		if s != "" && s == payee {
+			return ""
+		}
+	}
+	return "收款方与发票开票方不一致, 请人工核对 (B1)"
+}
+
+// buyerCompanyMismatch B2 购买方=所属公司: 全部发票购买方均须一致→否则驳回。
+// 缺数据时返回 "" (由 rulePaymentInvoiceParties 统一兜底)。
+func buyerCompanyMismatch(buyers []string, ownerCompany string) string {
+	if ownerCompany == "" || len(buyers) == 0 {
+		return ""
+	}
+	for _, b := range buyers {
+		if b != "" && b != ownerCompany {
+			return "发票购买方与所属公司不一致 (B2)"
+		}
+	}
+	return ""
+}
+
+// invoiceParties 从 hesi_flow_invoice 查 flowID 对应的购买方/开票方列表 (5s 超时)。
+// 查询失败/无数据/DB 为 nil 均返回 nil, nil (由调用方转人工兜底)。
+func (h *DashboardHandler) invoiceParties(flowID string) (buyers, sellers []string) {
+	if h.DB == nil {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := h.DB.QueryContext(ctx,
+		`SELECT IFNULL(buyer_name,''), IFNULL(seller_name,'') FROM hesi_flow_invoice WHERE flow_id=?`, flowID)
+	if err != nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b, s string
+		if rows.Scan(&b, &s) == nil {
+			if b != "" {
+				buyers = append(buyers, b)
+			}
+			if s != "" {
+				sellers = append(sellers, s)
+			}
+		}
+	}
+	_ = rows.Err()
+	return buyers, sellers
+}
+
+// rulePaymentInvoiceParties B1+B2 发票方核验: 收款方=开票方 (转人工); 购买方=所属公司 (驳回)。
+// 仅付款单调用; 预付款单无发票跳过。
+func (h *DashboardHandler) rulePaymentInvoiceParties(flowID string, raw map[string]interface{}) (reject, warn []string) {
+	buyers, sellers := h.invoiceParties(flowID)
+	if len(buyers) == 0 && len(sellers) == 0 {
+		warn = append(warn, "未识别到发票购买方/开票方, 请人工核对 (B1/B2)")
+		return reject, warn
+	}
+	owner := h.LookupLegalEntityName(strOfPayment(raw["法人实体"]))
+	if r := buyerCompanyMismatch(buyers, owner); r != "" {
+		reject = append(reject, r)
+	}
+	if w := payeeSellerMismatch(h.payeeName(strOfPayment(raw["payeeId"])), sellers); w != "" {
+		warn = append(warn, w)
+	}
+	return reject, warn
+}
+
+// ----- B4: 防重复付款 (付款单+预付款单) -----
+
+// dupWarnText B4 重复付款提示文案 (纯逻辑, 便于单测)。
+func dupWarnText(dupeCodes []string) string {
+	if len(dupeCodes) == 0 {
+		return ""
+	}
+	return "疑似重复付款 (同收款方+同金额), 历史单号: " + strings.Join(dupeCodes, ", ") + " (B4)"
+}
+
+// rulePaymentDuplicate B4 防重复付款: 同收款方+金额完全一致的历史单→转人工+提示原单号。
+// 付款单+预付款单都做; 查询失败/DB 为 nil 时静默 (安全底线: 不误驳)。
+func (h *DashboardHandler) rulePaymentDuplicate(flowID string, raw map[string]interface{}) string {
+	if h.DB == nil {
+		return ""
+	}
+	payeeID, _ := raw["payeeId"].(string)
+	amount := toFloatPayment(raw["payMoney"])
+	if payeeID == "" || amount <= 0 {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := h.DB.QueryContext(ctx,
+		`SELECT code FROM hesi_flow
+		 WHERE flow_id<>? AND active=1
+		   AND JSON_UNQUOTE(JSON_EXTRACT(raw_json,'$.payeeId'))=?
+		   AND ABS(IFNULL(pay_money,0)-?)<0.01
+		   AND (specification_id LIKE 'ID01KgaO6dcZtR%' OR specification_id LIKE 'ID01FhdI9II9A3%')
+		 LIMIT 5`,
+		flowID, payeeID, amount)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	var codes []string
+	for rows.Next() {
+		var c string
+		if rows.Scan(&c) == nil {
+			codes = append(codes, c)
+		}
+	}
+	_ = rows.Err()
+	return dupWarnText(codes)
+}
+
 // ----- 内部 helpers -----
 
 // toFloatPayment 安全转 float64 (JSON number 解析为 float64)
@@ -167,5 +348,11 @@ func toFloatPayment(v interface{}) float64 {
 // strOfPayment 安全转 string
 func strOfPayment(v interface{}) string {
 	s, _ := v.(string)
+	return s
+}
+
+// codeOf 从 raw 取单据编号 (code 字段), 用于错误提示。
+func codeOf(raw map[string]interface{}) string {
+	s, _ := raw["code"].(string)
 	return s
 }

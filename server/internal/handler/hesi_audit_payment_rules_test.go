@@ -1,6 +1,9 @@
 package handler
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAuditPayment_EmptyRulesAgree(t *testing.T) {
 	// 骨架测试: 非付款单模板 → agree (不评估)
@@ -120,5 +123,99 @@ func TestAuditPayment_A1PrepayReject(t *testing.T) {
 	got := h.AuditPayment("F3", "ID01FhdI9II9A3:xyz", `{"loanMoney":200}`, 0)
 	if got == nil || got.Action != "reject" {
 		t.Fatalf("预付款单 A1 应触发 reject, got %+v", got)
+	}
+}
+
+// A8: 明细行数/无票
+func TestRulePaymentItemRows(t *testing.T) {
+	// 预付款单 (prepay): 可无明细 → 通过
+	if rej, _ := rulePaymentItemRows(map[string]interface{}{}, "prepay", "J26000001"); rej != "" {
+		t.Errorf("预付款单可无明细, got rej=%q", rej)
+	}
+	// 付款单无明细 → 转人工 (warn 非空, reject 为空)
+	rej, warn := rulePaymentItemRows(map[string]interface{}{}, "payment", "B26000001")
+	if rej != "" {
+		t.Errorf("付款单无明细应是 warn 不是 reject, got rej=%q", rej)
+	}
+	if warn == "" {
+		t.Error("付款单无明细应转人工 (warn 非空)")
+	}
+	// 付款单有明细 → 通过
+	raw := map[string]interface{}{
+		"details": []interface{}{map[string]interface{}{"feeTypeId": "X"}},
+	}
+	if rej2, warn2 := rulePaymentItemRows(raw, "payment", "B26000002"); rej2 != "" || warn2 != "" {
+		t.Errorf("有明细应通过, got rej=%q warn=%q", rej2, warn2)
+	}
+}
+
+// A3: 客户多选 (仅付款单)
+func TestRulePaymentCustomer(t *testing.T) {
+	// 客户多选为空 → 转人工提醒
+	if w := rulePaymentCustomer(map[string]interface{}{}); w == "" {
+		t.Error("客户多选为空应提醒")
+	}
+	// 空 JSON 数组 → 提醒
+	if w := rulePaymentCustomer(map[string]interface{}{"u_客户多选": "[]"}); w == "" {
+		t.Error("u_客户多选=[] 应提醒")
+	}
+	// 有值 → 通过
+	if w := rulePaymentCustomer(map[string]interface{}{"u_客户多选": `["ID01GU1fnDLSmb"]`}); w != "" {
+		t.Errorf("有客户ID应通过, got %q", w)
+	}
+}
+
+// B1+B2: 发票方核验 (纯逻辑)
+func TestInvoicePartyMatch(t *testing.T) {
+	sellers := []string{"唐山市艺诚广告有限公司"}
+	// 收款方匹配任一开票方 → 通过
+	if w := payeeSellerMismatch("唐山市艺诚广告有限公司", sellers); w != "" {
+		t.Errorf("收款方=开票方应通过, got %q", w)
+	}
+	// 不匹配 → 转人工
+	if w := payeeSellerMismatch("别的公司", sellers); w == "" {
+		t.Error("收款方≠开票方应转人工 (B1)")
+	}
+	// 缺数据 → 不误判
+	if w := payeeSellerMismatch("", sellers); w != "" {
+		t.Errorf("收款方为空不误判, got %q", w)
+	}
+	if w := payeeSellerMismatch("公司X", nil); w != "" {
+		t.Errorf("卖家列表空不误判, got %q", w)
+	}
+
+	// 购买方 != 所属公司 → 驳回
+	if r := buyerCompanyMismatch([]string{"公司X"}, "公司Y"); r == "" {
+		t.Error("购买方≠所属公司应驳回 (B2)")
+	}
+	// 购买方 = 所属公司 → 通过
+	if r := buyerCompanyMismatch([]string{"公司X"}, "公司X"); r != "" {
+		t.Errorf("购买方=所属公司应通过, got %q", r)
+	}
+	// 缺数据 → 不误判
+	if r := buyerCompanyMismatch(nil, "公司X"); r != "" {
+		t.Errorf("买家列表空不误判, got %q", r)
+	}
+	if r := buyerCompanyMismatch([]string{"公司X"}, ""); r != "" {
+		t.Errorf("所属公司空不误判, got %q", r)
+	}
+}
+
+// B4: 防重复付款 (纯逻辑)
+func TestDuplicatePayment(t *testing.T) {
+	// 找到历史单号 → 提示文案含原单号
+	if w := dupWarnText([]string{"B26001234"}); w == "" || !strings.Contains(w, "B26001234") {
+		t.Errorf("应提示原单号, got %q", w)
+	}
+	// 多个单号 → 都出现
+	if w := dupWarnText([]string{"B26001111", "B26002222"}); !strings.Contains(w, "B26001111") || !strings.Contains(w, "B26002222") {
+		t.Errorf("多个单号应全部出现, got %q", w)
+	}
+	// 无重复 → 空
+	if w := dupWarnText(nil); w != "" {
+		t.Errorf("无重复应空, got %q", w)
+	}
+	if w := dupWarnText([]string{}); w != "" {
+		t.Errorf("空切片应空, got %q", w)
 	}
 }
