@@ -789,6 +789,24 @@ func (h *DashboardHandler) sumInvoiceTotal(flowID string) float64 {
 	return sum.Float64
 }
 
+// hasPaymentProofAttachment 单据附件里是否有"付款截图"类凭证 (非发票附件 + 文件名带付款/支付/转账/汇款/回单/流水/截图)。
+// 樊雪娇 2026-06-18: 付款截图既可填在费用明细的"付款截图"字段, 也可作为单据附件上传, 两处认一处即可。
+// 返回 err≠nil 时调用方应转人工(不自动驳), 与本模块其它 read-broken 降级一致。
+func (h *DashboardHandler) hasPaymentProofAttachment(flowID string) (bool, error) {
+	if h.DB == nil || flowID == "" {
+		return false, nil
+	}
+	var n int
+	if err := h.DB.QueryRow(`SELECT COUNT(*) FROM hesi_flow_attachment
+		WHERE flow_id=? AND is_invoice=0 AND (
+			file_name LIKE '%付款%' OR file_name LIKE '%支付%' OR file_name LIKE '%转账%'
+			OR file_name LIKE '%汇款%' OR file_name LIKE '%回单%' OR file_name LIKE '%流水%'
+			OR file_name LIKE '%截图%')`, flowID).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // 样品 fee_type 集合 (规则 10 豁免 1: 研发部门 + 样品 = 无票豁免)
 var sampleFeeTypes = map[string]string{
 	"ID01Fk0FsIqhDV": "赠品及样品",
@@ -1266,13 +1284,23 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 		}
 		detailInvoiceSum[iv.detailID] += amt
 	}
+	var undetAmt []int // 有票但价税合计/核定额都识别不出(定额发票等) → 报销≤票面无法自动核, 转人工 (樊雪娇 2026-06-18)
 	for did, detailAmt := range detailAmtMap {
 		sumInv := detailInvoiceSum[did]
-		// float64 精度容差 0.01 (一分钱), 业务一分钱差异不计较
-		if sumInv > 0 && sumInv+0.01 < detailAmt {
-			no := detailNoMap[did]
-			rejects = append(rejects, fmt.Sprintf("明细#%d 报销 ¥%.2f > 发票合计 ¥%.2f (规则 8-3)", no, detailAmt, sumInv))
+		switch {
+		case sumInv > 0:
+			// float64 精度容差 0.01 (一分钱), 业务一分钱差异不计较
+			if sumInv+0.01 < detailAmt {
+				no := detailNoMap[did]
+				rejects = append(rejects, fmt.Sprintf("明细#%d 报销 ¥%.2f > 发票合计 ¥%.2f (规则 8-3)", no, detailAmt, sumInv))
+			}
+		case detailHasInvoice[did] && detailAmt > 0:
+			// 有发票但金额=0(系统识别不出, 如定额发票): 报销≤票面没法自动核对 → 人工 (樊雪娇 2026-06-18)
+			undetAmt = append(undetAmt, detailNoMap[did])
 		}
+	}
+	if len(undetAmt) > 0 {
+		warnings = append(warnings, fmt.Sprintf("明细 %v 发票金额无法识别(如定额发票), 报销额无法自动核对票面, 需人工核 (规则 8-3)", uniqueInts(undetAmt)))
 	}
 
 	// 规则 8-4: 开票时间 (距单据提交) ≤1月 OK / 1-3月 manual / >3月 reject
@@ -1591,12 +1619,23 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 		transport = 70.0 // 集团经理及以上(大区经理归此档) 50餐+70交通
 	}
 	posKnown := position != ""
+	// 付款截图(15-1.2)在费用明细"付款截图"字段或单据附件二选一即可 (樊雪娇 2026-06-18)。
+	// 懒查: 仅当某明细确实要因缺付款截图被驳时才查一次附件 (绝大多数单不触发, 省掉附件查询)。
+	docPayShotChecked, docPayShot := false, false
+	var docPayShotErr error
 
 	for did, dt := range byID {
 		// 15-1.2 非专票必须传付款截图 — 交通及差旅费类型豁免 (财务 6/12: 铁路票/行程单
 		// 本来就是差旅票, 只有差旅之外的费用类型才要求付款截图)
 		if hasNonSpecial[did] && !dt.hasPayShot && travelExpenseFeeTypes[dt.feeTypeID] == "" {
-			rejects = append(rejects, fmt.Sprintf("明细#%d 含非专用发票(普票等), 须在'付款截图'上传付款凭证等附件 (线下规则 15-1.2)", dt.no))
+			if !docPayShotChecked {
+				docPayShot, docPayShotErr = h.hasPaymentProofAttachment(flowID)
+				docPayShotChecked = true
+			}
+			// 附件读取失败 → 不自动驳, 循环后统一转人工 (与本函数其它 read-broken 一致)
+			if docPayShotErr == nil && !docPayShot {
+				rejects = append(rejects, fmt.Sprintf("明细#%d 含非专用发票(普票等), 须在费用明细'付款截图'字段或单据附件上传付款凭证 (线下规则 15-1.2)", dt.no))
+			}
 		}
 		// 15-2 付款金额 = 发票合计 (一分不差, 豁免: 补贴/样品/业务宣传/私车公用)
 		if !offlineAmountExempt[dt.feeTypeID] && invSum[did] > 0 && math.Abs(invSum[did]-dt.amount) > 0.005 {
@@ -1631,6 +1670,12 @@ func (h *DashboardHandler) ruleOfflineExtras(raw map[string]interface{}, flowID,
 				}
 			}
 		}
+	}
+
+	// 付款截图附件查询失败 → 不自动驳 15-1.2, 转人工 (一单一次, 与发票 read-broken 降级一致, 樊雪娇 2026-06-18)
+	if docPayShotErr != nil {
+		log.Printf("[hesi-audit] 规则15-1.2 查付款截图附件失败 flow=%s: %v", flowID, docPayShotErr)
+		warnings = append(warnings, "付款截图附件读取失败, 规则 15-1.2 未自动判定, 需人工核")
 	}
 
 	// 15-4 私车公用(整单聚合, 6/12 修): 樊雪娇原话"提供超过**总**私车公用报销金额的油费

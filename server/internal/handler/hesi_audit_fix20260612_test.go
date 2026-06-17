@@ -154,6 +154,61 @@ func TestRule8InvoiceReadBrokenManual(t *testing.T) {
 	}
 }
 
+func TestRule83UndeterminableInvoiceAmountManual(t *testing.T) {
+	// 樊雪娇 2026-06-18: 有发票但总额/核定额都识别不出(0, 如定额发票) → 报销≤票面没法自动核 → 转人工(warn, 不驳)
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	// D1 有一张发票, total=0 approve=0 (金额识别不出)
+	mock.ExpectQuery(invSelectPattern).WillReturnRows(
+		sqlmock.NewRows(invCols()).AddRow("D1", 1, "", "", int64(0), 0.0, 0.0))
+	h := &DashboardHandler{DB: db}
+	raw := map[string]interface{}{"details": []interface{}{
+		map[string]interface{}{
+			"feeTypeId": "ID01OTHER",
+			"feeTypeForm": map[string]interface{}{
+				"detailId": "D1", "detailNo": float64(1),
+				"amount": map[string]interface{}{"standard": "50.00"},
+			},
+		},
+	}}
+	rej, warn := h.ruleInvoiceChecks(raw, "", "F1")
+	if len(rej) != 0 {
+		t.Errorf("定额发票金额识别不出不应直接驳回, got %v", rej)
+	}
+	got := strings.Join(warn, "; ")
+	if !strings.Contains(got, "无法识别") || !strings.Contains(got, "规则 8-3") {
+		t.Errorf("定额发票金额识别不出应转人工核(规则8-3), got %v", warn)
+	}
+}
+
+func TestRule83DeterminableAmountStillChecks(t *testing.T) {
+	// 回归: 金额能识别时 8-3 照常卡 (报销 60 > 发票 50 → 驳)
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(invSelectPattern).WillReturnRows(
+		sqlmock.NewRows(invCols()).AddRow("D1", 1, "", "", int64(0), 50.0, 0.0))
+	h := &DashboardHandler{DB: db}
+	raw := map[string]interface{}{"details": []interface{}{
+		map[string]interface{}{
+			"feeTypeId": "ID01OTHER",
+			"feeTypeForm": map[string]interface{}{
+				"detailId": "D1", "detailNo": float64(1),
+				"amount": map[string]interface{}{"standard": "60.00"},
+			},
+		},
+	}}
+	rej, _ := h.ruleInvoiceChecks(raw, "", "F1")
+	if !strings.Contains(strings.Join(rej, "; "), "规则 8-3") {
+		t.Errorf("报销超发票合计应驳 8-3, got %v", rej)
+	}
+}
+
 func TestRule15InvoiceReadBrokenManual(t *testing.T) {
 	// 规则 15: invSum 不完整会把合法单误驳 (油费合计偏低), 修后整体转人工
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

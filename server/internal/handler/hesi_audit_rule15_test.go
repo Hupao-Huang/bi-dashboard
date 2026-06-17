@@ -4,6 +4,7 @@ package handler
 // 重点盖二审修的三处: 私车日与补贴期间求交集 / feeDatePeriod 脏数据封顶 / 旧行为回退
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -28,6 +29,22 @@ func mkOfflineHandler(t *testing.T, invRows *sqlmock.Rows, position string) (*Da
 	mock.ExpectQuery(`SELECT IFNULL\(detail_id,''\), IFNULL\(invoice_type,''\)`).WillReturnRows(invRows)
 	mock.ExpectQuery(`SELECT IFNULL\(position,''\) FROM hesi_employee_contract_company`).
 		WillReturnRows(sqlmock.NewRows([]string{"position"}).AddRow(position))
+	return &DashboardHandler{DB: db}, func() { db.Close() }
+}
+
+// mkOfflineHandlerPayShot 同 mkOfflineHandler, 额外挂 15-1.2 懒查的附件付款截图计数
+// (樊雪娇 2026-06-18: 付款截图可在费用明细字段或单据附件, 按文件名认)。payShotCount>0 = 附件里有付款截图。
+func mkOfflineHandlerPayShot(t *testing.T, invRows *sqlmock.Rows, position string, payShotCount int) (*DashboardHandler, func()) {
+	t.Helper()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	mock.ExpectQuery(`SELECT IFNULL\(detail_id,''\), IFNULL\(invoice_type,''\)`).WillReturnRows(invRows)
+	mock.ExpectQuery(`SELECT IFNULL\(position,''\) FROM hesi_employee_contract_company`).
+		WillReturnRows(sqlmock.NewRows([]string{"position"}).AddRow(position))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM hesi_flow_attachment`).
+		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(payShotCount))
 	return &DashboardHandler{DB: db}, func() { db.Close() }
 }
 
@@ -171,9 +188,9 @@ func TestRule152AmountMustMatchInvoice(t *testing.T) {
 }
 
 func TestRule1512NonSpecialInvoiceNeedsPayShot(t *testing.T) {
-	// 非专票 + 没传付款截图 → 15-1.2 驳回; 金额一致避开 15-2
+	// 非专票 + 明细没传付款截图 + 附件里也没有 → 15-1.2 驳回; 金额一致避开 15-2
 	inv := emptyInvRows().AddRow("D-x", "DIGITAL_NORMAL", 88.00, 0, 0)
-	h, done := mkOfflineHandler(t, inv, "集团经理")
+	h, done := mkOfflineHandlerPayShot(t, inv, "集团经理", 0) // 附件 0 张付款截图
 	defer done()
 	raw := rawOf(map[string]interface{}{
 		"feeTypeId": "ID01OTHER",
@@ -185,10 +202,28 @@ func TestRule1512NonSpecialInvoiceNeedsPayShot(t *testing.T) {
 	rej, _ := h.ruleOfflineExtras(raw, "F15", "S1")
 	got := strings.Join(rej, "; ")
 	if !strings.Contains(got, "规则 15-1.2") {
-		t.Errorf("非专票无付款截图应驳回 15-1.2, got %q", got)
+		t.Errorf("非专票无付款截图(明细+附件都没有)应驳回 15-1.2, got %q", got)
 	}
 	if strings.Contains(got, "规则 15-2") {
 		t.Errorf("金额一致不应触发 15-2, got %q", got)
+	}
+}
+
+func TestRule1512PayShotInAttachmentOK(t *testing.T) {
+	// 樊雪娇 2026-06-18: 非专票 + 明细没填付款截图, 但单据附件有付款截图(文件名认出) → 不驳 15-1.2
+	inv := emptyInvRows().AddRow("D-x", "DIGITAL_NORMAL", 88.00, 0, 0)
+	h, done := mkOfflineHandlerPayShot(t, inv, "集团经理", 1) // 附件 1 张付款截图
+	defer done()
+	raw := rawOf(map[string]interface{}{
+		"feeTypeId": "ID01OTHER",
+		"feeTypeForm": map[string]interface{}{
+			"detailId": "D-x", "detailNo": float64(1),
+			"amount": map[string]interface{}{"standard": "88.00"},
+		},
+	})
+	rej, _ := h.ruleOfflineExtras(raw, "F15", "S1")
+	if strings.Contains(strings.Join(rej, "; "), "规则 15-1.2") {
+		t.Errorf("附件里有付款截图不应驳 15-1.2, got %v", rej)
 	}
 }
 
@@ -255,5 +290,60 @@ func TestRule154DriveFuelInvoiceMustCover(t *testing.T) {
 		if strings.Contains(r, "规则 15-4") {
 			t.Errorf("油费发票足额不应驳回 15-4, got %v", rej2)
 		}
+	}
+}
+
+func TestRule1512PayShotAttachmentErrorManual(t *testing.T) {
+	// 樊雪娇 2026-06-18: 付款截图附件查询失败 → 不自动驳 15-1.2, 转人工 (与发票 read-broken 降级一致)
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	inv := emptyInvRows().AddRow("D-x", "DIGITAL_NORMAL", 88.00, 0, 0)
+	mock.ExpectQuery(`SELECT IFNULL\(detail_id,''\), IFNULL\(invoice_type,''\)`).WillReturnRows(inv)
+	mock.ExpectQuery(`SELECT IFNULL\(position,''\) FROM hesi_employee_contract_company`).
+		WillReturnRows(sqlmock.NewRows([]string{"position"}).AddRow("集团经理"))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM hesi_flow_attachment`).WillReturnError(errors.New("db down"))
+	h := &DashboardHandler{DB: db}
+	raw := rawOf(map[string]interface{}{
+		"feeTypeId": "ID01OTHER",
+		"feeTypeForm": map[string]interface{}{
+			"detailId": "D-x", "detailNo": float64(1),
+			"amount": map[string]interface{}{"standard": "88.00"},
+		},
+	})
+	rej, warn := h.ruleOfflineExtras(raw, "F15", "S1")
+	if strings.Contains(strings.Join(rej, "; "), "规则 15-1.2") {
+		t.Errorf("附件查询失败不应自动驳 15-1.2, got %v", rej)
+	}
+	if !strings.Contains(strings.Join(warn, "; "), "付款截图附件读取失败") {
+		t.Errorf("附件查询失败应转人工, got %v", warn)
+	}
+}
+
+func TestRule1512AttachmentQueriedOnceMultiDetail(t *testing.T) {
+	// 懒查守卫: 两条非专票明细都缺付款截图, 附件只查一次(mkOfflineHandlerPayShot 只挂一个 COUNT 期望)。
+	// 附件有截图 → 两条都不驳; 若守卫坏(查两次), 第2次无 mock 期望会报错 → 出"读取失败"warn → 本测试失败。
+	inv := emptyInvRows().
+		AddRow("D-1", "DIGITAL_NORMAL", 50.00, 0, 0).
+		AddRow("D-2", "DIGITAL_NORMAL", 60.00, 0, 0)
+	h, done := mkOfflineHandlerPayShot(t, inv, "集团经理", 1)
+	defer done()
+	mk := func(did string, no int, amt string) map[string]interface{} {
+		return map[string]interface{}{
+			"feeTypeId": "ID01OTHER",
+			"feeTypeForm": map[string]interface{}{
+				"detailId": did, "detailNo": float64(no),
+				"amount": map[string]interface{}{"standard": amt},
+			},
+		}
+	}
+	rej, warn := h.ruleOfflineExtras(rawOf(mk("D-1", 1, "50.00"), mk("D-2", 2, "60.00")), "F15", "S1")
+	if strings.Contains(strings.Join(rej, "; "), "规则 15-1.2") {
+		t.Errorf("附件有付款截图, 多明细都不应驳 15-1.2, got %v", rej)
+	}
+	if strings.Contains(strings.Join(warn, "; "), "读取失败") {
+		t.Errorf("附件应只查一次(懒查守卫), 不应出现读取失败(=查了第二次无mock), got %v", warn)
 	}
 }
