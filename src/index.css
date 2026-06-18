@@ -348,6 +348,16 @@ body {
 .ant-table-wrapper .ant-table-tbody > tr:hover > td {
   background: rgba(30, 64, 175, 0.04) !important;
 }
+/* 固定列(fixed)hover 时必须保持不透明背景:
+   上面 tr:hover>td 的半透明蓝底会让固定列在横向滚动时透出底下被覆盖列的内容(底层冒上层);
+   给固定列单独补一个等效的不透明底色(= 4% 蓝叠白底 ≈ #f6f7fc), 视觉一致但不透明。
+   注意: AntD v5 固定列单元格类名是 fix-start/fix-end(不是 fix-left/fix-right), 两套都写上兜底。 */
+.ant-table-wrapper .ant-table-tbody > tr:hover > td.ant-table-cell-fix-start,
+.ant-table-wrapper .ant-table-tbody > tr:hover > td.ant-table-cell-fix-end,
+.ant-table-wrapper .ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
+.ant-table-wrapper .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right {
+  background: #f6f7fc !important;
+}
 
 /* ==========================================
    头部

@@ -419,7 +419,7 @@ const BatchConvertPage: React.FC = () => {
             columns={stockColumns}
             dataSource={stockRows}
             pagination={false}
-            scroll={{ x: 900, y: 360 }}
+            scroll={{ x: 'max-content', y: 360 /* x 用 max-content: 表宽=真实列宽和(>原900), 防 fixed:right 操作列overlap邻列; 勿改回写死数字 */ }}
             style={{ marginBottom: 20 }}
           />
         )}

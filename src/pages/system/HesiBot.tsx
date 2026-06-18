@@ -680,7 +680,7 @@ const HesiBot: React.FC = () => {
               loading={loading}
               pagination={{ pageSize: 20, showSizeChanger: false }}
               size="middle"
-              scroll={{ x: 1500 }}
+              scroll={{ x: 'max-content' /* max-content: 表宽=真实列宽和(自动含条件显示的AI建议列), 防 fixed:right 操作列贴右压到邻列(底层冒上层); 勿改回写死数字, 否则加列/改宽后又会小于真实列宽和而复发 */ }}
               locale={{ emptyText: hasFilter ? '当前筛选下无匹配单据' : '暂无数据' }}
               rowSelection={{
                 selectedRowKeys,
