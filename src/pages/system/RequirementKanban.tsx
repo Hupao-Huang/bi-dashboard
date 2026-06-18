@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Tag, Empty, Spin, message } from 'antd';
+import { Tag, Empty, Spin, message } from 'antd';
 import { API_BASE } from '../../config';
 
 const STATUS_HEX_MAP: Record<string, string> = {

@@ -3,7 +3,6 @@ import { Row, Col, Card, Table, Statistic, Spin, Select, Tabs, Tag, Empty, Popov
 import ReactECharts from './Chart';
 import DateFilter from './DateFilter';
 import PageLoading from './PageLoading';
-import GoodsChannelExpand from './GoodsChannelExpand';
 import StoreVipSection from './StoreVipSection';
 import StorePddSection from './StorePddSection';
 import StoreSProductsSection from './StoreSProductsSection';
@@ -300,6 +299,7 @@ const StoreDashboard: React.FC<Props> = ({ dept, color }) => {
         label: `${s.shopName}（¥${s.sales?.toLocaleString()}${supportsOpsShop(s.shopName) ? '，含运营数据' : ''}）`,
       })),
     ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shopList]);
   const opsHint = useMemo(() => {
     if (!shopList.length) return '';

@@ -5,7 +5,7 @@ import { InfoCircleOutlined, RiseOutlined, FallOutlined, MinusOutlined } from '@
 import ReactECharts from 'echarts-for-react';
 import {
   HEALTH_LIGHTS, MONTHS, QUADRANT, STATUS_COLOR, STATUS_LABEL, TEAM_MATRIX, TEAMS,
-  type LayerHealth, type MetricData, type MetricStatus, type MonthPoint, type TeamCell,
+  type LayerHealth, type MetricData, type MetricStatus,
 } from './mockData';
 
 // ---------- 1. 三层健康灯 ----------

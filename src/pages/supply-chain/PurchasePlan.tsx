@@ -275,7 +275,7 @@ const PurchasePlan: React.FC = () => {
   if (loading) return <PageLoading />;
   if (!data) return <Empty description="暂无数据" />;
 
-  const { kpis, monthlyTrend, topVendors, suggested, params } = data;
+  const { kpis, monthlyTrend, topVendors, suggested } = data;
 
   // 筛选
   const filtered = suggested.filter((s) => {

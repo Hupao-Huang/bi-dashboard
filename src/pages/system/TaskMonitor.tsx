@@ -45,15 +45,6 @@ type TaskItem = {
 };
 
 // v1.56.2: 分组顺序 + 默认折叠规则
-const CATEGORY_LABELS: Record<string, string> = {
-  sync: '业务同步',
-  stock: '库存类',
-  service: '服务监控',
-  ops: '系统维护',
-  ai: '模型训练',
-  'service-legacy': '已隐藏（schtasks 状态）',
-  other: '其他',
-};
 const CATEGORY_DEFAULT_HIDDEN = ['ops', 'ai']; // 默认折叠/隐藏类别
 
 interface ManualTaskConfig {

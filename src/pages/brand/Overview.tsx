@@ -1,13 +1,13 @@
 // 心智渗透 — 总览页 (心智健康度驾驶舱)
 import React from 'react';
-import { Card, Col, Row, Space, Table, Tag, Timeline, Typography } from 'antd';
+import { Card, Col, Row, Space, Tag, Timeline, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import {
   BannerNotice, HealthLightPanel, LayerSummaryFunnel, QuadrantChart,
   StatusBadge, TeamHeatmap,
 } from './components';
 import {
-  CORE_MEDIA, LAYER_A, LAYER_B, LAYER_C, METRIC_MAP, TIMELINE_EVENTS, UPCOMING_EVENTS,
+  CORE_MEDIA, METRIC_MAP, UPCOMING_EVENTS,
 } from './mockData';
 
 const { Title } = Typography;

@@ -115,6 +115,7 @@ const FuturesTrend: React.FC = () => {
       dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18 }],
       series: seriesList,
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType, selected, barsByCode, symbols]);
 
   // 按分类分组的品种 checkbox

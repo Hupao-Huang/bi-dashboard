@@ -500,6 +500,7 @@ const RPAMonitor: React.FC = () => {
     };
   }, [fetchData]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const platforms = data?.platforms ?? [];
   const [filterStatus, setFilterStatus] = useState<'all' | 'issues' | 'missing' | 'no_dir'>('all');
   const [keyword, setKeyword] = useState('');

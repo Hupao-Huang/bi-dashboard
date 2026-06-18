@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Row, Col, Table, Statistic, Tag, Modal, Alert, Tabs, Empty, message } from 'antd';
+import { Card, Row, Col, Table, Statistic, Tag, Modal, Alert, Tabs, Empty, message, Typography } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageLoading from '../../components/PageLoading';
@@ -148,7 +148,7 @@ const SpecialChannelAllot: React.FC = () => {
     ...(isAll ? [{ title: '渠道', dataIndex: 'channelKey', key: 'channelKey', width: 80,
       render: (v: string) => <Tag color="blue">{v}</Tag> }] : []),
     { title: '调拨单号', dataIndex: 'allocateNo', key: 'allocateNo', width: 200,
-      render: (v: string) => <a onClick={() => openDetail(v)}>{v}</a> },
+      render: (v: string) => <Typography.Link onClick={() => openDetail(v)}>{v}</Typography.Link> },
     { title: '入库仓', dataIndex: 'inWarehouseName', key: 'inWarehouseName', width: 220, ellipsis: true },
     { title: '单据状态', dataIndex: 'status', key: 'status', width: 100,
       render: (s: number) => { const l = statusLabel(s); return <Tag color={l.color}>{l.text}</Tag>; } },

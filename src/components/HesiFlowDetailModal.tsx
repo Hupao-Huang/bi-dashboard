@@ -102,7 +102,7 @@ function renderHesiValue(key: string, v: any, ctx?: { resolve?: (n: string) => a
             const label = f.fileName || f.fileId;
             const file = ctx?.resolve?.(f.fileName || f.fileId);
             return <li key={i}>{file && ctx?.preview
-              ? <a onClick={() => ctx.preview!(file)}>{label}</a>
+              ? <Typography.Link onClick={() => ctx.preview!(file)}>{label}</Typography.Link>
               : label}</li>;
           })}
         </ul>
@@ -606,7 +606,7 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                             <Typography.Text type="secondary">关联单还没同步到看板 (可去合思查看)</Typography.Text>
                           ) : (
                             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                              <a onClick={() => setDrillStack(s => [...s, lr.flowId])} style={{ fontWeight: 600, flexShrink: 0 }}>{lr.code}</a>
+                              <Typography.Link onClick={() => setDrillStack(s => [...s, lr.flowId])} style={{ fontWeight: 600, flexShrink: 0 }}>{lr.code}</Typography.Link>
                               {lr.specName && <Tag color="green" style={{ flexShrink: 0 }}>{lr.specName}</Tag>}
                               <Typography.Text ellipsis={{ tooltip: lr.title }} style={{ flex: 1, minWidth: 60 }}>{lr.title}</Typography.Text>
                               {lr.requisitionMoney != null && (
@@ -792,7 +792,7 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                         if (!v) return <Tag color="warning">未识别</Tag>;
                         const file = findInvoiceFile(r);
                         return file
-                          ? <a onClick={() => setInvoicePreview({ visible: true, file, title: v })}>{v}</a>
+                          ? <Typography.Link onClick={() => setInvoicePreview({ visible: true, file, title: v })}>{v}</Typography.Link>
                           : v;
                       },
                     },

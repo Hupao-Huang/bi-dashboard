@@ -56,7 +56,8 @@ const CustomerListManage: React.FC = () => {
     }
   }, [page, pageSize, search, grade]);
 
-  useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, [page, pageSize, grade]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchData(); }, [page, pageSize, grade]);
 
   const openEdit = (row: CustomerRow) => {
     setEditTarget(row);

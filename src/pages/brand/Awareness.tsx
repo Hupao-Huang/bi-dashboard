@@ -1,8 +1,8 @@
 // 心智渗透 — 主题页 A: 知名度层 (A1-A15)
 import React from 'react';
-import { Card, Col, Row, Space, Tag, Typography } from 'antd';
-import { BannerNotice, MetricCard, StatusBadge, TrendChart } from './components';
-import { LAYER_A, METRIC_MAP } from './mockData';
+import { Card, Col, Row, Space, Typography } from 'antd';
+import { BannerNotice, MetricCard, TrendChart } from './components';
+import { METRIC_MAP } from './mockData';
 
 const { Title } = Typography;
 

@@ -305,6 +305,7 @@ const OverviewPage: React.FC = () => {
         },
       },
     ],
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [
     avgPriceAvg,
     baseOpt,
@@ -465,6 +466,7 @@ const OverviewPage: React.FC = () => {
 
   const shopNames = (data?.topShops || []).map((s: any) => s.shopName).reverse();
   const shopSales = (data?.topShops || []).map((s: any) => s.sales).reverse();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const shopBreakdown = data?.shopBreakdown || {};
   const shopBarOption = useMemo(() => ({
     ...baseOpt,

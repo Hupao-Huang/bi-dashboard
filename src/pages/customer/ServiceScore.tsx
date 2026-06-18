@@ -169,6 +169,7 @@ const ServiceScore: React.FC = () => {
     if (platforms.length && !platforms.includes(activePlatform)) setActivePlatform(platforms[0]);
   }, [platforms, activePlatform]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const platItems = byPlatform.get(activePlatform) || [];
   const metrics = metricDefs(activePlatform);
   const hasTarget = platItems.some((it) => it.target !== null);
@@ -214,7 +215,7 @@ const ServiceScore: React.FC = () => {
         onCell: () => (hasTarget ? {} : { style: { borderRight: '2px solid #bfbfbf' } }),
         render: (v: string) => (
           <Tooltip title="点击查看近30天走势">
-            <a onClick={() => setTrendShop(v)}>{v}</a>
+            <Typography.Link onClick={() => setTrendShop(v)}>{v}</Typography.Link>
           </Tooltip>
         ),
       },
