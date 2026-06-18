@@ -65,9 +65,9 @@ const FXJ_SUBSIDY_STD = [
 
 const HesiBotRules: React.FC = () => {
   return (
-    <Card title="樊雪娇 · 报销审批判定规则（系统内置）" style={{ marginBottom: 16 }}>
+    <Card title="日常报销单 · 审批判定规则（系统内置）" style={{ marginBottom: 16 }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        以下是机器人对樊雪娇日常报销单的判定规则，机器人据此给出待审批列表里的 AI 建议。单据满足全部规则才会建议通过，否则会提示驳回或人工核。
+        以下是机器人对日常报销单的判定规则，机器人据此给出待审批列表里的 AI 建议。单据满足全部规则才会建议通过，否则会提示驳回或人工核。
       </Typography.Paragraph>
       <Table
         columns={[
