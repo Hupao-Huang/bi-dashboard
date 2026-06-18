@@ -81,6 +81,26 @@ type myHesiPendingRow struct {
 	Suggestion          *AuditSuggestion `json:"suggestion,omitempty"` // 樊雪娇日常报销单 AI 建议 (2026-05-27 v1.76.0)
 }
 
+// ===== AI 审批建议适用的审批人名单 (按合思真名匹配; 跑哥 2026-06-18 从樊雪娇/张俊扩到更多财务) =====
+// 日常报销单 (AuditDailyExpense, 樊雪娇规则集): 樊雪娇 + 金海侠/周翻翻/张勇
+// (后 3 人钉钉自助注册 + 管理员绑合思工号后自动生效; 工号: 金海侠 ID01S0DVzHrbZR / 周翻翻 ID01HiKvMXtJeL / 张勇 ID01SkyhXtmOxV)。
+var dailyExpenseApproverNames = []string{"樊雪娇", "金海侠", "周翻翻", "张勇"}
+
+// 对外付款单/预付款单 (AuditPayment, 张俊规则集): 张俊 + 苏安妮 (苏安妮已有账号, 有待审付款单即生效)。
+var paymentApproverNames = []string{"张俊", "苏安妮"}
+
+// matchApproverName: names 中任一包含 targets 中任一目标名 → true (沿用原 isFanXuejiao 的 strings.Contains 语义)。
+func matchApproverName(targets []string, names ...string) bool {
+	for _, n := range names {
+		for _, t := range targets {
+			if t != "" && strings.Contains(n, t) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GetMyHesiPending GET /api/profile/hesi-pending
 // 返回登录用户当前待审批的合思单据 (按 real_name 模糊匹配 current_approver_name)
 func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Request) {
@@ -136,10 +156,9 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// 2026-05-27 v1.76.0: AI 审批建议适用于樊雪娇日常报销单 (spec prefix ID01Fk3qJYYFvp)
-	isFanXuejiao := strings.Contains(displayName, "樊雪娇") ||
-		strings.Contains(queryName, "樊雪娇") ||
-		strings.Contains(hesiRealName, "樊雪娇")
+	// AI 审批建议适用的审批人 (2026-05-27 樊雪娇起; 跑哥 2026-06-18 扩, 名单见 dailyExpenseApproverNames / paymentApproverNames)
+	isDailyExpenseApprover := matchApproverName(dailyExpenseApproverNames, displayName, queryName, hesiRealName)
+	isPaymentApprover := matchApproverName(paymentApproverNames, displayName, queryName, hesiRealName)
 	const dailyExpenseSpecPrefix = "ID01Fk3qJYYFvp"
 
 	// v1.62.x: SELECT 字段对齐费控管理 (含 specification_id / create_time / update_time / preApproved)
@@ -154,7 +173,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 
 	// 整页预热(规则18): 一次性批量拉本页待审"日常报销单"的发票货物行名称灌缓存, 让随后逐单审批的
 	// 规则18(广告费正反向校验)直接命中缓存, 把 per-单串行打合思收成一次批量(待审列表保持秒开)。
-	if isFanXuejiao {
+	if isDailyExpenseApprover {
 		if queryStaffID != "" {
 			h.prewarmHesiInvoiceItems(true, queryStaffID, dailyExpenseSpecPrefix)
 		} else {
@@ -217,8 +236,8 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 		if row.OwnerName == "" && row.SubmitterId != nil && *row.SubmitterId != "" {
 			row.OwnerName = h.LookupStaffName(*row.SubmitterId)
 		}
-		// AI 审批建议: 樊雪娇 + 日常报销单模板才跑
-		if isFanXuejiao && row.SpecificationId != nil && strings.HasPrefix(*row.SpecificationId, dailyExpenseSpecPrefix) {
+		// AI 审批建议: 日常报销单审批人(樊雪娇/金海侠/周翻翻/张勇) + 日常报销单模板才跑
+		if isDailyExpenseApprover && row.SpecificationId != nil && strings.HasPrefix(*row.SpecificationId, dailyExpenseSpecPrefix) {
 			ownerDeptID := ""
 			if row.OwnerDepartment != nil {
 				ownerDeptID = *row.OwnerDepartment
@@ -242,8 +261,8 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 				firstSubmit = *row.SubmitDate
 			}
 			row.Suggestion = h.AuditDailyExpense(ownerDeptID, deptID, submitterID, row.FlowID, expenseMoney, rawJSON, firstSubmit)
-		} else if strings.Contains(displayName, "张俊") || strings.Contains(queryName, "张俊") || strings.Contains(hesiRealName, "张俊") {
-			// 张俊: 付款单/预付款单 AI 审批建议 (dry-run, 详见 hesi_audit_payment_rules.go)
+		} else if isPaymentApprover {
+			// 付款单审批人(张俊/苏安妮): 付款单/预付款单 AI 审批建议 (dry-run, 详见 hesi_audit_payment_rules.go)
 			if row.SpecificationId != nil && paymentTemplate(*row.SpecificationId) != "" {
 				firstSubmit := int64(0)
 				if row.SubmitDate != nil {

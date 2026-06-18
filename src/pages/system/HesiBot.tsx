@@ -19,6 +19,10 @@ import HesiBotRules from './HesiBotRules';
 import HesiBotRulesZhangJun from './HesiBotRulesZhangJun';
 import HesiFlowDetailModal from '../../components/HesiFlowDetailModal';
 
+// AI 审批建议规则卡的展示名单 (与后端 profile_hesi_pending.go 的审批人名单保持一致; 跑哥 2026-06-18 扩)
+const DAILY_EXPENSE_APPROVERS = ['樊雪娇', '金海侠', '周翻翻', '张勇']; // 日常报销单规则卡
+const PAYMENT_APPROVERS = ['张俊', '苏安妮']; // 对外付款单规则卡
+
 interface PendingItem {
   flowId: string;
   code: string;
@@ -232,7 +236,7 @@ const HesiBot: React.FC = () => {
 
   const totalAmount = filteredItems.reduce((sum, item) => sum + (getMoney(item) || 0), 0);
   const hasFilter = !!searchText || formTypeFilter.length > 0 || suggestionFilter.length > 0 || (!!dateRange && !!(dateRange[0] || dateRange[1]));
-  // AI 建议规则当前仅适用于樊雪娇日常报销单 → 别人看到 items 无 suggestion → 列自动隐藏
+  // AI 建议列数据驱动: 任一单有 suggestion 才显示 (日常报销/付款单审批人才有建议, 其他人无 → 列自动隐藏)
   const showAuditCol = items.some(it => !!it.suggestion);
 
   // 批量审批: 已勾选的单据 + 金额合计
@@ -526,10 +530,10 @@ const HesiBot: React.FC = () => {
         .hesi-row-pending-approve:hover td { background-color: #e2e8f0 !important; }
       `}</style>
 
-      {/* 判定规则是樊雪娇日常报销单专属, 只在查看她的待审批时展示 (跑哥 6/11) */}
-      {((selectedApprover || '') + (queryName || '') + (realName || '')).includes('樊雪娇') && <HesiBotRules />}
-      {/* 张俊对外付款单/预付款单判定规则, 只在查看张俊待审批时展示 (跑哥 2026-06-17) */}
-      {((selectedApprover || '') + (queryName || '') + (realName || '')).includes('张俊') && <HesiBotRulesZhangJun />}
+      {/* 日常报销单判定规则卡, 查看日常报销审批人(樊雪娇/金海侠/周翻翻/张勇)待审批时展示 (跑哥 6/11; 6/18 扩) */}
+      {DAILY_EXPENSE_APPROVERS.some((n) => ((selectedApprover || '') + (queryName || '') + (realName || '')).includes(n)) && <HesiBotRules />}
+      {/* 对外付款单/预付款单判定规则卡, 查看付款单审批人(张俊/苏安妮)待审批时展示 (跑哥 2026-06-17; 6/18 扩) */}
+      {PAYMENT_APPROVERS.some((n) => ((selectedApprover || '') + (queryName || '') + (realName || '')).includes(n)) && <HesiBotRulesZhangJun />}
 
       {/* 管理员视角切换 */}
       {isAdmin && (

@@ -32,9 +32,9 @@ const ZJ_AUDIT_RULES: { ref: string; cat: string; rule: string }[] = [
 
 const HesiBotRulesZhangJun: React.FC = () => {
   return (
-    <Card title="张俊 · 对外付款审批判定规则（系统内置）" style={{ marginBottom: 16 }}>
+    <Card title="对外付款单 · 审批判定规则（系统内置）" style={{ marginBottom: 16 }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        以下是机器人对张俊的付款单 / 预付款单的判定规则，据此给出待审批列表里的 AI 建议（建议通过 / 转人工核 / 建议驳回）。这是辅助参考，最终由张俊审批，机器人不替你点审批。
+        以下是机器人对付款单 / 预付款单的判定规则，据此给出待审批列表里的 AI 建议（建议通过 / 转人工核 / 建议驳回）。这是辅助参考，最终由审批人审批，机器人不替你点审批。
       </Typography.Paragraph>
       <Table
         columns={[
