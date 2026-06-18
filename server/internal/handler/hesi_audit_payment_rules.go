@@ -46,6 +46,13 @@ func (h *DashboardHandler) AuditPayment(flowID, specID, rawJSON string, firstSub
 	var rejectReasons []string
 	var warnings []string
 
+	// 付款单的 A18 / B1·B2 / B3 三条规则都要发票数据, 一次查替代原先各查一次 (3→1 性能合并)。
+	// 预付款单无发票, 不查 (inv 零值: total=0/列表 nil/count=0, 这三条规则本就跳过预付款单)。
+	var inv paymentInvoice
+	if tmpl == "payment" {
+		inv = h.paymentInvoiceData(flowID)
+	}
+
 	// A1: 所属公司 (法人实体) 必须非空 — 付款单+预付款单都做
 	if r := rulePaymentOwnerCompany(raw); r != "" {
 		rejectReasons = append(rejectReasons, r)
@@ -78,7 +85,7 @@ func (h *DashboardHandler) AuditPayment(flowID, specID, rawJSON string, firstSub
 
 	// A18: 支付金额上限 — 仅付款单 (预付款单无发票, 跳过)
 	if tmpl == "payment" {
-		if w := rulePaymentAmountCap(raw, h.sumInvoiceTotal(flowID)); w != "" {
+		if w := rulePaymentAmountCap(raw, inv.total); w != "" {
 			warnings = append(warnings, w)
 		}
 	}
@@ -101,8 +108,11 @@ func (h *DashboardHandler) AuditPayment(flowID, specID, rawJSON string, firstSub
 	}
 
 	// B1/B2: 收款方=开票方 + 购买方=所属公司 — 仅付款单 (预付款单无发票)
+	// 用预拉的 inv.buyers/inv.sellers, 不再单独查发票表 (合并进 paymentInvoiceData)。
 	if tmpl == "payment" {
-		if rej, w := h.rulePaymentInvoiceParties(flowID, raw); len(rej) > 0 || len(w) > 0 {
+		owner := h.LookupLegalEntityName(strOfPayment(raw["法人实体"]))
+		payee := h.payeeName(strOfPayment(raw["payeeId"]))
+		if rej, w := rulePaymentInvoicePartiesLogic(inv.buyers, inv.sellers, payee, owner); len(rej) > 0 || len(w) > 0 {
 			rejectReasons = append(rejectReasons, rej...)
 			warnings = append(warnings, w...)
 		}
@@ -125,7 +135,7 @@ func (h *DashboardHandler) AuditPayment(flowID, specID, rawJSON string, firstSub
 
 	// B3: 税额份数对账 — 仅付款单 (预付款单无发票跳过)
 	if tmpl == "payment" {
-		if w := h.rulePaymentTaxCount(flowID, raw); w != "" {
+		if w := rulePaymentTaxCountWith(raw, inv.count); w != "" {
 			warnings = append(warnings, w)
 		}
 	}
@@ -238,7 +248,7 @@ func rulePaymentCustomer(raw map[string]interface{}) string {
 // ----- B1/B2: 收款方=开票方 + 购买方=所属公司 (仅付款单) -----
 
 // payeeSellerMismatch B1 收款方=开票方: 收款方与任一发票开票方不一致→转人工。
-// 缺数据时返回 "" (由 rulePaymentInvoiceParties 统一兜底)。
+// 缺数据时返回 "" (由 rulePaymentInvoicePartiesLogic 统一兜底)。
 func payeeSellerMismatch(payee string, sellers []string) string {
 	if payee == "" || len(sellers) == 0 {
 		return ""
@@ -252,7 +262,7 @@ func payeeSellerMismatch(payee string, sellers []string) string {
 }
 
 // buyerCompanyMismatch B2 购买方=所属公司: 全部发票购买方均须一致→否则驳回。
-// 缺数据时返回 "" (由 rulePaymentInvoiceParties 统一兜底)。
+// 缺数据时返回 "" (由 rulePaymentInvoicePartiesLogic 统一兜底)。
 func buyerCompanyMismatch(buyers []string, ownerCompany string) string {
 	if ownerCompany == "" || len(buyers) == 0 {
 		return ""
@@ -265,33 +275,47 @@ func buyerCompanyMismatch(buyers []string, ownerCompany string) string {
 	return ""
 }
 
-// invoiceParties 从 hesi_flow_invoice 查 flowID 对应的购买方/开票方列表 (5s 超时)。
-// 查询失败/无数据/DB 为 nil 均返回 nil, nil (由调用方转人工兜底)。
-func (h *DashboardHandler) invoiceParties(flowID string) (buyers, sellers []string) {
+// paymentInvoice 一张付款单的发票派生数据 (一次查 hesi_flow_invoice 得出, 供 A18/B1·B2/B3 共用)。
+type paymentInvoice struct {
+	total   float64  // 价税合计 (原 sumInvoiceTotal): 无票/查不到 = 0
+	buyers  []string // 购买方列表, 已过滤空串 (原 invoiceParties)
+	sellers []string // 开票方列表, 已过滤空串 (原 invoiceParties)
+	count   int      // 发票张数 (原 invoiceCount): -1 = DB nil / 查询失败, 无法核验
+}
+
+// paymentInvoiceData 一次查 hesi_flow_invoice 取该单所有发票行, 派生出
+// 价税合计 / 购买方·开票方列表 / 张数, 替代原先 A18(SUM) + B1·B2(买卖方) + B3(COUNT) 各查一次 (3→1)。
+// 各派生值的缺数据语义逐一对齐被替代的三个旧函数 (5s 超时):
+// 无票→total=0·列表 nil·count=0; DB nil 或查询失败→total=0·列表 nil·count=-1(无法核验)。
+func (h *DashboardHandler) paymentInvoiceData(flowID string) paymentInvoice {
 	if h.DB == nil {
-		return nil, nil
+		return paymentInvoice{count: -1}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	rows, err := h.DB.QueryContext(ctx,
-		`SELECT IFNULL(buyer_name,''), IFNULL(seller_name,'') FROM hesi_flow_invoice WHERE flow_id=?`, flowID)
+		`SELECT IFNULL(buyer_name,''), IFNULL(seller_name,''), IFNULL(total_amount,0) FROM hesi_flow_invoice WHERE flow_id=?`, flowID)
 	if err != nil {
-		return nil, nil
+		return paymentInvoice{count: -1}
 	}
 	defer rows.Close()
+	var inv paymentInvoice
 	for rows.Next() {
 		var b, s string
-		if rows.Scan(&b, &s) == nil {
+		var amt float64
+		if rows.Scan(&b, &s, &amt) == nil {
+			inv.count++
+			inv.total += amt
 			if b != "" {
-				buyers = append(buyers, b)
+				inv.buyers = append(inv.buyers, b)
 			}
 			if s != "" {
-				sellers = append(sellers, s)
+				inv.sellers = append(inv.sellers, s)
 			}
 		}
 	}
 	_ = rows.Err()
-	return buyers, sellers
+	return inv
 }
 
 // rulePaymentInvoicePartiesLogic B1+B2 纯逻辑层 (便于单测, 不依赖 DB/handler)。
@@ -319,14 +343,8 @@ func rulePaymentInvoicePartiesLogic(buyers, sellers []string, payeeName, owner s
 	return reject, warn
 }
 
-// rulePaymentInvoiceParties B1+B2 发票方核验: 收款方=开票方 (转人工); 购买方=所属公司 (驳回)。
-// 仅付款单调用; 预付款单无发票跳过。
-func (h *DashboardHandler) rulePaymentInvoiceParties(flowID string, raw map[string]interface{}) (reject, warn []string) {
-	buyers, sellers := h.invoiceParties(flowID)
-	owner := h.LookupLegalEntityName(strOfPayment(raw["法人实体"]))
-	payee := h.payeeName(strOfPayment(raw["payeeId"]))
-	return rulePaymentInvoicePartiesLogic(buyers, sellers, payee, owner)
-}
+// 说明: B1/B2 的发票方核验已在 AuditPayment 内联 (用预拉的 inv.buyers/inv.sellers 调
+// rulePaymentInvoicePartiesLogic), 不再单独包装查询函数 —— 见 3→1 性能合并。
 
 // ----- B4: 防重复付款 (付款单+预付款单) -----
 
@@ -516,26 +534,10 @@ func taxCountMismatch(invCount int, declCount int) string {
 	return ""
 }
 
-// invoiceCount 从 hesi_flow_invoice 查 flowID 对应的发票行数 (5s 超时)。
-// 查询失败/DB 为 nil → 返回 -1 (表示无法获取, 由调用方转人工兜底)。
-func (h *DashboardHandler) invoiceCount(flowID string) int {
-	if h.DB == nil {
-		return -1
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var cnt int
-	err := h.DB.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM hesi_flow_invoice WHERE flow_id=?`, flowID).Scan(&cnt)
-	if err != nil {
-		return -1
-	}
-	return cnt
-}
-
-// rulePaymentTaxCount B3 税额份数对账: 发票实际张数 vs raw_json 申报张数, 不符 → 转人工。
-// 仅付款单调用; 预付款单无发票跳过。
-func (h *DashboardHandler) rulePaymentTaxCount(flowID string, raw map[string]interface{}) string {
+// rulePaymentTaxCountWith B3 税额份数对账: 发票实际张数(预拉 invCount) vs raw_json 申报张数, 不符 → 转人工。
+// invCount<0 表示无法获取发票张数 (DB nil/查询失败) → 申报存在时转人工。
+// 纯函数 (发票张数由 paymentInvoiceData 预拉传入, 不再单独查发票表), 便于单测。仅付款单调用。
+func rulePaymentTaxCountWith(raw map[string]interface{}, invCount int) string {
 	declRaw, _ := raw["u_WmLv_税额份数总计"].(string)
 	declRaw = strings.TrimSpace(declRaw)
 	if declRaw == "" || declRaw == "0" {
@@ -545,9 +547,8 @@ func (h *DashboardHandler) rulePaymentTaxCount(flowID string, raw map[string]int
 	if err != nil || declCount == 0 {
 		return "" // 解析失败 → 不误驳, 安全底线
 	}
-	invCnt := h.invoiceCount(flowID)
-	if invCnt < 0 {
+	if invCount < 0 {
 		return "税额份数申报字段存在但无法核验发票张数, 请人工核对 (B3)"
 	}
-	return taxCountMismatch(invCnt, declCount)
+	return taxCountMismatch(invCount, declCount)
 }
