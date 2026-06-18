@@ -258,7 +258,7 @@ const AllUsersActivityTab: React.FC = () => {
     >
       <Table
         dataSource={rows} columns={columns} rowKey="userId" size="small" loading={loading}
-        scroll={{ x: 1010 }}
+        scroll={{ x: 'max-content' /* max-content: 表宽=真实列宽和(全列定宽合计约1025>原1010), 防 fixed 列overlap邻列; 勿改回写死数字 */ }}
         pagination={{ pageSize: 20, hideOnSinglePage: true, showSizeChanger: false }}
         onRow={(r) => ({ onClick: () => openDetail(r), style: { cursor: 'pointer' } })}
       />

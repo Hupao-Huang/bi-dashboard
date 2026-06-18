@@ -547,7 +547,7 @@ const ExpenseControl: React.FC = () => {
           rowKey="flowId"
           loading={loading}
           size="small"
-          scroll={{ x: 1400 }}
+          scroll={{ x: 'max-content' /* max-content: 表宽=真实列宽和(全列定宽合计约1560>原1400), 防 fixed:right 操作列overlap邻列; 勿改回写死数字 */ }}
           pagination={{
             current: page,
             pageSize,
