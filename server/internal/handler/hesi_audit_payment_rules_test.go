@@ -235,21 +235,25 @@ func TestDuplicatePayment(t *testing.T) {
 
 // A5: 事由必填 + 不含合计/小计
 func TestRulePaymentReason(t *testing.T) {
-	// 预付款单: description 为空 → 驳回
-	if rulePaymentReason(map[string]interface{}{"description": ""}, "prepay") == "" {
-		t.Error("预付款单 付款事由为空应驳回 (A5)")
+	// 预付款单: 预付事由(title) 为空 → 驳回
+	if rulePaymentReason(map[string]interface{}{"title": ""}, "prepay") == "" {
+		t.Error("预付款单 预付事由为空应驳回 (A5)")
 	}
-	// 预付款单: description 含"合计" → 驳回
-	if rulePaymentReason(map[string]interface{}{"description": "本月合计"}, "prepay") == "" {
+	// 预付款单: title 含"合计" → 驳回
+	if rulePaymentReason(map[string]interface{}{"title": "本月合计"}, "prepay") == "" {
 		t.Error("含合计应驳回 (A5)")
 	}
-	// 预付款单: description 含"小计" → 驳回
-	if rulePaymentReason(map[string]interface{}{"description": "各项小计"}, "prepay") == "" {
+	// 预付款单: title 含"小计" → 驳回
+	if rulePaymentReason(map[string]interface{}{"title": "各项小计"}, "prepay") == "" {
 		t.Error("含小计应驳回 (A5)")
 	}
-	// 预付款单: 正常事由 → 通过
-	if r := rulePaymentReason(map[string]interface{}{"description": "支付6月推广服务费"}, "prepay"); r != "" {
-		t.Errorf("正常事由应通过, got %q", r)
+	// 预付款单: 正常预付事由(title) → 通过
+	if r := rulePaymentReason(map[string]interface{}{"title": "支付6月推广服务费"}, "prepay"); r != "" {
+		t.Errorf("正常预付事由应通过, got %q", r)
+	}
+	// 预付款单回归 (J26000749): title 有预付事由 + description 空 → 不再误报"事由为空"
+	if r := rulePaymentReason(map[string]interface{}{"title": "申请有机甄鲜松茸松露调味料有机码", "description": ""}, "prepay"); r != "" {
+		t.Errorf("J26000749: title 有预付事由 description 空不应误驳, got %q", r)
 	}
 	// 付款单: 无明细 → 通过 (A8 兜底, A5 不重复驳)
 	if r := rulePaymentReason(map[string]interface{}{}, "payment"); r != "" {
@@ -409,7 +413,11 @@ func TestA13SunshinePaymentVoucher(t *testing.T) {
 	if !strings.Contains(reasonText2, "阳光天际") {
 		t.Errorf("付款单 description 含阳光天际, extractPaymentReasonText 应包含, got %q", reasonText2)
 	}
-	// 预付款单: description 含「阳光天际」→ 也能提取 (prepay 走 description)
+	// 预付款单: 预付事由在 title, 含「阳光天际」→ 能提取 (修复前 prepay 只读 description 会漏判)
+	if reasonT := extractPaymentReasonText(map[string]interface{}{"title": "阳光天际项目预付款"}, "prepay"); !strings.Contains(reasonT, "阳光天际") {
+		t.Errorf("预付款单 title 含阳光天际, extractPaymentReasonText 应包含, got %q", reasonT)
+	}
+	// 预付款单: 补充说明 description 含「阳光天际」→ 也能提取 (belt-and-suspenders, title+description 合并)
 	rawPrepaySunshine := map[string]interface{}{
 		"description": "阳光天际项目预付款",
 	}

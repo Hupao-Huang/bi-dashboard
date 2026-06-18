@@ -412,12 +412,14 @@ func toFloatPayment(v interface{}) float64 {
 
 // extractPaymentReasonText Bug 1 fix: 按模板类型提取「付款事由」文本。
 // 付款单 (payment): 遍历 details[].feeTypeForm.consumptionReasons 并拼接; 同时 belt-and-suspenders 包含 description。
-// 预付款单 (prepay): 直接取 description。
-// A13 sunshineRule 用此函数取 reason，避免付款单永远读空 description。
+// 预付款单 (prepay): "预付事由"存在 title, description 是可选补充说明 (常为空), 两者合并取 (防 A13 阳光天际写在 title 漏读)。
+// A13 sunshineRule 用此函数取 reason，避免读空字段漏判。
 func extractPaymentReasonText(raw map[string]interface{}, tmpl string) string {
 	desc, _ := raw["description"].(string)
 	if tmpl != "payment" {
-		return desc
+		// 预付款单: 预付事由在 title, 补充说明在 description, 合并取
+		title, _ := raw["title"].(string)
+		return strings.TrimSpace(title + " " + desc)
 	}
 	// 付款单: 从所有明细行 consumptionReasons 拼接
 	var parts []string
@@ -463,7 +465,7 @@ func codeOf(raw map[string]interface{}) string {
 var vagueReasonWords = []string{"合计", "小计"}
 
 // rulePaymentReason A5 事由校验:
-// 预付款单 → 单据级 description 必填 + 不含模糊词;
+// 预付款单 → "预付事由"(title 字段) 必填 + 不含模糊词;
 // 付款单 → 逐行 details[].feeTypeForm.consumptionReasons 必填 + 不含模糊词。
 // 两模板都做, 违规 → reject。
 func rulePaymentReason(raw map[string]interface{}, tmpl string) string {
@@ -480,8 +482,10 @@ func rulePaymentReason(raw map[string]interface{}, tmpl string) string {
 		return ""
 	}
 	if tmpl == "prepay" {
-		s, _ := raw["description"].(string)
-		return checkReason(s, "付款事由")
+		// 预付款单的"预付事由"存在 title 字段 (description 为可选补充说明, 常为空);
+		// 原读 description 会在 title 有事由但 description 空时误报"事由为空" (J26000749 案例, 实测预付款单 title 必有事由)。
+		s, _ := raw["title"].(string)
+		return checkReason(s, "预付事由")
 	}
 	// 付款单: 遍历 details[].feeTypeForm.consumptionReasons
 	details, _ := raw["details"].([]interface{})
