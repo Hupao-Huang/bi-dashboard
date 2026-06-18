@@ -275,6 +275,7 @@ const ExpenseControl: React.FC = () => {
       void fetchFlows();
     }
     void fetchStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange, fetchFlows, fetchStats, formType, invoiceStatus, keyword, approver, specificationId, page, state]);
 
   const getMoney = (item: FlowItem) => {

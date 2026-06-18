@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Tag, Modal, Statistic, Row, Col, message, Spin, Space } from 'antd';
+import { Card, Table, Tag, Modal, Statistic, Row, Col, message, Spin, Space, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -66,7 +66,8 @@ const CustomerAnalysis: React.FC = () => {
     }
   }, [start, end, page, pageSize]);
 
-  useEffect(() => { fetchAll(); /* eslint-disable-next-line */ }, [start, end, page, pageSize]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchAll(); }, [start, end, page, pageSize]);
 
   const openDrill = (row: HVRow) => {
     // 销售趋势 Modal: 用 2025-01 ~ 今天 全期看趋势(月度+历年同月对比)
@@ -166,8 +167,8 @@ const CustomerAnalysis: React.FC = () => {
       title: '操作', width: 130,
       render: (_: any, r: HVRow) => (
         <Space size="small">
-          <a onClick={() => openDrill(r)}>查看趋势</a>
-          <a onClick={() => openSkus(r)}>查看明细</a>
+          <Typography.Link onClick={() => openDrill(r)}>查看趋势</Typography.Link>
+          <Typography.Link onClick={() => openSkus(r)}>查看明细</Typography.Link>
         </Space>
       ),
     },

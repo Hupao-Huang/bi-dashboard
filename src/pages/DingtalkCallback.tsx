@@ -21,42 +21,6 @@ const DingtalkCallback: React.FC = () => {
   const [nickName, setNickName] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const doLogin = useCallback(async (remarkText?: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/dingtalk/login`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, remark: remarkText || '' }),
-      });
-      const body = await res.json();
-
-      if (!res.ok) {
-        setStatus('error');
-        setMessage(body.msg || '登录失败');
-        return;
-      }
-
-      if (body.data?.pending) {
-        setStatus('pending');
-        setMessage(body.data.message || '注册申请已提交');
-        return;
-      }
-
-      await refresh();
-      const payload = body.data;
-      const target = getFirstAllowedRoute((permission?: string) => {
-        if (!permission) return true;
-        if (payload?.isSuperAdmin || payload?.roles?.includes('super_admin')) return true;
-        return payload?.permissions?.includes(permission) ?? false;
-      }) || '/overview';
-      navigate(target, { replace: true });
-    } catch {
-      setStatus('error');
-      setMessage('网络错误，请重试');
-    }
-  }, [code, navigate, refresh]);
-
   const doBind = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/api/user/dingtalk`, {

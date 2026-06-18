@@ -1,7 +1,7 @@
 // 心智渗透 — 主题页 B: 好感度层 (B1-B12)
 import React from 'react';
 import { Card, Col, Row, Space, Tag, Timeline, Typography } from 'antd';
-import { BannerNotice, MetricCard, StatusBadge, TrendChart } from './components';
+import { BannerNotice, MetricCard, TrendChart } from './components';
 import { METRIC_MAP } from './mockData';
 
 const { Title } = Typography;

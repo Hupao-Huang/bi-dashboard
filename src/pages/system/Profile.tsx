@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Avatar, Button, Card, Col, Descriptions, Form, Input, message, Popconfirm, Row, Tag, Upload } from 'antd';
+import { Avatar, Button, Card, Col, Descriptions, Form, Input, message, Row, Tag, Upload } from 'antd';
 import { CameraOutlined, DingtalkOutlined, LockOutlined, SaveOutlined, SyncOutlined, UserOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 import UserActivityPanel, { UserActivity } from '../../components/UserActivityPanel';

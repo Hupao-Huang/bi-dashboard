@@ -1,7 +1,7 @@
 // 心智渗透 — 主题页 C: 心智绑定层 (C1-C14)
 import React from 'react';
 import { Card, Col, Progress, Row, Space, Tag, Typography } from 'antd';
-import { BannerNotice, MetricCard, StatusBadge, TrendChart } from './components';
+import { BannerNotice, MetricCard, TrendChart } from './components';
 import { METRIC_MAP } from './mockData';
 
 const { Title } = Typography;

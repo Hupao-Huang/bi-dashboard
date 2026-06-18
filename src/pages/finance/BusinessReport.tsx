@@ -9,7 +9,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Select, Spin, Table, Empty, Typography, Space, Button, Tooltip, TreeSelect } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
-import { formatWanHint } from '../../chartTheme';
 
 const { Text } = Typography;
 
@@ -197,12 +196,6 @@ const buildColumns = (data: BBRData): any[] => {
     return <div style={{ textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 12 }}>{(c.ratio * 100).toFixed(2)}%</div>;
   };
   const _suppress = achColor; void _suppress;
-  const isGmvRow = (row: BBRRow) => row.category === 'GMV数据';
-  const formatRatio = (c: BBRCell | undefined, row: BBRRow) => {
-    if (isGmvRow(row)) return null;
-    if (!c || c.ratio === undefined || c.ratio === null || !isFinite(c.ratio)) return <Text type="secondary">-</Text>;
-    return <div style={{ textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 11 }}>{(c.ratio * 100).toFixed(2)}%</div>;
-  };
   const divider = {
     onCell: () => ({ style: { borderRight: '2px solid #94a3b8' } }),
     onHeaderCell: () => ({ style: { borderRight: '2px solid #94a3b8' } }),

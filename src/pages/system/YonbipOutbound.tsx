@@ -268,57 +268,55 @@ const YonbipOutboundPage: React.FC = () => {
         });
         return;
       }
-      {
-        if (phase === 'convert') {
-          // 第①步: 批次转换。不清计划——接着要点【刷新计划】复查。
-          setConvResults(rs);
-          const convs = rs.flatMap((r) => r.shipments).flatMap((s) => s.conversions);
-          const cUncertain = convs.filter((c) => c.uncertain).length;
-          const cFail = convs.filter((c) => c.error && !c.skipped && !c.uncertain).length;
-          if (cUncertain > 0) {
-            Modal.error({
-              title: `⚠ ${cUncertain} 笔转换结果未知，可能已在用友建单`,
-              content: '这几笔保存时网络中断、没拿到用友应答，转换单可能已建成。请先去用友核对（下方标红的就是），别盲目重做，否则会重复建单。',
-              okText: '我去核对',
-            });
-          } else if (cFail > 0) {
-            message.warning(`转换完成（批次/状态），${cFail} 笔失败（看下方转换结果，修正后可再点①）`);
-          } else {
-            Modal.success({
-              title: '转换完成（批次 / 状态）',
-              content: '请点【生成 / 刷新计划】复查目标批次是否都到货、都是合格品了。用友库存刷新可能要等几秒，没立刻到货可稍等再刷新；计划里转换行（橙色批次 / 红色状态）消失，就能点②出库。',
-              okText: '知道了',
-            });
-          }
+      if (phase === 'convert') {
+        // 第①步: 批次转换。不清计划——接着要点【刷新计划】复查。
+        setConvResults(rs);
+        const convs = rs.flatMap((r) => r.shipments).flatMap((s) => s.conversions);
+        const cUncertain = convs.filter((c) => c.uncertain).length;
+        const cFail = convs.filter((c) => c.error && !c.skipped && !c.uncertain).length;
+        if (cUncertain > 0) {
+          Modal.error({
+            title: `⚠ ${cUncertain} 笔转换结果未知，可能已在用友建单`,
+            content: '这几笔保存时网络中断、没拿到用友应答，转换单可能已建成。请先去用友核对（下方标红的就是），别盲目重做，否则会重复建单。',
+            okText: '我去核对',
+          });
+        } else if (cFail > 0) {
+          message.warning(`转换完成（批次/状态），${cFail} 笔失败（看下方转换结果，修正后可再点①）`);
         } else {
-          // 第②步: 出库。
-          setResults(rs);
-          const ships = rs.flatMap((r) => r.shipments);
-          const shipUncertain = (s: YbShipLog) => !!s.uncertain || s.conversions.some((c) => c.uncertain);
-          const uncertain = ships.filter(shipUncertain).length;
-          const skip = ships.filter((s) => s.out_skipped).length;
-          const short = ships.filter((s) => s.bill_short).length; // 缺货整单未出, 不算失败
-          const fail = ships.filter((s) => s.error && !s.out_skipped && !s.bill_short && !shipUncertain(s)).length;
-          if (uncertain === 0 && fail === 0 && short === 0) {
-            // 出库全成功: 清空计划 + 录入草稿(避免这批残留给下一次/同机下一人), 转换结果留着可看
-            setPlans(null);
-            setFlat('');
-            setGroups([{ id: 1, head: '', details: '' }]);
-            try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
-            if (skip > 0) message.warning(`出库完成，其中 ${skip} 笔10分钟内已提交过、已自动跳过防重复；计划已清空`);
-            else message.success('出库完成，全部成功');
-          } else if (uncertain > 0) {
-            Modal.error({
-              title: `⚠ ${uncertain} 笔出库结果未知，可能已在用友建单`,
-              content: '这几笔保存时网络中断、没拿到用友应答，出库单可能已经建成。请先去用友核对（下方标红“可能已建单”的就是），确认没有再重做，否则会重复出库！',
-              okText: '我去核对',
-            });
-          } else if (fail > 0) {
-            message.warning(`出库完成，${fail} 笔失败（已保留计划，可修正后再点②；已成功的会自动跳过防重）`);
-          } else {
-            // 只有缺货单据没出, 齐全的已出
-            message.warning(`齐全单据已出库；有缺货单据整单未出（已保留计划，补齐库存后重新【生成 / 刷新计划】）`);
-          }
+          Modal.success({
+            title: '转换完成（批次 / 状态）',
+            content: '请点【生成 / 刷新计划】复查目标批次是否都到货、都是合格品了。用友库存刷新可能要等几秒，没立刻到货可稍等再刷新；计划里转换行（橙色批次 / 红色状态）消失，就能点②出库。',
+            okText: '知道了',
+          });
+        }
+      } else {
+        // 第②步: 出库。
+        setResults(rs);
+        const ships = rs.flatMap((r) => r.shipments);
+        const shipUncertain = (s: YbShipLog) => !!s.uncertain || s.conversions.some((c) => c.uncertain);
+        const uncertain = ships.filter(shipUncertain).length;
+        const skip = ships.filter((s) => s.out_skipped).length;
+        const short = ships.filter((s) => s.bill_short).length; // 缺货整单未出, 不算失败
+        const fail = ships.filter((s) => s.error && !s.out_skipped && !s.bill_short && !shipUncertain(s)).length;
+        if (uncertain === 0 && fail === 0 && short === 0) {
+          // 出库全成功: 清空计划 + 录入草稿(避免这批残留给下一次/同机下一人), 转换结果留着可看
+          setPlans(null);
+          setFlat('');
+          setGroups([{ id: 1, head: '', details: '' }]);
+          try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+          if (skip > 0) message.warning(`出库完成，其中 ${skip} 笔10分钟内已提交过、已自动跳过防重复；计划已清空`);
+          else message.success('出库完成，全部成功');
+        } else if (uncertain > 0) {
+          Modal.error({
+            title: `⚠ ${uncertain} 笔出库结果未知，可能已在用友建单`,
+            content: '这几笔保存时网络中断、没拿到用友应答，出库单可能已经建成。请先去用友核对（下方标红“可能已建单”的就是），确认没有再重做，否则会重复出库！',
+            okText: '我去核对',
+          });
+        } else if (fail > 0) {
+          message.warning(`出库完成，${fail} 笔失败（已保留计划，可修正后再点②；已成功的会自动跳过防重）`);
+        } else {
+          // 只有缺货单据没出, 齐全的已出
+          message.warning(`齐全单据已出库；有缺货单据整单未出（已保留计划，补齐库存后重新【生成 / 刷新计划】）`);
         }
       }
     } catch (e) {

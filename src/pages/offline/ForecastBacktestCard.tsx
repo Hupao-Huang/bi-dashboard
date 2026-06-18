@@ -3,7 +3,7 @@
 // 销量预测主页底部嵌一个折叠卡片, 展示当前算法对最近 12 月做实时回测的结果
 // 业务一眼看到"算法到底准不准"
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Card, Col, Empty, Row, Spin, Statistic, Table, Tag, Tooltip } from 'antd';
+import { Card, Col, Empty, Row, Spin, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import Chart from '../../components/Chart';
 import { API_BASE } from '../../config';
@@ -143,9 +143,9 @@ const ForecastBacktestCard: React.FC = () => {
       }
       extra={
         <Tooltip title="重新拉取最新回测">
-          <a onClick={fetchData} style={{ fontSize: 13 }}>
+          <Typography.Link onClick={() => fetchData()} style={{ fontSize: 13 }}>
             <ReloadOutlined /> 刷新
-          </a>
+          </Typography.Link>
         </Tooltip>
       }
       style={{ marginTop: 12 }}

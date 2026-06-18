@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Row, Col, Card, Select, Segmented, Button, Input, Statistic, Empty, Spin, Progress } from 'antd';
 import {
   CarOutlined, EnvironmentOutlined, AppstoreOutlined, GlobalOutlined,
@@ -341,7 +341,6 @@ const LogisticsAnalysis: React.FC = () => {
     const provTotals = Array.from(provTotalMap.values()).sort((a, b) => pick(b, metric) - pick(a, metric));
     const topProvs = provTotals.slice(0, TOP_N);
     const hasOther = provTotals.length > TOP_N;
-    const topProvNameSet = new Set(topProvs.map(p => p.name));
     const provNames = topProvs.map(p => p.name).concat(hasOther ? ['其它'] : []);
     // cellMap[wh][prov] = value
     const cellMap = new Map<string, Map<string, number>>();

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Table, Statistic, Tag, Modal, message, Empty, Descriptions, Switch, Space, Button } from 'antd';
+import { Card, Row, Col, Table, Statistic, Tag, Modal, message, Empty, Descriptions, Switch, Space, Button, Typography } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import PageLoading from '../../components/PageLoading';
@@ -160,7 +160,7 @@ const QCAlert: React.FC = () => {
   // 到货单详情里的检验单明细列
   const insColumns = [
     { title: '检验单号', dataIndex: 'code', key: 'code', width: 160,
-      render: (v: string, r: InsRow) => <a onClick={() => openDetail(r)}>{v}</a> },
+      render: (v: string, r: InsRow) => <Typography.Link onClick={() => openDetail(r)}>{v}</Typography.Link> },
     { title: '物料', dataIndex: 'materialName', key: 'materialName', ellipsis: true,
       render: (v: string, r: InsRow) => <span>{v} <span style={{ color: 'var(--text-tertiary)' }}>({r.materialCode})</span></span> },
     { title: '批次', dataIndex: 'batch', key: 'batch', width: 120 },

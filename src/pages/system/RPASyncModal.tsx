@@ -95,6 +95,7 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
     } catch (e) {
       // 静默失败，下一轮再试
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [triggerId, platform, stopPoll, onDone, onClose]);
 
   // 启动轮询

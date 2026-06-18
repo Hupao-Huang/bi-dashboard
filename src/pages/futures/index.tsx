@@ -2,7 +2,7 @@
 // 顶部 3 类卡片网格（主要原料/包材/大宗），每张卡片含品种名 + 当前价 + 涨跌 + 迷你折线图
 // 下方涨跌幅排行榜
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Col, Row, Spin, Tabs, Tag, Tooltip, Typography, Empty, message } from 'antd';
+import { Card, Col, Row, Spin, Tag, Tooltip, Typography, Empty, message } from 'antd';
 import { CaretDownOutlined, CaretUpOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
@@ -154,9 +154,9 @@ const FuturesOverview: React.FC = () => {
           </Text>
         </div>
         <Tooltip title="重新拉取最新行情">
-          <a onClick={fetchData} style={{ color: '#1e40af', fontSize: 13, cursor: 'pointer' }}>
+          <Typography.Link onClick={fetchData} style={{ color: '#1e40af', fontSize: 13, cursor: 'pointer' }}>
             <ReloadOutlined /> 刷新
-          </a>
+          </Typography.Link>
         </Tooltip>
       </div>
 
