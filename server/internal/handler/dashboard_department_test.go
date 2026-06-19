@@ -287,3 +287,63 @@ func TestGetDepartmentDetailDistribution(t *testing.T) {
 		t.Fatalf("unmet sql: %v", err)
 	}
 }
+
+// ===== 权限数据范围(scopeArgs)绑定回归 =====
+// 老 bug: 受限角色(库里实存 platform 数据范围)访问部门页且不带平台筛选时,
+// buildSalesDataScopeCond 生成带 ? 占位符的 scopeCond, 但 loadDeptGradePlatSales /
+// loadDeptPlatformSales 原先只传 (dept,start,end) 不传 scopeArgs → 占位符多于参数 →
+// MySQL "expected N arguments, got M" → 部门页 500。下面两测用 WithArgs 精确锁住
+// "scopeArgs 必须跟在 dept,start,end 之后一起传"; 漏传则 sqlmock 参数不匹配 → ok=false → 测试红。
+
+func TestLoadDeptGradePlatSalesBindsScopeArgs(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock new: %v", err)
+	}
+	defer db.Close()
+
+	// 模拟 platform 范围生成的 scopeCond(2 个占位符)
+	scopeCond := " AND shop_name IN (SELECT channel_name FROM sales_channel WHERE online_plat_name IN (?,?))"
+	scopeArgs := []interface{}{"天猫商城", "京东"}
+
+	// 期望参数 = dept,start,end + scopeArgs 共 5 个, 顺序固定; WithArgs 锁个数+值
+	mock.ExpectQuery(`GROUP BY grade, plat`).
+		WithArgs("ecommerce", "2026-04-01", "2026-04-30", "天猫商城", "京东").
+		WillReturnRows(sqlmock.NewRows([]string{"grade", "plat", "sales"}).AddRow("S", "天猫商城", 100.0))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/department?dept=ecommerce", nil)
+	_, ok := (&DashboardHandler{DB: db}).loadDeptGradePlatSales(rec, req, deptQuery{dept: "ecommerce", start: "2026-04-01", end: "2026-04-30", scopeCond: scopeCond, scopeArgs: scopeArgs})
+	if !ok {
+		t.Fatalf("应成功(scopeArgs 已传齐), 实际失败 — 占位符/参数不匹配? body=%s", rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("scopeArgs 未按 dept,start,end+scopeArgs 顺序绑定: %v", err)
+	}
+}
+
+func TestLoadDeptPlatformSalesBindsScopeArgs(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock new: %v", err)
+	}
+	defer db.Close()
+
+	scopeCond := " AND shop_name IN (SELECT channel_name FROM sales_channel WHERE online_plat_name IN (?,?))"
+	scopeArgs := []interface{}{"天猫商城", "京东"}
+
+	// dept=social 避开 ecommerce 的 2 调拨 QueryRow 旁路, 只剩主查询一条
+	mock.ExpectQuery(`GROUP BY plat\s+ORDER BY SUM`).
+		WithArgs("social", "2026-04-01", "2026-04-30", "天猫商城", "京东").
+		WillReturnRows(sqlmock.NewRows([]string{"plat", "sales", "qty"}).AddRow("天猫商城", 100.0, 5.0))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/department?dept=social", nil)
+	_, ok := (&DashboardHandler{DB: db}).loadDeptPlatformSales(rec, req, deptQuery{dept: "social", start: "2026-04-01", end: "2026-04-30", scopeCond: scopeCond, scopeArgs: scopeArgs})
+	if !ok {
+		t.Fatalf("应成功(scopeArgs 已传齐), 实际失败 — 占位符/参数不匹配? body=%s", rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("scopeArgs 未按 dept,start,end+scopeArgs 顺序绑定: %v", err)
+	}
+}

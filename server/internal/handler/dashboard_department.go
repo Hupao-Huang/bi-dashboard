@@ -70,18 +70,12 @@ func extraDeptCond(dept string, alias bool) string {
 	return ""
 }
 
-func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Request) {
-	dept := r.URL.Query().Get("dept")
-	if dept == "" {
-		writeError(w, 400, "dept is required")
-		return
-	}
-	start, end := getDateRange(r, h.DB)
-	shop := r.URL.Query().Get("shop")         // 可选：按店铺过滤
-	platform := r.URL.Query().Get("platform") // 可选：按平台过滤
+// ====== 部门页大区/平台常量 + 返回结构 ======
+// 下列常量/类型/平台 Tab 表原本声明在 GetDepartmentDetail 内, v1.77.7 拆函数时提到包级,
+// 供拆出来的各 section helper 共用 (无任何 SQL/口径变化, 纯结构整理)。
 
-	// 线下大区合并：shop_name → 大区名映射
-	const offlineRegionExpr = `CASE
+// offlineRegionExpr 线下大区合并: shop_name → 大区名映射 (多个 SQL section 共用)
+const offlineRegionExpr = `CASE
 		WHEN shop_name LIKE '%华东大区%' THEN '华东大区'
 		WHEN shop_name LIKE '%华北大区%' THEN '华北大区'
 		WHEN shop_name LIKE '%华南大区%' THEN '华南大区'
@@ -92,6 +86,144 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		WHEN shop_name LIKE '%山东大区%' OR shop_name LIKE '%山东省区%' THEN '山东大区'
 		WHEN shop_name LIKE '%重客系统%' THEN '重客'
 		ELSE NULL END`
+
+// offlineRegionPrefilter 只取大区/省区/重客的行 (排掉非大区门店)
+const offlineRegionPrefilter = ` AND (shop_name LIKE '%大区%' OR shop_name LIKE '%省区%' OR shop_name LIKE '%重客系统%')`
+
+// deptDailyData 每日趋势单元
+type deptDailyData struct {
+	Date   string  `json:"date"`
+	Sales  float64 `json:"sales"`
+	Qty    float64 `json:"qty"`
+	Profit float64 `json:"profit"`
+	Cost   float64 `json:"cost"`
+}
+
+// deptShopData 店铺/大区排行单元
+type deptShopData struct {
+	ShopName string  `json:"shopName"`
+	Sales    float64 `json:"sales"`
+	Qty      float64 `json:"qty"`
+	Profit   float64 `json:"profit"`
+}
+
+// deptGoodsData 商品排行单元
+type deptGoodsData struct {
+	GoodsNo  string  `json:"goodsNo"`
+	Name     string  `json:"goodsName"`
+	Brand    string  `json:"brand"`
+	Category string  `json:"category"`
+	Sales    float64 `json:"sales"`
+	Qty      float64 `json:"qty"`
+	Profit   float64 `json:"profit"`
+	Grade    string  `json:"grade"`
+}
+
+// deptChannelSales 单商品在某渠道的销售
+type deptChannelSales struct {
+	ShopName string  `json:"shopName"`
+	Sales    float64 `json:"sales"`
+	Qty      float64 `json:"qty"`
+}
+
+// deptBrandData 品牌分布单元
+type deptBrandData struct {
+	Brand string  `json:"brand"`
+	Sales float64 `json:"sales"`
+}
+
+// deptGradeData 产品定位分布单元
+type deptGradeData struct {
+	Grade string  `json:"grade"`
+	Sales float64 `json:"sales"`
+}
+
+// deptGradePlatItem 产品定位×平台(渠道) 销售
+type deptGradePlatItem struct {
+	Grade    string  `json:"grade"`
+	Platform string  `json:"platform"`
+	Sales    float64 `json:"sales"`
+}
+
+// deptPlatTab 平台 Tab (key=前端筛选键, label=展示名)
+type deptPlatTab struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+// deptPlatSales 平台销售额分布单元
+type deptPlatSales struct {
+	Platform string  `json:"platform"`
+	Sales    float64 `json:"sales"`
+	Qty      float64 `json:"qty"`
+}
+
+// deptGradeDeptItem crossDept=1: 产品定位×部门 全口径聚合(含毛利)
+type deptGradeDeptItem struct {
+	Grade      string  `json:"grade"`
+	Department string  `json:"department"`
+	Sales      float64 `json:"sales"`
+	Profit     float64 `json:"profit"`
+}
+
+// deptGradeShopItem crossDept=1: 产品定位×店铺 全口径聚合(含毛利)
+type deptGradeShopItem struct {
+	Grade      string  `json:"grade"`
+	Department string  `json:"department"`
+	ShopName   string  `json:"shopName"`
+	Sales      float64 `json:"sales"`
+	Profit     float64 `json:"profit"`
+}
+
+// platTabDefs 平台 Tab 定义 (顺序即前端展示顺序); platforms 列表 + platformSales 标签复用同一份
+var platTabDefs = []deptPlatTab{
+	{"tmall", "天猫"}, {"tmall_cs", "天猫超市"}, {"jd", "京东"}, {"pdd", "拼多多"},
+	{"vip", "唯品会"}, {"taobao", "淘宝"}, {"instant", "即时零售"},
+	{"douyin", "抖音"}, {"kuaishou", "快手"}, {"xiaohongshu", "小红书"},
+	{"youzan", "有赞"}, {"weidian", "微店"}, {"shipinhao", "视频号"},
+}
+
+// deptShopRankResult loadDeptShopRanking 的多值返回 (店铺排行 + 销售/调拨口径拆分 + 即时零售调拨渠道)
+type deptShopRankResult struct {
+	shops             []deptShopData
+	salesAmt          float64  // 店铺概览 KPI: 纯销售单口径 (调拨加入前的常规店铺合计)
+	allotAmt          float64  // 店铺概览 KPI: 调拨当销售口径 (电商 2 渠道 / 即时零售朴朴等)
+	addedAllotShops   int      // 调拨补进来的 entry 数 (给 totalShopCount 加回)
+	hasAllotData      bool     // 电商该时段是否有调拨数据 (决定是否显示"调拨专区" tab)
+	instantAllotChans []string // 即时零售本请求的调拨渠道清单 (店铺列表 + KPI 共用, 只算一次)
+}
+
+// deptQuery 部门页一次请求的公共查询上下文 (GetDepartmentDetail 解析一次, 透传给各 section helper)。
+// 收口原先散在 13 个 helper 签名里的 9-11 个同型位置参数 (dept/日期/各 cond/各 args),
+// 消除"相邻同型参数传错位置 → 绑错 SQL 槽"的隐患, 也收敛 fuck-u-code "参数数量" 维度。
+type deptQuery struct {
+	dept          string
+	start         string
+	end           string
+	platform      string
+	shopCond      string
+	platCond      string
+	scopeCond     string
+	pureScopeCond string
+	extraArgs     []interface{}
+	platArgs      []interface{}
+	scopeArgs     []interface{}
+}
+
+// GetDepartmentDetail 部门页详情接口 (/api/department)。
+// 编排器: 解析参数 → 按原 DB 调用顺序逐个 section helper → 汇总 writeJSON。
+// 各 helper 顺序不可乱: sqlmock 单测按 SQL 出现顺序匹配 (见 dashboard_department_test.go)。
+func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Request) {
+	dept := r.URL.Query().Get("dept")
+	if dept == "" {
+		writeError(w, 400, "dept is required")
+		return
+	}
+	start, end := getDateRange(r, h.DB)
+	shop := r.URL.Query().Get("shop")         // 可选：按店铺过滤
+	platform := r.URL.Query().Get("platform") // 可选：按平台过滤
+
+	// 线下大区 shop 过滤: shop=大区名 → 对应 LIKE 条件 (仅 offline shop 过滤用)
 	offlineRegionCond := map[string]string{
 		"华东大区": "shop_name LIKE '%华东大区%'",
 		"华北大区": "shop_name LIKE '%华北大区%'",
@@ -126,17 +258,128 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	extraArgs = append(extraArgs, scopeArgs...)
 
 	// v1.04: 电商部门剔除走特殊渠道调拨对账的渠道 (跑哥要求)
-	// 拼到 scopeCond 上, 所有 17 处 sales_goods_summary SQL 自动生效
-	// 用 strings.ReplaceAll(_, "shop_name", "s.shop_name") 的 SQL 也同步替换别名
-	//
-	// v1.74.3 拓范 T6h: 电商部页"店铺数据概览"合并 2 调拨渠道
-	// 保留 pureScopeCond (无电商部排除条件) 给 helper 调用 — helper 内 SQL 用 shop_id IN 锁定 2 渠道
-	// 不能让 helper SQL 再加 shop_name NOT IN 冲突 (否则数据 0)
+	// 拼到 scopeCond 上, 所有 sales_goods_summary SQL 自动生效
+	// pureScopeCond (无电商部排除条件) 给调拨 helper 用 — helper 内 SQL 用 shop_id IN 锁定 2 渠道,
+	// 不能再加 shop_name NOT IN 冲突 (否则数据 0)
 	pureScopeCond := scopeCond
 	scopeCond += extraDeptCond(dept, false)
-	_ = pureScopeCond // 仅 dept=ecommerce 时用, 防 unused warning
 
-	// 1. 每日趋势（短范围自动扩展）
+	// 3.5 商品渠道分布 / crossDept: 跨 4 部门聚合 (财务·产品利润页用)
+	crossDept := r.URL.Query().Get("crossDept") == "1"
+
+	// q 收口本次请求的公共查询上下文, 透传给各 section helper (替代原 9-11 个同型位置参数)
+	q := deptQuery{
+		dept: dept, start: start, end: end, platform: platform,
+		shopCond: shopCond, platCond: platCond, scopeCond: scopeCond, pureScopeCond: pureScopeCond,
+		extraArgs: extraArgs, platArgs: platArgs, scopeArgs: scopeArgs,
+	}
+
+	// ===== 各 section: 顺序 = 原 DB 调用顺序, 不可乱 (sqlmock 单测按序匹配) =====
+
+	// 1. 每日趋势
+	daily, trendStart, trendEnd, ok := h.loadDeptDailyTrend(w, r, q)
+	if !ok {
+		return
+	}
+
+	// 2. 店铺/大区排行 (+ 电商/即时零售调拨合并)
+	shopRank, ok := h.loadDeptShopRanking(w, r, q)
+	if !ok {
+		return
+	}
+
+	// 2.5 店铺总数 (独立于 LIMIT 排行榜, 给前端"全部 N 家"真实总数)
+	totalShopCount := h.loadDeptShopTotalCount(q, len(shopRank.shops), shopRank.addedAllotShops)
+
+	// 3. 商品排行 (+ 电商调拨 SKU 合并, allotGoods 后续多 section 复用)
+	goods, allotGoods, ok := h.loadDeptGoodsRanking(w, r, q)
+	if !ok {
+		return
+	}
+
+	// 3.1 商品维度总计 (KPI 卡用, 独立 SUM 全部商品避免 TOP15 reduce 偏小)
+	totalSales, totalQty, totalSku := h.loadDeptGoodsTotals(r, q, allotGoods, shopRank.instantAllotChans)
+
+	// 3.5 商品渠道分布
+	goodsChannels, ok := h.loadDeptGoodsChannels(w, r, q, goods, crossDept)
+	if !ok {
+		return
+	}
+
+	// 4. 品牌分布
+	brands, ok := h.loadDeptBrands(w, r, q, allotGoods)
+	if !ok {
+		return
+	}
+
+	// 4.5 产品定位分布
+	grades, ok := h.loadDeptGrades(w, r, q, allotGoods)
+	if !ok {
+		return
+	}
+
+	// 4.6 产品定位×平台 销售分布
+	gradePlatSales, ok := h.loadDeptGradePlatSales(w, r, q)
+	if !ok {
+		return
+	}
+
+	// 5. 平台 Tab 列表 (只返回有销售数据的)
+	platforms, ok := h.loadDeptPlatformTabs(w, r, q, shopRank.hasAllotData)
+	if !ok {
+		return
+	}
+
+	// 6. 平台销售额分布
+	platformSales, ok := h.loadDeptPlatformSales(w, r, q)
+	if !ok {
+		return
+	}
+
+	// offline 补充: 日期范围内各月目标累加
+	regionTargets, ok := h.loadDeptRegionTargets(w, r, q)
+	if !ok {
+		return
+	}
+
+	// crossDept=1 额外返回: 产品定位×部门 + 产品定位×店铺 全口径聚合(含毛利)
+	var gradeDeptSalesAll []deptGradeDeptItem
+	var gradeShopSalesAll []deptGradeShopItem
+	if crossDept {
+		gradeDeptSalesAll, gradeShopSalesAll, ok = h.loadDeptCrossGrades(w, r, q)
+		if !ok {
+			return
+		}
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"daily":             daily,
+		"shops":             shopRank.shops,
+		"salesAmt":          shopRank.salesAmt, // 店铺概览 KPI: 纯销售单口径 (调拨加入前的常规店铺合计)
+		"allotAmt":          shopRank.allotAmt, // 店铺概览 KPI: 调拨当销售口径 (电商 2 渠道 / 即时零售朴朴等)
+		"shopTotalCount":    totalShopCount,
+		"goods":             goods,
+		"totalSales":        totalSales,
+		"totalQty":          totalQty,
+		"totalSku":          totalSku,
+		"goodsChannels":     goodsChannels,
+		"brands":            brands,
+		"grades":            grades,
+		"platforms":         platforms,
+		"platformSales":     platformSales,
+		"gradePlatSales":    gradePlatSales,
+		"gradeDeptSalesAll": gradeDeptSalesAll,
+		"gradeShopSalesAll": gradeShopSalesAll,
+		"regionTargets":     regionTargets,
+		"dateRange":         map[string]string{"start": start, "end": end},
+		"trendRange":        map[string]string{"start": trendStart, "end": trendEnd},
+	})
+}
+
+// loadDeptDailyTrend 每日趋势 (短范围自动扩展) + 电商部日级调拨加回。
+// 返回 daily 数据 + 实际趋势区间 trendStart/trendEnd (给前端 trendRange)。
+func (h *DashboardHandler) loadDeptDailyTrend(w http.ResponseWriter, r *http.Request, q deptQuery) ([]deptDailyData, string, string, bool) {
+	dept, start, end, shopCond, platCond, scopeCond, pureScopeCond, extraArgs, scopeArgs := q.dept, q.start, q.end, q.shopCond, q.platCond, q.scopeCond, q.pureScopeCond, q.extraArgs, q.scopeArgs
 	trendStart, trendEnd := getTrendDateRange(start, end)
 	trendArgs := append([]interface{}{dept, trendStart, trendEnd}, extraArgs...)
 	trendRows, ok := queryRowsOrWriteError(w, r, h.DB, `
@@ -150,27 +393,20 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		`+scopeCond+`
 		GROUP BY stat_date ORDER BY stat_date`, trendArgs...)
 	if !ok {
-		return
+		return nil, "", "", false
 	}
 	defer trendRows.Close()
 
-	type DailyData struct {
-		Date   string  `json:"date"`
-		Sales  float64 `json:"sales"`
-		Qty    float64 `json:"qty"`
-		Profit float64 `json:"profit"`
-		Cost   float64 `json:"cost"`
-	}
-	var daily []DailyData
+	var daily []deptDailyData
 	for trendRows.Next() {
-		var d DailyData
+		var d deptDailyData
 		if writeDatabaseError(w, trendRows.Scan(&d.Date, &d.Sales, &d.Qty, &d.Profit, &d.Cost)) {
-			return
+			return nil, "", "", false
 		}
 		daily = append(daily, d)
 	}
 	if writeDatabaseError(w, trendRows.Err()) {
-		return
+		return nil, "", "", false
 	}
 
 	// v1.74.6: 电商部页趋势漏算 2 调拨渠道 (清心湖自营+猫超寄售), 与同页 KPI 卡对不上
@@ -189,12 +425,18 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			}
 		}
 	}
+	return daily, trendStart, trendEnd, true
+}
 
-	// 2. 店铺/大区排行（offline 按大区合并，其余按 shop_name）
+// loadDeptShopRanking 店铺/大区排行 (offline 按大区合并, 其余按 shop_name) + 电商/即时零售调拨合并。
+// 同时算出店铺概览 KPI 的销售/调拨拆分, 以及即时零售调拨渠道清单 (后续 KPI 复用)。
+func (h *DashboardHandler) loadDeptShopRanking(w http.ResponseWriter, r *http.Request, q deptQuery) (deptShopRankResult, bool) {
+	dept, start, end, platform, platCond, scopeCond, pureScopeCond, platArgs, scopeArgs := q.dept, q.start, q.end, q.platform, q.platCond, q.scopeCond, q.pureScopeCond, q.platArgs, q.scopeArgs
+	var res deptShopRankResult
+
 	shopListArgs := append([]interface{}{dept, start, end}, platArgs...)
 	shopListArgs = append(shopListArgs, scopeArgs...)
 	var shopListSQL string
-	const offlineRegionPrefilter = ` AND (shop_name LIKE '%大区%' OR shop_name LIKE '%省区%' OR shop_name LIKE '%重客系统%')`
 	if dept == "offline" {
 		shopListSQL = `SELECT ` + offlineRegionExpr + ` as shop_name,
 			ROUND(SUM(local_goods_amt), 2) as sales,
@@ -216,26 +458,20 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	}
 	shopRows, ok := queryRowsOrWriteError(w, r, h.DB, shopListSQL, shopListArgs...)
 	if !ok {
-		return
+		return res, false
 	}
 	defer shopRows.Close()
 
-	type ShopData struct {
-		ShopName string  `json:"shopName"`
-		Sales    float64 `json:"sales"`
-		Qty      float64 `json:"qty"`
-		Profit   float64 `json:"profit"`
-	}
-	var shops []ShopData
+	var shops []deptShopData
 	for shopRows.Next() {
-		var s ShopData
+		var s deptShopData
 		if writeDatabaseError(w, shopRows.Scan(&s.ShopName, &s.Sales, &s.Qty, &s.Profit)) {
-			return
+			return res, false
 		}
 		shops = append(shops, s)
 	}
 	if writeDatabaseError(w, shopRows.Err()) {
-		return
+		return res, false
 	}
 
 	// 店铺数据概览 KPI 销售/调拨拆分: 先记录纯销售单口径 (allot 加入前的常规店铺合计)
@@ -291,7 +527,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				if platform != "allot" && allot.allotAmt == 0 {
 					continue
 				}
-				shops = append(shops, ShopData{
+				shops = append(shops, deptShopData{
 					ShopName: shopName,
 					Sales:    allot.allotAmt,
 					Qty:      allot.allotQty,
@@ -337,7 +573,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				}
 			}
 			if !found {
-				shops = append(shops, ShopData{ShopName: shopName, Sales: amt, Qty: qty, Profit: 0})
+				shops = append(shops, deptShopData{ShopName: shopName, Sales: amt, Qty: qty, Profit: 0})
 				addedAllotShops++
 			}
 			changed = true
@@ -349,7 +585,19 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	// 2.5 店铺总数（独立于 LIMIT 20 排行榜，给前端"全部 N 家"用真实总数）
+	res.shops = shops
+	res.salesAmt = shopSalesAmt
+	res.allotAmt = shopAllotAmt
+	res.addedAllotShops = addedAllotShops
+	res.hasAllotData = hasAllotData
+	res.instantAllotChans = instantAllotChans
+	return res, true
+}
+
+// loadDeptShopTotalCount 店铺总数 (独立于 LIMIT 排行榜)。
+// SQL 错误按原逻辑忽略 (返 0 时用 len(shops) 兜底), 故不写错误响应。
+func (h *DashboardHandler) loadDeptShopTotalCount(q deptQuery, shopsLen, addedAllotShops int) int {
+	dept, start, end, platCond, scopeCond, platArgs, scopeArgs := q.dept, q.start, q.end, q.platCond, q.scopeCond, q.platArgs, q.scopeArgs
 	var totalShopCount int
 	totalShopArgs := append([]interface{}{dept, start, end}, platArgs...)
 	totalShopArgs = append(totalShopArgs, scopeArgs...)
@@ -366,13 +614,18 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	_ = h.DB.QueryRow(totalShopSQL, totalShopArgs...).Scan(&totalShopCount)
 	if totalShopCount == 0 {
 		// SQL 返 0 (e.g. AND 1=0): fallback 用 len(shops), 已含 addedAllotShops 加进去的 entry
-		totalShopCount = len(shops)
+		totalShopCount = shopsLen
 	} else {
 		// SQL 正常返数, 它因 ecommerceExcludeAllotCond 不含 2 调拨店, 这里加上
 		totalShopCount += addedAllotShops
 	}
+	return totalShopCount
+}
 
-	// 3. 商品排行
+// loadDeptGoodsRanking 商品 TOP15 排行 + 电商调拨 SKU 合并。
+// 同时返回 allotGoods (调拨 SKU 详情) 给后续品牌/定位/KPI 多 section 复用。
+func (h *DashboardHandler) loadDeptGoodsRanking(w http.ResponseWriter, r *http.Request, q deptQuery) ([]deptGoodsData, []GoodsAllotItem, bool) {
+	dept, start, end, platform, shopCond, platCond, scopeCond, extraArgs := q.dept, q.start, q.end, q.platform, q.shopCond, q.platCond, q.scopeCond, q.extraArgs
 	goodsArgs := append([]interface{}{dept, start, end}, extraArgs...)
 	goodsRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT s.goods_no, s.goods_name, s.brand_name, IFNULL(s.cate_name,''),
@@ -387,30 +640,20 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		GROUP BY s.goods_no, s.goods_name, s.brand_name, s.cate_name, g.goods_field7
 		ORDER BY sales DESC LIMIT 15`, goodsArgs...)
 	if !ok {
-		return
+		return nil, nil, false
 	}
 	defer goodsRows.Close()
 
-	type GoodsData struct {
-		GoodsNo  string  `json:"goodsNo"`
-		Name     string  `json:"goodsName"`
-		Brand    string  `json:"brand"`
-		Category string  `json:"category"`
-		Sales    float64 `json:"sales"`
-		Qty      float64 `json:"qty"`
-		Profit   float64 `json:"profit"`
-		Grade    string  `json:"grade"`
-	}
-	var goods []GoodsData
+	var goods []deptGoodsData
 	for goodsRows.Next() {
-		var g GoodsData
+		var g deptGoodsData
 		if writeDatabaseError(w, goodsRows.Scan(&g.GoodsNo, &g.Name, &g.Brand, &g.Category, &g.Sales, &g.Qty, &g.Profit, &g.Grade)) {
-			return
+			return nil, nil, false
 		}
 		goods = append(goods, g)
 	}
 	if writeDatabaseError(w, goodsRows.Err()) {
-		return
+		return nil, nil, false
 	}
 
 	// v1.74.3 拓范 T6j (跑哥 5/25): 货品看板合并 2 调拨渠道 SKU
@@ -441,7 +684,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				// profit 不加 (调拨无 profit, 保留原销售单 profit)
 			} else {
 				// SKU 不在 topGoods (仅这 2 调拨渠道卖) → append entry
-				goods = append(goods, GoodsData{
+				goods = append(goods, deptGoodsData{
 					GoodsNo:  a.GoodsNo,
 					Name:     a.GoodsName,
 					Brand:    a.BrandName,
@@ -462,10 +705,13 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			goods = goods[:15]
 		}
 	}
+	return goods, allotGoods, true
+}
 
-	// 3.1 商品维度总计 (KPI 卡用) — goods 数组只返回 TOP 15, 前端 reduce 会把"TOP 15 合计"当"全部"
-	// 误算总销售额/总货品数/SKU数, 这里独立 SUM 全部商品给 KPI 准确口径. 修 跑哥 2026-05-20 报的
-	// 线下 4 月总销售额 17,525,587.25 (TOP15) vs 综合看板 21,556,219.59 (全部) 差 18.7% bug
+// loadDeptGoodsTotals 商品维度总计 (KPI 卡用) — 独立 SUM 全部商品, 避免前端把 TOP15 reduce 当全部。
+// 修 跑哥 2026-05-20 报的 线下 TOP15 vs 全部差 18.7% bug。SQL 错误按原逻辑忽略, 不写错误响应。
+func (h *DashboardHandler) loadDeptGoodsTotals(r *http.Request, q deptQuery, allotGoods []GoodsAllotItem, instantAllotChans []string) (float64, float64, int) {
+	dept, start, end, shopCond, platCond, scopeCond, extraArgs := q.dept, q.start, q.end, q.shopCond, q.platCond, q.scopeCond, q.extraArgs
 	var totalSales, totalQty float64
 	var totalSku int
 	totalArgs := append([]interface{}{dept, start, end}, extraArgs...)
@@ -473,7 +719,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	_ = h.DB.QueryRow(totalSQL, totalArgs...).Scan(&totalSales, &totalQty, &totalSku)
 
 	// v1.74.3 拓范 T6j: KPI 加调拨数据 (totalSales/totalQty/totalSku)
-	// allotGoods 是 helper 数据 (5/1-5/24 样本 33 SKU), 加和到 KPI 让 ProductDashboard 总数对齐 StorePreview
+	// allotGoods 是 helper 数据, 加和到 KPI 让 ProductDashboard 总数对齐 StorePreview
 	if len(allotGoods) > 0 {
 		for _, a := range allotGoods {
 			totalSales += a.Sales
@@ -497,84 +743,87 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		totalQty += puQty
 		totalSku += puSku
 	}
+	return totalSales, totalQty, totalSku
+}
 
-	// 3.5 商品渠道分布（为TOP15每个商品查各渠道销售额）
-	// crossDept=1: 跨 4 部门聚合渠道分布（财务·产品利润页用于看商品在各部门/各渠道的全口径分布）
-	crossDept := r.URL.Query().Get("crossDept") == "1"
-	type ChannelSales struct {
-		ShopName string  `json:"shopName"`
-		Sales    float64 `json:"sales"`
-		Qty      float64 `json:"qty"`
+// loadDeptGoodsChannels 商品渠道分布 (为 TOP15 每个商品查各渠道销售额)。
+// crossDept=1: 跨 4 部门聚合渠道分布 (财务·产品利润页看商品全口径分布)。
+func (h *DashboardHandler) loadDeptGoodsChannels(w http.ResponseWriter, r *http.Request, q deptQuery, goods []deptGoodsData, crossDept bool) (map[string][]deptChannelSales, bool) {
+	dept, start, end, shopCond, platCond, scopeCond, extraArgs := q.dept, q.start, q.end, q.shopCond, q.platCond, q.scopeCond, q.extraArgs
+	goodsChannels := map[string][]deptChannelSales{}
+	if len(goods) == 0 {
+		return goodsChannels, true
 	}
-	goodsChannels := map[string][]ChannelSales{}
-	if len(goods) > 0 {
-		placeholders := make([]string, len(goods))
-		for i := range goods {
-			placeholders[i] = "?"
+	placeholders := make([]string, len(goods))
+	for i := range goods {
+		placeholders[i] = "?"
+	}
+	var chSQL string
+	var chArgs []interface{}
+	if crossDept {
+		// 跨部门：忽略 dept/shop/platform/scope 过滤，按 stat_date+goods_no 全口径聚合
+		chArgs = []interface{}{start, end}
+		for _, g := range goods {
+			chArgs = append(chArgs, g.GoodsNo)
 		}
-		var chSQL string
-		var chArgs []interface{}
-		if crossDept {
-			// 跨部门：忽略 dept/shop/platform/scope 过滤，按 stat_date+goods_no 全口径聚合
-			chArgs = []interface{}{start, end}
-			for _, g := range goods {
-				chArgs = append(chArgs, g.GoodsNo)
-			}
+		chSQL = `SELECT goods_no, shop_name,
+			ROUND(SUM(local_goods_amt), 2) as sales,
+			ROUND(SUM(goods_qty), 0) as qty
+		FROM sales_goods_summary
+		WHERE stat_date BETWEEN ? AND ?
+		  AND goods_no IN (` + joinStrings(placeholders, ",") + `)
+		GROUP BY goods_no, shop_name
+		ORDER BY goods_no, sales DESC`
+	} else {
+		chArgs = []interface{}{dept, start, end}
+		for _, g := range goods {
+			chArgs = append(chArgs, g.GoodsNo)
+		}
+		chArgs = append(chArgs, extraArgs...)
+		if dept == "offline" {
+			chSQL = `SELECT goods_no, ` + offlineRegionExpr + ` as shop_name,
+				ROUND(SUM(local_goods_amt), 2) as sales,
+				ROUND(SUM(goods_qty), 0) as qty
+			FROM sales_goods_summary
+			WHERE department = ? AND stat_date BETWEEN ? AND ?
+			  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
+				offlineRegionPrefilter + shopCond + scopeCond + `
+			GROUP BY goods_no, 2
+			ORDER BY goods_no, sales DESC`
+		} else {
 			chSQL = `SELECT goods_no, shop_name,
 				ROUND(SUM(local_goods_amt), 2) as sales,
 				ROUND(SUM(goods_qty), 0) as qty
 			FROM sales_goods_summary
-			WHERE stat_date BETWEEN ? AND ?
-			  AND goods_no IN (` + joinStrings(placeholders, ",") + `)
+			WHERE department = ? AND stat_date BETWEEN ? AND ?
+			  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
+				shopCond + platCond + scopeCond + `
 			GROUP BY goods_no, shop_name
 			ORDER BY goods_no, sales DESC`
-		} else {
-			chArgs = []interface{}{dept, start, end}
-			for _, g := range goods {
-				chArgs = append(chArgs, g.GoodsNo)
-			}
-			chArgs = append(chArgs, extraArgs...)
-			if dept == "offline" {
-				chSQL = `SELECT goods_no, ` + offlineRegionExpr + ` as shop_name,
-					ROUND(SUM(local_goods_amt), 2) as sales,
-					ROUND(SUM(goods_qty), 0) as qty
-				FROM sales_goods_summary
-				WHERE department = ? AND stat_date BETWEEN ? AND ?
-				  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
-					offlineRegionPrefilter + shopCond + scopeCond + `
-				GROUP BY goods_no, 2
-				ORDER BY goods_no, sales DESC`
-			} else {
-				chSQL = `SELECT goods_no, shop_name,
-					ROUND(SUM(local_goods_amt), 2) as sales,
-					ROUND(SUM(goods_qty), 0) as qty
-				FROM sales_goods_summary
-				WHERE department = ? AND stat_date BETWEEN ? AND ?
-				  AND goods_no IN (` + joinStrings(placeholders, ",") + `)` +
-					shopCond + platCond + scopeCond + `
-				GROUP BY goods_no, shop_name
-				ORDER BY goods_no, sales DESC`
-			}
-		}
-		chRows, ok := queryRowsOrWriteError(w, r, h.DB, chSQL, chArgs...)
-		if !ok {
-			return
-		}
-		defer chRows.Close()
-		for chRows.Next() {
-			var goodsNo, shopName string
-			var sales, qty float64
-			if writeDatabaseError(w, chRows.Scan(&goodsNo, &shopName, &sales, &qty)) {
-				return
-			}
-			goodsChannels[goodsNo] = append(goodsChannels[goodsNo], ChannelSales{ShopName: shopName, Sales: sales, Qty: qty})
-		}
-		if writeDatabaseError(w, chRows.Err()) {
-			return
 		}
 	}
+	chRows, ok := queryRowsOrWriteError(w, r, h.DB, chSQL, chArgs...)
+	if !ok {
+		return nil, false
+	}
+	defer chRows.Close()
+	for chRows.Next() {
+		var goodsNo, shopName string
+		var sales, qty float64
+		if writeDatabaseError(w, chRows.Scan(&goodsNo, &shopName, &sales, &qty)) {
+			return nil, false
+		}
+		goodsChannels[goodsNo] = append(goodsChannels[goodsNo], deptChannelSales{ShopName: shopName, Sales: sales, Qty: qty})
+	}
+	if writeDatabaseError(w, chRows.Err()) {
+		return nil, false
+	}
+	return goodsChannels, true
+}
 
-	// 4. 品牌分布
+// loadDeptBrands 品牌分布 TOP10 (+ 电商调拨按 brand_name 合并)。
+func (h *DashboardHandler) loadDeptBrands(w http.ResponseWriter, r *http.Request, q deptQuery, allotGoods []GoodsAllotItem) ([]deptBrandData, bool) {
+	dept, start, end, shopCond, platCond, scopeCond, extraArgs := q.dept, q.start, q.end, q.shopCond, q.platCond, q.scopeCond, q.extraArgs
 	brandArgs := append([]interface{}{dept, start, end}, extraArgs...)
 	brandRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT IFNULL(brand_name,'未知') as brand,
@@ -583,24 +832,20 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		WHERE department = ? AND stat_date BETWEEN ? AND ?`+shopCond+platCond+scopeCond+`
 		GROUP BY brand_name ORDER BY sales DESC LIMIT 10`, brandArgs...)
 	if !ok {
-		return
+		return nil, false
 	}
 	defer brandRows.Close()
 
-	type BrandData struct {
-		Brand string  `json:"brand"`
-		Sales float64 `json:"sales"`
-	}
-	var brands []BrandData
+	var brands []deptBrandData
 	for brandRows.Next() {
-		var b BrandData
+		var b deptBrandData
 		if writeDatabaseError(w, brandRows.Scan(&b.Brand, &b.Sales)) {
-			return
+			return nil, false
 		}
 		brands = append(brands, b)
 	}
 	if writeDatabaseError(w, brandRows.Err()) {
-		return
+		return nil, false
 	}
 
 	// v1.74.3 拓范 T6j: 品牌分布合并调拨 (按 brand_name 聚合 allotGoods)
@@ -624,7 +869,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			if i, ok := brandIdx[brand]; ok {
 				brands[i].Sales += sales
 			} else {
-				brands = append(brands, BrandData{Brand: brand, Sales: sales})
+				brands = append(brands, deptBrandData{Brand: brand, Sales: sales})
 			}
 		}
 		sort.SliceStable(brands, func(i, j int) bool {
@@ -634,13 +879,13 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			brands = brands[:10]
 		}
 	}
+	return brands, true
+}
 
-	// 4.5 产品定位分布
-	type GradeData struct {
-		Grade string  `json:"grade"`
-		Sales float64 `json:"sales"`
-	}
-	var grades []GradeData
+// loadDeptGrades 产品定位(S/A/B/C/D) 分布 (+ 电商调拨按 goods_field7 合并)。
+func (h *DashboardHandler) loadDeptGrades(w http.ResponseWriter, r *http.Request, q deptQuery, allotGoods []GoodsAllotItem) ([]deptGradeData, bool) {
+	dept, start, end, shopCond, platCond, scopeCond, extraArgs := q.dept, q.start, q.end, q.shopCond, q.platCond, q.scopeCond, q.extraArgs
+	var grades []deptGradeData
 	gradeArgs := append([]interface{}{dept, start, end}, extraArgs...)
 	gradeRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT IFNULL(g.goods_field7,'未设置') as grade,
@@ -651,18 +896,18 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		GROUP BY g.goods_field7
 		ORDER BY FIELD(g.goods_field7,'S','A','B','C','D'), sales DESC`, gradeArgs...)
 	if !ok {
-		return
+		return nil, false
 	}
 	defer gradeRows.Close()
 	for gradeRows.Next() {
-		var gd GradeData
+		var gd deptGradeData
 		if writeDatabaseError(w, gradeRows.Scan(&gd.Grade, &gd.Sales)) {
-			return
+			return nil, false
 		}
 		grades = append(grades, gd)
 	}
 	if writeDatabaseError(w, gradeRows.Err()) {
-		return
+		return nil, false
 	}
 
 	// v1.74.3 拓范 T6j: Grade 分布合并调拨 (按 goods_field7 聚合 allotGoods)
@@ -686,19 +931,30 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			if i, ok := gradeIdx[grade]; ok {
 				grades[i].Sales += sales
 			} else {
-				grades = append(grades, GradeData{Grade: grade, Sales: sales})
+				grades = append(grades, deptGradeData{Grade: grade, Sales: sales})
 			}
 		}
-		// 按 S/A/B/C/D 顺序保留 (没 sort 因为 grade 有特定顺序)
+		// allot append 可能打乱 grade 顺序 (尤其"调拨专区" tab: 主查询被 platCond AND 1=0 清空,
+		// grades 全靠 map 迭代 append, Go map 迭代随机 → 输出顺序不确定)。
+		// 按主查询同款 ORDER BY FIELD(grade,'S','A','B','C','D') 重排, 保证输出确定。
+		// (对齐 brands 段: 它合并后也 sort; 原 grades 漏了这步)
+		gradeRank := map[string]int{"S": 1, "A": 2, "B": 3, "C": 4, "D": 5} // 不在表(未设置/空)→0, 同 SQL FIELD 语义
+		sort.SliceStable(grades, func(i, j int) bool {
+			ri, rj := gradeRank[grades[i].Grade], gradeRank[grades[j].Grade]
+			if ri != rj {
+				return ri < rj
+			}
+			return grades[i].Sales > grades[j].Sales
+		})
 	}
+	return grades, true
+}
 
-	// 4.6 产品定位×平台销售分布（电商+社媒部门，平台维度通过 sales_channel.online_plat_name）
-	type GradePlatItem struct {
-		Grade    string  `json:"grade"`
-		Platform string  `json:"platform"`
-		Sales    float64 `json:"sales"`
-	}
-	var gradePlatSales []GradePlatItem
+// loadDeptGradePlatSales 产品定位×平台(渠道) 销售分布。
+// 电商/社媒/即时零售: 平台维度走 sales_channel.online_plat_name; 线下: 按大区; 分销: 按 shop_name。
+func (h *DashboardHandler) loadDeptGradePlatSales(w http.ResponseWriter, r *http.Request, q deptQuery) ([]deptGradePlatItem, bool) {
+	dept, start, end, scopeCond, scopeArgs := q.dept, q.start, q.end, q.scopeCond, q.scopeArgs
+	var gradePlatSales []deptGradePlatItem
 	if dept == "ecommerce" || dept == "social" || dept == "instant_retail" {
 		gpRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 			SELECT IFNULL(g.goods_field7,'未设置') as grade,
@@ -713,9 +969,9 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			LEFT JOIN (SELECT channel_name, department, MAX(online_plat_name) AS online_plat_name FROM sales_channel GROUP BY channel_name, department) sc ON sc.channel_name = s.shop_name AND sc.department = s.department
 			WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?`+scopeCond+`
 			GROUP BY grade, plat
-			ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`, dept, start, end)
+			ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`, append([]interface{}{dept, start, end}, scopeArgs...)...)
 		if !ok {
-			return
+			return nil, false
 		}
 		defer gpRows.Close()
 		platLabelMap := map[string]string{
@@ -727,12 +983,12 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			"微信视频号小店": "视频号",
 		}
 		gpKey := func(grade, plat string) string { return grade + "|" + plat }
-		gpMap := map[string]*GradePlatItem{}
+		gpMap := map[string]*deptGradePlatItem{}
 		for gpRows.Next() {
 			var grade, rawPlat string
 			var sales float64
 			if writeDatabaseError(w, gpRows.Scan(&grade, &rawPlat, &sales)) {
-				return
+				return nil, false
 			}
 			label := rawPlat
 			if l, ok := platLabelMap[rawPlat]; ok {
@@ -742,11 +998,11 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			if ps, ok := gpMap[key]; ok {
 				ps.Sales += sales
 			} else {
-				gpMap[key] = &GradePlatItem{Grade: grade, Platform: label, Sales: sales}
+				gpMap[key] = &deptGradePlatItem{Grade: grade, Platform: label, Sales: sales}
 			}
 		}
 		if writeDatabaseError(w, gpRows.Err()) {
-			return
+			return nil, false
 		}
 		for _, ps := range gpMap {
 			gradePlatSales = append(gradePlatSales, *ps)
@@ -780,25 +1036,29 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				GROUP BY grade, s.shop_name
 				ORDER BY FIELD(grade,'S','A','B','C','D'), sales DESC`
 		}
-		gpRows, ok := queryRowsOrWriteError(w, r, h.DB, gpSQL, dept, start, end)
+		gpRows, ok := queryRowsOrWriteError(w, r, h.DB, gpSQL, append([]interface{}{dept, start, end}, scopeArgs...)...)
 		if !ok {
-			return
+			return nil, false
 		}
 		defer gpRows.Close()
 		for gpRows.Next() {
 			var grade, channel string
 			var sales float64
 			if writeDatabaseError(w, gpRows.Scan(&grade, &channel, &sales)) {
-				return
+				return nil, false
 			}
-			gradePlatSales = append(gradePlatSales, GradePlatItem{Grade: grade, Platform: channel, Sales: sales})
+			gradePlatSales = append(gradePlatSales, deptGradePlatItem{Grade: grade, Platform: channel, Sales: sales})
 		}
 		if writeDatabaseError(w, gpRows.Err()) {
-			return
+			return nil, false
 		}
 	}
+	return gradePlatSales, true
+}
 
-	// 5. 平台列表（合并后，只返回有销售数据的）
+// loadDeptPlatformTabs 平台 Tab 列表 (只返回该部门该时段有销售数据的平台 + 电商调拨专区)。
+func (h *DashboardHandler) loadDeptPlatformTabs(w http.ResponseWriter, r *http.Request, q deptQuery, hasAllotData bool) ([]deptPlatTab, bool) {
+	dept, start, end := q.dept, q.start, q.end
 	// 先查有数据的原始平台名
 	platRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT DISTINCT sc.online_plat_name
@@ -807,19 +1067,19 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		WHERE sc.department = ? AND sc.online_plat_name IS NOT NULL AND sc.online_plat_name != ''
 		  AND s.stat_date BETWEEN ? AND ? AND s.department = ?`, dept, start, end, dept)
 	if !ok {
-		return
+		return nil, false
 	}
 	defer platRows.Close()
 	rawPlats := map[string]bool{}
 	for platRows.Next() {
 		var p string
 		if writeDatabaseError(w, platRows.Scan(&p)) {
-			return
+			return nil, false
 		}
 		rawPlats[p] = true
 	}
 	if writeDatabaseError(w, platRows.Err()) {
-		return
+		return nil, false
 	}
 
 	// 即时零售特殊检查：按店铺名匹配
@@ -828,21 +1088,11 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		WHERE shop_name LIKE '%即时零售%' AND stat_date BETWEEN ? AND ?
 		AND shop_name IN (SELECT channel_name FROM sales_channel WHERE department = ?)
 		AND department = ?`, start, end, dept, dept).Scan(&instantCount)) {
-		return
+		return nil, false
 	}
 
 	// 按合并规则生成平台Tab列表
-	type PlatTab struct {
-		Key   string `json:"key"`
-		Label string `json:"label"`
-	}
-	platTabDefs := []PlatTab{
-		{"tmall", "天猫"}, {"tmall_cs", "天猫超市"}, {"jd", "京东"}, {"pdd", "拼多多"},
-		{"vip", "唯品会"}, {"taobao", "淘宝"}, {"instant", "即时零售"},
-		{"douyin", "抖音"}, {"kuaishou", "快手"}, {"xiaohongshu", "小红书"},
-		{"youzan", "有赞"}, {"weidian", "微店"}, {"shipinhao", "视频号"},
-	}
-	var platforms []PlatTab
+	var platforms []deptPlatTab
 	for _, pt := range platTabDefs {
 		if !isPlatformAllowedForDept(dept, pt.Key) {
 			continue
@@ -868,16 +1118,15 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 
 	// v1.74.3 拓范 (跑哥 5/25): 调拨专区 tab — 仅 ecommerce + 该时段有调拨数据时显示
 	if dept == "ecommerce" && hasAllotData {
-		platforms = append(platforms, PlatTab{"allot", "调拨专区"})
+		platforms = append(platforms, deptPlatTab{"allot", "调拨专区"})
 	}
+	return platforms, true
+}
 
-	// 6. 平台销售额分布
-	type PlatSales struct {
-		Platform string  `json:"platform"`
-		Sales    float64 `json:"sales"`
-		Qty      float64 `json:"qty"`
-	}
-	var platformSales []PlatSales
+// loadDeptPlatformSales 平台销售额分布 (合并平台名 + 电商 2 调拨渠道加回)。
+func (h *DashboardHandler) loadDeptPlatformSales(w http.ResponseWriter, r *http.Request, q deptQuery) ([]deptPlatSales, bool) {
+	dept, start, end, scopeCond, platform, scopeArgs := q.dept, q.start, q.end, q.scopeCond, q.platform, q.scopeArgs
+	var platformSales []deptPlatSales
 	platSalesRows, ok := queryRowsOrWriteError(w, r, h.DB, `
 		SELECT CASE
 			WHEN s.shop_name LIKE '%即时零售%' THEN '即时零售'
@@ -889,17 +1138,17 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 		LEFT JOIN (SELECT channel_name, department, MAX(online_plat_name) AS online_plat_name FROM sales_channel GROUP BY channel_name, department) sc ON sc.channel_name = s.shop_name AND sc.department = s.department
 		WHERE s.department = ? AND s.stat_date BETWEEN ? AND ?`+scopeCond+`
 		GROUP BY plat
-		ORDER BY SUM(s.local_goods_amt) DESC`, dept, start, end)
+		ORDER BY SUM(s.local_goods_amt) DESC`, append([]interface{}{dept, start, end}, scopeArgs...)...)
 	if !ok {
-		return
+		return nil, false
 	}
 	defer platSalesRows.Close()
-	platSalesMap := map[string]*PlatSales{}
+	platSalesMap := map[string]*deptPlatSales{}
 	for platSalesRows.Next() {
 		var rawPlat string
 		var sales, qty float64
 		if writeDatabaseError(w, platSalesRows.Scan(&rawPlat, &sales, &qty)) {
-			return
+			return nil, false
 		}
 		// 合并平台：通过 platformToPlats 反查分组
 		label := rawPlat
@@ -920,11 +1169,11 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 			ps.Sales += sales
 			ps.Qty += qty
 		} else {
-			platSalesMap[label] = &PlatSales{Platform: label, Sales: sales, Qty: qty}
+			platSalesMap[label] = &deptPlatSales{Platform: label, Sales: sales, Qty: qty}
 		}
 	}
 	if writeDatabaseError(w, platSalesRows.Err()) {
-		return
+		return nil, false
 	}
 
 	// v1.74.3 拓范 T6j: platformSales 加 2 调拨渠道 (京东自营→京东, 猫超→天猫超市)
@@ -945,7 +1194,7 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 				ps.Sales += s
 				ps.Qty += q
 			} else {
-				platSalesMap[ck.label] = &PlatSales{Platform: ck.label, Sales: s, Qty: q}
+				platSalesMap[ck.label] = &deptPlatSales{Platform: ck.label, Sales: s, Qty: q}
 			}
 		}
 	}
@@ -957,126 +1206,102 @@ func (h *DashboardHandler) GetDepartmentDetail(w http.ResponseWriter, r *http.Re
 	sort.Slice(platformSales, func(i, j int) bool {
 		return platformSales[i].Sales > platformSales[j].Sales
 	})
+	return platformSales, true
+}
 
-	// offline 补充：查询日期范围内各月目标累加
+// loadDeptRegionTargets offline 部门各大区目标 (日期范围内各月累加); 非 offline 返回空 map。
+func (h *DashboardHandler) loadDeptRegionTargets(w http.ResponseWriter, r *http.Request, q deptQuery) (map[string]float64, bool) {
+	dept, start, end := q.dept, q.start, q.end
 	regionTargets := map[string]float64{}
-	if dept == "offline" {
-		// 解析 start/end 年月
-		startTime, _ := time.Parse("2006-01-02", start)
-		endTime, _ := time.Parse("2006-01-02", end)
-		if !startTime.IsZero() && !endTime.IsZero() {
-			tRows, tOk := queryRowsOrWriteError(w, r, h.DB, `
-				SELECT region, SUM(target)
-				FROM offline_region_target
-				WHERE (year*100+month) BETWEEN ? AND ?
-				GROUP BY region`,
-				startTime.Year()*100+int(startTime.Month()),
-				endTime.Year()*100+int(endTime.Month()),
-			)
-			if tOk {
-				defer tRows.Close()
-				for tRows.Next() {
-					var reg string
-					var tgt float64
-					if writeDatabaseError(w, tRows.Scan(&reg, &tgt)) {
-						return
-					}
-					regionTargets[reg] = tgt
-				}
-			}
+	if dept != "offline" {
+		return regionTargets, true
+	}
+	// 解析 start/end 年月
+	startTime, _ := time.Parse("2006-01-02", start)
+	endTime, _ := time.Parse("2006-01-02", end)
+	if startTime.IsZero() || endTime.IsZero() {
+		return regionTargets, true
+	}
+	tRows, tOk := queryRowsOrWriteError(w, r, h.DB, `
+		SELECT region, SUM(target)
+		FROM offline_region_target
+		WHERE (year*100+month) BETWEEN ? AND ?
+		GROUP BY region`,
+		startTime.Year()*100+int(startTime.Month()),
+		endTime.Year()*100+int(endTime.Month()),
+	)
+	if !tOk {
+		// 查询打开失败: queryRowsOrWriteError 已写 500, 必须 abort, 不能 fall through 到编排器 writeJSON (修原双写)
+		return nil, false
+	}
+	defer tRows.Close()
+	for tRows.Next() {
+		var reg string
+		var tgt float64
+		if writeDatabaseError(w, tRows.Scan(&reg, &tgt)) {
+			return nil, false
 		}
+		regionTargets[reg] = tgt
+	}
+	return regionTargets, true
+}
+
+// loadDeptCrossGrades crossDept=1 额外聚合: 产品定位×部门 + 产品定位×店铺 全口径(含毛利)。
+func (h *DashboardHandler) loadDeptCrossGrades(w http.ResponseWriter, r *http.Request, q deptQuery) ([]deptGradeDeptItem, []deptGradeShopItem, bool) {
+	start, end := q.start, q.end
+	var gradeDeptSalesAll []deptGradeDeptItem
+	var gradeShopSalesAll []deptGradeShopItem
+
+	gdRows, ok := queryRowsOrWriteError(w, r, h.DB, `
+		SELECT IFNULL(g.goods_field7,'未设置') as grade, s.department,
+			ROUND(SUM(s.local_goods_amt),2) as sales,
+			ROUND(SUM(s.gross_profit),2) as profit
+		FROM sales_goods_summary s
+		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+		WHERE s.stat_date BETWEEN ? AND ?
+		  AND IFNULL(s.department,'') NOT IN ('excluded','other','')
+		GROUP BY grade, s.department
+		ORDER BY FIELD(grade,'S','A','B','C','D','未设置'), sales DESC`, start, end)
+	if !ok {
+		return nil, nil, false
+	}
+	defer gdRows.Close()
+	for gdRows.Next() {
+		var it deptGradeDeptItem
+		if writeDatabaseError(w, gdRows.Scan(&it.Grade, &it.Department, &it.Sales, &it.Profit)) {
+			return nil, nil, false
+		}
+		gradeDeptSalesAll = append(gradeDeptSalesAll, it)
+	}
+	if writeDatabaseError(w, gdRows.Err()) {
+		return nil, nil, false
 	}
 
-	// crossDept=1 额外返回：产品定位×部门 + 产品定位×店铺 全口径聚合（含毛利）
-	type GradeDeptItem struct {
-		Grade      string  `json:"grade"`
-		Department string  `json:"department"`
-		Sales      float64 `json:"sales"`
-		Profit     float64 `json:"profit"`
+	gsRows, ok := queryRowsOrWriteError(w, r, h.DB, `
+		SELECT IFNULL(g.goods_field7,'未设置') as grade,
+			IFNULL(s.department,'其他') as department,
+			s.shop_name,
+			ROUND(SUM(s.local_goods_amt),2) as sales,
+			ROUND(SUM(s.gross_profit),2) as profit
+		FROM sales_goods_summary s
+		LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
+		WHERE s.stat_date BETWEEN ? AND ?
+		  AND IFNULL(s.department,'') NOT IN ('excluded','other','')
+		GROUP BY grade, s.department, s.shop_name
+		ORDER BY FIELD(grade,'S','A','B','C','D','未设置'), sales DESC`, start, end)
+	if !ok {
+		return nil, nil, false
 	}
-	type GradeShopItem struct {
-		Grade      string  `json:"grade"`
-		Department string  `json:"department"`
-		ShopName   string  `json:"shopName"`
-		Sales      float64 `json:"sales"`
-		Profit     float64 `json:"profit"`
+	defer gsRows.Close()
+	for gsRows.Next() {
+		var it deptGradeShopItem
+		if writeDatabaseError(w, gsRows.Scan(&it.Grade, &it.Department, &it.ShopName, &it.Sales, &it.Profit)) {
+			return nil, nil, false
+		}
+		gradeShopSalesAll = append(gradeShopSalesAll, it)
 	}
-	var gradeDeptSalesAll []GradeDeptItem
-	var gradeShopSalesAll []GradeShopItem
-	if crossDept {
-		gdRows, ok := queryRowsOrWriteError(w, r, h.DB, `
-			SELECT IFNULL(g.goods_field7,'未设置') as grade, s.department,
-				ROUND(SUM(s.local_goods_amt),2) as sales,
-				ROUND(SUM(s.gross_profit),2) as profit
-			FROM sales_goods_summary s
-			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
-			WHERE s.stat_date BETWEEN ? AND ?
-			  AND IFNULL(s.department,'') NOT IN ('excluded','other','')
-			GROUP BY grade, s.department
-			ORDER BY FIELD(grade,'S','A','B','C','D','未设置'), sales DESC`, start, end)
-		if !ok {
-			return
-		}
-		defer gdRows.Close()
-		for gdRows.Next() {
-			var it GradeDeptItem
-			if writeDatabaseError(w, gdRows.Scan(&it.Grade, &it.Department, &it.Sales, &it.Profit)) {
-				return
-			}
-			gradeDeptSalesAll = append(gradeDeptSalesAll, it)
-		}
-		if writeDatabaseError(w, gdRows.Err()) {
-			return
-		}
-
-		gsRows, ok := queryRowsOrWriteError(w, r, h.DB, `
-			SELECT IFNULL(g.goods_field7,'未设置') as grade,
-				IFNULL(s.department,'其他') as department,
-				s.shop_name,
-				ROUND(SUM(s.local_goods_amt),2) as sales,
-				ROUND(SUM(s.gross_profit),2) as profit
-			FROM sales_goods_summary s
-			LEFT JOIN (SELECT DISTINCT goods_no, goods_field7 FROM goods) g ON g.goods_no = s.goods_no
-			WHERE s.stat_date BETWEEN ? AND ?
-			  AND IFNULL(s.department,'') NOT IN ('excluded','other','')
-			GROUP BY grade, s.department, s.shop_name
-			ORDER BY FIELD(grade,'S','A','B','C','D','未设置'), sales DESC`, start, end)
-		if !ok {
-			return
-		}
-		defer gsRows.Close()
-		for gsRows.Next() {
-			var it GradeShopItem
-			if writeDatabaseError(w, gsRows.Scan(&it.Grade, &it.Department, &it.ShopName, &it.Sales, &it.Profit)) {
-				return
-			}
-			gradeShopSalesAll = append(gradeShopSalesAll, it)
-		}
-		if writeDatabaseError(w, gsRows.Err()) {
-			return
-		}
+	if writeDatabaseError(w, gsRows.Err()) {
+		return nil, nil, false
 	}
-
-	writeJSON(w, map[string]interface{}{
-		"daily":             daily,
-		"shops":             shops,
-		"salesAmt":          shopSalesAmt, // 店铺概览 KPI: 纯销售单口径 (调拨加入前的常规店铺合计)
-		"allotAmt":          shopAllotAmt, // 店铺概览 KPI: 调拨当销售口径 (电商 2 渠道 / 即时零售朴朴等)
-		"shopTotalCount":    totalShopCount,
-		"goods":             goods,
-		"totalSales":        totalSales,
-		"totalQty":          totalQty,
-		"totalSku":          totalSku,
-		"goodsChannels":     goodsChannels,
-		"brands":            brands,
-		"grades":            grades,
-		"platforms":         platforms,
-		"platformSales":     platformSales,
-		"gradePlatSales":    gradePlatSales,
-		"gradeDeptSalesAll": gradeDeptSalesAll,
-		"gradeShopSalesAll": gradeShopSalesAll,
-		"regionTargets":     regionTargets,
-		"dateRange":         map[string]string{"start": start, "end": end},
-		"trendRange":        map[string]string{"start": trendStart, "end": trendEnd},
-	})
+	return gradeDeptSalesAll, gradeShopSalesAll, true
 }
