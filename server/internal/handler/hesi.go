@@ -293,7 +293,266 @@ func (h *DashboardHandler) GetHesiFlows(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// ====== 单据详情各 section 的返回结构 (原 GetHesiFlowDetail 函数内局部类型, 拆函数时提到包级, 加 hesi 前缀防撞名) ======
+
+// hesiDetailItem 费用明细单元 (含私车公用行车记录)
+type hesiDetailItem struct {
+	DetailId        *string         `json:"detailId"`
+	DetailNo        *int            `json:"detailNo"`
+	FeeTypeId       *string         `json:"feeTypeId"`
+	FeeTypeName     string          `json:"feeTypeName"` // v1.76.0: 反查合思字典
+	Amount          *float64        `json:"amount"`
+	FeeDate         *int64          `json:"feeDate"`
+	InvoiceCount    int             `json:"invoiceCount"`
+	InvoiceStatus   string          `json:"invoiceStatus"`
+	Reasons         *string         `json:"consumptionReasons"`
+	SpecificationId *string         `json:"specificationId"`
+	RawJson         json.RawMessage `json:"rawJson,omitempty"`
+	DriveRecord     *DriveRecord    `json:"driveRecord,omitempty"` // 私车公用行车记录 (跑哥 6/12)
+}
+
+// hesiInvoiceItem 发票单元 (含火车票出行 + 关联明细兜底)
+type hesiInvoiceItem struct {
+	InvoiceId     *string  `json:"invoiceId"`
+	InvoiceNumber *string  `json:"invoiceNumber"`
+	InvoiceCode   *string  `json:"invoiceCode"`
+	InvoiceDate   *int64   `json:"invoiceDate"`
+	InvoiceAmount *float64 `json:"invoiceAmount"`
+	TotalAmount   *float64 `json:"totalAmount"`
+	TaxAmount     *float64 `json:"taxAmount"`
+	ApproveAmount *float64 `json:"approveAmount"`
+	InvoiceStatus *string  `json:"invoiceStatus"`
+	InvoiceType   *string  `json:"invoiceType"`
+	BuyerName     *string  `json:"buyerName"`
+	BuyerTaxNo    *string  `json:"buyerTaxNo"`
+	SellerName    *string  `json:"sellerName"`
+	SellerTaxNo   *string  `json:"sellerTaxNo"`
+	IsVerified    *int     `json:"isVerified"`
+	SeatType      *string  `json:"seatType"`
+	TrainNo       *string  `json:"trainNo"`
+	FromStation   *string  `json:"fromStation"`
+	ToStation     *string  `json:"toStation"`
+	Carriage      *string  `json:"carriage"`
+	SeatNo        *string  `json:"seatNo"`
+	Passenger     *string  `json:"passenger"`
+	DetailNo      *int     `json:"detailNo"`
+	FeeTypeName   string   `json:"feeTypeName"`
+	DetailAmount  *float64 `json:"detailAmount"`
+	DetailReason  *string  `json:"detailReason"`
+}
+
+// hesiAttachItem 附件元信息单元
+type hesiAttachItem struct {
+	AttachmentType string  `json:"attachmentType"`
+	FileId         *string `json:"fileId"`
+	FileName       *string `json:"fileName"`
+	IsInvoice      int     `json:"isInvoice"`
+	InvoiceNumber  *string `json:"invoiceNumber"`
+	InvoiceCode    *string `json:"invoiceCode"`
+}
+
+// hesiTravelOrder 关联申请单下的商旅订单 (行程消费信息)
+type hesiTravelOrder struct {
+	EntityName      string   `json:"entityName"`
+	Name            string   `json:"name"`
+	TripNo          string   `json:"tripNo"`
+	Seat            string   `json:"seat"`
+	DepartStation   string   `json:"departStation"`
+	ArriveStation   string   `json:"arriveStation"`
+	Traveler        string   `json:"traveler"`
+	DepartTime      string   `json:"departTime"`
+	OrderAmount     *float64 `json:"orderAmount"`
+	PayMethod       string   `json:"payMethod"`
+	ReimburseStatus string   `json:"reimburseStatus"`
+	OverStandard    string   `json:"overStandard"`
+	OrderState      string   `json:"orderState"`
+}
+
+// hesiLinkedReq 关联申请单 (出差/招待/固定资产等"先申请后报销")
+type hesiLinkedReq struct {
+	FlowID           string            `json:"flowId"`
+	Code             string            `json:"code"`
+	Title            string            `json:"title"`
+	FormType         string            `json:"formType"`
+	State            string            `json:"state"`
+	SpecName         string            `json:"specName"`
+	RequisitionMoney *float64          `json:"requisitionMoney"`
+	Missing          bool              `json:"missing"`
+	Orders           []hesiTravelOrder `json:"orders"`
+}
+
+// loadHesiFlowDetails 费用明细 (含私车公用行车记录反查); 出错已写响应返 false
+func (h *DashboardHandler) loadHesiFlowDetails(w http.ResponseWriter, flowId string) ([]hesiDetailItem, bool) {
+	var details []hesiDetailItem
+	drows, err := h.DB.Query(`SELECT detail_id, detail_no, fee_type_id, amount, fee_date,
+		invoice_count, invoice_status, consumption_reasons, specification_id,
+		IFNULL(raw_json, '{}') AS raw_json
+		FROM hesi_flow_detail WHERE flow_id=? ORDER BY detail_no`, flowId)
+	if writeDatabaseError(w, err) {
+		return nil, false
+	}
+	if drows != nil {
+		defer drows.Close()
+		for drows.Next() {
+			var d hesiDetailItem
+			if writeDatabaseError(w, drows.Scan(&d.DetailId, &d.DetailNo, &d.FeeTypeId, &d.Amount, &d.FeeDate,
+				&d.InvoiceCount, &d.InvoiceStatus, &d.Reasons, &d.SpecificationId, &d.RawJson)) {
+				return nil, false
+			}
+			if d.FeeTypeId != nil && *d.FeeTypeId != "" {
+				d.FeeTypeName = h.LookupFeeTypeName(*d.FeeTypeId)
+			}
+			// 私车公用明细带 u_行车记录(实例ID) → 反查行车记录 (出发地/目的地/里程/补助标准)
+			if len(d.RawJson) > 0 {
+				var rj struct {
+					FeeTypeForm struct {
+						DriveRecID string `json:"u_行车记录"`
+					} `json:"feeTypeForm"`
+				}
+				if json.Unmarshal(d.RawJson, &rj) == nil && rj.FeeTypeForm.DriveRecID != "" {
+					d.DriveRecord = h.LookupDriveRecord(rj.FeeTypeForm.DriveRecID)
+				}
+			}
+			details = append(details, d)
+		}
+		if writeDatabaseError(w, drows.Err()) {
+			return nil, false
+		}
+	}
+	return details, true
+}
+
+// loadHesiFlowInvoices 发票 (只保留有发票的 detail 关联行 + detail 金额/原因兜底); 出错已写响应返 false
+func (h *DashboardHandler) loadHesiFlowInvoices(w http.ResponseWriter, flowId string) ([]hesiInvoiceItem, bool) {
+	var invoices []hesiInvoiceItem
+	// v1.76.0: 合思 detail invoice_count=0 (无票费用) 仍生成空 invoice 占位 → 过滤
+	// detail invoice_count>0 但 invoice_number=NULL = 合思 OCR 未识别但有图 → 保留, 用 detail 数据兜底
+	irows, err := h.DB.Query(`SELECT i.invoice_id, i.invoice_number, i.invoice_code,
+		i.invoice_date, i.invoice_amount, i.total_amount, i.tax_amount, i.approve_amount,
+		i.invoice_status, i.invoice_type, i.buyer_name, i.buyer_tax_no, i.seller_name, i.seller_tax_no, i.is_verified,
+		i.seat_type, i.train_no, i.from_station, i.to_station, i.carriage, i.seat_no, i.passenger,
+		d.detail_no, d.fee_type_id,
+		d.amount AS detail_amount, d.consumption_reasons AS detail_reason
+		FROM hesi_flow_invoice i
+		LEFT JOIN hesi_flow_detail d ON i.detail_id = d.detail_id AND i.flow_id = d.flow_id
+		WHERE i.flow_id=? AND (d.invoice_count IS NULL OR d.invoice_count > 0)`, flowId)
+	if writeDatabaseError(w, err) {
+		return nil, false
+	}
+	if irows != nil {
+		defer irows.Close()
+		for irows.Next() {
+			var inv hesiInvoiceItem
+			var feeTypeId *string
+			if writeDatabaseError(w, irows.Scan(&inv.InvoiceId, &inv.InvoiceNumber, &inv.InvoiceCode,
+				&inv.InvoiceDate, &inv.InvoiceAmount, &inv.TotalAmount, &inv.TaxAmount, &inv.ApproveAmount,
+				&inv.InvoiceStatus, &inv.InvoiceType, &inv.BuyerName, &inv.BuyerTaxNo, &inv.SellerName, &inv.SellerTaxNo, &inv.IsVerified,
+				&inv.SeatType, &inv.TrainNo, &inv.FromStation, &inv.ToStation, &inv.Carriage, &inv.SeatNo, &inv.Passenger, &inv.DetailNo, &feeTypeId,
+				&inv.DetailAmount, &inv.DetailReason)) {
+				return nil, false
+			}
+			if feeTypeId != nil && *feeTypeId != "" {
+				inv.FeeTypeName = h.LookupFeeTypeName(*feeTypeId)
+			}
+			invoices = append(invoices, inv)
+		}
+		if writeDatabaseError(w, irows.Err()) {
+			return nil, false
+		}
+	}
+	return invoices, true
+}
+
+// loadHesiFlowAttachments 附件元信息; 出错已写响应返 false
+func (h *DashboardHandler) loadHesiFlowAttachments(w http.ResponseWriter, flowId string) ([]hesiAttachItem, bool) {
+	var attachments []hesiAttachItem
+	arows, err := h.DB.Query("SELECT attachment_type, file_id, file_name, is_invoice, invoice_number, invoice_code FROM hesi_flow_attachment WHERE flow_id=?", flowId)
+	if writeDatabaseError(w, err) {
+		return nil, false
+	}
+	if arows != nil {
+		defer arows.Close()
+		for arows.Next() {
+			var a hesiAttachItem
+			if writeDatabaseError(w, arows.Scan(&a.AttachmentType, &a.FileId, &a.FileName, &a.IsInvoice, &a.InvoiceNumber, &a.InvoiceCode)) {
+				return nil, false
+			}
+			attachments = append(attachments, a)
+		}
+		if writeDatabaseError(w, arows.Err()) {
+			return nil, false
+		}
+	}
+	return attachments, true
+}
+
+// loadHesiLinkedRequisitions 关联申请单 (raw_json.expenseLinks) + 各申请单下商旅订单 (hesi_travel_order)
+// 单条出错按原逻辑标 Missing/跳过, 不中断整个请求 (无 writeError)
+func (h *DashboardHandler) loadHesiLinkedRequisitions(formData interface{}) []hesiLinkedReq {
+	loadOrders := func(reqCode string) []hesiTravelOrder {
+		out := []hesiTravelOrder{}
+		if reqCode == "" {
+			return out
+		}
+		// 只取"订单"类业务对象 (行程类无金额/支付方式, 是下单前的计划)
+		rows, err := h.DB.Query(`SELECT entity_name, name, trip_no, seat, depart_station, arrive_station,
+			traveler, depart_time, order_amount, pay_method, reimburse_status, over_standard, order_state
+			FROM hesi_travel_order WHERE req_code=? AND pay_method<>'' ORDER BY depart_time, id`, reqCode)
+		if err != nil {
+			return out
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var o hesiTravelOrder
+			if rows.Scan(&o.EntityName, &o.Name, &o.TripNo, &o.Seat, &o.DepartStation, &o.ArriveStation,
+				&o.Traveler, &o.DepartTime, &o.OrderAmount, &o.PayMethod, &o.ReimburseStatus, &o.OverStandard, &o.OrderState) == nil {
+				out = append(out, o)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[hesi] 行程订单读取中断 req=%s: %v", reqCode, err)
+		}
+		return out
+	}
+	linkedReqs := []hesiLinkedReq{}
+	if m, ok := formData.(map[string]interface{}); ok {
+		if links, ok := m["expenseLinks"].([]interface{}); ok {
+			for _, l := range links {
+				lid, _ := l.(string)
+				if lid == "" {
+					continue
+				}
+				var lr hesiLinkedReq
+				var specID, lraw sql.NullString
+				err := h.DB.QueryRow(`SELECT flow_id, code, IFNULL(title,''), form_type, state,
+					IFNULL(specification_id,''), IFNULL(raw_json,'')
+					FROM hesi_flow WHERE flow_id=? LIMIT 1`, lid).
+					Scan(&lr.FlowID, &lr.Code, &lr.Title, &lr.FormType, &lr.State, &specID, &lraw)
+				if err != nil {
+					linkedReqs = append(linkedReqs, hesiLinkedReq{FlowID: lid, Missing: true})
+					continue
+				}
+				if specID.String != "" {
+					lr.SpecName = h.LookupSpecName(specID.String)
+				}
+				if lraw.Valid && lraw.String != "" {
+					var rm map[string]interface{}
+					if json.Unmarshal([]byte(lraw.String), &rm) == nil {
+						if v, ok := getStandardAmount(rm["requisitionMoney"]); ok {
+							lr.RequisitionMoney = &v
+						}
+					}
+				}
+				lr.Orders = loadOrders(lr.Code)
+				linkedReqs = append(linkedReqs, lr)
+			}
+		}
+	}
+	return linkedReqs
+}
+
 // GetHesiFlowDetail 获取单据详情（含明细、发票、附件元信息）
+// 编排器: 主表+字典 → 明细/发票/附件 loader → 法人实体/收款 → 关联申请单 → 用友凭证 → 主体/部门校验 → writeJSON
 func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Request) {
 	flowId := r.URL.Query().Get("flowId")
 	if flowId == "" {
@@ -385,156 +644,22 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	// v1.75.0: entityCheck 校验代码挪到 raw_json 解析后 (因为依赖 flow.LegalEntityName)
 	// 见下方 "// 原始form JSON" 之后
 
-	// 明细
-	// v1.74.5: 加返 specificationId + rawJson, 让前端展开行显示合思 API 原始字段
-	// (币种/自定义字段/差旅城市/补贴明细等 — 不同费用类型字段不一样)
-	type DetailItem struct {
-		DetailId        *string         `json:"detailId"`
-		DetailNo        *int            `json:"detailNo"`
-		FeeTypeId       *string         `json:"feeTypeId"`
-		FeeTypeName     string          `json:"feeTypeName"` // v1.76.0: 反查合思字典
-		Amount          *float64        `json:"amount"`
-		FeeDate         *int64          `json:"feeDate"`
-		InvoiceCount    int             `json:"invoiceCount"`
-		InvoiceStatus   string          `json:"invoiceStatus"`
-		Reasons         *string         `json:"consumptionReasons"`
-		SpecificationId *string         `json:"specificationId"`
-		RawJson         json.RawMessage `json:"rawJson,omitempty"`
-		DriveRecord     *DriveRecord    `json:"driveRecord,omitempty"` // 私车公用行车记录 (跑哥 6/12)
-	}
-	var details []DetailItem
-	drows, err := h.DB.Query(`SELECT detail_id, detail_no, fee_type_id, amount, fee_date,
-		invoice_count, invoice_status, consumption_reasons, specification_id,
-		IFNULL(raw_json, '{}') AS raw_json
-		FROM hesi_flow_detail WHERE flow_id=? ORDER BY detail_no`, flowId)
-	if writeDatabaseError(w, err) {
+	// 明细 (含私车公用行车记录反查)
+	details, ok := h.loadHesiFlowDetails(w, flowId)
+	if !ok {
 		return
-	}
-	if drows != nil {
-		defer drows.Close()
-		for drows.Next() {
-			var d DetailItem
-			if writeDatabaseError(w, drows.Scan(&d.DetailId, &d.DetailNo, &d.FeeTypeId, &d.Amount, &d.FeeDate,
-				&d.InvoiceCount, &d.InvoiceStatus, &d.Reasons, &d.SpecificationId, &d.RawJson)) {
-				return
-			}
-			if d.FeeTypeId != nil && *d.FeeTypeId != "" {
-				d.FeeTypeName = h.LookupFeeTypeName(*d.FeeTypeId)
-			}
-			// 私车公用明细带 u_行车记录(实例ID) → 反查行车记录 (出发地/目的地/里程/补助标准)
-			if len(d.RawJson) > 0 {
-				var rj struct {
-					FeeTypeForm struct {
-						DriveRecID string `json:"u_行车记录"`
-					} `json:"feeTypeForm"`
-				}
-				if json.Unmarshal(d.RawJson, &rj) == nil && rj.FeeTypeForm.DriveRecID != "" {
-					d.DriveRecord = h.LookupDriveRecord(rj.FeeTypeForm.DriveRecID)
-				}
-			}
-			details = append(details, d)
-		}
-		if writeDatabaseError(w, drows.Err()) {
-			return
-		}
 	}
 
 	// 发票
-	type InvoiceItem struct {
-		InvoiceId     *string  `json:"invoiceId"`
-		InvoiceNumber *string  `json:"invoiceNumber"`
-		InvoiceCode   *string  `json:"invoiceCode"`
-		InvoiceDate   *int64   `json:"invoiceDate"`
-		InvoiceAmount *float64 `json:"invoiceAmount"`
-		TotalAmount   *float64 `json:"totalAmount"`
-		TaxAmount     *float64 `json:"taxAmount"`
-		ApproveAmount *float64 `json:"approveAmount"`
-		InvoiceStatus *string  `json:"invoiceStatus"`
-		InvoiceType   *string  `json:"invoiceType"`
-		BuyerName     *string  `json:"buyerName"`
-		BuyerTaxNo    *string  `json:"buyerTaxNo"`
-		SellerName    *string  `json:"sellerName"`
-		SellerTaxNo   *string  `json:"sellerTaxNo"`
-		IsVerified    *int     `json:"isVerified"`
-		// 火车票出行信息 (合思发票主体 OCR): 座位类型/车次/区间/车厢席位/乘车人
-		SeatType    *string `json:"seatType"`
-		TrainNo     *string `json:"trainNo"`
-		FromStation *string `json:"fromStation"`
-		ToStation   *string `json:"toStation"`
-		Carriage    *string `json:"carriage"`
-		SeatNo      *string `json:"seatNo"`
-		Passenger   *string `json:"passenger"`
-		// 所属费用明细 (这张发票挂在哪条费用下, 例: 明细#3 过路费)
-		DetailNo    *int   `json:"detailNo"`
-		FeeTypeName string `json:"feeTypeName"`
-		// v1.76.0: 从关联 detail 兜底 (合思 OCR 失败时 invoice 字段全 NULL, 但 detail 有金额+原因)
-		DetailAmount *float64 `json:"detailAmount"`
-		DetailReason *string  `json:"detailReason"`
-	}
-	var invoices []InvoiceItem
-	// v1.76.0: 只保留有发票的 detail 关联的 invoice 行 + 关联 detail.amount/reason 兜底显示
-	// 合思 detail invoice_count=0 (无票费用) 仍生成空 invoice 占位 → 过滤
-	// detail invoice_count>0 但 invoice_number=NULL = 合思 OCR 未识别但有图 → 保留, 用 detail 数据兜底
-	irows, err := h.DB.Query(`SELECT i.invoice_id, i.invoice_number, i.invoice_code,
-		i.invoice_date, i.invoice_amount, i.total_amount, i.tax_amount, i.approve_amount,
-		i.invoice_status, i.invoice_type, i.buyer_name, i.buyer_tax_no, i.seller_name, i.seller_tax_no, i.is_verified,
-		i.seat_type, i.train_no, i.from_station, i.to_station, i.carriage, i.seat_no, i.passenger,
-		d.detail_no, d.fee_type_id,
-		d.amount AS detail_amount, d.consumption_reasons AS detail_reason
-		FROM hesi_flow_invoice i
-		LEFT JOIN hesi_flow_detail d ON i.detail_id = d.detail_id AND i.flow_id = d.flow_id
-		WHERE i.flow_id=? AND (d.invoice_count IS NULL OR d.invoice_count > 0)`, flowId)
-	if writeDatabaseError(w, err) {
+	invoices, ok := h.loadHesiFlowInvoices(w, flowId)
+	if !ok {
 		return
-	}
-	if irows != nil {
-		defer irows.Close()
-		for irows.Next() {
-			var inv InvoiceItem
-			var feeTypeId *string
-			if writeDatabaseError(w, irows.Scan(&inv.InvoiceId, &inv.InvoiceNumber, &inv.InvoiceCode,
-				&inv.InvoiceDate, &inv.InvoiceAmount, &inv.TotalAmount, &inv.TaxAmount, &inv.ApproveAmount,
-				&inv.InvoiceStatus, &inv.InvoiceType, &inv.BuyerName, &inv.BuyerTaxNo, &inv.SellerName, &inv.SellerTaxNo, &inv.IsVerified,
-				&inv.SeatType, &inv.TrainNo, &inv.FromStation, &inv.ToStation, &inv.Carriage, &inv.SeatNo, &inv.Passenger, &inv.DetailNo, &feeTypeId,
-				&inv.DetailAmount, &inv.DetailReason)) {
-				return
-			}
-			if feeTypeId != nil && *feeTypeId != "" {
-				inv.FeeTypeName = h.LookupFeeTypeName(*feeTypeId)
-			}
-			invoices = append(invoices, inv)
-		}
-		if writeDatabaseError(w, irows.Err()) {
-			return
-		}
 	}
 
 	// 附件元信息
-	type AttachItem struct {
-		AttachmentType string  `json:"attachmentType"`
-		FileId         *string `json:"fileId"`
-		FileName       *string `json:"fileName"`
-		IsInvoice      int     `json:"isInvoice"`
-		InvoiceNumber  *string `json:"invoiceNumber"`
-		InvoiceCode    *string `json:"invoiceCode"`
-	}
-	var attachments []AttachItem
-	arows, err := h.DB.Query("SELECT attachment_type, file_id, file_name, is_invoice, invoice_number, invoice_code FROM hesi_flow_attachment WHERE flow_id=?", flowId)
-	if writeDatabaseError(w, err) {
+	attachments, ok := h.loadHesiFlowAttachments(w, flowId)
+	if !ok {
 		return
-	}
-	if arows != nil {
-		defer arows.Close()
-		for arows.Next() {
-			var a AttachItem
-			if writeDatabaseError(w, arows.Scan(&a.AttachmentType, &a.FileId, &a.FileName, &a.IsInvoice, &a.InvoiceNumber, &a.InvoiceCode)) {
-				return
-			}
-			attachments = append(attachments, a)
-		}
-		if writeDatabaseError(w, arows.Err()) {
-			return
-		}
 	}
 
 	// 原始form JSON
@@ -567,94 +692,8 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// v1.76.x: 关联申请单 (raw_json.expenseLinks) — 出差/招待/固定资产等"先申请后报销"的申请单
-	// 详情弹窗展示单号/模板/标题/申请额度/状态, 跑哥 6/11 需求 (审批时要能看到那张出差申请单)
-	// 行程消费信息: 该申请单下的合思商旅订单 (hesi_travel_order, 跑哥 6/11 要看支付方式)
-	type travelOrder struct {
-		EntityName      string   `json:"entityName"` // 火车/飞机/酒店/用车...
-		Name            string   `json:"name"`       // 出发-到达
-		TripNo          string   `json:"tripNo"`
-		Seat            string   `json:"seat"`
-		DepartStation   string   `json:"departStation"`
-		ArriveStation   string   `json:"arriveStation"`
-		Traveler        string   `json:"traveler"`
-		DepartTime      string   `json:"departTime"`
-		OrderAmount     *float64 `json:"orderAmount"`
-		PayMethod       string   `json:"payMethod"`       // 企业支付/个人支付
-		ReimburseStatus string   `json:"reimburseStatus"` // 未报销/已报销
-		OverStandard    string   `json:"overStandard"`
-		OrderState      string   `json:"orderState"` // 出票/退票/改签
-	}
-	type linkedReq struct {
-		FlowID           string        `json:"flowId"`
-		Code             string        `json:"code"`
-		Title            string        `json:"title"`
-		FormType         string        `json:"formType"`
-		State            string        `json:"state"`
-		SpecName         string        `json:"specName"`
-		RequisitionMoney *float64      `json:"requisitionMoney"`
-		Missing          bool          `json:"missing"` // 关联单还没同步到看板本地库
-		Orders           []travelOrder `json:"orders"`  // 行程消费信息 (商旅订单)
-	}
-	loadOrders := func(reqCode string) []travelOrder {
-		out := []travelOrder{}
-		if reqCode == "" {
-			return out
-		}
-		// 只取"订单"类业务对象 (行程类无金额/支付方式, 是下单前的计划)
-		rows, err := h.DB.Query(`SELECT entity_name, name, trip_no, seat, depart_station, arrive_station,
-			traveler, depart_time, order_amount, pay_method, reimburse_status, over_standard, order_state
-			FROM hesi_travel_order WHERE req_code=? AND pay_method<>'' ORDER BY depart_time, id`, reqCode)
-		if err != nil {
-			return out
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var o travelOrder
-			if rows.Scan(&o.EntityName, &o.Name, &o.TripNo, &o.Seat, &o.DepartStation, &o.ArriveStation,
-				&o.Traveler, &o.DepartTime, &o.OrderAmount, &o.PayMethod, &o.ReimburseStatus, &o.OverStandard, &o.OrderState) == nil {
-				out = append(out, o)
-			}
-		}
-		if err := rows.Err(); err != nil {
-			log.Printf("[hesi] 行程订单读取中断 req=%s: %v", reqCode, err)
-		}
-		return out
-	}
-	linkedReqs := []linkedReq{}
-	if m, ok := formData.(map[string]interface{}); ok {
-		if links, ok := m["expenseLinks"].([]interface{}); ok {
-			for _, l := range links {
-				lid, _ := l.(string)
-				if lid == "" {
-					continue
-				}
-				var lr linkedReq
-				var specID, lraw sql.NullString
-				err := h.DB.QueryRow(`SELECT flow_id, code, IFNULL(title,''), form_type, state,
-					IFNULL(specification_id,''), IFNULL(raw_json,'')
-					FROM hesi_flow WHERE flow_id=? LIMIT 1`, lid).
-					Scan(&lr.FlowID, &lr.Code, &lr.Title, &lr.FormType, &lr.State, &specID, &lraw)
-				if err != nil {
-					linkedReqs = append(linkedReqs, linkedReq{FlowID: lid, Missing: true})
-					continue
-				}
-				if specID.String != "" {
-					lr.SpecName = h.LookupSpecName(specID.String)
-				}
-				if lraw.Valid && lraw.String != "" {
-					var rm map[string]interface{}
-					if json.Unmarshal([]byte(lraw.String), &rm) == nil {
-						if v, ok := getStandardAmount(rm["requisitionMoney"]); ok {
-							lr.RequisitionMoney = &v
-						}
-					}
-				}
-				lr.Orders = loadOrders(lr.Code)
-				linkedReqs = append(linkedReqs, lr)
-			}
-		}
-	}
+	// v1.76.x: 关联申请单 (raw_json.expenseLinks) + 各申请单下商旅订单 (行程消费信息)
+	linkedReqs := h.loadHesiLinkedRequisitions(formData)
 
 	// v1.75.7: 凭证状态='已生成' → 调用友 YS 凭证查询拿借贷分录
 	// 合思 voucher_no 格式 "{vouchertype.code}-{billcode}" (例 "4-51"=付款凭证第51号)
