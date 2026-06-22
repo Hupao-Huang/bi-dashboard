@@ -149,29 +149,42 @@ func (h *DashboardHandler) GetXhsNote(w http.ResponseWriter, r *http.Request) {
 		k.ConvRate = payUV / clickUV
 	}
 
-	// 明细 TOP50：按笔记聚合(跨天加总)，带 note_id 供下钻看单条每天趋势；note_url 仅 http 才输出
+	// 明细 TOP50：按笔记聚合(跨天加总)，带 note_id 供下钻看单条每天趋势。
+	// 展示列(社媒带货口径，15 列)：属性 ANY_VALUE/MIN；金额/次数跨天 SUM；
+	// 率类用 总量÷总量 加权重算(禁简单平均)——已实测验证分子分母：
+	//   笔记商品点击率(PV) = SUM(商品点击次数) / SUM(阅读数)
+	//   笔记支付转化率(PV) = SUM(支付订单数) / SUM(商品点击次数)
+	//   完播率(PV)：真分母(视频播放量)未入库，按阅读量加权 SUM(完播率×阅读)/SUM(阅读)(近似，图文恒0)
+	// note_url 仅 http 才输出(源是 HYPERLINK 公式，import 已提真链接)。
 	type noteRow struct {
-		NoteID  string  `json:"noteId"`
-		Title   string  `json:"title"`
-		Type    string  `json:"type"`
-		Author  string  `json:"author"`
-		PubDate string  `json:"pubDate"`
-		Read    int     `json:"read"`
-		Like    int     `json:"like"`
-		Collect int     `json:"collect"`
-		Comment int     `json:"comment"`
-		Share   int     `json:"share"`
-		GMV     float64 `json:"gmv"`
-		Product string  `json:"product"`
-		URL     string  `json:"url"`
+		NoteID        string  `json:"noteId"`
+		Title         string  `json:"title"`
+		URL           string  `json:"url"`
+		Author        string  `json:"author"`
+		CreateTime    string  `json:"createTime"`
+		Type          string  `json:"type"`
+		Product       string  `json:"product"`
+		PayAmount     float64 `json:"payAmount"`
+		ClickPv       int     `json:"clickPv"`
+		ClickRatePv   float64 `json:"clickRatePv"`
+		PayConvRatePv float64 `json:"payConvRatePv"`
+		RefundAmount  float64 `json:"refundAmount"`
+		AddCartQty    int     `json:"addCartQty"`
+		ToShopPay     float64 `json:"toShopPay"`
+		FinishRatePv  float64 `json:"finishRatePv"`
 	}
 	detail := []noteRow{}
-	dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT note_id, ANY_VALUE(note_title), ANY_VALUE(note_type), ANY_VALUE(author_name),
-		DATE_FORMAT(MIN(note_create_time),'%Y-%m-%d'),
-		IFNULL(SUM(read_count),0), IFNULL(SUM(like_count),0), IFNULL(SUM(collect_count),0),
-		IFNULL(SUM(comment_count),0), IFNULL(SUM(share_count),0), IFNULL(SUM(pay_amount),0),
+	dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT note_id,
+		ANY_VALUE(note_title),
+		ANY_VALUE(CASE WHEN note_url LIKE 'http%' THEN note_url ELSE '' END),
+		ANY_VALUE(author_name), MIN(note_create_time), ANY_VALUE(note_type),
 		ANY_VALUE(related_product_name),
-		ANY_VALUE(CASE WHEN note_url LIKE 'http%' THEN note_url ELSE '' END)
+		IFNULL(SUM(pay_amount),0), IFNULL(SUM(product_click_pv),0),
+		IFNULL(SUM(product_click_pv)/NULLIF(SUM(read_count),0),0),
+		IFNULL(SUM(pay_order_count)/NULLIF(SUM(product_click_pv),0),0),
+		IFNULL(SUM(refund_amount_by_refund),0), IFNULL(SUM(add_cart_qty),0),
+		IFNULL(SUM(to_shop_home_pay_amount),0),
+		IFNULL(SUM(finish_rate_pv*read_count)/NULLIF(SUM(read_count),0),0)
 		FROM op_xhs_note_daily WHERE 1=1`+whereSQL+` GROUP BY note_id ORDER BY SUM(pay_amount) DESC, SUM(read_count) DESC LIMIT 50`, whereArgs...)
 	if !ok {
 		return
@@ -179,7 +192,8 @@ func (h *DashboardHandler) GetXhsNote(w http.ResponseWriter, r *http.Request) {
 	defer dRows.Close()
 	for dRows.Next() {
 		var d noteRow
-		if writeDatabaseError(w, dRows.Scan(&d.NoteID, &d.Title, &d.Type, &d.Author, &d.PubDate, &d.Read, &d.Like, &d.Collect, &d.Comment, &d.Share, &d.GMV, &d.Product, &d.URL)) {
+		if writeDatabaseError(w, dRows.Scan(&d.NoteID, &d.Title, &d.URL, &d.Author, &d.CreateTime, &d.Type, &d.Product,
+			&d.PayAmount, &d.ClickPv, &d.ClickRatePv, &d.PayConvRatePv, &d.RefundAmount, &d.AddCartQty, &d.ToShopPay, &d.FinishRatePv)) {
 			return
 		}
 		detail = append(detail, d)
