@@ -40,17 +40,6 @@ func xhsCond(r *http.Request, extraCol, extraVal string) (string, []interface{})
 	return cond, args
 }
 
-// resolveXhsDate 取 date 参数, 空则查该表最新 stat_date
-func (h *DashboardHandler) resolveXhsDate(ctx context.Context, table, date string) string {
-	date = strings.TrimSpace(date)
-	if date != "" {
-		return date
-	}
-	var latest string
-	h.DB.QueryRowContext(ctx, "SELECT IFNULL(DATE_FORMAT(MAX(stat_date),'%Y-%m-%d'),'') FROM "+table).Scan(&latest)
-	return latest
-}
-
 // GetXhsFilters GET /api/xiaohongshu/filters
 func (h *DashboardHandler) GetXhsFilters(w http.ResponseWriter, r *http.Request) {
 	if writeScopeError(w, requireDeptAccess(r, "social")) {
@@ -260,7 +249,8 @@ func (h *DashboardHandler) GetXhsGoods(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	date := h.resolveXhsDate(ctx, "op_xhs_goods_daily", r.URL.Query().Get("date"))
+	// 商品销售同笔记：每日增量快照。数据更新时间 start/end → stat_date 范围，看一个月跨天聚合。
+	// 默认 business_type='全部' AND carrier='全部'（每商品一行总口径，避免切片重复 SUM）。
 	bizType := strings.TrimSpace(r.URL.Query().Get("business_type"))
 	if bizType == "" {
 		bizType = "全部"
@@ -278,7 +268,18 @@ func (h *DashboardHandler) GetXhsGoods(w http.ResponseWriter, r *http.Request) {
 		cond += " AND category_l1=?"
 		condArgs = append(condArgs, cat)
 	}
+	start := strings.TrimSpace(r.URL.Query().Get("start"))
+	end := strings.TrimSpace(r.URL.Query().Get("end"))
+	updCond := ""
+	var updArgs []interface{}
+	if start != "" && end != "" {
+		updCond = " AND stat_date BETWEEN ? AND ?"
+		updArgs = append(updArgs, start, end)
+	}
+	whereSQL := cond + updCond
+	whereArgs := append(append([]interface{}{}, condArgs...), updArgs...)
 
+	// KPI：量类跨天 SUM，商品数 COUNT(DISTINCT product_id)
 	type goodsKPI struct {
 		Goods    int     `json:"goods"`
 		Visitors int     `json:"visitors"`
@@ -288,33 +289,25 @@ func (h *DashboardHandler) GetXhsGoods(w http.ResponseWriter, r *http.Request) {
 		Refund   float64 `json:"refund"`
 	}
 	var k goodsKPI
-	kArgs := append([]interface{}{date}, condArgs...)
-	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*), IFNULL(SUM(visitor_count),0),
+	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(DISTINCT product_id), IFNULL(SUM(visitor_count),0),
 		IFNULL(SUM(pay_amount),0), IFNULL(SUM(pay_order_count),0),
 		IFNULL(SUM(pay_qty),0), IFNULL(SUM(refund_amount_by_pay),0)
-		FROM op_xhs_goods_daily WHERE stat_date=?`+cond, kArgs...).
+		FROM op_xhs_goods_daily WHERE 1=1`+whereSQL, whereArgs...).
 		Scan(&k.Goods, &k.Visitors, &k.GMV, &k.Orders, &k.Qty, &k.Refund); err != nil {
 		writeDatabaseError(w, err)
 		return
 	}
 
-	start := strings.TrimSpace(r.URL.Query().Get("start"))
-	end := strings.TrimSpace(r.URL.Query().Get("end"))
+	// 趋势：按数据更新日
 	type tPoint struct {
 		Date     string  `json:"date"`
 		GMV      float64 `json:"gmv"`
 		Visitors int     `json:"visitors"`
 	}
 	trend := []tPoint{}
-	tWhere := "1=1"
-	tArgs := append([]interface{}{}, condArgs...)
-	if start != "" && end != "" {
-		tWhere = "stat_date BETWEEN ? AND ?"
-		tArgs = append([]interface{}{start, end}, condArgs...)
-	}
 	tRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT DATE_FORMAT(stat_date,'%Y-%m-%d'),
 		IFNULL(SUM(pay_amount),0), IFNULL(SUM(visitor_count),0)
-		FROM op_xhs_goods_daily WHERE `+tWhere+cond+` GROUP BY stat_date ORDER BY stat_date`, tArgs...)
+		FROM op_xhs_goods_daily WHERE 1=1`+whereSQL+` GROUP BY stat_date ORDER BY stat_date`, whereArgs...)
 	if !ok {
 		return
 	}
@@ -330,6 +323,7 @@ func (h *DashboardHandler) GetXhsGoods(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 明细 TOP50：按商品聚合(跨天加总)，客单价/转化率用 总量÷总量 重算(禁简单平均)
 	type goodsRow struct {
 		Name     string  `json:"name"`
 		Cat1     string  `json:"cat1"`
@@ -345,10 +339,13 @@ func (h *DashboardHandler) GetXhsGoods(w http.ResponseWriter, r *http.Request) {
 		Refund   float64 `json:"refund"`
 	}
 	detail := []goodsRow{}
-	dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT product_name, category_l1, category_l2,
-		visitor_count, view_count, add_cart_qty, pay_amount, pay_order_count, pay_qty,
-		pay_conv_rate, avg_order_amount, refund_amount_by_pay
-		FROM op_xhs_goods_daily WHERE stat_date=?`+cond+` ORDER BY pay_amount DESC LIMIT 50`, kArgs...)
+	dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT ANY_VALUE(product_name), ANY_VALUE(category_l1), ANY_VALUE(category_l2),
+		IFNULL(SUM(visitor_count),0), IFNULL(SUM(view_count),0), IFNULL(SUM(add_cart_qty),0),
+		IFNULL(SUM(pay_amount),0), IFNULL(SUM(pay_order_count),0), IFNULL(SUM(pay_qty),0),
+		IFNULL(SUM(pay_buyer_count)/NULLIF(SUM(visitor_count),0),0),
+		IFNULL(SUM(pay_amount)/NULLIF(SUM(pay_order_count),0),0),
+		IFNULL(SUM(refund_amount_by_pay),0)
+		FROM op_xhs_goods_daily WHERE 1=1`+whereSQL+` GROUP BY product_id ORDER BY SUM(pay_amount) DESC LIMIT 50`, whereArgs...)
 	if !ok {
 		return
 	}
@@ -365,7 +362,7 @@ func (h *DashboardHandler) GetXhsGoods(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"kpi": k, "trend": trend, "detail": detail, "date": date,
+		"kpi": k, "trend": trend, "detail": detail,
 		"dateRange": map[string]string{"start": start, "end": end},
 	})
 }

@@ -96,9 +96,8 @@ const XiaohongshuDashboard: React.FC = () => {
       if (pe) p.set('pub_end', pe);
       if (idq) p.set('note_id_like', idq);
     } else {
-      p.set('date', e);
-      p.set('start', s);
-      p.set('end', e);
+      if (s) p.set('start', s);
+      if (e) p.set('end', e);
       if (c) p.set('category_l1', c);
     }
     fetch(`${API_BASE}/api/xiaohongshu/${t}?${p.toString()}`, { signal: ctrl.signal })
@@ -233,7 +232,7 @@ const XiaohongshuDashboard: React.FC = () => {
           </Row>
 
           {tab === 'goods' && (
-            <Card title={`趋势（数据日期：${data.date || '-'}）`} style={{ marginBottom: 16 }}>
+            <Card title="趋势（按数据更新日）" style={{ marginBottom: 16 }}>
               {(data.trend || []).length > 0 ? (
                 <ReactECharts lazyUpdate style={{ height: 350 }} option={goodsTrendOption(data.trend)} />
               ) : (
@@ -244,7 +243,7 @@ const XiaohongshuDashboard: React.FC = () => {
 
           <Card
             className="bi-table-card"
-            title={tab === 'note' ? '明细 TOP50（点开每行 ▸ 看这条笔记每天走势）' : `明细 TOP50（数据日期：${data.date || '-'}）`}
+            title={tab === 'note' ? '明细 TOP50（点开每行 ▸ 看这条笔记每天走势）' : '明细 TOP50（数据更新时间累计）'}
           >
             <Table
               dataSource={data.detail || []}
