@@ -429,6 +429,7 @@ var platformDBTables = map[string][]string{
 	"小红书":  {"op_xhs_cs_analysis_daily", "op_xhs_note_daily", "op_xhs_goods_daily"},
 	"小红书乘风": {"op_xhs_chengfeng_daily"},
 	"巨量云图": {"op_juliang_talent_daily", "op_juliang_keyword_daily"},
+	"小红书灵犀": {"op_lingxi_search_trend", "op_lingxi_search_updown", "op_lingxi_search_rank"},
 	"飞瓜":   {"fg_creator_daily"},
 }
 
