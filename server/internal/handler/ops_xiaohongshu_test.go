@@ -40,17 +40,31 @@ func TestGetXhsNoteHappy(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(DISTINCT note_id\), IFNULL\(SUM\(read_count\),0\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"notes", "reads", "interact", "gmv", "orders", "payuv", "clickuv"}).
 			AddRow(200, 126819, 50000, 28124.0, 1032, 3000, 50000))
-	// trend（横轴=笔记发布日）
-	mock.ExpectQuery(`SELECT DATE_FORMAT\(note_create_time,'%Y-%m-%d'\),\s+IFNULL\(SUM\(read_count\),0\), IFNULL\(SUM\(pay_amount\),0\)\s+FROM op_xhs_note_daily`).
-		WillReturnRows(sqlmock.NewRows([]string{"d", "reads", "gmv"}).
-			AddRow("2026-06-05", 100000, 5000.0).AddRow("2026-06-10", 120000, 6000.0))
-	// detail（按笔记聚合）
-	mock.ExpectQuery(`SELECT ANY_VALUE\(note_title\), ANY_VALUE\(note_type\), ANY_VALUE\(author_name\)`).
-		WillReturnRows(sqlmock.NewRows([]string{"title", "type", "author", "pubdate", "read", "like", "collect", "comment", "share", "gmv", "prod", "url"}).
-			AddRow("标题A", "图文", "糙能农场", "2026-06-10", 7760, 43, 15, 7, 3, 2213.9, "山药面", "https://www.xiaohongshu.com/explore/abc?xsec_token=t"))
+	// detail（按笔记聚合，第一列 note_id 供下钻；已无整月汇总趋势查询）
+	mock.ExpectQuery(`SELECT note_id, ANY_VALUE\(note_title\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"noteid", "title", "type", "author", "pubdate", "read", "like", "collect", "comment", "share", "gmv", "prod", "url"}).
+			AddRow("6a2156de", "标题A", "图文", "糙能农场", "2026-06-10", 7760, 43, 15, 7, 3, 2213.9, "山药面", "https://www.xiaohongshu.com/explore/abc?xsec_token=t"))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/xiaohongshu/note", nil)
 	(&DashboardHandler{DB: db}).GetXhsNote(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetXhsNoteTrendHappy(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	// 单条笔记按数据更新日的每天走势
+	mock.ExpectQuery(`SELECT DATE_FORMAT\(stat_date,'%Y-%m-%d'\),\s+IFNULL\(SUM\(read_count\),0\), IFNULL\(SUM\(pay_amount\),0\), IFNULL\(SUM\(pay_order_count\),0\)\s+FROM op_xhs_note_daily WHERE note_id=`).
+		WillReturnRows(sqlmock.NewRows([]string{"d", "reads", "gmv", "orders"}).
+			AddRow("2026-06-18", 1200, 300.0, 5).AddRow("2026-06-19", 800, 150.0, 3))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/xiaohongshu/note-trend?note_id=abc&start=2026-06-01&end=2026-06-21", nil)
+	(&DashboardHandler{DB: db}).GetXhsNoteTrend(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200 got %d body=%s", rec.Code, rec.Body.String())
 	}

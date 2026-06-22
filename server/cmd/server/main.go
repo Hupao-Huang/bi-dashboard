@@ -415,6 +415,7 @@ func main() {
 	mux.HandleFunc("/api/feigua", pageProtected("social.feigua:view", cache24h(h.GetFeiguaData)))
 	mux.HandleFunc("/api/xiaohongshu/filters", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsFilters)))
 	mux.HandleFunc("/api/xiaohongshu/note", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsNote)))
+	mux.HandleFunc("/api/xiaohongshu/note-trend", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsNoteTrend)))
 	mux.HandleFunc("/api/xiaohongshu/goods", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsGoods)))
 	mux.HandleFunc("/api/douyin/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinOps)))
 	mux.HandleFunc("/api/douyin-dist/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinDistOps)))
