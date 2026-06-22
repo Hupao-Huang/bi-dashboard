@@ -150,7 +150,7 @@ const XiaohongshuDashboard: React.FC = () => {
     { title: '类型', dataIndex: 'type', width: 70 },
     { title: '作者', dataIndex: 'author', width: 110, ellipsis: true },
     { title: '发布日期', dataIndex: 'pubDate', width: 108 },
-    { title: '笔记ID', dataIndex: 'noteId', width: 230, render: (v: string) => (v ? <Text copyable={{ text: v }}>{v}</Text> : '-') },
+    { title: '笔记ID', dataIndex: 'noteId', width: 280, render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-') },
     { title: '阅读', dataIndex: 'read', width: 80, sorter: (a: any, b: any) => a.read - b.read },
     { title: '点赞', dataIndex: 'like', width: 70 },
     { title: '收藏', dataIndex: 'collect', width: 70 },
