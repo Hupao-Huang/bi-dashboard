@@ -125,8 +125,16 @@ func (h *DashboardHandler) GetXhsNote(w http.ResponseWriter, r *http.Request) {
 		pubCond += " AND note_create_time <= ?"
 		pubArgs = append(pubArgs, pubEnd+" 23:59:59")
 	}
-	whereSQL := cond + updCond + pubCond
-	whereArgs := append(append(append([]interface{}{}, condArgs...), updArgs...), pubArgs...)
+	// 笔记ID 搜索(含模糊匹配，可贴完整或部分 ID)
+	noteIDLike := strings.TrimSpace(r.URL.Query().Get("note_id_like"))
+	idCond := ""
+	var idArgs []interface{}
+	if noteIDLike != "" {
+		idCond = " AND note_id LIKE ?"
+		idArgs = append(idArgs, "%"+noteIDLike+"%")
+	}
+	whereSQL := cond + updCond + pubCond + idCond
+	whereArgs := append(append(append(append([]interface{}{}, condArgs...), updArgs...), pubArgs...), idArgs...)
 
 	// KPI：量类跨天 SUM，笔记数去重，转化率=总支付人数÷总点击人数(加权重算)
 	type noteKPI struct {

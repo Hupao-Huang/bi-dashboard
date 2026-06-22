@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker } from 'antd';
+import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker, Input, Typography } from 'antd';
 import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
@@ -8,6 +8,7 @@ import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
 
 const { RangePicker } = DatePicker;
+const { Text } = Typography;
 
 // 单条笔记按【数据更新日】的每天走势（明细行展开时拉取）
 const NoteTrend: React.FC<{ noteId: string; start: string; end: string }> = ({ noteId, start, end }) => {
@@ -56,6 +57,7 @@ const XiaohongshuDashboard: React.FC = () => {
   const [cat, setCat] = useState('');
   const [pubStart, setPubStart] = useState('');
   const [pubEnd, setPubEnd] = useState('');
+  const [noteIdQuery, setNoteIdQuery] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [data, setData] = useState<any>(null);
@@ -78,7 +80,7 @@ const XiaohongshuDashboard: React.FC = () => {
   }, []);
 
   // start/end = 数据更新时间(stat_date)；pubStart/pubEnd = 笔记发布时间(note_create_time)
-  const fetchData = useCallback((t: string, s: string, e: string, shopArr: string[], nt: string, c: string, ps: string, pe: string) => {
+  const fetchData = useCallback((t: string, s: string, e: string, shopArr: string[], nt: string, c: string, ps: string, pe: string, idq: string) => {
     if (!e) return;
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -92,6 +94,7 @@ const XiaohongshuDashboard: React.FC = () => {
       if (nt) p.set('note_type', nt);
       if (ps) p.set('pub_start', ps);
       if (pe) p.set('pub_end', pe);
+      if (idq) p.set('note_id_like', idq);
     } else {
       p.set('date', e);
       p.set('start', s);
@@ -105,8 +108,8 @@ const XiaohongshuDashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchData(tab, start, end, shops, noteType, cat, pubStart, pubEnd);
-  }, [fetchData, tab, start, end, shops, noteType, cat, pubStart, pubEnd]);
+    fetchData(tab, start, end, shops, noteType, cat, pubStart, pubEnd, noteIdQuery);
+  }, [fetchData, tab, start, end, shops, noteType, cat, pubStart, pubEnd, noteIdQuery]);
 
   const noteCards = (k: any) => [
     { title: '笔记数', value: k.notes, accent: '#ef4444' },
@@ -147,6 +150,7 @@ const XiaohongshuDashboard: React.FC = () => {
     { title: '类型', dataIndex: 'type', width: 70 },
     { title: '作者', dataIndex: 'author', width: 110, ellipsis: true },
     { title: '发布日期', dataIndex: 'pubDate', width: 108 },
+    { title: '笔记ID', dataIndex: 'noteId', width: 230, render: (v: string) => (v ? <Text copyable={{ text: v }}>{v}</Text> : '-') },
     { title: '阅读', dataIndex: 'read', width: 80, sorter: (a: any, b: any) => a.read - b.read },
     { title: '点赞', dataIndex: 'like', width: 70 },
     { title: '收藏', dataIndex: 'collect', width: 70 },
@@ -193,6 +197,13 @@ const XiaohongshuDashboard: React.FC = () => {
                 disabledDate={(current: any) => current && current > dayjs().endOf('day')}
                 value={pubStart && pubEnd ? [dayjs(pubStart), dayjs(pubEnd)] : null}
                 onChange={(d: any) => { setPubStart(d?.[0]?.format('YYYY-MM-DD') || ''); setPubEnd(d?.[1]?.format('YYYY-MM-DD') || ''); }}
+              />
+              <Input.Search
+                placeholder="笔记ID搜索(回车)"
+                allowClear
+                onSearch={(v) => setNoteIdQuery(v.trim())}
+                onChange={(e) => { if (!e.target.value) setNoteIdQuery(''); }}
+                style={{ width: 240 }}
               />
             </>
           ) : (
