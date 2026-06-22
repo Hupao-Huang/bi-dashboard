@@ -1,13 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker } from 'antd';
-import dayjs from 'dayjs';
+import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty } from 'antd';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
-
-const { RangePicker } = DatePicker;
 
 const XiaohongshuDashboard: React.FC = () => {
   const [tab, setTab] = useState<'note' | 'goods'>('note');
@@ -15,15 +12,13 @@ const XiaohongshuDashboard: React.FC = () => {
   const [shops, setShops] = useState<string[]>([]);
   const [noteType, setNoteType] = useState('');
   const [cat, setCat] = useState('');
-  const [createStart, setCreateStart] = useState('');
-  const [createEnd, setCreateEnd] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
-  // 初次拉 filters，默认趋势范围 = 最新日往前 14 天
+  // 初次拉 filters，默认时间范围 = 本月
   useEffect(() => {
     fetch(`${API_BASE}/api/xiaohongshu/filters`)
       .then((r) => r.json())
@@ -39,17 +34,17 @@ const XiaohongshuDashboard: React.FC = () => {
       .catch(() => {});
   }, []);
 
-  const fetchData = useCallback((t: string, s: string, e: string, shopArr: string[], nt: string, c: string, cs: string, ce: string) => {
+  const fetchData = useCallback((t: string, s: string, e: string, shopArr: string[], nt: string, c: string) => {
     if (!e) return;
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setLoading(true);
+    // 笔记tab: start/end = 笔记发布日期范围(后端按 note_create_time 筛+跨快照日聚合)
+    // 商品tab: date = 最新数据日(单日快照), start/end = 趋势的数据日期范围
     const p = new URLSearchParams({ date: e, start: s, end: e });
     if (shopArr.length) p.set('shops', shopArr.join(','));
     if (t === 'note' && nt) p.set('note_type', nt);
-    if (t === 'note' && cs) p.set('create_start', cs);
-    if (t === 'note' && ce) p.set('create_end', ce);
     if (t === 'goods' && c) p.set('category_l1', c);
     fetch(`${API_BASE}/api/xiaohongshu/${t}?${p.toString()}`, { signal: ctrl.signal })
       .then((r) => r.json())
@@ -63,8 +58,8 @@ const XiaohongshuDashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchData(tab, start, end, shops, noteType, cat, createStart, createEnd);
-  }, [fetchData, tab, start, end, shops, noteType, cat, createStart, createEnd]);
+    fetchData(tab, start, end, shops, noteType, cat);
+  }, [fetchData, tab, start, end, shops, noteType, cat]);
 
   const noteCards = (k: any) => [
     { title: '笔记数', value: k.notes, accent: '#ef4444' },
@@ -103,6 +98,7 @@ const XiaohongshuDashboard: React.FC = () => {
     { title: '笔记标题', dataIndex: 'title', ellipsis: true, render: (t: string, r: any) => (r.url ? <a href={r.url} target="_blank" rel="noreferrer">{t}</a> : t) },
     { title: '类型', dataIndex: 'type', width: 70 },
     { title: '作者', dataIndex: 'author', width: 110, ellipsis: true },
+    { title: '发布日期', dataIndex: 'pubDate', width: 108 },
     { title: '阅读', dataIndex: 'read', width: 80, sorter: (a: any, b: any) => a.read - b.read },
     { title: '点赞', dataIndex: 'like', width: 70 },
     { title: '收藏', dataIndex: 'collect', width: 70 },
@@ -138,19 +134,11 @@ const XiaohongshuDashboard: React.FC = () => {
             options={(filters.shops || []).map((s: string) => ({ label: s, value: s }))}
           />
           {tab === 'note' ? (
-            <>
-              <Select
-                allowClear placeholder="笔记类型(全部)" style={{ minWidth: 150 }}
-                value={noteType || undefined} onChange={(v) => setNoteType(v || '')}
-                options={(filters.noteTypes || []).map((s: string) => ({ label: s, value: s }))}
-              />
-              <RangePicker
-                placeholder={['笔记创建-起', '笔记创建-止']}
-                disabledDate={(current: any) => current && current > dayjs().endOf('day')}
-                value={createStart && createEnd ? [dayjs(createStart), dayjs(createEnd)] : null}
-                onChange={(d: any) => { setCreateStart(d?.[0]?.format('YYYY-MM-DD') || ''); setCreateEnd(d?.[1]?.format('YYYY-MM-DD') || ''); }}
-              />
-            </>
+            <Select
+              allowClear placeholder="笔记类型(全部)" style={{ minWidth: 150 }}
+              value={noteType || undefined} onChange={(v) => setNoteType(v || '')}
+              options={(filters.noteTypes || []).map((s: string) => ({ label: s, value: s }))}
+            />
           ) : (
             <Select
               allowClear placeholder="一级品类(全部)" style={{ minWidth: 220 }}
@@ -177,7 +165,7 @@ const XiaohongshuDashboard: React.FC = () => {
             ))}
           </Row>
 
-          <Card title={`趋势（数据日期：${data.date || '-'}）`} style={{ marginBottom: 16 }}>
+          <Card title={tab === 'note' ? '趋势（按笔记发布日）' : `趋势（数据日期：${data.date || '-'}）`} style={{ marginBottom: 16 }}>
             {(data.trend || []).length > 0 ? (
               <ReactECharts
                 lazyUpdate
@@ -193,7 +181,7 @@ const XiaohongshuDashboard: React.FC = () => {
             )}
           </Card>
 
-          <Card className="bi-table-card" title={`明细 TOP50（数据日期：${data.date || '-'}）`}>
+          <Card className="bi-table-card" title={tab === 'note' ? '明细 TOP50（按发布日期筛选）' : `明细 TOP50（数据日期：${data.date || '-'}）`}>
             <Table
               dataSource={data.detail || []}
               columns={tab === 'note' ? noteColumns : goodsColumns}
