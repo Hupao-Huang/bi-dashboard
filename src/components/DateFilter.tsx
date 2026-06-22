@@ -16,9 +16,10 @@ interface Props {
   start: string;
   end: string;
   onChange: (start: string, end: string) => void;
+  label?: string;
 }
 
-const DateFilter: React.FC<Props> = ({ start, end, onChange }) => {
+const DateFilter: React.FC<Props> = ({ start, end, onChange, label = '时间' }) => {
   const lastClickedRef = useRef<string | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const today = dayjs();
@@ -91,7 +92,7 @@ const DateFilter: React.FC<Props> = ({ start, end, onChange }) => {
   const content = (
     <div className="bi-date-filter">
       <CalendarOutlined style={{ color: 'var(--text-tertiary)', fontSize: 14, marginRight: 2 }} />
-      <span style={{ fontWeight: 500, color: 'var(--text-tertiary)', marginRight: 4, fontSize: 13 }}>时间</span>
+      <span style={{ fontWeight: 500, color: 'var(--text-tertiary)', marginRight: 4, fontSize: 13 }}>{label}</span>
       <RangePicker
         value={[dayjs(start), dayjs(end)]}
         onChange={handleRange as any}

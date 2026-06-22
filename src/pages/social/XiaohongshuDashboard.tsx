@@ -1,10 +1,52 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty } from 'antd';
+import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker } from 'antd';
+import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
+
+const { RangePicker } = DatePicker;
+
+// 单条笔记按【数据更新日】的每天走势（明细行展开时拉取）
+const NoteTrend: React.FC<{ noteId: string; start: string; end: string }> = ({ noteId, start, end }) => {
+  const [rows, setRows] = useState<any[] | null>(null);
+  useEffect(() => {
+    const p = new URLSearchParams({ note_id: noteId });
+    if (start) p.set('start', start);
+    if (end) p.set('end', end);
+    let alive = true;
+    fetch(`${API_BASE}/api/xiaohongshu/note-trend?${p.toString()}`)
+      .then((r) => r.json())
+      .then((res) => { if (alive) setRows(res.data?.trend || []); })
+      .catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [noteId, start, end]);
+
+  if (rows === null) return <div style={{ padding: 16 }}>加载中…</div>;
+  if (!rows.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这段时间该笔记没有数据" />;
+  return (
+    <ReactECharts
+      lazyUpdate
+      style={{ height: 260 }}
+      option={{
+        tooltip: { trigger: 'axis' },
+        legend: { data: ['阅读', '带货GMV'], top: 0 },
+        grid: { left: 55, right: 55, top: 32, bottom: 24, containLabel: true },
+        xAxis: { type: 'category', data: rows.map((p) => p.date) },
+        yAxis: [
+          { type: 'value', name: '阅读' },
+          { type: 'value', name: 'GMV' },
+        ],
+        series: [
+          { name: '阅读', type: 'bar', yAxisIndex: 0, data: rows.map((p) => p.reads), itemStyle: { color: CHART_COLORS[0] } },
+          { name: '带货GMV', type: 'line', yAxisIndex: 1, smooth: true, data: rows.map((p) => p.gmv), itemStyle: { color: CHART_COLORS[1] } },
+        ],
+      }}
+    />
+  );
+};
 
 const XiaohongshuDashboard: React.FC = () => {
   const [tab, setTab] = useState<'note' | 'goods'>('note');
@@ -12,13 +54,15 @@ const XiaohongshuDashboard: React.FC = () => {
   const [shops, setShops] = useState<string[]>([]);
   const [noteType, setNoteType] = useState('');
   const [cat, setCat] = useState('');
+  const [pubStart, setPubStart] = useState('');
+  const [pubEnd, setPubEnd] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
-  // 初次拉 filters，默认时间范围 = 本月
+  // 初次拉 filters，默认数据更新时间 = 本月
   useEffect(() => {
     fetch(`${API_BASE}/api/xiaohongshu/filters`)
       .then((r) => r.json())
@@ -26,7 +70,6 @@ const XiaohongshuDashboard: React.FC = () => {
         const f = res.data || {};
         setFilters({ shops: f.shops || [], noteTypes: f.noteTypes || [], categories: f.categories || [], latestDate: f.latestDate || '' });
         if (f.latestDate) {
-          // 默认展示本月: 最新数据日所在月 1 号 ~ 最新数据日
           setStart(f.latestDate.slice(0, 7) + '-01');
           setEnd(f.latestDate);
         }
@@ -34,32 +77,36 @@ const XiaohongshuDashboard: React.FC = () => {
       .catch(() => {});
   }, []);
 
-  const fetchData = useCallback((t: string, s: string, e: string, shopArr: string[], nt: string, c: string) => {
+  // start/end = 数据更新时间(stat_date)；pubStart/pubEnd = 笔记发布时间(note_create_time)
+  const fetchData = useCallback((t: string, s: string, e: string, shopArr: string[], nt: string, c: string, ps: string, pe: string) => {
     if (!e) return;
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setLoading(true);
-    // 笔记tab: start/end = 笔记发布日期范围(后端按 note_create_time 筛+跨快照日聚合)
-    // 商品tab: date = 最新数据日(单日快照), start/end = 趋势的数据日期范围
-    const p = new URLSearchParams({ date: e, start: s, end: e });
+    const p = new URLSearchParams();
     if (shopArr.length) p.set('shops', shopArr.join(','));
-    if (t === 'note' && nt) p.set('note_type', nt);
-    if (t === 'goods' && c) p.set('category_l1', c);
+    if (t === 'note') {
+      if (s) p.set('start', s);
+      if (e) p.set('end', e);
+      if (nt) p.set('note_type', nt);
+      if (ps) p.set('pub_start', ps);
+      if (pe) p.set('pub_end', pe);
+    } else {
+      p.set('date', e);
+      p.set('start', s);
+      p.set('end', e);
+      if (c) p.set('category_l1', c);
+    }
     fetch(`${API_BASE}/api/xiaohongshu/${t}?${p.toString()}`, { signal: ctrl.signal })
       .then((r) => r.json())
-      .then((res) => {
-        setData(res.data);
-        setLoading(false);
-      })
-      .catch((err: any) => {
-        if (err?.name !== 'AbortError') setLoading(false);
-      });
+      .then((res) => { setData(res.data); setLoading(false); })
+      .catch((err: any) => { if (err?.name !== 'AbortError') setLoading(false); });
   }, []);
 
   useEffect(() => {
-    fetchData(tab, start, end, shops, noteType, cat);
-  }, [fetchData, tab, start, end, shops, noteType, cat]);
+    fetchData(tab, start, end, shops, noteType, cat, pubStart, pubEnd);
+  }, [fetchData, tab, start, end, shops, noteType, cat, pubStart, pubEnd]);
 
   const noteCards = (k: any) => [
     { title: '笔记数', value: k.notes, accent: '#ef4444' },
@@ -78,18 +125,19 @@ const XiaohongshuDashboard: React.FC = () => {
     { title: '退款金额', value: k.refund, precision: 2, prefix: '¥', accent: '#6b7280' },
   ];
 
-  const trendOption = (trend: any[], leftKey: string, rightKey: string, leftName: string, rightName: string) => ({
+  // 商品 tab 的整月趋势（按数据更新日）
+  const goodsTrendOption = (trend: any[]) => ({
     tooltip: { trigger: 'axis' },
-    legend: { data: [leftName, rightName], top: 0 },
+    legend: { data: ['访客', '支付金额'], top: 0 },
     grid: { left: 60, right: 60, top: 52, bottom: 28, containLabel: true },
     xAxis: { type: 'category', data: (trend || []).map((p) => p.date) },
     yAxis: [
-      { type: 'value', name: leftName },
-      { type: 'value', name: rightName },
+      { type: 'value', name: '访客' },
+      { type: 'value', name: '支付金额' },
     ],
     series: [
-      { name: leftName, type: 'bar', yAxisIndex: 0, data: (trend || []).map((p) => p[leftKey]), itemStyle: { color: CHART_COLORS[0] } },
-      { name: rightName, type: 'line', yAxisIndex: 1, smooth: true, data: (trend || []).map((p) => p[rightKey]), itemStyle: { color: CHART_COLORS[1] } },
+      { name: '访客', type: 'bar', yAxisIndex: 0, data: (trend || []).map((p) => p.visitors), itemStyle: { color: CHART_COLORS[0] } },
+      { name: '支付金额', type: 'line', yAxisIndex: 1, smooth: true, data: (trend || []).map((p) => p.gmv), itemStyle: { color: CHART_COLORS[1] } },
     ],
   });
 
@@ -120,7 +168,7 @@ const XiaohongshuDashboard: React.FC = () => {
 
   return (
     <div>
-      <DateFilter start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e); }} />
+      <DateFilter label="数据更新时间" start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e); }} />
       <Card className="bi-filter-card" style={{ marginBottom: 16 }}>
         <Tabs
           activeKey={tab}
@@ -134,11 +182,19 @@ const XiaohongshuDashboard: React.FC = () => {
             options={(filters.shops || []).map((s: string) => ({ label: s, value: s }))}
           />
           {tab === 'note' ? (
-            <Select
-              allowClear placeholder="笔记类型(全部)" style={{ minWidth: 150 }}
-              value={noteType || undefined} onChange={(v) => setNoteType(v || '')}
-              options={(filters.noteTypes || []).map((s: string) => ({ label: s, value: s }))}
-            />
+            <>
+              <Select
+                allowClear placeholder="笔记类型(全部)" style={{ minWidth: 150 }}
+                value={noteType || undefined} onChange={(v) => setNoteType(v || '')}
+                options={(filters.noteTypes || []).map((s: string) => ({ label: s, value: s }))}
+              />
+              <RangePicker
+                placeholder={['笔记发布-起', '笔记发布-止']}
+                disabledDate={(current: any) => current && current > dayjs().endOf('day')}
+                value={pubStart && pubEnd ? [dayjs(pubStart), dayjs(pubEnd)] : null}
+                onChange={(d: any) => { setPubStart(d?.[0]?.format('YYYY-MM-DD') || ''); setPubEnd(d?.[1]?.format('YYYY-MM-DD') || ''); }}
+              />
+            </>
           ) : (
             <Select
               allowClear placeholder="一级品类(全部)" style={{ minWidth: 220 }}
@@ -165,30 +221,35 @@ const XiaohongshuDashboard: React.FC = () => {
             ))}
           </Row>
 
-          <Card title={tab === 'note' ? '趋势（按笔记发布日）' : `趋势（数据日期：${data.date || '-'}）`} style={{ marginBottom: 16 }}>
-            {(data.trend || []).length > 0 ? (
-              <ReactECharts
-                lazyUpdate
-                style={{ height: 350 }}
-                option={
-                  tab === 'note'
-                    ? trendOption(data.trend, 'reads', 'gmv', '阅读量', '带货GMV')
-                    : trendOption(data.trend, 'visitors', 'gmv', '访客', '支付金额')
-                }
-              />
-            ) : (
-              <Empty description="暂无数据" />
-            )}
-          </Card>
+          {tab === 'goods' && (
+            <Card title={`趋势（数据日期：${data.date || '-'}）`} style={{ marginBottom: 16 }}>
+              {(data.trend || []).length > 0 ? (
+                <ReactECharts lazyUpdate style={{ height: 350 }} option={goodsTrendOption(data.trend)} />
+              ) : (
+                <Empty description="暂无数据" />
+              )}
+            </Card>
+          )}
 
-          <Card className="bi-table-card" title={tab === 'note' ? '明细 TOP50（按发布日期筛选）' : `明细 TOP50（数据日期：${data.date || '-'}）`}>
+          <Card
+            className="bi-table-card"
+            title={tab === 'note' ? '明细 TOP50（点开每行 ▸ 看这条笔记每天走势）' : `明细 TOP50（数据日期：${data.date || '-'}）`}
+          >
             <Table
               dataSource={data.detail || []}
               columns={tab === 'note' ? noteColumns : goodsColumns}
-              rowKey={(_, i) => String(i)}
+              rowKey={(r: any, i) => (tab === 'note' && r.noteId ? r.noteId : String(i))}
               size="small"
               pagination={false}
               scroll={{ x: 'max-content', y: 480 }}
+              expandable={
+                tab === 'note'
+                  ? {
+                      expandedRowRender: (record: any) => <NoteTrend noteId={record.noteId} start={start} end={end} />,
+                      rowExpandable: (record: any) => !!record.noteId,
+                    }
+                  : undefined
+              }
             />
           </Card>
         </>
