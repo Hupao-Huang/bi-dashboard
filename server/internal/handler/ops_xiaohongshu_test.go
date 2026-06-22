@@ -40,10 +40,10 @@ func TestGetXhsNoteHappy(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(DISTINCT note_id\), IFNULL\(SUM\(read_count\),0\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"notes", "reads", "interact", "gmv", "orders", "payuv", "clickuv"}).
 			AddRow(200, 126819, 50000, 28124.0, 1032, 3000, 50000))
-	// detail（按笔记聚合，第一列 note_id 供下钻；已无整月汇总趋势查询）
-	mock.ExpectQuery(`SELECT note_id, ANY_VALUE\(note_title\)`).
-		WillReturnRows(sqlmock.NewRows([]string{"noteid", "title", "type", "author", "pubdate", "read", "like", "collect", "comment", "share", "gmv", "prod", "url"}).
-			AddRow("6a2156de", "标题A", "图文", "糙能农场", "2026-06-10", 7760, 43, 15, 7, 3, 2213.9, "山药面", "https://www.xiaohongshu.com/explore/abc?xsec_token=t"))
+	// detail（按笔记聚合 15 列：属性 + 金额/次数 SUM + 率类加权重算；第一列 note_id 供下钻）
+	mock.ExpectQuery(`SELECT note_id,\s+ANY_VALUE\(note_title\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"noteid", "title", "url", "author", "ctime", "type", "prod", "pay", "clickpv", "clickrate", "payconv", "refund", "cart", "toshoppay", "finish"}).
+			AddRow("6a2156de", "标题A", "https://www.xiaohongshu.com/explore/abc?xsec_token=t", "糙能农场", "2026-06-10 18:43:42", "图文", "山药面", 2213.9, 733, 0.092808, 0.110505, 12.5, 8, 100.0, 0.0))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/xiaohongshu/note", nil)
 	(&DashboardHandler{DB: db}).GetXhsNote(rec, req)

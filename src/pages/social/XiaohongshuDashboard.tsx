@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker, Input, Typography } from 'antd';
+import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker, Input, Typography, Tooltip } from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
@@ -144,18 +145,29 @@ const XiaohongshuDashboard: React.FC = () => {
   });
 
   const yuan = (v: number) => `¥${(v || 0).toFixed(2)}`;
+  const pct = (v: number) => `${((v || 0) * 100).toFixed(2)}%`;
+  // 计算字段表头：带问号图标，悬停显示业务口径公式
+  const headTip = (label: string, formula: string) => (
+    <Tooltip title={formula}>
+      <span>{label} <QuestionCircleOutlined /></span>
+    </Tooltip>
+  );
+  // 列宽给足让每个表头都单行显示；总宽超一屏时由横向滚动条承载
   const noteColumns = [
-    { title: '笔记标题', dataIndex: 'title', ellipsis: true, render: (t: string, r: any) => (r.url ? <a href={r.url} target="_blank" rel="noreferrer">{t}</a> : t) },
-    { title: '类型', dataIndex: 'type', width: 70 },
-    { title: '作者', dataIndex: 'author', width: 110, ellipsis: true },
-    { title: '发布日期', dataIndex: 'pubDate', width: 108 },
-    { title: '笔记ID', dataIndex: 'noteId', width: 280, render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-') },
-    { title: '阅读', dataIndex: 'read', width: 80, sorter: (a: any, b: any) => a.read - b.read },
-    { title: '点赞', dataIndex: 'like', width: 70 },
-    { title: '收藏', dataIndex: 'collect', width: 70 },
-    { title: '评论', dataIndex: 'comment', width: 70 },
-    { title: '带货GMV', dataIndex: 'gmv', width: 100, render: yuan, sorter: (a: any, b: any) => a.gmv - b.gmv },
-    { title: '关联商品', dataIndex: 'product', ellipsis: true },
+    { title: '笔记标题', dataIndex: 'title', width: 220, ellipsis: true, render: (t: string, r: any) => (r.url ? <a href={r.url} target="_blank" rel="noreferrer">{t}</a> : t) },
+    { title: '笔记ID', dataIndex: 'noteId', width: 230, ellipsis: true, render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-') },
+    { title: '作者昵称', dataIndex: 'author', width: 110, ellipsis: true },
+    { title: '笔记创建时间', dataIndex: 'createTime', width: 155 },
+    { title: '笔记类型', dataIndex: 'type', width: 90 },
+    { title: '关联商品名称', dataIndex: 'product', width: 200, ellipsis: true },
+    { title: '笔记支付金额', dataIndex: 'payAmount', width: 120, render: yuan, sorter: (a: any, b: any) => a.payAmount - b.payAmount },
+    { title: '笔记商品点击次数', dataIndex: 'clickPv', width: 135, sorter: (a: any, b: any) => a.clickPv - b.clickPv },
+    { title: headTip('笔记商品点击率（PV）', '商品点击次数 ÷ 笔记阅读数'), dataIndex: 'clickRatePv', width: 190, render: pct },
+    { title: headTip('笔记支付转化率（PV）', '支付订单数 ÷ 商品点击次数'), dataIndex: 'payConvRatePv', width: 190, render: pct },
+    { title: '笔记退款金额（退款时间）', dataIndex: 'refundAmount', width: 200, render: yuan },
+    { title: '笔记加购件数', dataIndex: 'addCartQty', width: 115 },
+    { title: '引流店铺主页支付金额', dataIndex: 'toShopPay', width: 180, render: yuan },
+    { title: headTip('完播率（PV）', '视频看完的次数 ÷ 播放量（看多天时按阅读量加权汇总）'), dataIndex: 'finishRatePv', width: 145, render: (v: number) => (v > 0 ? pct(v) : '-') },
   ];
   const goodsColumns = [
     { title: '商品名', dataIndex: 'name', ellipsis: true },
@@ -247,7 +259,7 @@ const XiaohongshuDashboard: React.FC = () => {
           >
             <Table
               dataSource={data.detail || []}
-              columns={tab === 'note' ? noteColumns : goodsColumns}
+              columns={(tab === 'note' ? noteColumns : goodsColumns).map((c: any) => ({ ...c, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }) }))}
               rowKey={(r: any, i) => (tab === 'note' && r.noteId ? r.noteId : String(i))}
               size="small"
               pagination={false}
