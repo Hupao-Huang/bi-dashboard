@@ -16,6 +16,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -100,6 +101,9 @@ func main() {
 						continue
 					}
 					name := fl.Name()
+					if strings.HasPrefix(name, "~$") {
+						continue // Excel/WPS 打开文件时的临时锁文件，跳过
+					}
 					if !strings.HasSuffix(name, ".xlsx") {
 						continue
 					}
@@ -210,6 +214,21 @@ func ensureTables(db *sql.DB) error {
 	return nil
 }
 
+// extractHyperlinkURL 从 HYPERLINK("url","display") 公式里取第一个引号参数(即真实链接)。
+// URL 不含双引号，简单取首对引号之间内容即可。
+func extractHyperlinkURL(formula string) string {
+	start := strings.Index(formula, "\"")
+	if start < 0 {
+		return ""
+	}
+	rest := formula[start+1:]
+	end := strings.Index(rest, "\"")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
 // importNoteDaily 导入"笔记数据明细"xlsx（38 业务字段）
 func importNoteDaily(db *sql.DB, path, sqlDate, shopName string) int {
 	f, err := excelize.OpenFile(path)
@@ -219,7 +238,8 @@ func importNoteDaily(db *sql.DB, path, sqlDate, shopName string) int {
 	}
 	defer f.Close()
 
-	rows, _ := f.GetRows(f.GetSheetName(0))
+	sheet := f.GetSheetName(0)
+	rows, _ := f.GetRows(sheet)
 	if len(rows) < 2 {
 		return 0
 	}
@@ -227,9 +247,16 @@ func importNoteDaily(db *sql.DB, path, sqlDate, shopName string) int {
 	for i, h := range rows[0] {
 		colMap[strings.TrimSpace(h)] = i
 	}
+	// "笔记链接"列是 HYPERLINK("真链接","真链接") 公式，GetRows 只拿到缓存值"0"，
+	// 必须从公式里提取真链接（带 xsec_token，才能正常跳转）
+	linkColName := ""
+	if li, ok := colMap["笔记链接"]; ok {
+		linkColName, _ = excelize.ColumnNumberToName(li + 1)
+	}
 
 	count := 0
-	for _, row := range rows[1:] {
+	for ri := 1; ri < len(rows); ri++ {
+		row := rows[ri]
 		if len(row) == 0 {
 			continue
 		}
@@ -248,6 +275,16 @@ func importNoteDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			continue
 		}
 
+		// 笔记链接：默认取 GetRows 值（本数据源恒为缓存"0"），若是 HYPERLINK 公式则提取真链接
+		noteURL := get("笔记链接")
+		if linkColName != "" {
+			if fm, _ := f.GetCellFormula(sheet, linkColName+strconv.Itoa(ri+1)); fm != "" {
+				if u := extractHyperlinkURL(fm); strings.HasPrefix(u, "http") {
+					noteURL = u
+				}
+			}
+		}
+
 		if _, err := db.Exec(`REPLACE INTO op_xhs_note_daily (
 			stat_date, shop_name, note_title, note_id, note_url,
 			author_name, author_xhs_id, note_create_time, note_type,
@@ -261,7 +298,7 @@ func importNoteDaily(db *sql.DB, path, sqlDate, shopName string) int {
 			read_count, like_count, collect_count, comment_count, share_count,
 			follow_count, danmu_count, avg_read_duration, finish_rate_pv
 		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			sqlDate, shopName, get("笔记标题"), noteID, get("笔记链接"),
+			sqlDate, shopName, get("笔记标题"), noteID, noteURL,
 			get("作者昵称"), get("作者xhs_ID"), get("笔记创建时间"), get("笔记类型"),
 			get("关联商品名称"), get("关联商品ID"), getF("视频时长（秒）"),
 			getF("笔记支付金额"), getI("笔记支付订单数"), getI("笔记商品点击次数"), getF("笔记商品点击率（PV）"),
