@@ -146,6 +146,7 @@ const XiaohongshuDashboard: React.FC = () => {
               />
               <RangePicker
                 placeholder={['笔记创建-起', '笔记创建-止']}
+                disabledDate={(current: any) => current && current > dayjs().endOf('day')}
                 value={createStart && createEnd ? [dayjs(createStart), dayjs(createEnd)] : null}
                 onChange={(d: any) => { setCreateStart(d?.[0]?.format('YYYY-MM-DD') || ''); setCreateEnd(d?.[1]?.format('YYYY-MM-DD') || ''); }}
               />

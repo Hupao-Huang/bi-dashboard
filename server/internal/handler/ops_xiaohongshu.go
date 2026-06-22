@@ -184,9 +184,11 @@ func (h *DashboardHandler) GetXhsNote(w http.ResponseWriter, r *http.Request) {
 		URL      string  `json:"url"`
 	}
 	detail := []noteRow{}
+	// note_url 存的是真链接(带 xsec_token, 由 import 从 HYPERLINK 公式提取); 仅 http 链接才输出, 防历史占位"0"渲染成坏链接
 	dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT note_title, note_type, author_name,
 		read_count, like_count, collect_count, comment_count, share_count,
-		pay_amount, pay_conv_rate_pv, related_product_name, note_url
+		pay_amount, pay_conv_rate_pv, related_product_name,
+		CASE WHEN note_url LIKE 'http%' THEN note_url ELSE '' END
 		FROM op_xhs_note_daily WHERE stat_date=?`+cond+` ORDER BY pay_amount DESC, read_count DESC LIMIT 50`, kArgs...)
 	if !ok {
 		return
