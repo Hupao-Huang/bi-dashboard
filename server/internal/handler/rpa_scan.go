@@ -427,6 +427,7 @@ var platformDBTables = map[string][]string{
 	"抖音分销": {"op_douyin_dist_product_daily"},
 	"快手":   {"op_kuaishou_cs_assessment_daily"},
 	"小红书":  {"op_xhs_cs_analysis_daily", "op_xhs_note_daily", "op_xhs_goods_daily"},
+	"小红书乘风": {"op_xhs_chengfeng_daily"},
 	"飞瓜":   {"fg_creator_daily"},
 }
 

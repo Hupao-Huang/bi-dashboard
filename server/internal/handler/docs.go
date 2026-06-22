@@ -99,6 +99,8 @@ func (h *DashboardHandler) GetRPAMapping(w http.ResponseWriter, r *http.Request)
 		// 小红书（运营）
 		{"小红书", "op_xhs_note_daily", "笔记_数据明细", "xlsx", "import-xhs"},
 		{"小红书", "op_xhs_goods_daily", "商品_销售明细", "xlsx", "import-xhs"},
+		// 小红书乘风（信息流投流，CSV，stat_date 取行内时间列）
+		{"小红书乘风", "op_xhs_chengfeng_daily", "笔记_标准投数据", "csv", "import-xhs-cf"},
 		// 评论数据（全平台店铺后台评价，明细表）
 		{"全平台(客服)", "op_customer_comment", "店铺后台评价抓取_评论数据", "xlsx", "import-comment"},
 		// 飞瓜
