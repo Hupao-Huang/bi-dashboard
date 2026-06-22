@@ -76,14 +76,12 @@ func TestGetXhsGoodsHappy(t *testing.T) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	defer db.Close()
-	mock.ExpectQuery(`SELECT IFNULL\(DATE_FORMAT\(MAX\(stat_date\),'%Y-%m-%d'\),''\) FROM op_xhs_goods_daily`).
-		WillReturnRows(sqlmock.NewRows([]string{"d"}).AddRow("2026-06-21"))
-	mock.ExpectQuery(`SELECT COUNT\(\*\), IFNULL\(SUM\(visitor_count\),0\)`).
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT product_id\), IFNULL\(SUM\(visitor_count\),0\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"g", "v", "pay", "ord", "qty", "ref"}).
 			AddRow(131, 5000, 20000.0, 300, 350, 1000.0))
 	mock.ExpectQuery(`SELECT DATE_FORMAT\(stat_date,'%Y-%m-%d'\),\s+IFNULL\(SUM\(pay_amount\),0\), IFNULL\(SUM\(visitor_count\),0\)\s+FROM op_xhs_goods_daily`).
 		WillReturnRows(sqlmock.NewRows([]string{"d", "pay", "v"}).AddRow("2026-06-21", 20000.0, 5000))
-	mock.ExpectQuery(`SELECT product_name, category_l1, category_l2`).
+	mock.ExpectQuery(`SELECT ANY_VALUE\(product_name\), ANY_VALUE\(category_l1\), ANY_VALUE\(category_l2\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "c1", "c2", "v", "view", "cart", "pay", "ord", "qty", "conv", "aov", "ref"}).
 			AddRow("菌菇汤底", "粮油", "调味", 25, 43, 10, 126.4, 6, 6, 0.24, 21.07, 0.0))
 	rec := httptest.NewRecorder()
