@@ -40,6 +40,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "social.product_dashboard:view", Name: "社媒-货品看板", Type: "page"},
 	{Code: "social.feigua:view", Name: "社媒-飞瓜看板", Type: "page"},
 	{Code: "social.marketing:view", Name: "社媒-营销看板", Type: "page"},
+	{Code: "social.xiaohongshu:view", Name: "社媒-小红书看板", Type: "page"},
 	{Code: "offline:view", Name: "线下部门", Type: "menu"},
 	{Code: "offline.store_preview:view", Name: "线下-店铺数据预览", Type: "page"},
 	{Code: "offline.store_dashboard:view", Name: "线下-店铺看板", Type: "page"},
