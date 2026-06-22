@@ -23,6 +23,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/xuri/excelize/v2"
 )
 
 var baseDir = `Z:\信息部\RPA_集团数据看板\小红书乘风`
@@ -85,19 +86,9 @@ func main() {
 				}
 				shopName := sd.Name()
 				shopPath := filepath.Join(datePath, shopName)
-				files, _ := os.ReadDir(shopPath)
-				for _, fl := range files {
-					if fl.IsDir() {
-						continue
-					}
-					name := fl.Name()
-					if strings.HasPrefix(name, "~$") {
-						continue
-					}
-					if !strings.HasSuffix(name, ".csv") || !strings.Contains(name, "_笔记_标准投数据") {
-						continue
-					}
-					total += importFile(db, filepath.Join(shopPath, name), fileDate, shopName)
+				// 优先 csv，没有则回退 xlsx
+				if path := pickFile(shopPath, "_笔记_标准投数据"); path != "" {
+					total += importFile(db, path, fileDate, shopName)
 				}
 			}
 		}
@@ -176,22 +167,62 @@ func ensureTable(db *sql.DB) error {
 	return err
 }
 
-func importFile(db *sql.DB, path, fileDate, shopName string) int {
-	f, err := os.Open(path)
+// pickFile 在 dir 里按 marker 选数据文件：优先 .csv，没有则 .xlsx，都没返回 ""
+func pickFile(dir, marker string) string {
+	files, _ := os.ReadDir(dir)
+	var csvP, xlsxP string
+	for _, fl := range files {
+		name := fl.Name()
+		if fl.IsDir() || strings.HasPrefix(name, "~$") || !strings.Contains(name, marker) {
+			continue
+		}
+		if strings.HasSuffix(name, ".csv") {
+			csvP = filepath.Join(dir, name)
+		} else if strings.HasSuffix(name, ".xlsx") {
+			xlsxP = filepath.Join(dir, name)
+		}
+	}
+	if csvP != "" {
+		return csvP
+	}
+	return xlsxP
+}
+
+// readTable 读 csv 或 xlsx 成 [][]string(表头+数据行)；xlsx 走 GetRows
+func readTable(path string) ([][]string, bool) {
+	if strings.HasSuffix(path, ".csv") {
+		f, err := os.Open(path)
+		if err != nil {
+			log.Printf("打开失败 %s: %v", filepath.Base(path), err)
+			return nil, false
+		}
+		defer f.Close()
+		rd := csv.NewReader(f)
+		rd.FieldsPerRecord = -1
+		rows, err := rd.ReadAll()
+		if err != nil {
+			log.Printf("解析CSV失败 %s: %v", filepath.Base(path), err)
+			return nil, false
+		}
+		return rows, true
+	}
+	f, err := excelize.OpenFile(path)
 	if err != nil {
-		log.Printf("打开失败 %s: %v", filepath.Base(path), err)
-		return 0
+		log.Printf("打开xlsx失败 %s: %v", filepath.Base(path), err)
+		return nil, false
 	}
 	defer f.Close()
-
-	rd := csv.NewReader(f)
-	rd.FieldsPerRecord = -1 // 容忍行列数差异
-	rows, err := rd.ReadAll()
+	rows, err := f.GetRows(f.GetSheetName(0))
 	if err != nil {
-		log.Printf("解析CSV失败 %s: %v", filepath.Base(path), err)
-		return 0
+		log.Printf("读xlsx失败 %s: %v", filepath.Base(path), err)
+		return nil, false
 	}
-	if len(rows) < 2 {
+	return rows, true
+}
+
+func importFile(db *sql.DB, path, fileDate, shopName string) int {
+	rows, ok := readTable(path)
+	if !ok || len(rows) < 2 {
 		return 0
 	}
 	colMap := make(map[string]int)
