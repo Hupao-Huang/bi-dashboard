@@ -80,8 +80,8 @@ const XiaohongshuDashboard: React.FC = () => {
 
   const trendOption = (trend: any[], leftKey: string, rightKey: string, leftName: string, rightName: string) => ({
     tooltip: { trigger: 'axis' },
-    legend: { data: [leftName, rightName] },
-    grid: { left: 60, right: 60, top: 40, bottom: 40 },
+    legend: { data: [leftName, rightName], top: 0 },
+    grid: { left: 60, right: 60, top: 52, bottom: 28, containLabel: true },
     xAxis: { type: 'category', data: (trend || []).map((p) => p.date) },
     yAxis: [
       { type: 'value', name: leftName },
