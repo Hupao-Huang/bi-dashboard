@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,276 +9,27 @@ import (
 )
 
 func (h *DashboardHandler) GetFinanceReport(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	yearStart, _ := strconv.Atoi(strings.TrimSpace(q.Get("yearStart")))
-	yearEnd, _ := strconv.Atoi(strings.TrimSpace(q.Get("yearEnd")))
-	monthStart, _ := strconv.Atoi(strings.TrimSpace(q.Get("monthStart")))
-	monthEnd, _ := strconv.Atoi(strings.TrimSpace(q.Get("monthEnd")))
-	channelsStr := strings.TrimSpace(q.Get("channels"))
-
-	// 兼容旧参数
-	if yearStart == 0 {
-		yearStart, _ = strconv.Atoi(strings.TrimSpace(q.Get("year")))
-	}
-	if yearEnd == 0 {
-		yearEnd = yearStart
-	}
-	if monthStart == 0 {
-		monthStart = 1
-	}
-	if monthEnd == 0 {
-		monthEnd = 12
-	}
-	if channelsStr == "" {
-		channelsStr = strings.TrimSpace(q.Get("department"))
-	}
-	if yearStart == 0 {
-		writeError(w, 400, "yearStart 参数缺失")
-		return
-	}
-	channels := trimStrings(strings.Split(channelsStr, ","))
-	if len(channels) == 0 {
-		channels = []string{"汇总"}
-	}
-	if monthStart < 1 {
-		monthStart = 1
-	}
-	if monthEnd > 12 {
-		monthEnd = 12
-	}
-	if monthStart > monthEnd {
-		writeError(w, 400, "monthStart 不能大于 monthEnd")
-		return
-	}
-
-	chanPH := placeholders(len(channels))
-
-	// 1) 骨架：固定用最新年份（通常是 2026）的科目作为参考，切换年份/月份时科目列表稳定
-	//    用字典的标准 name/category/level/parent
-	skArgs := []interface{}{}
-	for _, c := range channels {
-		skArgs = append(skArgs, c)
-	}
-	skQuery := fmt.Sprintf(`SELECT fr.subject_code, d.subject_name, d.subject_category, d.subject_level, d.parent_code, fr.sub_channel, d.display_order
-		FROM (SELECT DISTINCT subject_code, sub_channel FROM finance_report
-		      WHERE year = (SELECT MAX(year) FROM finance_report) AND department IN (%s)) fr
-		LEFT JOIN finance_subject_dict d ON d.subject_code = fr.subject_code
-		ORDER BY d.display_order, fr.subject_code, fr.sub_channel`, chanPH)
-	skRows, ok := queryRowsOrWriteError(w, r, h.DB, skQuery, skArgs...)
+	p, ok := parseFinReportParams(w, r)
 	if !ok {
 		return
 	}
-
-	keyOf := func(code, sub string) string {
-		if sub != "" {
-			return code + "|" + sub
-		}
-		return code
-	}
-	ymKey := func(y, m int) string { return fmt.Sprintf("%d-%d", y, m) }
-
-	type subjectMeta struct {
-		code, name, category, parent, subChannel string
-		level, sortOrder                         int
-	}
-	subjMetas := map[string]*subjectMeta{}
-	subjOrder := []string{}
-
-	for skRows.Next() {
-		var code, subChannel string
-		var name, category, parent sql.NullString
-		var level, displayOrder sql.NullInt64
-		if writeDatabaseError(w, skRows.Scan(&code, &name, &category, &level, &parent, &subChannel, &displayOrder)) {
-			skRows.Close()
-			return
-		}
-		k := keyOf(code, subChannel)
-		if _, exists := subjMetas[k]; exists {
-			continue
-		}
-		// GMV_SUB 的特殊处理：字典只有一条 "子渠道GMV"，但 sub_channel 不同应分别显示
-		n := ""
-		if name.Valid {
-			n = name.String
-		}
-		if code == "GMV_SUB" && subChannel != "" {
-			n = subChannel
-		}
-		subjMetas[k] = &subjectMeta{
-			code: code, name: n, subChannel: subChannel,
-			category:  nullStr(category),
-			parent:    nullStr(parent),
-			level:     int(level.Int64),
-			sortOrder: int(displayOrder.Int64),
-		}
-		subjOrder = append(subjOrder, k)
-	}
-	skRows.Close()
-
-	// 1.5) 补入 Level 1 分组行（GMV数据 / 财务数据），没数值但作为标题显示
-	levelOneRows, err := h.DB.Query(`SELECT subject_code, subject_name, subject_category, subject_level, parent_code, display_order FROM finance_subject_dict WHERE subject_level = 1 ORDER BY display_order`)
-	if err == nil {
-		for levelOneRows.Next() {
-			var code, name, category, parent string
-			var level, displayOrder int
-			if err := levelOneRows.Scan(&code, &name, &category, &level, &parent, &displayOrder); err != nil {
-				continue
-			}
-			if _, exists := subjMetas[code]; exists {
-				continue
-			}
-			subjMetas[code] = &subjectMeta{code: code, name: name, category: category, parent: parent, level: level, sortOrder: displayOrder}
-			subjOrder = append(subjOrder, code)
-		}
-		levelOneRows.Close()
-	}
-
-	// 按 sortOrder 稳定排序，确保 Level 1 分组行在正确位置
-	for i := 0; i < len(subjOrder); i++ {
-		for j := i + 1; j < len(subjOrder); j++ {
-			if subjMetas[subjOrder[i]].sortOrder > subjMetas[subjOrder[j]].sortOrder {
-				subjOrder[i], subjOrder[j] = subjOrder[j], subjOrder[i]
-			}
-		}
-	}
-
-	// 2) 实际数据：选中区间 + 选中渠道
-	args := []interface{}{yearStart, yearEnd, monthStart, monthEnd}
-	for _, c := range channels {
-		args = append(args, c)
-	}
-	query := fmt.Sprintf(`SELECT year, month, department, sub_channel, subject_code, amount
-		FROM finance_report WHERE year BETWEEN ? AND ? AND month BETWEEN ? AND ? AND department IN (%s)`, chanPH)
-	rows, ok := queryRowsOrWriteError(w, r, h.DB, query, args...)
+	subjMetas, subjOrder, ok := h.loadFinSubjectMeta(w, r, p.channels, p.chanPH)
 	if !ok {
 		return
 	}
-	defer rows.Close()
-
-	amounts := map[string]map[string]map[string]float64{}
-	revByChanYM := map[string]map[string]float64{}
-	yearMonths := map[string]bool{}
-
-	for rows.Next() {
-		var year, month int
-		var dept, subChannel, code string
-		var amount float64
-		if writeDatabaseError(w, rows.Scan(&year, &month, &dept, &subChannel, &code, &amount)) {
-			return
-		}
-		ym := ymKey(year, month)
-		yearMonths[ym] = true
-
-		k := keyOf(code, subChannel)
-		if amounts[k] == nil {
-			amounts[k] = map[string]map[string]float64{}
-		}
-		if amounts[k][dept] == nil {
-			amounts[k][dept] = map[string]float64{}
-		}
-		amounts[k][dept][ym] = amount
-
-		if code == "REV_MAIN" && subChannel == "" {
-			if revByChanYM[dept] == nil {
-				revByChanYM[dept] = map[string]float64{}
-			}
-			revByChanYM[dept][ym] = amount
-		}
+	amounts, revByChanYM, ok := h.loadFinAmounts(w, r, p)
+	if !ok {
+		return
 	}
-
-	// 生成 yearMonth 列表：区间内全部月份，无论是否有数据（空科目也要展示完整列）
-	_ = yearMonths
-	ymList := []string{}
-	for y := yearStart; y <= yearEnd; y++ {
-		for m := monthStart; m <= monthEnd; m++ {
-			ymList = append(ymList, ymKey(y, m))
-		}
-	}
-
-	// 组装返回行
-	multi := len(channels) > 1
-	// GMV 类科目和营业收入本身不算占比（跟 Excel 一致）
-	skipRatio := func(code, category string) bool {
-		return category == "GMV" || code == "REV_MAIN"
-	}
-	resultRows := make([]*FinReportRow, 0, len(subjOrder))
-	for _, k := range subjOrder {
-		m := subjMetas[k]
-		row := &FinReportRow{
-			Code: m.code, Name: m.name, Level: m.level, Parent: m.parent, Category: m.category,
-			SubChannel: m.subChannel, SortOrder: m.sortOrder,
-			Total: FinSeries{Cells: map[string]FinCell{}},
-		}
-
-		// 每个 ym 的总（跨渠道之和）
-		var rangeAmt, rangeRev float64
-		for _, ym := range ymList {
-			var cellAmt float64
-			var cellRev float64
-			for _, ch := range channels {
-				if amounts[k] != nil && amounts[k][ch] != nil {
-					cellAmt += amounts[k][ch][ym]
-				}
-				if revByChanYM[ch] != nil {
-					cellRev += revByChanYM[ch][ym]
-				}
-			}
-			cell := FinCell{Amount: cellAmt}
-			if cellRev != 0 && !skipRatio(m.code, m.category) {
-				r := cellAmt / cellRev
-				cell.Ratio = &r
-			}
-			row.Total.Cells[ym] = cell
-			rangeAmt += cellAmt
-			rangeRev += cellRev
-		}
-		row.Total.RangeTotal = FinCell{Amount: rangeAmt}
-		if rangeRev != 0 && !skipRatio(m.code, m.category) {
-			r := rangeAmt / rangeRev
-			row.Total.RangeTotal.Ratio = &r
-		}
-
-		// 分渠道明细
-		if multi {
-			for _, ch := range channels {
-				series := FinSeries{Cells: map[string]FinCell{}}
-				var cRangeAmt, cRangeRev float64
-				for _, ym := range ymList {
-					var amt float64
-					if amounts[k] != nil && amounts[k][ch] != nil {
-						amt = amounts[k][ch][ym]
-					}
-					var rev float64
-					if revByChanYM[ch] != nil {
-						rev = revByChanYM[ch][ym]
-					}
-					cell := FinCell{Amount: amt}
-					if rev != 0 && m.code != "REV_MAIN" {
-						r := amt / rev
-						cell.Ratio = &r
-					}
-					series.Cells[ym] = cell
-					cRangeAmt += amt
-					cRangeRev += rev
-				}
-				series.RangeTotal = FinCell{Amount: cRangeAmt}
-				if cRangeRev != 0 && m.code != "REV_MAIN" {
-					r := cRangeAmt / cRangeRev
-					series.RangeTotal.Ratio = &r
-				}
-				row.ByChannel = append(row.ByChannel, FinChannelSeries{Channel: ch, Series: series})
-			}
-		}
-
-		resultRows = append(resultRows, row)
-	}
+	ymList := finYmList(p)
+	resultRows := buildFinReportRows(p, subjOrder, subjMetas, amounts, revByChanYM, ymList)
 
 	writeJSON(w, map[string]interface{}{
-		"yearStart":  yearStart,
-		"yearEnd":    yearEnd,
-		"monthStart": monthStart,
-		"monthEnd":   monthEnd,
-		"channels":   channels,
+		"yearStart":  p.yearStart,
+		"yearEnd":    p.yearEnd,
+		"monthStart": p.monthStart,
+		"monthEnd":   p.monthEnd,
+		"channels":   p.channels,
 		"yearMonths": ymList,
 		"rows":       resultRows,
 	})
