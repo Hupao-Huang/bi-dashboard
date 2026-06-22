@@ -59,7 +59,7 @@ var PlatformImportTools = map[string][]string{
 	"抖音":   {"import-douyin.exe"},
 	"抖音分销": {"import-douyin-dist.exe"},
 	"快手":   {"import-customer.exe"},
-	"小红书":  {"import-customer.exe"},
+	"小红书":  {"import-customer.exe", "import-xhs.exe"},
 	"飞瓜":   {"import-feigua.exe"},
 }
 
@@ -342,6 +342,7 @@ func (h *DashboardHandler) runSync(date string) {
 		"import-tmallcs.exe",
 		"import-promo.exe",
 		"import-feigua.exe",
+		"import-xhs.exe",
 	}
 
 	var results []string
@@ -583,6 +584,7 @@ func (h *DashboardHandler) ManualImport(w http.ResponseWriter, r *http.Request) 
 			"import-tmall.exe", "import-pdd.exe", "import-jd.exe",
 			"import-douyin.exe", "import-douyin-dist.exe", "import-customer.exe",
 			"import-vip.exe", "import-tmallcs.exe", "import-promo.exe", "import-feigua.exe",
+			"import-xhs.exe",
 		}
 	} else if len(tools) == 0 {
 		writeError(w, 400, "未知平台: "+req.Platform)
