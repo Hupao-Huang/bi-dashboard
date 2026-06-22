@@ -1,10 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty } from 'antd';
+import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker } from 'antd';
+import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
+
+const { RangePicker } = DatePicker;
 
 const XiaohongshuDashboard: React.FC = () => {
   const [tab, setTab] = useState<'note' | 'goods'>('note');
@@ -12,6 +15,8 @@ const XiaohongshuDashboard: React.FC = () => {
   const [shops, setShops] = useState<string[]>([]);
   const [noteType, setNoteType] = useState('');
   const [cat, setCat] = useState('');
+  const [createStart, setCreateStart] = useState('');
+  const [createEnd, setCreateEnd] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [data, setData] = useState<any>(null);
@@ -26,17 +31,15 @@ const XiaohongshuDashboard: React.FC = () => {
         const f = res.data || {};
         setFilters({ shops: f.shops || [], noteTypes: f.noteTypes || [], categories: f.categories || [], latestDate: f.latestDate || '' });
         if (f.latestDate) {
-          const d = new Date(f.latestDate);
-          const s = new Date(d);
-          s.setDate(s.getDate() - 13);
-          setStart(s.toISOString().slice(0, 10));
+          // 默认展示本月: 最新数据日所在月 1 号 ~ 最新数据日
+          setStart(f.latestDate.slice(0, 7) + '-01');
           setEnd(f.latestDate);
         }
       })
       .catch(() => {});
   }, []);
 
-  const fetchData = useCallback((t: string, s: string, e: string, shopArr: string[], nt: string, c: string) => {
+  const fetchData = useCallback((t: string, s: string, e: string, shopArr: string[], nt: string, c: string, cs: string, ce: string) => {
     if (!e) return;
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -45,6 +48,8 @@ const XiaohongshuDashboard: React.FC = () => {
     const p = new URLSearchParams({ date: e, start: s, end: e });
     if (shopArr.length) p.set('shops', shopArr.join(','));
     if (t === 'note' && nt) p.set('note_type', nt);
+    if (t === 'note' && cs) p.set('create_start', cs);
+    if (t === 'note' && ce) p.set('create_end', ce);
     if (t === 'goods' && c) p.set('category_l1', c);
     fetch(`${API_BASE}/api/xiaohongshu/${t}?${p.toString()}`, { signal: ctrl.signal })
       .then((r) => r.json())
@@ -58,8 +63,8 @@ const XiaohongshuDashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchData(tab, start, end, shops, noteType, cat);
-  }, [fetchData, tab, start, end, shops, noteType, cat]);
+    fetchData(tab, start, end, shops, noteType, cat, createStart, createEnd);
+  }, [fetchData, tab, start, end, shops, noteType, cat, createStart, createEnd]);
 
   const noteCards = (k: any) => [
     { title: '笔记数', value: k.notes, accent: '#ef4444' },
@@ -133,11 +138,18 @@ const XiaohongshuDashboard: React.FC = () => {
             options={(filters.shops || []).map((s: string) => ({ label: s, value: s }))}
           />
           {tab === 'note' ? (
-            <Select
-              allowClear placeholder="笔记类型(全部)" style={{ minWidth: 150 }}
-              value={noteType || undefined} onChange={(v) => setNoteType(v || '')}
-              options={(filters.noteTypes || []).map((s: string) => ({ label: s, value: s }))}
-            />
+            <>
+              <Select
+                allowClear placeholder="笔记类型(全部)" style={{ minWidth: 150 }}
+                value={noteType || undefined} onChange={(v) => setNoteType(v || '')}
+                options={(filters.noteTypes || []).map((s: string) => ({ label: s, value: s }))}
+              />
+              <RangePicker
+                placeholder={['笔记创建-起', '笔记创建-止']}
+                value={createStart && createEnd ? [dayjs(createStart), dayjs(createEnd)] : null}
+                onChange={(d: any) => { setCreateStart(d?.[0]?.format('YYYY-MM-DD') || ''); setCreateEnd(d?.[1]?.format('YYYY-MM-DD') || ''); }}
+              />
+            </>
           ) : (
             <Select
               allowClear placeholder="一级品类(全部)" style={{ minWidth: 220 }}

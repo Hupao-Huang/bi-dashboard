@@ -100,6 +100,15 @@ func (h *DashboardHandler) GetXhsNote(w http.ResponseWriter, r *http.Request) {
 	date := h.resolveXhsDate(ctx, "op_xhs_note_daily", r.URL.Query().Get("date"))
 	noteType := strings.TrimSpace(r.URL.Query().Get("note_type"))
 	cond, condArgs := xhsCond(r, "note_type", noteType)
+	// 笔记创建时间(发布日期)范围筛选 —— note_create_time 是 'YYYY-MM-DD HH:MM:SS' 字符串, 字典序可比
+	if cs := strings.TrimSpace(r.URL.Query().Get("create_start")); cs != "" {
+		cond += " AND note_create_time >= ?"
+		condArgs = append(condArgs, cs)
+	}
+	if ce := strings.TrimSpace(r.URL.Query().Get("create_end")); ce != "" {
+		cond += " AND note_create_time <= ?"
+		condArgs = append(condArgs, ce+" 23:59:59")
+	}
 
 	// KPI 单日
 	type noteKPI struct {
