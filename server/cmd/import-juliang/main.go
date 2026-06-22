@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/xuri/excelize/v2"
 )
 
 var baseDir = `Z:\信息部\RPA_集团数据看板\巨量云图`
@@ -86,24 +87,15 @@ func main() {
 				}
 				shopName := sd.Name()
 				shopPath := filepath.Join(datePath, shopName)
-				files, _ := os.ReadDir(shopPath)
-				for _, fl := range files {
-					if fl.IsDir() {
-						continue
-					}
-					name := fl.Name()
-					if strings.HasPrefix(name, "~$") || !strings.HasSuffix(name, ".csv") {
-						continue
-					}
-					fpath := filepath.Join(shopPath, name)
-					switch {
-					case strings.Contains(name, "_品牌_达人投放"):
-						talent += importTalent(db, fpath, statDate, shopName)
-					case strings.Contains(name, "_品牌_关键词趋势_本品"):
-						keyword += importKeyword(db, fpath, statDate, shopName, "本品")
-					case strings.Contains(name, "_品牌_关键词趋势_自定义"):
-						keyword += importKeyword(db, fpath, statDate, shopName, "自定义")
-					}
+				// 优先 csv，没有则回退 xlsx
+				if p := pickFile(shopPath, "_品牌_达人投放"); p != "" {
+					talent += importTalent(db, p, statDate, shopName)
+				}
+				if p := pickFile(shopPath, "_品牌_关键词趋势_本品"); p != "" {
+					keyword += importKeyword(db, p, statDate, shopName, "本品")
+				}
+				if p := pickFile(shopPath, "_品牌_关键词趋势_自定义"); p != "" {
+					keyword += importKeyword(db, p, statDate, shopName, "自定义")
 				}
 			}
 		}
@@ -111,20 +103,54 @@ func main() {
 	fmt.Printf("\n巨量云图导入完成:\n  达人投放: %d 条\n  关键词趋势: %d 条\n", talent, keyword)
 }
 
-// readCSV 读 CSV，返回表头列名→下标 + 数据行
-func readCSV(path string) (map[string]int, [][]string, bool) {
-	f, err := os.Open(path)
-	if err != nil {
-		log.Printf("打开失败 %s: %v", filepath.Base(path), err)
-		return nil, nil, false
+// pickFile 在 dir 里按 marker 选数据文件：优先 .csv，没有则 .xlsx，都没返回 ""
+func pickFile(dir, marker string) string {
+	files, _ := os.ReadDir(dir)
+	var csvP, xlsxP string
+	for _, fl := range files {
+		name := fl.Name()
+		if fl.IsDir() || strings.HasPrefix(name, "~$") || !strings.Contains(name, marker) {
+			continue
+		}
+		if strings.HasSuffix(name, ".csv") {
+			csvP = filepath.Join(dir, name)
+		} else if strings.HasSuffix(name, ".xlsx") {
+			xlsxP = filepath.Join(dir, name)
+		}
 	}
-	defer f.Close()
-	rd := csv.NewReader(f)
-	rd.FieldsPerRecord = -1
-	rows, err := rd.ReadAll()
-	if err != nil {
-		log.Printf("解析CSV失败 %s: %v", filepath.Base(path), err)
-		return nil, nil, false
+	if csvP != "" {
+		return csvP
+	}
+	return xlsxP
+}
+
+// readTable 读 csv 或 xlsx，返回表头列名→下标 + 数据行(xlsx 走 GetRows)
+func readTable(path string) (map[string]int, [][]string, bool) {
+	var rows [][]string
+	if strings.HasSuffix(path, ".csv") {
+		f, err := os.Open(path)
+		if err != nil {
+			log.Printf("打开失败 %s: %v", filepath.Base(path), err)
+			return nil, nil, false
+		}
+		defer f.Close()
+		rd := csv.NewReader(f)
+		rd.FieldsPerRecord = -1
+		if rows, err = rd.ReadAll(); err != nil {
+			log.Printf("解析CSV失败 %s: %v", filepath.Base(path), err)
+			return nil, nil, false
+		}
+	} else {
+		f, err := excelize.OpenFile(path)
+		if err != nil {
+			log.Printf("打开xlsx失败 %s: %v", filepath.Base(path), err)
+			return nil, nil, false
+		}
+		defer f.Close()
+		if rows, err = f.GetRows(f.GetSheetName(0)); err != nil {
+			log.Printf("读xlsx失败 %s: %v", filepath.Base(path), err)
+			return nil, nil, false
+		}
 	}
 	if len(rows) < 2 {
 		return nil, nil, false
@@ -241,7 +267,7 @@ func ensureTables(db *sql.DB) error {
 }
 
 func importTalent(db *sql.DB, path, statDate, shopName string) int {
-	colMap, rows, ok := readCSV(path)
+	colMap, rows, ok := readTable(path)
 	if !ok {
 		return 0
 	}
@@ -301,7 +327,7 @@ func importTalent(db *sql.DB, path, statDate, shopName string) int {
 }
 
 func importKeyword(db *sql.DB, path, statDate, shopName, sourceType string) int {
-	colMap, rows, ok := readCSV(path)
+	colMap, rows, ok := readTable(path)
 	if !ok {
 		return 0
 	}
