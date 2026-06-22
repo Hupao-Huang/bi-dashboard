@@ -23,6 +23,7 @@ const SocialStoreDashboard = lazy(() => import('./pages/social/StoreDashboard'))
 const SocialProductDashboard = lazy(() => import('./pages/social/ProductDashboard'));
 const SocialFeiguaDashboard = lazy(() => import('./pages/social/FeiguaDashboard'));
 const SocialMarketingDashboard = lazy(() => import('./pages/social/MarketingDashboard'));
+const SocialXiaohongshuDashboard = lazy(() => import('./pages/social/XiaohongshuDashboard'));
 const OfflinePage = lazy(() => import('./pages/offline'));
 const OfflineStorePreview = lazy(() => import('./pages/offline/StorePreview'));
 const OfflineStoreDashboard = lazy(() => import('./pages/offline/StoreDashboard'));
@@ -157,6 +158,7 @@ const App: React.FC = () => (
               <Route path="/social/product-dashboard" element={guard('social.product_dashboard:view', <SocialProductDashboard />)} />
               <Route path="/social/feigua" element={guard('social.feigua:view', <SocialFeiguaDashboard />)} />
               <Route path="/social/marketing" element={guard('social.marketing:view', <SocialMarketingDashboard />)} />
+              <Route path="/social/xiaohongshu" element={guard('social.xiaohongshu:view', <SocialXiaohongshuDashboard />)} />
 
               <Route path="/offline" element={guard('offline:view', <OfflinePage />)} />
               <Route path="/offline/store-preview" element={guard('offline.store_preview:view', <OfflineStorePreview />)} />
