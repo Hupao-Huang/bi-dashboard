@@ -22,6 +22,7 @@ echo %date% %time% start sync ops data for %YESTERDAY% >> %LOGFILE%
 .\import-xhs.exe %YESTERDAY% %YESTERDAY% >> %LOGFILE% 2>&1
 .\import-xhs-cf.exe %YESTERDAY% %YESTERDAY% >> %LOGFILE% 2>&1
 .\import-juliang.exe %YESTERDAY% %YESTERDAY% >> %LOGFILE% 2>&1
+.\import-lingxi.exe %YESTERDAY% %YESTERDAY% >> %LOGFILE% 2>&1
 .\import-feigua.exe %YESTERDAY% %YESTERDAY% >> %LOGFILE% 2>&1
 REM comment data: full idempotent scan (files may arrive late, daily full scan is safest; small files, seconds)
 .\import-comment.exe >> %LOGFILE% 2>&1

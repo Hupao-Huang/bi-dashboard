@@ -62,6 +62,7 @@ var PlatformImportTools = map[string][]string{
 	"小红书":  {"import-customer.exe", "import-xhs.exe"},
 	"小红书乘风": {"import-xhs-cf.exe"},
 	"巨量云图": {"import-juliang.exe"},
+	"小红书灵犀": {"import-lingxi.exe"},
 	"飞瓜":   {"import-feigua.exe"},
 }
 
@@ -347,6 +348,7 @@ func (h *DashboardHandler) runSync(date string) {
 		"import-xhs.exe",
 		"import-xhs-cf.exe",
 		"import-juliang.exe",
+		"import-lingxi.exe",
 	}
 
 	var results []string
@@ -588,7 +590,7 @@ func (h *DashboardHandler) ManualImport(w http.ResponseWriter, r *http.Request) 
 			"import-tmall.exe", "import-pdd.exe", "import-jd.exe",
 			"import-douyin.exe", "import-douyin-dist.exe", "import-customer.exe",
 			"import-vip.exe", "import-tmallcs.exe", "import-promo.exe", "import-feigua.exe",
-			"import-xhs.exe", "import-xhs-cf.exe", "import-juliang.exe",
+			"import-xhs.exe", "import-xhs-cf.exe", "import-juliang.exe", "import-lingxi.exe",
 		}
 	} else if len(tools) == 0 {
 		writeError(w, 400, "未知平台: "+req.Platform)

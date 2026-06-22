@@ -104,6 +104,10 @@ func (h *DashboardHandler) GetRPAMapping(w http.ResponseWriter, r *http.Request)
 		// 巨量云图（抖音数据洞察，CSV，stat_date 取目录日）
 		{"巨量云图", "op_juliang_talent_daily", "品牌_达人投放", "csv", "import-juliang"},
 		{"巨量云图", "op_juliang_keyword_daily", "品牌_关键词趋势(本品/自定义)", "csv", "import-juliang"},
+		// 小红书灵犀（品牌搜索洞察，JSON，趋势按dtm/其余目录日）
+		{"小红书灵犀", "op_lingxi_search_trend", "品牌_搜索趋势数据", "json", "import-lingxi"},
+		{"小红书灵犀", "op_lingxi_search_updown", "品牌_搜索上下游数据", "json", "import-lingxi"},
+		{"小红书灵犀", "op_lingxi_search_rank", "品牌_搜索趋势榜单", "json", "import-lingxi"},
 		// 评论数据（全平台店铺后台评价，明细表）
 		{"全平台(客服)", "op_customer_comment", "店铺后台评价抓取_评论数据", "xlsx", "import-comment"},
 		// 飞瓜
