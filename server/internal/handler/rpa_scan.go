@@ -469,10 +469,30 @@ func (h *DashboardHandler) enrichDBStatus(result *rpaScanResult) {
 		}
 		// 过滤掉早于业务起点的日期 (RPA 第一天前的数据拉不到, 这些 RPA 文件夹的"日期"是
 		// 抓取日期, 不是业务日期, 展示出来误导跑哥. 见 feedback_multi_day_excel)
+		// 例外: 把"紧挨业务起点、连续的空目录"(status=missing)也纳入展示 —— 这是 RPA 刚建了
+		// 文件夹却还没传数据的真实异常 (如乘风 6-21 空目录紧挨 6-22 起点), 藏掉跑哥就发现不了缺数据。
+		// 往起点前逐天回溯, 一旦遇到"没目录(no_dir)"或"有文件的旧目录(complete/partial, 抓取日噪音)"
+		// 就停, 避免把小红书/抖音分销 1月起的旧目录全炸出来。
 		if earliestBiz != "" {
+			statusByDate := make(map[string]string, len(p.Dates))
+			for _, dt := range p.Dates {
+				statusByDate[dt.FormattedDate] = dt.Status
+			}
+			floor := earliestBiz
+			if t, err := time.Parse("2006-01-02", floor); err == nil {
+				for {
+					t = t.AddDate(0, 0, -1)
+					prev := t.Format("2006-01-02")
+					if statusByDate[prev] == "missing" {
+						floor = prev
+					} else {
+						break
+					}
+				}
+			}
 			filtered := make([]rpaDateInfo, 0, len(p.Dates))
 			for _, dt := range p.Dates {
-				if dt.FormattedDate >= earliestBiz {
+				if dt.FormattedDate >= floor {
 					filtered = append(filtered, dt)
 				}
 			}
