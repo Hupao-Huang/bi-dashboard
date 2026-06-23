@@ -931,6 +931,22 @@ func nullIfNil(p *float64) interface{} {
 	return *p
 }
 
+var reSnapshotYM = regexp.MustCompile(`(\d{4})\s*年\s*(\d{1,2})\s*月`)
+
+// ParseSnapshotFromFilename 从文件名抠快照年月，如 "2026年04月业务预决算报表.xlsx" → 2026, 4；抠不出返回 0,0
+func ParseSnapshotFromFilename(name string) (year, month int) {
+	m := reSnapshotYM.FindStringSubmatch(name)
+	if m == nil {
+		return 0, 0
+	}
+	y, _ := strconv.Atoi(m[1])
+	mo, _ := strconv.Atoi(m[2])
+	if mo < 1 || mo > 12 {
+		return 0, 0
+	}
+	return y, mo
+}
+
 // parseBackOfficeSheet 解析 "中后台合计" sheet
 //
 // 列结构 (实际，对账总 sheet 验证):
