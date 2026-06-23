@@ -122,6 +122,11 @@ const ChengfengDashboard: React.FC = () => {
   // 明细表列：笔记ID/标题固定左侧，其余指标列横向滚动，按 fmt 格式化右对齐
   const tableColumns: any[] = [
     {
+      title: '笔记标题', dataIndex: 'title', key: 'title', fixed: 'left', width: 220,
+      render: (v: string, row: any) =>
+        row.url ? <a href={row.url} target="_blank" rel="noreferrer">{v || '(无标题)'}</a> : (v || '(无标题)'),
+    },
+    {
       title: '笔记/素材ID', dataIndex: 'noteId', key: 'noteId', fixed: 'left', width: 200,
       render: (v: string) => (
         <span style={{ whiteSpace: 'nowrap' }}>
@@ -134,11 +139,6 @@ const ChengfengDashboard: React.FC = () => {
           </Tooltip>
         </span>
       ),
-    },
-    {
-      title: '笔记标题', dataIndex: 'title', key: 'title', fixed: 'left', width: 220,
-      render: (v: string, row: any) =>
-        row.url ? <a href={row.url} target="_blank" rel="noreferrer">{v || '(无标题)'}</a> : (v || '(无标题)'),
     },
     ...columns.map((c) => ({
       title: c.label,
