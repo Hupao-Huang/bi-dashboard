@@ -310,8 +310,9 @@ type AuditSuggestion struct {
 
 // AuditDailyExpense 日常报销单审批规则引擎 (handler 方法, 需访问 LookupLegalEntityName 等)
 // 入参:
-//   - ownerDeptID: hesi_flow.owner_department 发起人部门 ID (= raw_json.u_提交人部门, 规则 1)
-//   - departmentID: hesi_flow.department_id 报销/借款部门 ID (= raw_json.expenseDepartment, 规则 2)
+//   - ownerDeptID: hesi_flow.owner_department = ownerDefaultDepartment 发起人员工默认部门 (规则 10/13 判研发/品牌中心仍用它;
+//     规则 1 末级判定 2026-06-23 改优先读 raw_json.u_提交人部门, 仅在该字段缺失时退回此列兜底)
+//   - departmentID: hesi_flow.department_id (冻结的首次入库值) — 规则 2 改优先读 raw_json.expenseDepartment, 仅在 raw 缺失时退回此列兜底
 //   - expenseMoney: hesi_flow.expense_money 报销金额 (规则 5 招待费金额对比)
 //   - rawJSON: 合思单据 raw_json (含 payeeId / submitterId / 法人实体 / details / expenseLinks 等)
 //
@@ -368,13 +369,29 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	var rejectReasons []string
 	var warnings []string
 
-	// 规则 1: 发起人部门 末级 (员工提交人部门, raw_json.u_提交人部门 = hesi_flow.owner_department)
-	if r := h.ruleDeptLeaf(ownerDeptID, "发起人部门 (规则 1)"); r != "" {
+	// 规则 1: 发起人部门(单据"提交人部门") 末级 — 读 raw_json.u_提交人部门 (单据上手填的部门, 每次同步刷新)
+	// 注: 不再用 ownerDeptID(hesi_flow.owner_department 列) — 那列同步时存的是 ownerDefaultDepartment
+	//     (发起人员工档案的默认组织部门), 既不是单据填的提交人部门, 且两个同步入口的 ON DUPLICATE KEY UPDATE
+	//     都不更新它(首次入库后冻结) → 与合思后台"提交人部门"显示对不上 (跑哥 2026-06-23 B26003524: 列=创意协助部, 单据=创意中台中心)
+	submitDeptID, _ := raw["u_提交人部门"].(string)
+	if submitDeptID == "" {
+		submitDeptID = ownerDeptID // 兜底: 个别单据没填"提交人部门"自定义字段(历史日常报销单约16%缺)时退回员工默认部门列, 避免规则1静默漏判
+	}
+	if r := h.ruleDeptLeaf(submitDeptID, "发起人部门 (规则 1)"); r != "" {
 		rejectReasons = append(rejectReasons, r)
 	}
 
-	// 规则 2: 报销/借款部门 末级 (= 费用承担部门, raw_json.expenseDepartment = hesi_flow.department_id)
-	if r := h.ruleDeptLeaf(departmentID, "报销/借款部门 (规则 2)"); r != "" {
+	// 规则 2: 报销/费用承担部门 末级 — 读 raw_json.expenseDepartment (借款单兜底 loanDepartment, 都缺再退回 department_id 列)
+	// 注: 优先 raw 字段 — departmentID(hesi_flow.department_id 列)是首次入库的冻结值, 重提改部门不刷新
+	//     (B26003524: 列=华鲜高新公司, 单据=摄影组; B26003446/B26003566: 列=省区, 单据=线上营销部)
+	expDeptID, _ := raw["expenseDepartment"].(string)
+	if expDeptID == "" {
+		expDeptID, _ = raw["loanDepartment"].(string)
+	}
+	if expDeptID == "" {
+		expDeptID = departmentID // 兜底: raw 两个部门字段都缺时退回 department_id 列
+	}
+	if r := h.ruleDeptLeaf(expDeptID, "报销/借款部门 (规则 2)"); r != "" {
 		rejectReasons = append(rejectReasons, r)
 	}
 

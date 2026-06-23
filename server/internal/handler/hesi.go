@@ -634,12 +634,8 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 	if flow.SubmitterId != nil {
 		flow.SubmitterName = h.LookupStaffName(*flow.SubmitterId)
 	}
-	if flow.DepartmentId != nil {
-		flow.DepartmentName = h.LookupDeptName(*flow.DepartmentId)
-	}
-	if flow.OwnerDepartment != nil {
-		flow.OwnerDepartmentName = h.LookupDeptName(*flow.OwnerDepartment)
-	}
+	// 报销/发起人部门名改读单据 raw_json 实际填的部门 (u_提交人部门/expenseDepartment), 不读 hesi_flow 冻结列
+	// (跑哥 2026-06-23, 与 AuditDailyExpense 规则 1/2 同口径; 见下方 formData 解析后的 ruleOwnerDeptID/ruleExpenseDeptID)
 
 	// v1.75.0: entityCheck 校验代码挪到 raw_json 解析后 (因为依赖 flow.LegalEntityName)
 	// 见下方 "// 原始form JSON" 之后
@@ -672,7 +668,15 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 
 	// v1.74.9: 从 raw_json 抽 "法人实体" 字段 + 查字典拿公司名
 	// (合思的"法人实体"是自定义维度, 不是 corporation_id; 跑哥要看的"公司"按这个字段)
+	// 规则 1/2 用部门 ID: 读单据 raw_json 实际填的部门 (u_提交人部门 / expenseDepartment, 借款单兜底 loanDepartment),
+	// 不读 hesi_flow.owner_department/department_id 冻结列 (跑哥 2026-06-23, 与 AuditDailyExpense 同口径)
+	var ruleOwnerDeptID, ruleExpenseDeptID string
 	if m, ok := formData.(map[string]interface{}); ok {
+		ruleOwnerDeptID, _ = m["u_提交人部门"].(string)
+		ruleExpenseDeptID, _ = m["expenseDepartment"].(string)
+		if ruleExpenseDeptID == "" {
+			ruleExpenseDeptID, _ = m["loanDepartment"].(string)
+		}
 		if le, ok := m["法人实体"].(string); ok && le != "" {
 			flow.LegalEntityId = le
 			flow.LegalEntityName = h.LookupLegalEntityName(le)
@@ -769,11 +773,24 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		}
 		return "ok", "已是末级部门"
 	}
-	if flow.OwnerDepartment != nil {
-		flow.OwnerDepartmentCheck, flow.OwnerDepartmentCheckReason = checkDeptLeaf(*flow.OwnerDepartment)
+	// 部门名 + 末级判定都用单据 raw_json 实际填的部门 (ruleOwnerDeptID/ruleExpenseDeptID, 见上方 formData 解析),
+	// 与 AuditDailyExpense 规则 1/2 同口径, 保证详情页标红 / AI 建议 / 合思后台三方一致 (跑哥 2026-06-23)。
+	// 兜底: 非日常报销单(付款单/借款单/预付款单等)无 u_提交人部门 字段, raw 缺时退回 hesi_flow 列, 保持各单据类型部门照常显示。
+	if ruleOwnerDeptID == "" && flow.OwnerDepartment != nil {
+		ruleOwnerDeptID = *flow.OwnerDepartment
 	}
-	if flow.DepartmentId != nil {
-		flow.DepartmentCheck, flow.DepartmentCheckReason = checkDeptLeaf(*flow.DepartmentId)
+	if ruleExpenseDeptID == "" && flow.DepartmentId != nil {
+		ruleExpenseDeptID = *flow.DepartmentId
+	}
+	if ruleOwnerDeptID != "" {
+		flow.OwnerDepartment = &ruleOwnerDeptID // 让序列化的 ownerDepartmentId 与 name/末级判定同源
+		flow.OwnerDepartmentName = h.LookupDeptName(ruleOwnerDeptID)
+		flow.OwnerDepartmentCheck, flow.OwnerDepartmentCheckReason = checkDeptLeaf(ruleOwnerDeptID)
+	}
+	if ruleExpenseDeptID != "" {
+		flow.DepartmentId = &ruleExpenseDeptID // 让序列化的 departmentId 与 name/末级判定同源
+		flow.DepartmentName = h.LookupDeptName(ruleExpenseDeptID)
+		flow.DepartmentCheck, flow.DepartmentCheckReason = checkDeptLeaf(ruleExpenseDeptID)
 	}
 
 	writeJSON(w, map[string]interface{}{
