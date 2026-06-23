@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, Statistic, Select, Empty, Input, Tooltip, message } from 'antd';
-import { CopyOutlined } from '@ant-design/icons';
+import { Row, Col, Card, Table, Statistic, Select, Empty, Input, Typography } from 'antd';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
+
+const { Text } = Typography;
 
 type ColMeta = { key: string; label: string; fmt: string };
 
@@ -127,18 +128,8 @@ const ChengfengDashboard: React.FC = () => {
         row.url ? <a href={row.url} target="_blank" rel="noreferrer">{v || '(无标题)'}</a> : (v || '(无标题)'),
     },
     {
-      title: '笔记/素材ID', dataIndex: 'noteId', key: 'noteId', fixed: 'left', width: 200,
-      render: (v: string) => (
-        <span style={{ whiteSpace: 'nowrap' }}>
-          <span style={{ fontSize: 12 }}>{v}</span>
-          <Tooltip title="复制ID">
-            <CopyOutlined
-              style={{ marginLeft: 6, cursor: 'pointer', color: '#999' }}
-              onClick={() => { navigator.clipboard?.writeText(v); message.success('已复制'); }}
-            />
-          </Tooltip>
-        </span>
-      ),
+      title: '笔记/素材ID', dataIndex: 'noteId', key: 'noteId', fixed: 'left', width: 230, ellipsis: true,
+      render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-'),
     },
     ...columns.map((c) => ({
       title: c.label,
