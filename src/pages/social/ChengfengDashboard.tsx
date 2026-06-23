@@ -186,7 +186,7 @@ const ChengfengDashboard: React.FC = () => {
             ))}
           </Row>
 
-          <Card className="bi-table-card" title="明细 TOP200（点开每行 ▸ 看这条笔记每天走势）">
+          <Card className="bi-table-card" title="明细 TOP50（点开每行 ▸ 看这条笔记每天走势）">
             <Table
               dataSource={data.detail || []}
               columns={tableColumns}
