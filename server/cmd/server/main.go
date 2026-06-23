@@ -417,6 +417,10 @@ func main() {
 	mux.HandleFunc("/api/xiaohongshu/note", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsNote)))
 	mux.HandleFunc("/api/xiaohongshu/note-trend", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsNoteTrend)))
 	mux.HandleFunc("/api/xiaohongshu/goods", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsGoods)))
+	// 小红书乘风(信息流投流) — 复用 social.xiaohongshu:view 权限
+	mux.HandleFunc("/api/xiaohongshu/chengfeng/filters", pageProtected("social.xiaohongshu:view", cache24h(h.GetCfFilters)))
+	mux.HandleFunc("/api/xiaohongshu/chengfeng/list", pageProtected("social.xiaohongshu:view", cache24h(h.GetCfList)))
+	mux.HandleFunc("/api/xiaohongshu/chengfeng/note-trend", pageProtected("social.xiaohongshu:view", cache24h(h.GetCfNoteTrend)))
 	mux.HandleFunc("/api/douyin/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinOps)))
 	mux.HandleFunc("/api/douyin-dist/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinDistOps)))
 	mux.HandleFunc("/api/marketing-cost", pageProtected("ecommerce.marketing_cost:view", cache24h(h.GetMarketingCost)))
