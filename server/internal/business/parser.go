@@ -679,6 +679,218 @@ func WriteResult(db *sql.DB, result *ParseResult) error {
 	return nil
 }
 
+// DiffCell 单格变更
+type DiffCell struct {
+	ParentSubject string   `json:"parentSubject"`
+	Subject       string   `json:"subject"`
+	PeriodMonth   int      `json:"periodMonth"`
+	Field         string   `json:"field"` // budget / actual / budget_year_start
+	Old           *float64 `json:"old"`
+	New           *float64 `json:"new"`
+}
+
+// DiffGroup 一个 (channel, sub_channel) 的变更汇总 + 截断明细
+type DiffGroup struct {
+	Channel      string     `json:"channel"`
+	SubChannel   string     `json:"subChannel"`
+	OldRows      int        `json:"oldRows"`
+	NewRows      int        `json:"newRows"`
+	ChangedCells int        `json:"changedCells"`
+	Action       string     `json:"action"` // new/update/delete/unchanged
+	Cells        []DiffCell `json:"cells"`
+	Truncated    bool       `json:"truncated"`
+}
+
+// DiffSummary 整次导入预览
+type DiffSummary struct {
+	Mode          string      `json:"mode"`
+	SnapshotYear  int         `json:"snapshotYear"`
+	SnapshotMonth int         `json:"snapshotMonth"`
+	IsNewSnapshot bool        `json:"isNewSnapshot"`
+	TotalNew      int         `json:"totalNew"`
+	TotalDeleted  int         `json:"totalDeleted"`
+	TotalChanged  int         `json:"totalChanged"`
+	Groups        []DiffGroup `json:"groups"`
+}
+
+const diffCellLimitPerGroup = 50
+
+type bbrCell struct {
+	budget, actual, yearStart *float64
+}
+
+func bbrRowKey(channel, subChannel, parent, subject string, period int) string {
+	return channel + "\x00" + subChannel + "\x00" + parent + "\x00" + subject + "\x00" + strconv.Itoa(period)
+}
+
+func grpKey(channel, subChannel string) string { return channel + "\x00" + subChannel }
+
+func fEq(a, b *float64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	d := *a - *b
+	return d < 0.005 && d > -0.005
+}
+
+// ComputeDiff 查库比对，逐格算变更，按 (channel, sub_channel) 分组，每组明细截断到 diffCellLimitPerGroup
+func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
+	summary := &DiffSummary{
+		Mode:          result.Mode,
+		SnapshotYear:  result.SnapshotYear,
+		SnapshotMonth: result.SnapshotMonth,
+	}
+
+	// 1. 查库现有该快照
+	oldRows := map[string]bbrCell{}  // rowKey -> 三值
+	oldGrpCount := map[string]int{} // grpKey -> 行数
+	q, err := db.Query(`SELECT channel, sub_channel, parent_subject, subject, period_month, budget, actual, budget_year_start
+		FROM business_budget_report WHERE snapshot_year=? AND snapshot_month=?`, result.SnapshotYear, result.SnapshotMonth)
+	if err != nil {
+		return nil, fmt.Errorf("查旧快照失败: %w", err)
+	}
+	defer q.Close()
+	for q.Next() {
+		var ch, sc, ps, sj string
+		var pm int
+		var bd, ac, ys *float64
+		if err := q.Scan(&ch, &sc, &ps, &sj, &pm, &bd, &ac, &ys); err != nil {
+			return nil, err
+		}
+		oldRows[bbrRowKey(ch, sc, ps, sj, pm)] = bbrCell{bd, ac, ys}
+		oldGrpCount[grpKey(ch, sc)]++
+	}
+	if err := q.Err(); err != nil {
+		return nil, err
+	}
+	summary.IsNewSnapshot = len(oldRows) == 0
+
+	// 2. 新数据按 grp 聚合
+	newGrpCount := map[string]int{}
+	grpOrder := []string{}
+	grpSeen := map[string]bool{}
+	type cs struct{ channel, subChannel string }
+	grpMeta := map[string]cs{}
+	groups := map[string]*DiffGroup{}
+	getGroup := func(ch, sc string) *DiffGroup {
+		k := grpKey(ch, sc)
+		if !grpSeen[k] {
+			grpSeen[k] = true
+			grpOrder = append(grpOrder, k)
+			grpMeta[k] = cs{ch, sc}
+			groups[k] = &DiffGroup{Channel: ch, SubChannel: sc}
+		}
+		return groups[k]
+	}
+
+	newKeys := map[string]bool{}
+	for i := range result.Rows {
+		r := &result.Rows[i]
+		gk := grpKey(r.Channel, r.SubChannel)
+		newGrpCount[gk]++
+		g := getGroup(r.Channel, r.SubChannel)
+		rk := bbrRowKey(r.Channel, r.SubChannel, r.ParentSubject, r.Subject, r.PeriodMonth)
+		newKeys[rk] = true
+		old, existed := oldRows[rk]
+		// 逐字段比对 budget/actual/budget_year_start
+		changed := false
+		if !existed {
+			summary.TotalNew++
+			changed = true
+			appendCell(g, r.ParentSubject, r.Subject, r.PeriodMonth, "budget", nil, r.Budget)
+		} else {
+			for _, fc := range []struct {
+				field    string
+				oldV, nV *float64
+			}{
+				{"budget", old.budget, r.Budget},
+				{"actual", old.actual, r.Actual},
+				{"budget_year_start", old.yearStart, r.BudgetYearStart},
+			} {
+				if !fEq(fc.oldV, fc.nV) {
+					changed = true
+					appendCell(g, r.ParentSubject, r.Subject, r.PeriodMonth, fc.field, fc.oldV, fc.nV)
+				}
+			}
+			if changed {
+				summary.TotalChanged++
+			}
+		}
+		if changed {
+			g.ChangedCells++
+		}
+	}
+
+	// 3. 删除判定（full=全部旧；incremental=只本次出现的 grp 的旧）
+	incremental := result.Mode == ImportModeIncremental
+	summary.TotalDeleted = computeDeleted(oldRows, newKeys, newGrpCount, incremental)
+
+	// 4. 组装 group 行数 + action + 截断标记
+	_ = grpMeta // 避免 unused variable
+	for _, k := range grpOrder {
+		g := groups[k]
+		g.OldRows = oldGrpCount[k]
+		g.NewRows = newGrpCount[k]
+		switch {
+		case g.OldRows == 0:
+			g.Action = "new"
+		case g.ChangedCells > 0:
+			g.Action = "update"
+		default:
+			g.Action = "unchanged"
+		}
+		summary.Groups = append(summary.Groups, *g)
+	}
+	return summary, nil
+}
+
+func appendCell(g *DiffGroup, parent, subject string, pm int, field string, old, nv *float64) {
+	if len(g.Cells) >= diffCellLimitPerGroup {
+		g.Truncated = true
+		return
+	}
+	g.Cells = append(g.Cells, DiffCell{ParentSubject: parent, Subject: subject, PeriodMonth: pm, Field: field, Old: old, New: nv})
+}
+
+// computeDeleted 统计将被删除的旧行数
+//
+//	full: 所有 old 里 new 没有的 key
+//	incremental: 只统计本次出现的 (channel,sub_channel) 组里、old 有 new 没有的 key
+func computeDeleted(oldRows map[string]bbrCell, newKeys map[string]bool, newGrpCount map[string]int, incremental bool) int {
+	n := 0
+	for rk := range oldRows {
+		if newKeys[rk] {
+			continue
+		}
+		if incremental {
+			// rk = channel\x00subChannel\x00parent\x00subject\x00period；取前两段拼 grpKey
+			// incremental 模式下，未出现的 grp 旧行保留，不算删
+			parts := splitN2(rk)
+			if newGrpCount[parts] == 0 {
+				continue // 该 grp 本次没出现，旧行保留，不算删
+			}
+		}
+		n++
+	}
+	return n
+}
+
+// splitN2 取 rk 的前两段(channel\x00subChannel)拼成 grpKey
+func splitN2(rk string) string {
+	first := strings.IndexByte(rk, '\x00')
+	if first < 0 {
+		return rk
+	}
+	second := strings.IndexByte(rk[first+1:], '\x00')
+	if second < 0 {
+		return rk
+	}
+	return rk[:first+1+second]
+}
+
 func nullIfNil(p *float64) interface{} {
 	if p == nil {
 		return nil
