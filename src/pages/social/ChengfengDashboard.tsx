@@ -193,8 +193,7 @@ const ChengfengDashboard: React.FC = () => {
               rowKey={(r: any, i) => (r.noteId ? r.noteId : String(i))}
               size="small"
               pagination={false}
-              virtual
-              scroll={{ x: tableColumns.reduce((s, c) => s + (typeof c.width === 'number' ? c.width : 120), 0), y: 480 }}
+              scroll={{ x: 'max-content', y: 480 }}
               expandable={{
                 expandedRowRender: (record: any) => <CfNoteTrend noteId={record.noteId} start={start} end={end} />,
                 rowExpandable: (record: any) => !!record.noteId,
