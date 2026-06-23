@@ -21,6 +21,9 @@ import (
 	"time"
 )
 
+// dailyExpenseSpecPrefix 日常报销单单据模板 spec 前缀 (樊雪娇规则集仅适用此模板; 详情页公司判定也按此 gate)
+const dailyExpenseSpecPrefix = "ID01Fk3qJYYFvp"
+
 // 业务招待费 fee_type ID 集合 (合思 feeTypes API 2026-05-27 递归 descendants 实查 4 项)
 // 父类 ID01Fk0FsIqgQn = "业务招待费"
 var businessTreatFeeTypes = map[string]string{
@@ -369,30 +372,26 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	var rejectReasons []string
 	var warnings []string
 
-	// 规则 1: 发起人部门(单据"提交人部门") 末级 — 读 raw_json.u_提交人部门 (单据上手填的部门, 每次同步刷新)
-	// 注: 不再用 ownerDeptID(hesi_flow.owner_department 列) — 那列同步时存的是 ownerDefaultDepartment
-	//     (发起人员工档案的默认组织部门), 既不是单据填的提交人部门, 且两个同步入口的 ON DUPLICATE KEY UPDATE
-	//     都不更新它(首次入库后冻结) → 与合思后台"提交人部门"显示对不上 (跑哥 2026-06-23 B26003524: 列=创意协助部, 单据=创意中台中心)
+	// 发起人部门: 不再审核 (跑哥 2026-06-23 撤销原"规则 1 发起人部门末级")。
+	// 但 submitDeptID(单据填的提交人部门 u_提交人部门, 缺则退回员工默认部门列)仍供规则 10/13 判研发/品牌中心链。
 	submitDeptID, _ := raw["u_提交人部门"].(string)
 	if submitDeptID == "" {
-		submitDeptID = ownerDeptID // 兜底: 个别单据没填"提交人部门"自定义字段(历史日常报销单约16%缺)时退回员工默认部门列, 避免规则1静默漏判
-	}
-	if r := h.ruleDeptLeaf(submitDeptID, "发起人部门 (规则 1)"); r != "" {
-		rejectReasons = append(rejectReasons, r)
+		submitDeptID = ownerDeptID
 	}
 
-	// 规则 2: 报销/费用承担部门 末级 — 读 raw_json.expenseDepartment (借款单兜底 loanDepartment, 都缺再退回 department_id 列)
-	// 注: 优先 raw 字段 — departmentID(hesi_flow.department_id 列)是首次入库的冻结值, 重提改部门不刷新
-	//     (B26003524: 列=华鲜高新公司, 单据=摄影组; B26003446/B26003566: 列=省区, 单据=线上营销部)
+	// 规则 2: 报销/费用承担部门 不能选"公司"(法人实体) — 必须选公司下面的具体部门 (跑哥 2026-06-23 改, 原"末级"判定撤销)。
+	// 读 raw_json.expenseDepartment (借款单兜底 loanDepartment, 都缺再退回 department_id 列)。
+	// "公司"=合思部门树顶层节点(父=根corp), 见 companyDeptName。注意公司节点可能 has_child=0(如华鲜高新),
+	// 老"末级(has_child=0)"判定会漏放行公司, 故改判"是不是公司"。
 	expDeptID, _ := raw["expenseDepartment"].(string)
 	if expDeptID == "" {
 		expDeptID, _ = raw["loanDepartment"].(string)
 	}
 	if expDeptID == "" {
-		expDeptID = departmentID // 兜底: raw 两个部门字段都缺时退回 department_id 列
+		expDeptID = departmentID
 	}
-	if r := h.ruleDeptLeaf(expDeptID, "报销/借款部门 (规则 2)"); r != "" {
-		rejectReasons = append(rejectReasons, r)
+	if name := h.companyDeptName(expDeptID); name != "" {
+		rejectReasons = append(rejectReasons, "报销/费用承担部门「"+name+"」不能选公司, 请选公司下面的具体部门 (规则 2)")
 	}
 
 	// 规则 3: 收款信息必须为银行账户
@@ -752,6 +751,29 @@ func (h *DashboardHandler) ruleDeptLeaf(deptID string, label string) string {
 	}
 	if node.hasChild {
 		return label + "「" + node.name + "」非末级"
+	}
+	return ""
+}
+
+// companyDeptName 若 deptID 是合思部门树顶层"公司"(法人实体)节点, 返回公司名; 否则返回 ""。
+// 用于规则 2: 费用承担部门不能选公司, 必须选公司下面的具体部门。
+// 判定: 部门树根 corp 节点 parentID 为空; 其直接子节点(parentID=根)即一家公司(世创/世用/华鲜高新/各分公司/集团 等 47 家)。
+// 注意公司节点可能 has_child=0(如华鲜高新无下级), 不能用"末级"判定, 必须按"是不是顶层公司节点"判。
+func (h *DashboardHandler) companyDeptName(deptID string) string {
+	if deptID == "" {
+		return ""
+	}
+	m := h.loadhesiDeptTreeCache()
+	node, ok := m[deptID]
+	if !ok || !node.active {
+		// 不在表 / 已停用 → 跳过 (与 ruleDeptLeaf 同口径; 防顶层有停用的非公司节点如"培训部"被误判为公司)
+		return ""
+	}
+	if node.parentID == "" {
+		return node.name // 自身即根 corp
+	}
+	if parent, ok := m[node.parentID]; ok && parent.parentID == "" {
+		return node.name // 父是根 → 自身是顶层公司
 	}
 	return ""
 }

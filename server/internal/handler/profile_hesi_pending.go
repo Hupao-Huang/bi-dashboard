@@ -159,7 +159,7 @@ func (h *DashboardHandler) GetMyHesiPending(w http.ResponseWriter, r *http.Reque
 	// AI 审批建议适用的审批人 (2026-05-27 樊雪娇起; 跑哥 2026-06-18 扩, 名单见 dailyExpenseApproverNames / paymentApproverNames)
 	isDailyExpenseApprover := matchApproverName(dailyExpenseApproverNames, displayName, queryName, hesiRealName)
 	isPaymentApprover := matchApproverName(paymentApproverNames, displayName, queryName, hesiRealName)
-	const dailyExpenseSpecPrefix = "ID01Fk3qJYYFvp"
+	// dailyExpenseSpecPrefix 现为包级常量 (hesi_audit_rules.go)
 
 	// v1.62.x: SELECT 字段对齐费控管理 (含 specification_id / create_time / update_time / preApproved)
 	// v1.76.0: 加 owner_department (规则 1 发起人部门末级)

@@ -13,8 +13,7 @@ import { Card, Table, Typography, Space } from 'antd';
 // ====== 樊雪娇日常报销单 审批判定规则 (系统内置, 只读展示) ======
 // ref = 后端 hesi_audit_rules.go 里正在跑的规则编号, 页面"规则号"列直接显示, 改后端时照编号同步本表。
 const FXJ_AUDIT_RULES: { ref: string; cat: string; rule: string }[] = [
-  { ref: '1', cat: '部门', rule: '发起人部门必须是末级部门（部门底下不能再挂下级）' },
-  { ref: '2', cat: '部门', rule: '报销 / 费用承担部门也必须是末级部门' },
+  { ref: '2', cat: '部门', rule: '报销 / 费用承担部门不能选公司，必须选到公司下面的具体部门' },
   { ref: '3', cat: '收款', rule: '收款方式必须是银行账户' },
   { ref: '4', cat: '主体', rule: '报销的所属公司要和提交人的合同公司一致（分公司签的合同，可用主公司主体报销）' },
   { ref: '5', cat: '先申请后报销', rule: '业务招待费要关联「招待费用申请单」，且报销金额不超过申请额度' },
