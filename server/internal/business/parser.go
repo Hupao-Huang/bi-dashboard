@@ -745,8 +745,9 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 	}
 
 	// 1. 查库现有该快照
-	oldRows := map[string]bbrCell{}  // rowKey -> 三值
-	oldGrpCount := map[string]int{} // grpKey -> 行数
+	oldRows := map[string]bbrCell{}       // rowKey -> 三值
+	oldGrpCount := map[string]int{}       // grpKey -> 行数
+	oldGrpMeta := map[string][2]string{}  // grpKey -> [channel, subChannel]
 	q, err := db.Query(`SELECT channel, sub_channel, parent_subject, subject, period_month, budget, actual, budget_year_start
 		FROM business_budget_report WHERE snapshot_year=? AND snapshot_month=?`, result.SnapshotYear, result.SnapshotMonth)
 	if err != nil {
@@ -761,7 +762,11 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 			return nil, err
 		}
 		oldRows[bbrRowKey(ch, sc, ps, sj, pm)] = bbrCell{bd, ac, ys}
-		oldGrpCount[grpKey(ch, sc)]++
+		gk := grpKey(ch, sc)
+		oldGrpCount[gk]++
+		if _, ok := oldGrpMeta[gk]; !ok {
+			oldGrpMeta[gk] = [2]string{ch, sc}
+		}
 	}
 	if err := q.Err(); err != nil {
 		return nil, err
@@ -772,15 +777,12 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 	newGrpCount := map[string]int{}
 	grpOrder := []string{}
 	grpSeen := map[string]bool{}
-	type cs struct{ channel, subChannel string }
-	grpMeta := map[string]cs{}
 	groups := map[string]*DiffGroup{}
 	getGroup := func(ch, sc string) *DiffGroup {
 		k := grpKey(ch, sc)
 		if !grpSeen[k] {
 			grpSeen[k] = true
 			grpOrder = append(grpOrder, k)
-			grpMeta[k] = cs{ch, sc}
 			groups[k] = &DiffGroup{Channel: ch, SubChannel: sc}
 		}
 		return groups[k]
@@ -800,7 +802,20 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 		if !existed {
 			summary.TotalNew++
 			changed = true
-			appendCell(g, r.ParentSubject, r.Subject, r.PeriodMonth, "budget", nil, r.Budget)
+			// 新行：把所有有值的字段都记录到明细（fix #3: 不只 budget）
+			for _, fc := range []struct {
+				field string
+				nV    *float64
+			}{
+				{"budget", r.Budget},
+				{"actual", r.Actual},
+				{"budget_year_start", r.BudgetYearStart},
+			} {
+				if fc.nV != nil {
+					appendCell(g, r.ParentSubject, r.Subject, r.PeriodMonth, fc.field, nil, fc.nV)
+					g.ChangedCells++ // fix #2: 按实际格子数计
+				}
+			}
 		} else {
 			for _, fc := range []struct {
 				field    string
@@ -813,23 +828,21 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 				if !fEq(fc.oldV, fc.nV) {
 					changed = true
 					appendCell(g, r.ParentSubject, r.Subject, r.PeriodMonth, fc.field, fc.oldV, fc.nV)
+					g.ChangedCells++ // fix #2: 每个变更格 +1
 				}
 			}
 			if changed {
 				summary.TotalChanged++
 			}
 		}
-		if changed {
-			g.ChangedCells++
-		}
+		_ = changed
 	}
 
 	// 3. 删除判定（full=全部旧；incremental=只本次出现的 grp 的旧）
 	incremental := result.Mode == ImportModeIncremental
 	summary.TotalDeleted = computeDeleted(oldRows, newKeys, newGrpCount, incremental)
 
-	// 4. 组装 group 行数 + action + 截断标记
-	_ = grpMeta // 避免 unused variable
+	// 4. 组装 group 行数 + action + 截断标记（本次文件出现的组）
 	for _, k := range grpOrder {
 		g := groups[k]
 		g.OldRows = oldGrpCount[k]
@@ -844,6 +857,26 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 		}
 		summary.Groups = append(summary.Groups, *g)
 	}
+
+	// 5. fix #1: full 模式下，补入"库里有但本次文件完全没有"的组（整组将被删）
+	if !incremental {
+		for gk, meta := range oldGrpMeta {
+			if grpSeen[gk] {
+				continue // 本次文件出现过，已在 Groups 里
+			}
+			summary.Groups = append(summary.Groups, DiffGroup{
+				Channel:      meta[0],
+				SubChannel:   meta[1],
+				OldRows:      oldGrpCount[gk],
+				NewRows:      0,
+				ChangedCells: 0,
+				Action:       "delete",
+				Cells:        nil,
+				Truncated:    false,
+			})
+		}
+	}
+
 	return summary, nil
 }
 
