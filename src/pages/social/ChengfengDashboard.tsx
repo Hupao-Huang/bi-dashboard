@@ -111,7 +111,7 @@ const ChengfengDashboard: React.FC = () => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [presets, setPresets] = useState<CfPreset[]>([]);
   const loadPresets = useCallback(() => {
-    fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets`)
+    fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets?scope=chengfeng`)
       .then((r) => r.json())
       .then((res) => setPresets(res.data?.presets || []))
       .catch(() => {});
@@ -119,7 +119,7 @@ const ChengfengDashboard: React.FC = () => {
   useEffect(() => { loadPresets(); }, [loadPresets]);
   const savePreset = useCallback((name: string, keys: string[]) => {
     fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets/save`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, keys }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'chengfeng', name, keys }),
     }).then((r) => r.json()).then((j) => {
       if (j.code && j.code !== 0) { message.error(j.msg || '保存常用方案失败'); return; }
       message.success('已保存常用方案'); loadPresets();

@@ -4,7 +4,7 @@ import { CloseOutlined, HolderOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 
-export type CfColMeta = { key: string; label: string; fmt: string; group?: string };
+export type CfColMeta = { key: string; label: string; fmt?: string; group?: string };
 export type CfPreset = { id: number; name: string; keys: string[] };
 
 type Props = {
