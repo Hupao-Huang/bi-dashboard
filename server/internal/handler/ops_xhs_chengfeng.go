@@ -129,6 +129,37 @@ var cfMetrics = []cfMetric{
 	{"shop_newcust_order_people", "店铺新客下单人数", "IFNULL(SUM(shop_newcust_order_people),0)", "int"},
 }
 
+// cfGroups 指标分组（仿小红书千帆后台「自定义指标」左侧分组）。每组列出其下指标 Key，
+// 顺序即组内展示顺序；GetCfFilters 据此给每列附 group。未归类的 Key 落「其他指标」兜底。
+var cfGroups = []struct {
+	Name string
+	Keys []string
+}{
+	{"基础·通用", []string{"cost", "impression", "click_count", "click_rate", "avg_click_cost", "avg_cpm"}},
+	{"基础·新客", []string{"newcust_cost", "newcust_impression", "newcust_click", "newcust_click_rate", "newcust_avg_click_cost", "newcust_avg_cpm"}},
+	{"优惠券与补贴", []string{"platform_subsidy_amount", "subsidy_driven_gmv"}},
+	{"互动效果", []string{"like_count", "comment_count", "collect_count", "follow_count", "share_count", "interaction_count", "avg_interaction_cost", "action_btn_click_count", "action_btn_click_rate", "screenshot_count", "save_image_count"}},
+	{"搜索组件", []string{"search_widget_click_count", "search_widget_click_conv_rate", "avg_post_search_read_notes", "post_search_read_count"}},
+	{"预约与直播观看", []string{"reservation_count", "live_reservation_count", "live_reservation_cost", "reserve_reach_live_impression", "reserve_reach_live_view", "reserve_reach_live_order", "live_view_count", "live_view_cost", "live_avg_stay_duration", "live_new_fans", "live_5s_view_count", "live_5s_view_cost", "live_comment_count", "live_30s_view_count", "live_30s_view_cost", "live_direct_goods_visitor", "live_direct_goods_visitor_cost", "live_direct_goods_addcart", "live_direct_goods_addcart_cost"}},
+	{"视频播放", []string{"video_play_count", "video_5s_play_count", "video_5s_finish_rate"}},
+	{"商品转化(下单/支付)", []string{"goods_visitor_7d", "goods_visitor_7d_cost", "goods_addcart_7d", "goods_addcart_7d_cost", "order_7d_count", "order_7d_cost", "order_7d_amount", "order_7d_roi", "pay_7d_order_count", "pay_7d_order_cost", "pay_7d_amount", "pay_7d_roi", "pay_7d_conv_rate", "order_7d_count_conv", "order_7d_cost_conv", "order_7d_amount_conv", "order_7d_roi_conv", "pay_7d_order_count_conv", "pay_7d_order_cost_conv", "pay_7d_amount_conv", "pay_7d_roi_conv", "direct_pay_order_count", "direct_pay_order_cost", "direct_pay_gmv", "direct_pay_roi", "goods_direct_order_count", "goods_direct_order_cost", "goods_direct_order_amount", "goods_direct_order_roi", "goods_1d_pay_order_count", "goods_1d_pay_order_cost", "goods_1d_pay_amount", "goods_1d_pay_roi"}},
+	{"直播间转化", []string{"live_direct_order_count", "live_direct_order_cost", "live_direct_order_amount", "live_direct_order_roi", "live_direct_pay_order_count", "live_direct_pay_order_cost", "live_direct_pay_amount", "live_direct_pay_roi"}},
+	{"预约触达转化", []string{"reserve_reach_live_pay_amount", "reserve_reach_live_pay_order_count", "reserve_reach_pay_7d_amount", "reserve_reach_pay_7d_order_count", "reserve_reach_pay_15d_amount", "reserve_reach_pay_15d_order_count"}},
+	{"店铺新客", []string{"shop_newcust_goods_visit", "shop_newcust_pay_order_count", "shop_newcust_pay_amount", "shop_newcust_pay_roi", "shop_newcust_pay_people", "shop_newcust_pay_7d_order_count", "shop_newcust_pay_7d_amount", "shop_newcust_order_roi", "shop_newcust_order_people"}},
+}
+
+// cfGroupOf 反查某指标 Key 属于哪个分组，未归类返回「其他指标」
+func cfGroupOf(key string) string {
+	for _, g := range cfGroups {
+		for _, k := range g.Keys {
+			if k == key {
+				return g.Name
+			}
+		}
+	}
+	return "其他指标"
+}
+
 // cfWhere 拼 stat_date 范围 + shops + note_id 模糊 条件
 func cfWhere(r *http.Request) (string, []interface{}) {
 	where := ""
@@ -183,10 +214,10 @@ func (h *DashboardHandler) GetCfFilters(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 	}
-	// columns: 给前端的列元信息(顺序+标签+格式), 前端按此渲染明细表表头
+	// columns: 给前端的列元信息(顺序+标签+格式+分组), 前端按此渲染明细表表头 & 自定义指标弹窗分组
 	cols := make([]map[string]string, 0, len(cfMetrics))
 	for _, m := range cfMetrics {
-		cols = append(cols, map[string]string{"key": m.Key, "label": m.Label, "fmt": m.Fmt})
+		cols = append(cols, map[string]string{"key": m.Key, "label": m.Label, "fmt": m.Fmt, "group": cfGroupOf(m.Key)})
 	}
 	writeJSON(w, map[string]interface{}{"latestDate": latest, "shops": shops, "columns": cols})
 }

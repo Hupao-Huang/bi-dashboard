@@ -1,20 +1,17 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Row, Col, Card, Table, Statistic, Select, Empty, Input, Typography, Button } from 'antd';
+import { SettingOutlined } from '@ant-design/icons';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
+import CfMetricPicker, { CfPreset } from './CfMetricPicker';
 
 const { Text } = Typography;
 
-type ColMeta = { key: string; label: string; fmt: string };
+type ColMeta = { key: string; label: string; fmt: string; group?: string };
 
-// 默认显示的核心指标列（信息流投流最常看的 12 个）——其余 95 列按需在“显示指标列”里勾选
-const DEFAULT_CF_COLS = [
-  'cost', 'impression', 'click_count', 'click_rate', 'avg_click_cost', 'interaction_count',
-  'pay_7d_order_count', 'pay_7d_amount', 'pay_7d_roi', 'order_7d_amount', 'order_7d_roi', 'pay_7d_conv_rate',
-];
 const CF_COLS_LS_KEY = 'cf_visible_cols_v1'; // 列选择记到浏览器本地，刷新后保留
 
 // 数值格式化：money/cost=¥ / int=千分位 / rate=x.xx% / roi/num2=x.xx
@@ -106,6 +103,27 @@ const ChengfengDashboard: React.FC = () => {
     try { localStorage.setItem(CF_COLS_LS_KEY, JSON.stringify(keys)); } catch { /* ignore */ }
   }, []);
 
+  // 自定义指标弹窗 + 常用方案
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [presets, setPresets] = useState<CfPreset[]>([]);
+  const loadPresets = useCallback(() => {
+    fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets`)
+      .then((r) => r.json())
+      .then((res) => setPresets(res.data?.presets || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { loadPresets(); }, [loadPresets]);
+  const savePreset = useCallback((name: string, keys: string[]) => {
+    fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets/save`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, keys }),
+    }).then(() => loadPresets()).catch(() => {});
+  }, [loadPresets]);
+  const deletePreset = useCallback((id: number) => {
+    fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets/delete`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+    }).then(() => loadPresets()).catch(() => {});
+  }, [loadPresets]);
+
   // 初次拉 filters：默认数据更新时间 = 最新一天
   useEffect(() => {
     fetch(`${API_BASE}/api/xiaohongshu/chengfeng/filters`)
@@ -153,10 +171,11 @@ const ChengfengDashboard: React.FC = () => {
     { title: '综合ROI', value: k.roi, precision: 2, accent: '#f59e0b' },
   ];
 
-  // 明细表列：标题 + ID 固定左侧，其余按勾选的指标列显示（默认只 12 列，轻量不卡）
+  // 明细表列：标题 + ID 固定左侧，其余按"已选指标的顺序"渲染（顺序来自自定义指标弹窗的拖拽结果）
   const tableColumns: any[] = useMemo(() => {
-    const keys = visibleKeys ?? [];
-    const visible = columns.filter((c) => keys.includes(c.key));
+    const colMap: Record<string, ColMeta> = {};
+    columns.forEach((c) => { colMap[c.key] = c; });
+    const visible = (visibleKeys ?? []).map((k) => colMap[k]).filter(Boolean);
     return [
       {
         title: '笔记标题', dataIndex: 'title', key: 'title', fixed: 'left', width: 220, ellipsis: true,
@@ -195,17 +214,6 @@ const ChengfengDashboard: React.FC = () => {
             onChange={(e) => { if (!e.target.value) setNoteIdQuery(''); }}
             style={{ width: 240 }}
           />
-          <Select
-            mode="multiple" allowClear placeholder="显示指标列"
-            style={{ minWidth: 280, maxWidth: 520 }}
-            maxTagCount="responsive"
-            value={visibleKeys ?? []}
-            onChange={setCols}
-            options={columns.map((c) => ({ label: c.label, value: c.key }))}
-            filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-          />
-          <Button size="small" onClick={() => setCols(columns.map((c) => c.key))}>全部列</Button>
-          <Button size="small" onClick={() => setCols(DEFAULT_CF_COLS)}>核心12列</Button>
         </div>
       </Card>
 
@@ -225,7 +233,13 @@ const ChengfengDashboard: React.FC = () => {
             ))}
           </Row>
 
-          <Card className="bi-table-card" title="明细 TOP50（点开每行 ▸ 看这条笔记每天走势）">
+          <Card
+            className="bi-table-card"
+            title="明细 TOP50（点开每行 ▸ 看这条笔记每天走势）"
+            extra={
+              <Button icon={<SettingOutlined />} onClick={() => setPickerOpen(true)}>自定义指标</Button>
+            }
+          >
             <Table
               dataSource={data.detail || []}
               columns={tableColumns}
@@ -241,6 +255,18 @@ const ChengfengDashboard: React.FC = () => {
           </Card>
         </>
       )}
+
+      <CfMetricPicker
+        open={pickerOpen}
+        columns={columns}
+        value={visibleKeys ?? []}
+        defaultKeys={columns.map((c) => c.key)}
+        presets={presets}
+        onOk={(keys) => { setCols(keys); setPickerOpen(false); }}
+        onCancel={() => setPickerOpen(false)}
+        onSavePreset={savePreset}
+        onDeletePreset={deletePreset}
+      />
     </div>
   );
 };
