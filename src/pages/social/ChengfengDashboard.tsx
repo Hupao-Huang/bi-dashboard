@@ -93,13 +93,13 @@ const ChengfengDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
-  // 选列：从本地存储恢复，没有就用默认核心 12 列
-  const [visibleKeys, setVisibleKeys] = useState<string[]>(() => {
+  // 选列：从本地存储恢复；没存过则 null，待 columns 加载后默认全选（暂时全部展示字段）
+  const [visibleKeys, setVisibleKeys] = useState<string[] | null>(() => {
     try {
       const saved = localStorage.getItem(CF_COLS_LS_KEY);
-      if (saved) { const arr = JSON.parse(saved); if (Array.isArray(arr) && arr.length) return arr; }
+      if (saved != null) { const arr = JSON.parse(saved); if (Array.isArray(arr)) return arr; }
     } catch { /* ignore */ }
-    return DEFAULT_CF_COLS;
+    return null;
   });
   const setCols = useCallback((keys: string[]) => {
     setVisibleKeys(keys);
@@ -113,7 +113,10 @@ const ChengfengDashboard: React.FC = () => {
       .then((res) => {
         const f = res.data || {};
         setShopsOpt(f.shops || []);
-        setColumns(f.columns || []);
+        const cols: ColMeta[] = f.columns || [];
+        setColumns(cols);
+        // 没在本地存过列选择 → 默认全部展示（不写本地，用户手动选过才记）
+        setVisibleKeys((prev) => (prev == null ? cols.map((c) => c.key) : prev));
         if (f.latestDate) { setStart(f.latestDate); setEnd(f.latestDate); }
       })
       .catch(() => {});
@@ -152,7 +155,8 @@ const ChengfengDashboard: React.FC = () => {
 
   // 明细表列：标题 + ID 固定左侧，其余按勾选的指标列显示（默认只 12 列，轻量不卡）
   const tableColumns: any[] = useMemo(() => {
-    const visible = columns.filter((c) => visibleKeys.includes(c.key));
+    const keys = visibleKeys ?? [];
+    const visible = columns.filter((c) => keys.includes(c.key));
     return [
       {
         title: '笔记标题', dataIndex: 'title', key: 'title', fixed: 'left', width: 220, ellipsis: true,
@@ -195,12 +199,13 @@ const ChengfengDashboard: React.FC = () => {
             mode="multiple" allowClear placeholder="显示指标列"
             style={{ minWidth: 280, maxWidth: 520 }}
             maxTagCount="responsive"
-            value={visibleKeys}
+            value={visibleKeys ?? []}
             onChange={setCols}
             options={columns.map((c) => ({ label: c.label, value: c.key }))}
             filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
           />
-          <Button size="small" onClick={() => setCols(DEFAULT_CF_COLS)}>重置默认列</Button>
+          <Button size="small" onClick={() => setCols(columns.map((c) => c.key))}>全部列</Button>
+          <Button size="small" onClick={() => setCols(DEFAULT_CF_COLS)}>核心12列</Button>
         </div>
       </Card>
 
