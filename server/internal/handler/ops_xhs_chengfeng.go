@@ -252,7 +252,8 @@ func (h *DashboardHandler) GetCfList(w http.ResponseWriter, r *http.Request) {
 		k.ROI = k.PayGMV / k.Cost
 	}
 
-	// 明细: 按 note_id 聚合区间, 107 指标列由 cfMetrics 拼 SELECT, ORDER BY Σ消费 倒序 TOP 50
+	// 明细: 按 note_id 聚合区间, 107 指标列由 cfMetrics 拼 SELECT, ORDER BY Σ消费 倒序
+	// 不再 LIMIT —— 返回全部笔记/素材, 前端翻页+前端排序(全量排序不回后端)。ORDER 保留, 第一页仍是高消费在前。
 	exprs := make([]string, len(cfMetrics))
 	for i, m := range cfMetrics {
 		exprs[i] = m.Expr
@@ -261,7 +262,7 @@ func (h *DashboardHandler) GetCfList(w http.ResponseWriter, r *http.Request) {
 		ANY_VALUE(CASE WHEN note_url LIKE 'http%' THEN note_url ELSE '' END), ` +
 		strings.Join(exprs, ", ") +
 		` FROM op_xhs_chengfeng_daily WHERE 1=1` + where +
-		` GROUP BY note_id ORDER BY SUM(cost) DESC, SUM(impression) DESC LIMIT 50`
+		` GROUP BY note_id ORDER BY SUM(cost) DESC, SUM(impression) DESC`
 
 	rows, ok := queryRowsOrWriteError(w, r, h.DB, sql, args...)
 	if !ok {

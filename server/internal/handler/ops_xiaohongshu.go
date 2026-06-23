@@ -292,7 +292,8 @@ func (h *DashboardHandler) GetXhsNote(w http.ResponseWriter, r *http.Request) {
 		k.ConvRate = payUV / clickUV
 	}
 
-	// 明细 TOP50：按笔记聚合(跨天加总)，带 note_id 供下钻看单条每天趋势。数据驱动全字段(见 xhsNoteCols)。
+	// 明细全量：按笔记聚合(跨天加总)，带 note_id 供下钻看单条每天趋势。数据驱动全字段(见 xhsNoteCols)。
+	// 不再 LIMIT —— 返回全部笔记, 前端翻页+前端排序(全量排序不再回后端)。ORDER 保留, 让第一页仍是高支付额在前。
 	// 固定前置: note_id / 标题 / url(仅 http 输出, 源是 HYPERLINK 公式 import 已提真链接)。
 	// 率类用 总量÷总量 加权重算(禁简单平均), 已验证: 点击率(PV)=Σ商品点击次数/Σ阅读数; 支付转化率(PV)=Σ支付订单/Σ商品点击。
 	noteSel := []string{"note_id", "ANY_VALUE(note_title)", "ANY_VALUE(CASE WHEN note_url LIKE 'http%' THEN note_url ELSE '' END)"}
@@ -300,7 +301,7 @@ func (h *DashboardHandler) GetXhsNote(w http.ResponseWriter, r *http.Request) {
 		noteSel = append(noteSel, c.Sel)
 	}
 	dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT `+strings.Join(noteSel, ", ")+
-		` FROM op_xhs_note_daily WHERE 1=1`+whereSQL+` GROUP BY note_id ORDER BY SUM(pay_amount) DESC, SUM(read_count) DESC LIMIT 50`, whereArgs...)
+		` FROM op_xhs_note_daily WHERE 1=1`+whereSQL+` GROUP BY note_id ORDER BY SUM(pay_amount) DESC, SUM(read_count) DESC`, whereArgs...)
 	if !ok {
 		return
 	}
@@ -445,14 +446,15 @@ func (h *DashboardHandler) GetXhsGoods(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 明细 TOP50：按商品聚合(跨天加总)，数据驱动全字段(见 xhsGoodsCols)。客单价/转化率用 总量÷总量 重算(禁简单平均)。
+	// 明细全量：按商品聚合(跨天加总)，数据驱动全字段(见 xhsGoodsCols)。客单价/转化率用 总量÷总量 重算(禁简单平均)。
+	// 不再 LIMIT —— 商品才几百行, 全返给前端翻页+排序。
 	// 固定前置: 商品名(name)。
 	goodsSel := []string{"ANY_VALUE(product_name)"}
 	for _, c := range xhsGoodsCols {
 		goodsSel = append(goodsSel, c.Sel)
 	}
 	dRows, ok := queryRowsOrWriteError(w, r, h.DB, `SELECT `+strings.Join(goodsSel, ", ")+
-		` FROM op_xhs_goods_daily WHERE 1=1`+whereSQL+` GROUP BY product_id ORDER BY SUM(pay_amount) DESC LIMIT 50`, whereArgs...)
+		` FROM op_xhs_goods_daily WHERE 1=1`+whereSQL+` GROUP BY product_id ORDER BY SUM(pay_amount) DESC`, whereArgs...)
 	if !ok {
 		return
 	}
