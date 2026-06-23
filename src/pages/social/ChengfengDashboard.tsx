@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, Statistic, Select, Empty, Input, Typography } from 'antd';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Row, Col, Card, Table, Statistic, Select, Empty, Input, Typography, Button, Drawer } from 'antd';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
@@ -9,6 +9,13 @@ import { CHART_COLORS } from '../../chartTheme';
 const { Text } = Typography;
 
 type ColMeta = { key: string; label: string; fmt: string };
+
+// 默认显示的核心指标列（信息流投流最常看的 12 个）——其余 95 列按需在“显示指标列”里勾选
+const DEFAULT_CF_COLS = [
+  'cost', 'impression', 'click_count', 'click_rate', 'avg_click_cost', 'interaction_count',
+  'pay_7d_order_count', 'pay_7d_amount', 'pay_7d_roi', 'order_7d_amount', 'order_7d_roi', 'pay_7d_conv_rate',
+];
+const CF_COLS_LS_KEY = 'cf_visible_cols_v1'; // 列选择记到浏览器本地，刷新后保留
 
 // 数值格式化：money/cost=¥ / int=千分位 / rate=x.xx% / roi/num2=x.xx
 const fmtVal = (v: number, fmt: string): string => {
@@ -29,12 +36,22 @@ const fmtVal = (v: number, fmt: string): string => {
   }
 };
 
+// 选了单天时，把趋势区间往前扩到 14 天，避免只画 1 个点（feedback_trend_expand）
+const expandTrendStart = (start: string, end: string): string => {
+  if (!start || !end || start !== end) return start;
+  const d = new Date(end + 'T00:00:00');
+  if (isNaN(d.getTime())) return start;
+  d.setDate(d.getDate() - 13);
+  return d.toISOString().slice(0, 10);
+};
+
 // 单条笔记按数据更新日的每天走势：消费(柱) vs 7日支付金额(线)
 const CfNoteTrend: React.FC<{ noteId: string; start: string; end: string }> = ({ noteId, start, end }) => {
   const [rows, setRows] = useState<any[] | null>(null);
   useEffect(() => {
     const p = new URLSearchParams({ note_id: noteId });
-    if (start) p.set('start', start);
+    const s = expandTrendStart(start, end);
+    if (s) p.set('start', s);
     if (end) p.set('end', end);
     let alive = true;
     fetch(`${API_BASE}/api/xiaohongshu/chengfeng/note-trend?${p.toString()}`)
@@ -49,7 +66,7 @@ const CfNoteTrend: React.FC<{ noteId: string; start: string; end: string }> = ({
   return (
     <ReactECharts
       lazyUpdate
-      style={{ height: 260 }}
+      style={{ height: 320 }}
       option={{
         tooltip: { trigger: 'axis' },
         legend: { data: ['消费', '7日支付金额'], top: 0 },
@@ -75,6 +92,22 @@ const ChengfengDashboard: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
+
+  // 选列：从本地存储恢复，没有就用默认核心 12 列
+  const [visibleKeys, setVisibleKeys] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(CF_COLS_LS_KEY);
+      if (saved) { const arr = JSON.parse(saved); if (Array.isArray(arr) && arr.length) return arr; }
+    } catch { /* ignore */ }
+    return DEFAULT_CF_COLS;
+  });
+  const setCols = useCallback((keys: string[]) => {
+    setVisibleKeys(keys);
+    try { localStorage.setItem(CF_COLS_LS_KEY, JSON.stringify(keys)); } catch { /* ignore */ }
+  }, []);
+
+  // 趋势图抽屉：点某行“趋势”按钮才打开，不在行内展开（避免重画整张大表导致卡顿）
+  const [trendNote, setTrendNote] = useState<{ noteId: string; title: string } | null>(null);
 
   // 初次拉 filters：默认数据更新时间 = 最新一天
   useEffect(() => {
@@ -120,32 +153,45 @@ const ChengfengDashboard: React.FC = () => {
     { title: '综合ROI', value: k.roi, precision: 2, accent: '#f59e0b' },
   ];
 
-  // 明细表列：笔记ID/标题固定左侧，其余指标列横向滚动，按 fmt 格式化右对齐
-  const tableColumns: any[] = [
-    {
-      title: '笔记标题', dataIndex: 'title', key: 'title', fixed: 'left', width: 220, ellipsis: true,
-      render: (v: string, row: any) =>
-        row.url ? <a href={row.url} target="_blank" rel="noreferrer">{v || '(无标题)'}</a> : (v || '(无标题)'),
-    },
-    {
-      title: '笔记/素材ID', dataIndex: 'noteId', key: 'noteId', fixed: 'left', width: 230, ellipsis: true,
-      render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-'),
-    },
-    ...columns.map((c) => ({
-      title: c.label,
-      dataIndex: c.key,
-      key: c.key,
-      align: 'right' as const,
-      width: c.label.length > 8 ? 150 : 120,
-      render: (v: number) => fmtVal(v, c.fmt),
-    })),
-  ].map((c: any) => ({ ...c, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }) }));
+  // 明细表列：趋势按钮 + 标题 + ID 固定左侧，其余按勾选的指标列显示（默认只 12 列，轻量不卡）
+  const tableColumns: any[] = useMemo(() => {
+    const visible = columns.filter((c) => visibleKeys.includes(c.key));
+    return [
+      {
+        title: '趋势', key: '_trend', fixed: 'left', width: 64, align: 'center' as const,
+        render: (_: any, row: any) =>
+          row.noteId ? (
+            <Button type="link" size="small" style={{ padding: 0 }}
+              onClick={() => setTrendNote({ noteId: row.noteId, title: row.title || row.noteId })}>
+              趋势
+            </Button>
+          ) : null,
+      },
+      {
+        title: '笔记标题', dataIndex: 'title', key: 'title', fixed: 'left', width: 220, ellipsis: true,
+        render: (v: string, row: any) =>
+          row.url ? <a href={row.url} target="_blank" rel="noreferrer">{v || '(无标题)'}</a> : (v || '(无标题)'),
+      },
+      {
+        title: '笔记/素材ID', dataIndex: 'noteId', key: 'noteId', fixed: 'left', width: 230, ellipsis: true,
+        render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-'),
+      },
+      ...visible.map((c) => ({
+        title: c.label,
+        dataIndex: c.key,
+        key: c.key,
+        align: 'right' as const,
+        width: c.label.length > 8 ? 150 : 120,
+        render: (v: number) => fmtVal(v, c.fmt),
+      })),
+    ].map((c: any) => ({ ...c, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }) }));
+  }, [columns, visibleKeys]);
 
   return (
     <div>
       <DateFilter label="数据更新时间" start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e); }} />
       <Card className="bi-filter-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <Select
             mode="multiple" allowClear placeholder="店铺(全部)" style={{ minWidth: 240 }}
             value={shops} onChange={setShops}
@@ -158,6 +204,16 @@ const ChengfengDashboard: React.FC = () => {
             onChange={(e) => { if (!e.target.value) setNoteIdQuery(''); }}
             style={{ width: 240 }}
           />
+          <Select
+            mode="multiple" allowClear placeholder="显示指标列"
+            style={{ minWidth: 280, maxWidth: 520 }}
+            maxTagCount="responsive"
+            value={visibleKeys}
+            onChange={setCols}
+            options={columns.map((c) => ({ label: c.label, value: c.key }))}
+            filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+          />
+          <Button size="small" onClick={() => setCols(DEFAULT_CF_COLS)}>重置默认列</Button>
         </div>
       </Card>
 
@@ -177,7 +233,7 @@ const ChengfengDashboard: React.FC = () => {
             ))}
           </Row>
 
-          <Card className="bi-table-card" title="明细 TOP50（点开每行 ▸ 看这条笔记每天走势）">
+          <Card className="bi-table-card" title="明细 TOP50（点行首“趋势”看这条笔记每天走势）">
             <Table
               dataSource={data.detail || []}
               columns={tableColumns}
@@ -185,14 +241,21 @@ const ChengfengDashboard: React.FC = () => {
               size="small"
               pagination={false}
               scroll={{ x: 'max-content', y: 480 }}
-              expandable={{
-                expandedRowRender: (record: any) => <CfNoteTrend noteId={record.noteId} start={start} end={end} />,
-                rowExpandable: (record: any) => !!record.noteId,
-              }}
             />
           </Card>
         </>
       )}
+
+      <Drawer
+        title={trendNote ? `笔记走势 · ${trendNote.title}` : '笔记走势'}
+        placement="right"
+        width={760}
+        open={!!trendNote}
+        onClose={() => setTrendNote(null)}
+        destroyOnClose
+      >
+        {trendNote && <CfNoteTrend noteId={trendNote.noteId} start={start} end={end} />}
+      </Drawer>
     </div>
   );
 };
