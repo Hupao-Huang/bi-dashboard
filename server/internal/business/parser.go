@@ -72,6 +72,29 @@ type ParseResult struct {
 	SheetsSkipped  int
 	Rows           []BudgetRow
 	RowCount       int
+	Mode           string // "full"(默认) / "incremental"
+	ImportedBy     string // 导入人，默认 "cli"
+}
+
+// ImportModeFull 全量：整版快照删了重写（文件没有的渠道/子渠道也清掉），默认行为
+const ImportModeFull = "full"
+
+// ImportModeIncremental 增量：只删文件里出现的 (channel, sub_channel)，其他保留
+const ImportModeIncremental = "incremental"
+
+// CollectChannelSubs 收集本次结果出现的 (channel, sub_channel) 去重组合
+func CollectChannelSubs(result *ParseResult) [][2]string {
+	seen := map[string]bool{}
+	out := make([][2]string, 0)
+	for _, r := range result.Rows {
+		k := r.Channel + "\x00" + r.SubChannel
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, [2]string{r.Channel, r.SubChannel})
+	}
+	return out
 }
 
 // ParseFile 解析单个 xlsx 文件
@@ -570,13 +593,33 @@ func WriteResult(db *sql.DB, result *ParseResult) error {
 	}
 	defer tx.Rollback()
 
-	// 1. 删旧
-	delRes, err := tx.Exec(`DELETE FROM business_budget_report WHERE snapshot_year=? AND snapshot_month=?`,
-		result.SnapshotYear, result.SnapshotMonth)
-	if err != nil {
-		return fmt.Errorf("delete old snapshot: %w", err)
+	// 1. 删旧（按 mode）
+	mode := result.Mode
+	if mode == "" {
+		mode = ImportModeFull
 	}
-	deleted, _ := delRes.RowsAffected()
+	var deleted int64
+	switch mode {
+	case ImportModeIncremental:
+		for _, cs := range CollectChannelSubs(result) {
+			res, err := tx.Exec(
+				`DELETE FROM business_budget_report WHERE snapshot_year=? AND snapshot_month=? AND channel=? AND sub_channel=?`,
+				result.SnapshotYear, result.SnapshotMonth, cs[0], cs[1])
+			if err != nil {
+				return fmt.Errorf("delete (%s,%s): %w", cs[0], cs[1], err)
+			}
+			n, _ := res.RowsAffected()
+			deleted += n
+		}
+	default: // ImportModeFull
+		res, err := tx.Exec(
+			`DELETE FROM business_budget_report WHERE snapshot_year=? AND snapshot_month=?`,
+			result.SnapshotYear, result.SnapshotMonth)
+		if err != nil {
+			return fmt.Errorf("delete old snapshot: %w", err)
+		}
+		deleted, _ = res.RowsAffected()
+	}
 
 	// 2. 批量 INSERT
 	const batchSize = 500
@@ -617,11 +660,15 @@ func WriteResult(db *sql.DB, result *ParseResult) error {
 	}
 
 	// 3. 写日志
+	importedBy := result.ImportedBy
+	if importedBy == "" {
+		importedBy = "cli"
+	}
 	_, err = tx.Exec(`INSERT INTO business_budget_import_log
 		(snapshot_year, snapshot_month, year, source_file, rows_inserted, rows_updated, rows_deleted, imported_by, status)
 		VALUES (?,?,?,?,?,?,?,?,?)`,
 		result.SnapshotYear, result.SnapshotMonth, result.Year, result.SourceFile,
-		totalInserted, 0, deleted, "admin", "success")
+		totalInserted, 0, deleted, importedBy, "success")
 	if err != nil {
 		return fmt.Errorf("write import log: %w", err)
 	}

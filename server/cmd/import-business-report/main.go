@@ -118,6 +118,7 @@ func main() {
 		log.Fatalf("DB ping: %v", err)
 	}
 
+	result.ImportedBy = "cli"
 	if err := business.WriteResult(db, result); err != nil {
 		log.Fatalf("写库失败: %v", err)
 	}
