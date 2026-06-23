@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker, Input, Typography, Tooltip, Button, message } from 'antd';
-import { QuestionCircleOutlined, SettingOutlined } from '@ant-design/icons';
+import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker, Input, Typography, Button, message } from 'antd';
+import { SettingOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
@@ -12,77 +12,22 @@ import CfMetricPicker, { CfColMeta, CfPreset } from './CfMetricPicker';
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
 
-const yuan = (v: number) => `¥${(v || 0).toFixed(2)}`;
-const pct = (v: number) => `${((v || 0) * 100).toFixed(2)}%`;
-// 计算字段表头：带问号图标，悬停显示业务口径公式
-const headTip = (label: string, formula: string) => (
-  <Tooltip title={formula}>
-    <span>{label} <QuestionCircleOutlined /></span>
-  </Tooltip>
-);
-
-// ===== 千帆「自定义指标」列配置 =====
-// 笔记/商品两 tab 各有: 永远固定显示的列(标题/ID、商品名) + 可在弹窗里勾选/排序的列。
-// 列定义带 render/sorter/tooltip 一并保留; META 只给弹窗看(key/label/分组)。
-const NOTE_ALWAYS_COLS: any[] = [
-  { title: '笔记标题', dataIndex: 'title', key: 'title', fixed: 'left', width: 220, ellipsis: true, render: (t: string, r: any) => (r.url ? <a href={r.url} target="_blank" rel="noreferrer">{t}</a> : t) },
-  { title: '笔记ID', dataIndex: 'noteId', key: 'noteId', fixed: 'left', width: 230, ellipsis: true, render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-') },
-];
-const NOTE_COL_MAP: Record<string, any> = {
-  author: { title: '作者昵称', dataIndex: 'author', key: 'author', width: 110, ellipsis: true },
-  createTime: { title: '笔记创建时间', dataIndex: 'createTime', key: 'createTime', width: 155 },
-  type: { title: '笔记类型', dataIndex: 'type', key: 'type', width: 90 },
-  product: { title: '关联商品名称', dataIndex: 'product', key: 'product', width: 200, ellipsis: true },
-  payAmount: { title: '笔记支付金额', dataIndex: 'payAmount', key: 'payAmount', width: 120, render: yuan, sorter: (a: any, b: any) => a.payAmount - b.payAmount },
-  clickPv: { title: '笔记商品点击次数', dataIndex: 'clickPv', key: 'clickPv', width: 135, sorter: (a: any, b: any) => a.clickPv - b.clickPv },
-  clickRatePv: { title: headTip('笔记商品点击率（PV）', '商品点击次数 ÷ 笔记阅读数'), dataIndex: 'clickRatePv', key: 'clickRatePv', width: 190, render: pct },
-  payConvRatePv: { title: headTip('笔记支付转化率（PV）', '支付订单数 ÷ 商品点击次数'), dataIndex: 'payConvRatePv', key: 'payConvRatePv', width: 190, render: pct },
-  refundAmount: { title: '笔记退款金额（退款时间）', dataIndex: 'refundAmount', key: 'refundAmount', width: 200, render: yuan },
-  addCartQty: { title: '笔记加购件数', dataIndex: 'addCartQty', key: 'addCartQty', width: 115 },
-  toShopPay: { title: '引流店铺主页支付金额', dataIndex: 'toShopPay', key: 'toShopPay', width: 180, render: yuan },
-  finishRatePv: { title: headTip('完播率（PV）', '视频看完的次数 ÷ 播放量（看多天时按阅读量加权汇总）'), dataIndex: 'finishRatePv', key: 'finishRatePv', width: 145, render: (v: number) => (v > 0 ? pct(v) : '-') },
+// 数值格式化(同乘风)：text=原值 / money=¥ / int=千分位 / rate=x.xx% / num2=x.xx
+const fmtVal = (v: any, fmt?: string): React.ReactNode => {
+  if (fmt === 'text') return (v === undefined || v === null || v === '') ? '-' : String(v);
+  const n = Number(v) || 0;
+  switch (fmt) {
+    case 'money': return '¥' + n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    case 'int': return Math.round(n).toLocaleString('zh-CN');
+    case 'rate': return n.toFixed(2) + '%';
+    case 'num2': return n.toFixed(2);
+    default: return String(n);
+  }
 };
-const NOTE_META: CfColMeta[] = [
-  { key: 'author', label: '作者昵称', group: '笔记属性' },
-  { key: 'createTime', label: '笔记创建时间', group: '笔记属性' },
-  { key: 'type', label: '笔记类型', group: '笔记属性' },
-  { key: 'product', label: '关联商品名称', group: '笔记属性' },
-  { key: 'payAmount', label: '笔记支付金额', group: '转化效果' },
-  { key: 'clickPv', label: '笔记商品点击次数', group: '转化效果' },
-  { key: 'clickRatePv', label: '笔记商品点击率（PV）', group: '转化效果' },
-  { key: 'payConvRatePv', label: '笔记支付转化率（PV）', group: '转化效果' },
-  { key: 'refundAmount', label: '笔记退款金额', group: '转化效果' },
-  { key: 'addCartQty', label: '笔记加购件数', group: '转化效果' },
-  { key: 'toShopPay', label: '引流店铺主页支付金额', group: '转化效果' },
-  { key: 'finishRatePv', label: '完播率（PV）', group: '转化效果' },
-];
 
-const GOODS_ALWAYS_COLS: any[] = [
-  { title: '商品名', dataIndex: 'name', key: 'name', fixed: 'left', width: 240, ellipsis: true },
-];
-const GOODS_COL_MAP: Record<string, any> = {
-  cat1: { title: '一级品类', dataIndex: 'cat1', key: 'cat1', width: 140, ellipsis: true },
-  visitors: { title: '访客', dataIndex: 'visitors', key: 'visitors', width: 90, sorter: (a: any, b: any) => a.visitors - b.visitors },
-  cart: { title: '加购', dataIndex: 'cart', key: 'cart', width: 80 },
-  gmv: { title: '支付金额', dataIndex: 'gmv', key: 'gmv', width: 110, render: yuan, sorter: (a: any, b: any) => a.gmv - b.gmv },
-  orders: { title: '订单', dataIndex: 'orders', key: 'orders', width: 80 },
-  qty: { title: '件数', dataIndex: 'qty', key: 'qty', width: 80 },
-  aov: { title: '客单价', dataIndex: 'aov', key: 'aov', width: 100, render: yuan },
-  refund: { title: '退款', dataIndex: 'refund', key: 'refund', width: 100, render: yuan },
-};
-const GOODS_META: CfColMeta[] = [
-  { key: 'cat1', label: '一级品类', group: '商品销售' },
-  { key: 'visitors', label: '访客', group: '商品销售' },
-  { key: 'cart', label: '加购', group: '商品销售' },
-  { key: 'gmv', label: '支付金额', group: '商品销售' },
-  { key: 'orders', label: '订单', group: '商品销售' },
-  { key: 'qty', label: '件数', group: '商品销售' },
-  { key: 'aov', label: '客单价', group: '商品销售' },
-  { key: 'refund', label: '退款', group: '商品销售' },
-];
-const NOTE_LS = 'xhs_note_cols_v1';
-const GOODS_LS = 'xhs_goods_cols_v1';
-
+// v2: 列 key 从 camelCase 改为后端 snake_case(数据驱动全字段), 旧 v1 值不兼容直接弃用
+const NOTE_LS = 'xhs_note_cols_v2';
+const GOODS_LS = 'xhs_goods_cols_v2';
 const loadCols = (lsKey: string): string[] | null => {
   try {
     const saved = localStorage.getItem(lsKey);
@@ -132,7 +77,7 @@ const NoteTrend: React.FC<{ noteId: string; start: string; end: string }> = ({ n
 
 const XiaohongshuDashboard: React.FC = () => {
   const [tab, setTab] = useState<'note' | 'goods'>('note');
-  const [filters, setFilters] = useState<any>({ shops: [], noteTypes: [], categories: [], latestDate: '' });
+  const [filters, setFilters] = useState<any>({ shops: [], noteTypes: [], categories: [], latestDate: '', noteColumns: [], goodsColumns: [], noteDefaultKeys: [], goodsDefaultKeys: [] });
   const [shops, setShops] = useState<string[]>([]);
   const [noteType, setNoteType] = useState('');
   const [cat, setCat] = useState('');
@@ -145,13 +90,15 @@ const XiaohongshuDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
-  // 自定义指标：笔记/商品各一套(localStorage 分开存), null = 默认全部列
+  // 自定义指标：笔记/商品各一套(localStorage 分开存), null = 用后端默认列
   const [noteVisible, setNoteVisible] = useState<string[] | null>(() => loadCols(NOTE_LS));
   const [goodsVisible, setGoodsVisible] = useState<string[] | null>(() => loadCols(GOODS_LS));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [presets, setPresets] = useState<CfPreset[]>([]);
 
   const scope = tab === 'note' ? 'xhs_note' : 'xhs_goods';
+  const colMeta: CfColMeta[] = useMemo(() => (tab === 'note' ? (filters.noteColumns || []) : (filters.goodsColumns || [])), [tab, filters]);
+  const defaultKeys: string[] = useMemo(() => (tab === 'note' ? (filters.noteDefaultKeys || []) : (filters.goodsDefaultKeys || [])), [tab, filters]);
 
   const loadPresets = useCallback((sc: string) => {
     fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets?scope=${sc}`)
@@ -189,7 +136,11 @@ const XiaohongshuDashboard: React.FC = () => {
       .then((r) => r.json())
       .then((res) => {
         const f = res.data || {};
-        setFilters({ shops: f.shops || [], noteTypes: f.noteTypes || [], categories: f.categories || [], latestDate: f.latestDate || '' });
+        setFilters({
+          shops: f.shops || [], noteTypes: f.noteTypes || [], categories: f.categories || [], latestDate: f.latestDate || '',
+          noteColumns: f.noteColumns || [], goodsColumns: f.goodsColumns || [],
+          noteDefaultKeys: f.noteDefaultKeys || [], goodsDefaultKeys: f.goodsDefaultKeys || [],
+        });
         if (f.latestDate) {
           setStart(f.latestDate.slice(0, 7) + '-01');
           setEnd(f.latestDate);
@@ -262,23 +213,37 @@ const XiaohongshuDashboard: React.FC = () => {
     ],
   });
 
-  // 明细表列：固定列 + 按已选指标顺序渲染(顺序来自弹窗拖拽)
+  // 明细表列：固定列 + 按已选指标顺序数据驱动渲染(顺序来自弹窗拖拽)
   const tableColumns = useMemo(() => {
-    let cols: any[];
-    if (tab === 'note') {
-      const keys = noteVisible ?? NOTE_META.map((m) => m.key);
-      cols = [...NOTE_ALWAYS_COLS, ...keys.map((k) => NOTE_COL_MAP[k]).filter(Boolean)];
-    } else {
-      const keys = goodsVisible ?? GOODS_META.map((m) => m.key);
-      cols = [...GOODS_ALWAYS_COLS, ...keys.map((k) => GOODS_COL_MAP[k]).filter(Boolean)];
-    }
-    return cols.map((c: any) => ({ ...c, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }) }));
-  }, [tab, noteVisible, goodsVisible]);
+    const metaMap: Record<string, CfColMeta> = {};
+    colMeta.forEach((m) => { metaMap[m.key] = m; });
+    const resolved = (tab === 'note' ? noteVisible : goodsVisible) ?? defaultKeys;
+    const dynCols = resolved.map((k) => {
+      const m = metaMap[k];
+      if (!m) return null;
+      return {
+        title: m.label, dataIndex: k, key: k,
+        align: m.fmt === 'text' ? ('left' as const) : ('right' as const),
+        width: m.label.length > 8 ? 175 : 120, ellipsis: m.fmt === 'text',
+        render: (v: any) => fmtVal(v, m.fmt),
+      };
+    }).filter(Boolean) as any[];
 
-  // 弹窗用的当前 tab 配置
-  const pickerMeta = tab === 'note' ? NOTE_META : GOODS_META;
-  const pickerValue = (tab === 'note' ? noteVisible : goodsVisible) ?? pickerMeta.map((m) => m.key);
-  const pickerDefault = pickerMeta.map((m) => m.key);
+    let fixed: any[];
+    if (tab === 'note') {
+      fixed = [
+        { title: '笔记标题', dataIndex: 'title', key: 'title', fixed: 'left', width: 220, ellipsis: true, render: (t: string, r: any) => (r.url ? <a href={r.url} target="_blank" rel="noreferrer">{t}</a> : t) },
+        { title: '笔记ID', dataIndex: 'noteId', key: 'noteId', fixed: 'left', width: 230, ellipsis: true, render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-') },
+      ];
+    } else {
+      fixed = [
+        { title: '商品名', dataIndex: 'name', key: 'name', fixed: 'left', width: 240, ellipsis: true },
+      ];
+    }
+    return [...fixed, ...dynCols].map((c: any) => ({ ...c, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }) }));
+  }, [tab, noteVisible, goodsVisible, colMeta, defaultKeys]);
+
+  const pickerValue = ((tab === 'note' ? noteVisible : goodsVisible) ?? defaultKeys);
 
   return (
     <div>
@@ -379,9 +344,9 @@ const XiaohongshuDashboard: React.FC = () => {
 
       <CfMetricPicker
         open={pickerOpen}
-        columns={pickerMeta}
+        columns={colMeta}
         value={pickerValue}
-        defaultKeys={pickerDefault}
+        defaultKeys={defaultKeys}
         presets={presets}
         onOk={(keys) => { setCols(tab, keys); setPickerOpen(false); }}
         onCancel={() => setPickerOpen(false)}
