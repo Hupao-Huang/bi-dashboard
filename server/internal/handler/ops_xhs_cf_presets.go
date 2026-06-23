@@ -68,6 +68,10 @@ func (h *DashboardHandler) ListCfPresets(w http.ResponseWriter, r *http.Request)
 
 // SaveCfPreset POST /api/xiaohongshu/chengfeng/presets/save —— 新增/覆盖同名方案
 func (h *DashboardHandler) SaveCfPreset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if writeScopeError(w, requireDeptAccess(r, "social")) {
 		return
 	}
@@ -97,6 +101,11 @@ func (h *DashboardHandler) SaveCfPreset(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "至少选择一个指标")
 		return
 	}
+	if len(body.Keys) > 200 {
+		// 全部指标也就 107 列, 上限 200 防客户端塞超大数组撑爆 TEXT
+		writeError(w, http.StatusBadRequest, "指标数量超出上限")
+		return
+	}
 	keysJSON, _ := json.Marshal(body.Keys)
 	h.ensureCfPresetTable()
 	// user_id+name 唯一 → 同名覆盖（更新 keys）
@@ -110,6 +119,10 @@ func (h *DashboardHandler) SaveCfPreset(w http.ResponseWriter, r *http.Request) 
 
 // DeleteCfPreset POST /api/xiaohongshu/chengfeng/presets/delete —— 删除自己的某个方案
 func (h *DashboardHandler) DeleteCfPreset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if writeScopeError(w, requireDeptAccess(r, "social")) {
 		return
 	}

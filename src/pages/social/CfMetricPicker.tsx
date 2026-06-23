@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Input, Checkbox, Switch, Button, Tag, Empty, Typography, message } from 'antd';
+import { Modal, Input, Checkbox, Switch, Button, Tag, Empty, Typography, message, Popconfirm } from 'antd';
 import { CloseOutlined, HolderOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -111,14 +111,13 @@ const CfMetricPicker: React.FC<Props> = ({ open, columns, value, defaultKeys, pr
         <div style={{ marginBottom: 12 }}>
           <Text type="secondary" style={{ marginRight: 8 }}>常用方案：</Text>
           {presets.map((p) => (
-            <Tag
-              key={p.id}
-              closable
-              onClose={(e) => { e.preventDefault(); onDeletePreset(p.id); }}
-              onClick={() => setSelected(p.keys.filter((k) => labelOf[k]))}
-              style={{ cursor: 'pointer', marginBottom: 4 }}
-            >
-              {p.name}
+            <Tag key={p.id} style={{ marginBottom: 4, paddingRight: 4 }}>
+              <span style={{ cursor: 'pointer' }} onClick={() => setSelected(p.keys.filter((k) => labelOf[k]))}>
+                {p.name}
+              </span>
+              <Popconfirm title="删除该常用方案?" okText="删除" cancelText="取消" onConfirm={() => onDeletePreset(p.id)}>
+                <CloseOutlined style={{ marginLeft: 6, cursor: 'pointer' }} />
+              </Popconfirm>
             </Tag>
           ))}
         </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Row, Col, Card, Table, Statistic, Select, Empty, Input, Typography, Button } from 'antd';
+import { Row, Col, Card, Table, Statistic, Select, Empty, Input, Typography, Button, message } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
@@ -39,7 +39,11 @@ const expandTrendStart = (start: string, end: string): string => {
   const d = new Date(end + 'T00:00:00');
   if (isNaN(d.getTime())) return start;
   d.setDate(d.getDate() - 13);
-  return d.toISOString().slice(0, 10);
+  // 用本地年月日拼,不能用 toISOString()——它转 UTC 会让 CST(东八区) 整体早一天(off-by-one)
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 };
 
 // 单条笔记按数据更新日的每天走势：消费(柱) vs 7日支付金额(线)
@@ -116,12 +120,18 @@ const ChengfengDashboard: React.FC = () => {
   const savePreset = useCallback((name: string, keys: string[]) => {
     fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets/save`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, keys }),
-    }).then(() => loadPresets()).catch(() => {});
+    }).then((r) => r.json()).then((j) => {
+      if (j.code && j.code !== 0) { message.error(j.msg || '保存常用方案失败'); return; }
+      message.success('已保存常用方案'); loadPresets();
+    }).catch(() => message.error('保存常用方案失败'));
   }, [loadPresets]);
   const deletePreset = useCallback((id: number) => {
     fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets/delete`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
-    }).then(() => loadPresets()).catch(() => {});
+    }).then((r) => r.json()).then((j) => {
+      if (j.code && j.code !== 0) { message.error(j.msg || '删除失败'); return; }
+      loadPresets();
+    }).catch(() => message.error('删除常用方案失败'));
   }, [loadPresets]);
 
   // 初次拉 filters：默认数据更新时间 = 最新一天

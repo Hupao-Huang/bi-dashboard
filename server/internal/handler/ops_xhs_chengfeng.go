@@ -252,7 +252,7 @@ func (h *DashboardHandler) GetCfList(w http.ResponseWriter, r *http.Request) {
 		k.ROI = k.PayGMV / k.Cost
 	}
 
-	// 明细: 按 note_id 聚合区间, 107 指标列由 cfMetrics 拼 SELECT, ORDER BY Σ消费 倒序 TOP 200
+	// 明细: 按 note_id 聚合区间, 107 指标列由 cfMetrics 拼 SELECT, ORDER BY Σ消费 倒序 TOP 50
 	exprs := make([]string, len(cfMetrics))
 	for i, m := range cfMetrics {
 		exprs[i] = m.Expr
