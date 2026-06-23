@@ -6,9 +6,11 @@
 // 多 channel 时: 每个 (year, month) 列下展开 channel 子列
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Select, Spin, Table, Empty, Typography, Space, Button, Tooltip, TreeSelect } from 'antd';
+import { Select, Spin, Table, Empty, Typography, Space, Button, TreeSelect, Modal, Upload, Radio, message } from 'antd';
+import type { UploadProps } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
+import { useAuth } from '../../auth/AuthContext';
 
 const { Text } = Typography;
 
@@ -51,6 +53,17 @@ interface BBRData {
 }
 
 const BusinessReport: React.FC = () => {
+  const { session } = useAuth();
+  const canImport = !!session && (session.isSuperAdmin || session.permissions.includes('finance.business_report:import'));
+
+  const [importModal, setImportModal] = useState<{
+    open: boolean; step: 1 | 2; mode: 'full' | 'incremental';
+    file: File | null; snapshotMonth: number | null; preview: any | null; loading: boolean;
+  }>({ open: false, step: 1, mode: 'full', file: null, snapshotMonth: null, preview: null, loading: false });
+
+  const closeImportModal = () => setImportModal({ open: false, step: 1, mode: 'full', file: null, snapshotMonth: null, preview: null, loading: false });
+  const openImportModal = () => setImportModal({ open: true, step: 1, mode: 'full', file: null, snapshotMonth: null, preview: null, loading: false });
+
   const [yearStart, setYearStart] = useState<number>(2026);
   const [yearEnd, setYearEnd] = useState<number>(2026);
   const [monthStart, setMonthStart] = useState<number>(1);
@@ -96,6 +109,43 @@ const BusinessReport: React.FC = () => {
     return () => clearTimeout(t);
   }, [fetchReport]);
 
+  const uploadProps: UploadProps = {
+    name: 'file', accept: '.xlsx', maxCount: 1, showUploadList: false,
+    beforeUpload: (file) => { setImportModal((s) => ({ ...s, file })); return Upload.LIST_IGNORE; },
+  };
+
+  const doPreview = async () => {
+    if (!importModal.file) { message.error('请选择文件'); return; }
+    setImportModal((s) => ({ ...s, loading: true }));
+    const form = new FormData();
+    form.append('file', importModal.file);
+    form.append('mode', importModal.mode);
+    if (importModal.snapshotMonth) form.append('snapshotMonth', String(importModal.snapshotMonth));
+    try {
+      const res = await fetch(`${API_BASE}/api/finance/business-report/import/preview`, { method: 'POST', credentials: 'include', body: form });
+      const json = await res.json();
+      if (json.code !== 200) { message.error(json.msg || '预览失败'); setImportModal((s) => ({ ...s, loading: false })); return; }
+      setImportModal((s) => ({ ...s, step: 2, preview: json.data, loading: false }));
+    } catch (e: any) { message.error('预览失败：' + e.message); setImportModal((s) => ({ ...s, loading: false })); }
+  };
+
+  const doConfirm = async () => {
+    if (!importModal.preview?.token) return;
+    setImportModal((s) => ({ ...s, loading: true }));
+    try {
+      const res = await fetch(`${API_BASE}/api/finance/business-report/import/confirm`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: importModal.preview.token }),
+      });
+      const json = await res.json();
+      if (json.code !== 200) { message.error(json.msg || '导入失败'); setImportModal((s) => ({ ...s, loading: false })); return; }
+      message.success(`导入成功：${json.data.snapshotYear}年${json.data.snapshotMonth}月 共 ${json.data.rowCount} 条（${json.data.mode === 'incremental' ? '增量' : '全量覆盖'}）`);
+      closeImportModal();
+      fetchReport();
+    } catch (e: any) { message.error('导入失败：' + e.message); setImportModal((s) => ({ ...s, loading: false })); }
+  };
+
   const reportFilter = (
     <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f8fafc', borderRadius: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' }}>
       <Space wrap size="middle">
@@ -135,9 +185,9 @@ const BusinessReport: React.FC = () => {
         />
       </Space>
       <Space>
-        <Tooltip title="下个版本支持自助上传，目前请联系数据组导入">
-          <Button icon={<UploadOutlined />} disabled>上传 Excel</Button>
-        </Tooltip>
+        {canImport && (
+          <Button type="primary" icon={<UploadOutlined />} onClick={openImportModal}>上传 Excel</Button>
+        )}
       </Space>
     </div>
   );
@@ -146,6 +196,69 @@ const BusinessReport: React.FC = () => {
     <>
       {reportFilter}
       <BusinessReportTable data={data} loading={loading} />
+      <Modal
+        title="上传业务报表 Excel"
+        open={importModal.open}
+        onCancel={closeImportModal}
+        footer={importModal.step === 1
+          ? [<Button key="c" onClick={closeImportModal}>取消</Button>,
+             <Button key="p" type="primary" loading={importModal.loading} onClick={doPreview}>预览</Button>]
+          : [<Button key="b" onClick={() => setImportModal((s) => ({ ...s, step: 1, preview: null }))}>上一步</Button>,
+             <Button key="ok" type="primary" loading={importModal.loading} onClick={doConfirm}>确认导入</Button>]}
+        width={720}
+      >
+        {importModal.step === 1 ? (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <div>导入模式：
+              <Radio.Group value={importModal.mode} onChange={(e) => setImportModal((s) => ({ ...s, mode: e.target.value }))}>
+                <Radio value="full">全量(整版覆盖)</Radio>
+                <Radio value="incremental">增量(只更新文件内的子渠道)</Radio>
+              </Radio.Group>
+            </div>
+            <div>快照月份(文件名带「YYYY年MM月」可不填,否则手选)：
+              <Select allowClear placeholder="自动从文件名识别" style={{ width: 160 }}
+                value={importModal.snapshotMonth ?? undefined}
+                onChange={(v) => setImportModal((s) => ({ ...s, snapshotMonth: v ?? null }))}
+                options={Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1}月`, value: i + 1 }))} />
+            </div>
+            <Upload {...uploadProps}><Button icon={<UploadOutlined />}>选择 xlsx 文件</Button></Upload>
+            {importModal.file && <div>已选：{importModal.file.name}</div>}
+          </Space>
+        ) : (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <div>
+              {importModal.preview?.diff?.isNewSnapshot ? '🆕 新增快照' : '⚠️ 覆盖已有快照'}
+              {' '}{importModal.preview?.snapshotYear}年{importModal.preview?.snapshotMonth}月,
+              共 {importModal.preview?.rowCount} 行;
+              新增 {importModal.preview?.diff?.totalNew}、修改 {importModal.preview?.diff?.totalChanged}、删除 {importModal.preview?.diff?.totalDeleted}
+            </div>
+            <Table
+              size="small"
+              rowKey={(g: any) => `${g.channel}|${g.subChannel}`}
+              dataSource={importModal.preview?.diff?.groups || []}
+              pagination={false}
+              columns={[
+                { title: '渠道', dataIndex: 'channel' },
+                { title: '子渠道', dataIndex: 'subChannel', render: (v: string) => v || '—' },
+                { title: '动作', dataIndex: 'action' },
+                { title: '旧行', dataIndex: 'oldRows' },
+                { title: '新行', dataIndex: 'newRows' },
+                { title: '变更格', dataIndex: 'changedCells' },
+              ]}
+              expandable={{
+                expandedRowRender: (g: any) => (
+                  <div style={{ maxHeight: 200, overflow: 'auto' }}>
+                    {(g.cells || []).map((c: any, i: number) => (
+                      <div key={i}>{c.parentSubject}/{c.subject} {c.periodMonth}月 {c.field}: {c.old ?? '无'} → {c.new ?? '无'}</div>
+                    ))}
+                    {g.truncated && <div>…(明细已截断,仅显示前 50 条)</div>}
+                  </div>
+                ),
+              }}
+            />
+          </Space>
+        )}
+      </Modal>
     </>
   );
 };
