@@ -177,6 +177,60 @@ func TestComputeDiffFullShowsDeletedGroup(t *testing.T) {
 	}
 }
 
+// TestComputeDiffPartialDeleteNotUnchanged 验证组内部分行被删（行数减少但无格值变化）时 Action 应为 "update" 不是 "unchanged"
+// 场景：DB 有 (电商,TOC) period=1 和 period=2 两行，值与新文件 period=1 完全相同
+// 新文件（full 模式）只含 period=1 一行，period=2 将被删
+// 断言：(电商,TOC) 组 Action=="update"，TotalDeleted >= 1
+func TestComputeDiffPartialDeleteNotUnchanged(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// 库里 (电商,TOC) 有 period=1 和 period=2 两行，值完全一致于新文件 period=1
+	rows := sqlmock.NewRows([]string{"channel", "sub_channel", "parent_subject", "subject", "period_month", "budget", "actual", "budget_year_start"}).
+		AddRow("电商", "TOC", "收入", "营业收入", 1, 100.0, 90.0, nil).
+		AddRow("电商", "TOC", "收入", "营业收入", 2, 200.0, 180.0, nil)
+	mock.ExpectQuery(`SELECT channel, sub_channel, parent_subject, subject, period_month, budget, actual, budget_year_start FROM business_budget_report WHERE snapshot_year=\? AND snapshot_month=\?`).
+		WithArgs(2026, 4).
+		WillReturnRows(rows)
+
+	// 新文件只含 period=1，值与库里 period=1 完全相同（无格值变化）
+	f100, f90 := 100.0, 90.0
+	res := &ParseResult{
+		SnapshotYear: 2026, SnapshotMonth: 4, Year: 2026, Mode: ImportModeFull,
+		Rows: []BudgetRow{
+			{Channel: "电商", SubChannel: "TOC", ParentSubject: "收入", Subject: "营业收入", PeriodMonth: 1, Budget: &f100, Actual: &f90},
+		},
+	}
+	diff, err := ComputeDiff(db, res)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(diff.Groups) == 0 {
+		t.Fatal("应有至少 1 组，got 0")
+	}
+	var grp *DiffGroup
+	for i := range diff.Groups {
+		if diff.Groups[i].Channel == "电商" && diff.Groups[i].SubChannel == "TOC" {
+			grp = &diff.Groups[i]
+			break
+		}
+	}
+	if grp == nil {
+		t.Fatalf("未找到 (电商,TOC) 组, groups=%+v", diff.Groups)
+	}
+	// 核心断言：部分行被删，Action 必须是 "update" 不能是 "unchanged"
+	if grp.Action != "update" {
+		t.Errorf("(电商,TOC) 组内 period=2 将被删，Action 应为 update，got %q (财务红线: 预览准确性bug)", grp.Action)
+	}
+	// TotalDeleted 应 >= 1（period=2 那行被删）
+	if diff.TotalDeleted < 1 {
+		t.Errorf("期望 TotalDeleted >= 1 (period=2 被删), got %d", diff.TotalDeleted)
+	}
+}
+
 // TestComputeDiffIncrementalNoDeletedGroup 验证 incremental 模式下，库里有但本次没有的组不出现在 Groups
 func TestComputeDiffIncrementalNoDeletedGroup(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

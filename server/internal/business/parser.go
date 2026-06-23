@@ -850,7 +850,7 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 		switch {
 		case g.OldRows == 0:
 			g.Action = "new"
-		case g.ChangedCells > 0:
+		case g.ChangedCells > 0 || g.NewRows != g.OldRows:
 			g.Action = "update"
 		default:
 			g.Action = "unchanged"
