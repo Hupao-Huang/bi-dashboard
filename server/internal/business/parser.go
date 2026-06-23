@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -835,7 +836,6 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 				summary.TotalChanged++
 			}
 		}
-		_ = changed
 	}
 
 	// 3. 删除判定（full=全部旧；incremental=只本次出现的 grp 的旧）
@@ -860,14 +860,29 @@ func ComputeDiff(db *sql.DB, result *ParseResult) (*DiffSummary, error) {
 
 	// 5. fix #1: full 模式下，补入"库里有但本次文件完全没有"的组（整组将被删）
 	if !incremental {
+		// 先收集所有被删组，排序后再追加，避免 map 随机遍历导致前端弹框抖动
+		type deletedGrp struct {
+			ch, sc string
+			oldRows int
+		}
+		var deletedGrps []deletedGrp
 		for gk, meta := range oldGrpMeta {
 			if grpSeen[gk] {
 				continue // 本次文件出现过，已在 Groups 里
 			}
+			deletedGrps = append(deletedGrps, deletedGrp{ch: meta[0], sc: meta[1], oldRows: oldGrpCount[gk]})
+		}
+		sort.Slice(deletedGrps, func(i, j int) bool {
+			if deletedGrps[i].ch != deletedGrps[j].ch {
+				return deletedGrps[i].ch < deletedGrps[j].ch
+			}
+			return deletedGrps[i].sc < deletedGrps[j].sc
+		})
+		for _, dg := range deletedGrps {
 			summary.Groups = append(summary.Groups, DiffGroup{
-				Channel:      meta[0],
-				SubChannel:   meta[1],
-				OldRows:      oldGrpCount[gk],
+				Channel:      dg.ch,
+				SubChannel:   dg.sc,
+				OldRows:      dg.oldRows,
 				NewRows:      0,
 				ChangedCells: 0,
 				Action:       "delete",
