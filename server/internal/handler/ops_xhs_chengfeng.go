@@ -230,7 +230,7 @@ func (h *DashboardHandler) GetCfList(w http.ResponseWriter, r *http.Request) {
 		ANY_VALUE(CASE WHEN note_url LIKE 'http%' THEN note_url ELSE '' END), ` +
 		strings.Join(exprs, ", ") +
 		` FROM op_xhs_chengfeng_daily WHERE 1=1` + where +
-		` GROUP BY note_id ORDER BY SUM(cost) DESC, SUM(impression) DESC LIMIT 200`
+		` GROUP BY note_id ORDER BY SUM(cost) DESC, SUM(impression) DESC LIMIT 50`
 
 	rows, ok := queryRowsOrWriteError(w, r, h.DB, sql, args...)
 	if !ok {
