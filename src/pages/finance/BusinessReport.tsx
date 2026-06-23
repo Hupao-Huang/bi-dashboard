@@ -197,39 +197,66 @@ const BusinessReport: React.FC = () => {
       {reportFilter}
       <BusinessReportTable data={data} loading={loading} />
       <Modal
-        title="上传业务报表 Excel"
+        title={`业务报表导入 · 第 ${importModal.step} / 2 步`}
         open={importModal.open}
-        onCancel={closeImportModal}
+        width={importModal.step === 2 ? 960 : 560}
+        onCancel={importModal.loading ? undefined : closeImportModal}
         footer={importModal.step === 1
-          ? [<Button key="c" onClick={closeImportModal}>取消</Button>,
-             <Button key="p" type="primary" loading={importModal.loading} onClick={doPreview}>预览</Button>]
-          : [<Button key="b" onClick={() => setImportModal((s) => ({ ...s, step: 1, preview: null }))}>上一步</Button>,
-             <Button key="ok" type="primary" loading={importModal.loading} onClick={doConfirm}>确认导入</Button>]}
-        width={720}
+          ? [<Button key="c" onClick={closeImportModal} disabled={importModal.loading}>取消</Button>,
+             <Button key="p" type="primary" loading={importModal.loading} disabled={!importModal.file} onClick={doPreview}>下一步：预览变更</Button>]
+          : [<Button key="b" onClick={() => setImportModal((s) => ({ ...s, step: 1, preview: null }))} disabled={importModal.loading}>← 返回上一步</Button>,
+             <Button key="c" onClick={closeImportModal} disabled={importModal.loading}>取消</Button>,
+             <Button key="ok" type="primary" danger loading={importModal.loading} onClick={doConfirm}>确认导入（不可撤销）</Button>]}
       >
         {importModal.step === 1 ? (
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <div>导入模式：
-              <Radio.Group value={importModal.mode} onChange={(e) => setImportModal((s) => ({ ...s, mode: e.target.value }))}>
-                <Radio value="full">全量(整版覆盖)</Radio>
-                <Radio value="incremental">增量(只更新文件内的子渠道)</Radio>
-              </Radio.Group>
+          <div>
+            <div style={{ marginBottom: 8, fontWeight: 600 }}>① 选择导入模式：</div>
+            <Radio.Group value={importModal.mode} onChange={(e) => setImportModal((s) => ({ ...s, mode: e.target.value }))} style={{ width: '100%' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <Radio value="full" style={{ alignItems: 'flex-start', padding: 12, border: '1px solid #e2e8f0', borderRadius: 6, margin: 0, background: importModal.mode === 'full' ? '#eff6ff' : '#fff' }}>
+                  <div style={{ marginLeft: 4 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>📊 全量（整版覆盖）</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>导入会清空该快照（年月）当前所有渠道数据，再写入整张表。文件里没有的渠道 / 子渠道会被删除。</div>
+                  </div>
+                </Radio>
+                <Radio value="incremental" style={{ alignItems: 'flex-start', padding: 12, border: '1px solid #e2e8f0', borderRadius: 6, margin: 0, background: importModal.mode === 'incremental' ? '#eff6ff' : '#fff' }}>
+                  <div style={{ marginLeft: 4 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>📅 增量（按子渠道精确替换）</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>只删除并重写 Excel 里出现的（渠道 + 子渠道），文件里没有的子渠道保留旧值。</div>
+                  </div>
+                </Radio>
+              </div>
+            </Radio.Group>
+
+            <div style={{ marginTop: 16, marginBottom: 8, fontWeight: 600 }}>② 快照月份：</div>
+            <Select allowClear placeholder="文件名带「YYYY年MM月」自动识别，否则手选" style={{ width: '100%' }}
+              value={importModal.snapshotMonth ?? undefined}
+              onChange={(v) => setImportModal((s) => ({ ...s, snapshotMonth: v ?? null }))}
+              options={Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1} 月`, value: i + 1 }))} />
+
+            <div style={{ marginTop: 16, marginBottom: 8, fontWeight: 600 }}>③ 选择 Excel 文件：</div>
+            <Upload.Dragger {...uploadProps} style={{ padding: '12px 0' }}>
+              <p style={{ margin: 0 }}><UploadOutlined style={{ fontSize: 28, color: '#1e40af' }} /></p>
+              <p style={{ margin: '8px 0 4px', fontWeight: 600 }}>点击或拖拽 Excel 到此区域</p>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-tertiary)' }}>仅支持 .xlsx 格式，文件名建议含「YYYY年MM月」（如 2026年04月业务预决算报表.xlsx）</p>
+            </Upload.Dragger>
+
+            {importModal.file && (
+              <div style={{ marginTop: 12, padding: '10px 14px', background: '#f0f9ff', borderRadius: 6, border: '1px solid #bae6fd' }}>
+                已选文件：<Typography.Text strong>{importModal.file.name}</Typography.Text>
+              </div>
+            )}
+
+            <div style={{ marginTop: 12, padding: '8px 12px', background: '#fffbeb', borderRadius: 4, fontSize: 12, color: '#92400e' }}>
+              ⚠️ 选错模式可能导致数据丢失（增量当作全量，会清空其他渠道）。下一步可以预览变更，确认后再写库。
             </div>
-            <div>快照月份(文件名带「YYYY年MM月」可不填,否则手选)：
-              <Select allowClear placeholder="自动从文件名识别" style={{ width: 160 }}
-                value={importModal.snapshotMonth ?? undefined}
-                onChange={(v) => setImportModal((s) => ({ ...s, snapshotMonth: v ?? null }))}
-                options={Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1}月`, value: i + 1 }))} />
-            </div>
-            <Upload {...uploadProps}><Button icon={<UploadOutlined />}>选择 xlsx 文件</Button></Upload>
-            {importModal.file && <div>已选：{importModal.file.name}</div>}
-          </Space>
+          </div>
         ) : (
           <Space direction="vertical" style={{ width: '100%' }}>
             <div>
               {importModal.preview?.diff?.isNewSnapshot ? '🆕 新增快照' : '⚠️ 覆盖已有快照'}
-              {' '}{importModal.preview?.snapshotYear}年{importModal.preview?.snapshotMonth}月,
-              共 {importModal.preview?.rowCount} 行;
+              {' '}{importModal.preview?.snapshotYear}年{importModal.preview?.snapshotMonth}月，
+              共 {importModal.preview?.rowCount} 行；
               新增 {importModal.preview?.diff?.totalNew}、修改 {importModal.preview?.diff?.totalChanged}、删除 {importModal.preview?.diff?.totalDeleted}
             </div>
             <Table
