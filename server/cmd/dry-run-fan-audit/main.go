@@ -34,6 +34,7 @@ func main() {
 	limit := flag.Int("limit", 200, "拉取多少单 (按 submit_date desc)")
 	verbose := flag.Bool("v", false, "打印每单详情")
 	flowFilter := flag.String("flow", "", "只跑指定 flow_id (验证单单, 忽略 limit/审批人过滤)")
+	allPending := flag.Bool("all", false, "跑全部在审日常报销单(所有审批人, 不只樊雪娇) — 用于规则10/13跨审批人影响面对拍")
 	flag.Parse()
 
 	cfgBytes, err := os.ReadFile("config.json")
@@ -69,6 +70,13 @@ func main() {
 	var rows *sql.Rows
 	if *flowFilter != "" {
 		rows, err = db.Query(selectCols+`WHERE flow_id = ?`, *flowFilter)
+	} else if *allPending {
+		// 全部在审日常报销单 (所有审批人) — 规则10/13(研发/品牌中心判定)影响面对拍用
+		rows, err = db.Query(selectCols+`
+		WHERE specification_id LIKE 'ID01Fk3qJYYFvp%'
+		  AND active=1 AND state IN ('approving','pending','paying')
+		ORDER BY submit_date DESC, create_time DESC
+		LIMIT ?`, *limit)
 	} else {
 		rows, err = db.Query(selectCols+`
 		WHERE specification_id LIKE 'ID01Fk3qJYYFvp%'

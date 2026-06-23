@@ -310,8 +310,8 @@ type AuditSuggestion struct {
 
 // AuditDailyExpense 日常报销单审批规则引擎 (handler 方法, 需访问 LookupLegalEntityName 等)
 // 入参:
-//   - ownerDeptID: hesi_flow.owner_department = ownerDefaultDepartment 发起人员工默认部门 (规则 10/13 判研发/品牌中心仍用它;
-//     规则 1 末级判定 2026-06-23 改优先读 raw_json.u_提交人部门, 仅在该字段缺失时退回此列兜底)
+//   - ownerDeptID: hesi_flow.owner_department = ownerDefaultDepartment 发起人员工默认部门 — 现仅作 submitDeptID 的兜底来源
+//     (规则 1/10/13 统一按 raw_json.u_提交人部门 单据填的提交人部门判定, 该字段缺失时才退回此列, 2026-06-23)
 //   - departmentID: hesi_flow.department_id (冻结的首次入库值) — 规则 2 改优先读 raw_json.expenseDepartment, 仅在 raw 缺失时退回此列兜底
 //   - expenseMoney: hesi_flow.expense_money 报销金额 (规则 5 招待费金额对比)
 //   - rawJSON: 合思单据 raw_json (含 payeeId / submitterId / 法人实体 / details / expenseLinks 等)
@@ -450,7 +450,8 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	}
 
 	// 规则 8 + 10: 发票审核 (抬头/税号/金额/开票时间) + 无票判定 + 3 种豁免
-	if invRej, invWarn := h.ruleInvoiceChecks(raw, ownerDeptID, flowID); len(invRej) > 0 || len(invWarn) > 0 {
+	// 规则10 研发样品无票豁免按 submitDeptID(单据填的提交人部门) 判研发链, 与规则1同口径 (跑哥 2026-06-23)
+	if invRej, invWarn := h.ruleInvoiceChecks(raw, submitDeptID, flowID); len(invRej) > 0 || len(invWarn) > 0 {
 		rejectReasons = append(rejectReasons, invRej...)
 		warnings = append(warnings, invWarn...)
 	}
@@ -483,7 +484,8 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	}
 
 	// 规则 13: 必填字段校验 (品牌中心/研发中心必选 + 附件 + 报销=支付金额)
-	if rej, warn := h.ruleRequiredFields(raw, ownerDeptID); len(rej) > 0 || len(warn) > 0 {
+	// 13-②/③ 品牌中心/研发中心判定按 submitDeptID(单据填的提交人部门), 与规则1同口径 (跑哥 2026-06-23)
+	if rej, warn := h.ruleRequiredFields(raw, submitDeptID); len(rej) > 0 || len(warn) > 0 {
 		rejectReasons = append(rejectReasons, rej...)
 		warnings = append(warnings, warn...)
 	}
