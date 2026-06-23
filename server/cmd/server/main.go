@@ -625,6 +625,8 @@ func main() {
 	// 业务预决算报表 (v0.58/v0.59)
 	mux.HandleFunc("/api/finance/business-report", pageProtected("finance.report:view", h.GetBusinessReportFinanceLike))
 	mux.HandleFunc("/api/finance/business-report/channels", pageProtected("finance.report:view", h.GetBusinessReportChannelsList))
+	mux.HandleFunc("/api/finance/business-report/import/preview", pageProtected("finance.business_report:import", h.ImportBusinessReportPreview))
+	mux.HandleFunc("/api/finance/business-report/import/confirm", pageProtected("finance.business_report:import", h.ImportBusinessReportConfirm))
 
 	// 特殊渠道按调拨算销售额(对账页) v0.62, v1.04 修正权限错配
 	mux.HandleFunc("/api/special-channel-allot/summary", pageProtected("ecommerce.special_channel_allot:view", h.GetSpecialChannelAllotSummary))
