@@ -85,11 +85,6 @@ func (h *DashboardHandler) ImportBusinessReportPreview(w http.ResponseWriter, r 
 	if mv := strings.TrimSpace(r.FormValue("snapshotMonth")); mv != "" {
 		if m, e := strconv.Atoi(mv); e == nil && m >= 1 && m <= 12 {
 			month = m
-			if year == 0 {
-				if yy, _ := business.ParseSnapshotFromFilename(header.Filename); yy != 0 {
-					year = yy
-				}
-			}
 		}
 	}
 	// 年份兜底：文件名只有年的情况
