@@ -135,7 +135,7 @@
 
 ## 7. 风险与待核实点(实现阶段务必查证)
 
-1. **表 UK 是否含 parent_subject**:代码注释(parser.go:560)写 UK = (snapshot_year, snapshot_month, channel, sub_channel, subject, period_month) **不含 parent_subject**,但 memory 记的含 parent_subject。diff 的 row key 必须与真实 UK 对齐,否则跨父级同名科目(如"人工成本"在销售费用+管理费用各一行)会被 diff 误判为同一行。**实现前 `SHOW CREATE TABLE business_budget_report` 核实**。
+1. ~~**表 UK 是否含 parent_subject**~~ **✅ 已核实**:`SHOW CREATE TABLE` 确认 UK `uk_bbr` = (snapshot_year, snapshot_month, channel, sub_channel, **parent_subject**, subject, period_month) —— **含 parent_subject**。memory 记对了,代码注释(parser.go:560)写漏了 parent_subject、是错注释。diff 的 row key 用此 7 元组(去掉 snapshot 两维,组内用 channel|sub_channel|parent_subject|subject|period_month)。
 2. ~~**ParseFile 真实签名**~~ **✅ 已核实**:`ParseFile(fpath, snapshotYear, snapshotMonth, year)`(parser.go:78),**不依赖文件名**(年月走参数),网页存临时文件再传路径可用。channel/sub_channel 来自 `parseSheetName(sheetName)`(parser.go:131),一个 sheet=一个 (channel, sub_channel)。
 3. **增量删除粒度**:本设计已修订为 **(channel, sub_channel) 级**。若业务上还存在"同子渠道只补某几个月"的诉求,本方案会清掉该子渠道其他月——上线前跟财务确认增量到底是"按子渠道补整列"还是要细到"按子渠道+月补"。
 6. **特殊 sheet(经营指标 / 中后台合计)**:它们 sub_channel="";确认这两类 sheet 的 channel 值是什么、是否进 `business_budget_report` 同表,使 diff 与增量删除的 (channel, sub_channel) 集合正确覆盖它们(不漏不错删)。memory 记"经营指标入库但 /channels API 查询时过滤"——入库是入的,故 diff/删除必须算上。
