@@ -758,23 +758,9 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// v1.76.0: 发起人部门 + 报销/借款部门 末级判定 (规则 1/2 inline Tag, 详情接口独立判, 不调 AuditDailyExpense)
-	checkDeptLeaf := func(deptID string) (string, string) {
-		if deptID == "" {
-			return "", ""
-		}
-		var hasChild int
-		err := h.DB.QueryRow(`SELECT has_child FROM hesi_department WHERE id = ? AND active = 1 LIMIT 1`, deptID).Scan(&hasChild)
-		if err != nil {
-			return "", ""
-		}
-		if hasChild == 1 {
-			return "non-leaf", "该部门有下级, 应选末级部门"
-		}
-		return "ok", "已是末级部门"
-	}
-	// 部门名 + 末级判定都用单据 raw_json 实际填的部门 (ruleOwnerDeptID/ruleExpenseDeptID, 见上方 formData 解析),
-	// 与 AuditDailyExpense 规则 1/2 同口径, 保证详情页标红 / AI 建议 / 合思后台三方一致 (跑哥 2026-06-23)。
+	// 部门判定 (跑哥 2026-06-23 改): 发起人部门不再审核(原规则1撤销, 只展示名不标红);
+	// 报销/费用承担部门 不能选"公司"(法人实体), 必须选公司下面的具体部门(规则2, 原"末级"判定撤销)。
+	// 部门名用单据 raw_json 实际填的部门 (ruleOwnerDeptID/ruleExpenseDeptID, 见上方 formData 解析);
 	// 兜底: 非日常报销单(付款单/借款单/预付款单等)无 u_提交人部门 字段, raw 缺时退回 hesi_flow 列, 保持各单据类型部门照常显示。
 	if ruleOwnerDeptID == "" && flow.OwnerDepartment != nil {
 		ruleOwnerDeptID = *flow.OwnerDepartment
@@ -783,14 +769,19 @@ func (h *DashboardHandler) GetHesiFlowDetail(w http.ResponseWriter, r *http.Requ
 		ruleExpenseDeptID = *flow.DepartmentId
 	}
 	if ruleOwnerDeptID != "" {
-		flow.OwnerDepartment = &ruleOwnerDeptID // 让序列化的 ownerDepartmentId 与 name/末级判定同源
+		flow.OwnerDepartment = &ruleOwnerDeptID // 让序列化的 ownerDepartmentId 与 name 同源
 		flow.OwnerDepartmentName = h.LookupDeptName(ruleOwnerDeptID)
-		flow.OwnerDepartmentCheck, flow.OwnerDepartmentCheckReason = checkDeptLeaf(ruleOwnerDeptID)
 	}
 	if ruleExpenseDeptID != "" {
-		flow.DepartmentId = &ruleExpenseDeptID // 让序列化的 departmentId 与 name/末级判定同源
+		flow.DepartmentId = &ruleExpenseDeptID // 让序列化的 departmentId 与 name 同源
 		flow.DepartmentName = h.LookupDeptName(ruleExpenseDeptID)
-		flow.DepartmentCheck, flow.DepartmentCheckReason = checkDeptLeaf(ruleExpenseDeptID)
+		// 规则2"不能选公司"仅日常报销单(樊雪娇规则集)生效; 付款单/借款单等用各自规则集, 详情页不误标红
+		if flow.SpecificationId != nil && strings.HasPrefix(*flow.SpecificationId, dailyExpenseSpecPrefix) {
+			if cName := h.companyDeptName(ruleExpenseDeptID); cName != "" {
+				flow.DepartmentCheck = "company"
+				flow.DepartmentCheckReason = "费用承担部门不能选公司, 请选公司下面的具体部门"
+			}
+		}
 	}
 
 	writeJSON(w, map[string]interface{}{

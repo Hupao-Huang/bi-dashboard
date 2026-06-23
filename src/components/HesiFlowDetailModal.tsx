@@ -491,20 +491,13 @@ const HesiFlowDetailModal: React.FC<HesiFlowDetailModalProps> = ({ open, flowId,
                   </Descriptions.Item>
                   <Descriptions.Item label="发起人部门">
                     {detailData.flow.ownerDepartmentName || '-'}
-                    {detailData.flow.ownerDepartmentCheck === 'non-leaf' && (
-                      <Tooltip title={detailData.flow.ownerDepartmentCheckReason || '该部门有下级'}>
-                        <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
-                          非末级部门
-                        </Tag>
-                      </Tooltip>
-                    )}
                   </Descriptions.Item>
                   <Descriptions.Item label="报销/借款部门">
                     {detailData.flow.departmentName || '-'}
-                    {detailData.flow.departmentCheck === 'non-leaf' && (
-                      <Tooltip title={detailData.flow.departmentCheckReason || '该部门有下级'}>
+                    {detailData.flow.departmentCheck === 'company' && (
+                      <Tooltip title={detailData.flow.departmentCheckReason || '不能选公司, 请选公司下面的具体部门'}>
                         <Tag color="error" icon={<WarningOutlined />} style={{ marginLeft: 8, cursor: 'help' }}>
-                          非末级部门
+                          不能选公司
                         </Tag>
                       </Tooltip>
                     )}
