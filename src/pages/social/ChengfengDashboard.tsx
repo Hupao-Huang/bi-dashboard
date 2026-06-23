@@ -6,7 +6,7 @@ import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
-import CfMetricPicker, { CfPreset } from './CfMetricPicker';
+import CfMetricPicker, { CfPreset, cfColSorter } from './CfMetricPicker';
 
 const { Text } = Typography;
 
@@ -196,14 +196,18 @@ const ChengfengDashboard: React.FC = () => {
         title: '笔记/素材ID', dataIndex: 'noteId', key: 'noteId', fixed: 'left', width: 230, ellipsis: true,
         render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-'),
       },
-      ...visible.map((c) => ({
-        title: c.label,
-        dataIndex: c.key,
-        key: c.key,
-        align: 'right' as const,
-        width: c.label.length > 8 ? 150 : 120,
-        render: (v: number) => fmtVal(v, c.fmt),
-      })),
+      ...visible.map((c) => {
+        const sorter = cfColSorter(c.key, c.fmt);
+        return {
+          title: c.label,
+          dataIndex: c.key,
+          key: c.key,
+          align: 'right' as const,
+          width: c.label.length > 8 ? 150 : 120,
+          render: (v: number) => fmtVal(v, c.fmt),
+          ...(sorter ? { sorter, sortDirections: ['descend', 'ascend'] as const } : {}),
+        };
+      }),
     ].map((c: any) => ({ ...c, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }) }));
   }, [columns, visibleKeys]);
 
@@ -245,7 +249,7 @@ const ChengfengDashboard: React.FC = () => {
 
           <Card
             className="bi-table-card"
-            title="明细 TOP50（点开每行 ▸ 看这条笔记每天走势）"
+            title="明细（全部 · 点开每行 ▸ 看这条笔记每天走势）"
             extra={
               <Button icon={<SettingOutlined />} onClick={() => setPickerOpen(true)}>自定义指标</Button>
             }
@@ -255,7 +259,7 @@ const ChengfengDashboard: React.FC = () => {
               columns={tableColumns}
               rowKey={(r: any, i) => (r.noteId ? r.noteId : String(i))}
               size="small"
-              pagination={false}
+              pagination={{ pageSize: 50, showSizeChanger: false, showTotal: (t) => `共 ${t} 条` }}
               scroll={{ x: 'max-content', y: 480 }}
               expandable={{
                 expandedRowRender: (record: any) => <CfNoteTrend noteId={record.noteId} start={start} end={end} />,

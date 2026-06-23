@@ -7,7 +7,7 @@ import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
-import CfMetricPicker, { CfColMeta, CfPreset } from './CfMetricPicker';
+import CfMetricPicker, { CfColMeta, CfPreset, cfColSorter } from './CfMetricPicker';
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
@@ -221,11 +221,13 @@ const XiaohongshuDashboard: React.FC = () => {
     const dynCols = resolved.map((k) => {
       const m = metaMap[k];
       if (!m) return null;
+      const sorter = cfColSorter(k, m.fmt);
       return {
         title: m.label, dataIndex: k, key: k,
         align: m.fmt === 'text' ? ('left' as const) : ('right' as const),
         width: m.label.length > 8 ? 175 : 120, ellipsis: m.fmt === 'text',
         render: (v: any) => fmtVal(v, m.fmt),
+        ...(sorter ? { sorter, sortDirections: ['descend', 'ascend'] as const } : {}),
       };
     }).filter(Boolean) as any[];
 
@@ -319,7 +321,7 @@ const XiaohongshuDashboard: React.FC = () => {
 
           <Card
             className="bi-table-card"
-            title={tab === 'note' ? '明细 TOP50（点开每行 ▸ 看这条笔记每天走势）' : '明细 TOP50（数据更新时间累计）'}
+            title={tab === 'note' ? '明细（全部 · 点开每行 ▸ 看这条笔记每天走势）' : '明细（全部 · 数据更新时间累计）'}
             extra={<Button icon={<SettingOutlined />} onClick={() => setPickerOpen(true)}>自定义指标</Button>}
           >
             <Table
@@ -327,7 +329,7 @@ const XiaohongshuDashboard: React.FC = () => {
               columns={tableColumns}
               rowKey={(r: any, i) => (tab === 'note' && r.noteId ? r.noteId : String(i))}
               size="small"
-              pagination={false}
+              pagination={{ pageSize: 50, showSizeChanger: false, showTotal: (t) => `共 ${t} 条` }}
               scroll={{ x: 'max-content', y: 480 }}
               expandable={
                 tab === 'note'

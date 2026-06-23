@@ -7,6 +7,18 @@ const { Text } = Typography;
 export type CfColMeta = { key: string; label: string; fmt?: string; group?: string };
 export type CfPreset = { id: number; name: string; keys: string[] };
 
+// 数值类列(可数值排序)：金额/数量/率/比值都算
+const CF_NUM_FMTS = new Set(['money', 'cost', 'int', 'rate', 'roi', 'num2']);
+
+// cfColSorter 按列类型生成表头排序函数(千帆/乘风共用)：
+//   数值列→按数值排；笔记创建时间(text 但 YYYY-MM-DD HH:MM:SS 字典序=时间序)→按字符串排；
+//   其余文字维度列(作者/类型/品类/品牌等)→不排(返回 undefined)。
+export const cfColSorter = (key: string, fmt?: string): ((a: any, b: any) => number) | undefined => {
+  if (fmt && CF_NUM_FMTS.has(fmt)) return (a, b) => (Number(a[key]) || 0) - (Number(b[key]) || 0);
+  if (key === 'createTime') return (a, b) => String(a[key] || '').localeCompare(String(b[key] || ''));
+  return undefined;
+};
+
 type Props = {
   open: boolean;
   columns: CfColMeta[];          // 全部可选指标
