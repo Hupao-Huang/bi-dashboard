@@ -1,15 +1,95 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker, Input, Typography, Tooltip } from 'antd';
-import { QuestionCircleOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker, Input, Typography, Tooltip, Button, message } from 'antd';
+import { QuestionCircleOutlined, SettingOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
+import CfMetricPicker, { CfColMeta, CfPreset } from './CfMetricPicker';
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
+
+const yuan = (v: number) => `¥${(v || 0).toFixed(2)}`;
+const pct = (v: number) => `${((v || 0) * 100).toFixed(2)}%`;
+// 计算字段表头：带问号图标，悬停显示业务口径公式
+const headTip = (label: string, formula: string) => (
+  <Tooltip title={formula}>
+    <span>{label} <QuestionCircleOutlined /></span>
+  </Tooltip>
+);
+
+// ===== 千帆「自定义指标」列配置 =====
+// 笔记/商品两 tab 各有: 永远固定显示的列(标题/ID、商品名) + 可在弹窗里勾选/排序的列。
+// 列定义带 render/sorter/tooltip 一并保留; META 只给弹窗看(key/label/分组)。
+const NOTE_ALWAYS_COLS: any[] = [
+  { title: '笔记标题', dataIndex: 'title', key: 'title', fixed: 'left', width: 220, ellipsis: true, render: (t: string, r: any) => (r.url ? <a href={r.url} target="_blank" rel="noreferrer">{t}</a> : t) },
+  { title: '笔记ID', dataIndex: 'noteId', key: 'noteId', fixed: 'left', width: 230, ellipsis: true, render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-') },
+];
+const NOTE_COL_MAP: Record<string, any> = {
+  author: { title: '作者昵称', dataIndex: 'author', key: 'author', width: 110, ellipsis: true },
+  createTime: { title: '笔记创建时间', dataIndex: 'createTime', key: 'createTime', width: 155 },
+  type: { title: '笔记类型', dataIndex: 'type', key: 'type', width: 90 },
+  product: { title: '关联商品名称', dataIndex: 'product', key: 'product', width: 200, ellipsis: true },
+  payAmount: { title: '笔记支付金额', dataIndex: 'payAmount', key: 'payAmount', width: 120, render: yuan, sorter: (a: any, b: any) => a.payAmount - b.payAmount },
+  clickPv: { title: '笔记商品点击次数', dataIndex: 'clickPv', key: 'clickPv', width: 135, sorter: (a: any, b: any) => a.clickPv - b.clickPv },
+  clickRatePv: { title: headTip('笔记商品点击率（PV）', '商品点击次数 ÷ 笔记阅读数'), dataIndex: 'clickRatePv', key: 'clickRatePv', width: 190, render: pct },
+  payConvRatePv: { title: headTip('笔记支付转化率（PV）', '支付订单数 ÷ 商品点击次数'), dataIndex: 'payConvRatePv', key: 'payConvRatePv', width: 190, render: pct },
+  refundAmount: { title: '笔记退款金额（退款时间）', dataIndex: 'refundAmount', key: 'refundAmount', width: 200, render: yuan },
+  addCartQty: { title: '笔记加购件数', dataIndex: 'addCartQty', key: 'addCartQty', width: 115 },
+  toShopPay: { title: '引流店铺主页支付金额', dataIndex: 'toShopPay', key: 'toShopPay', width: 180, render: yuan },
+  finishRatePv: { title: headTip('完播率（PV）', '视频看完的次数 ÷ 播放量（看多天时按阅读量加权汇总）'), dataIndex: 'finishRatePv', key: 'finishRatePv', width: 145, render: (v: number) => (v > 0 ? pct(v) : '-') },
+};
+const NOTE_META: CfColMeta[] = [
+  { key: 'author', label: '作者昵称', group: '笔记属性' },
+  { key: 'createTime', label: '笔记创建时间', group: '笔记属性' },
+  { key: 'type', label: '笔记类型', group: '笔记属性' },
+  { key: 'product', label: '关联商品名称', group: '笔记属性' },
+  { key: 'payAmount', label: '笔记支付金额', group: '转化效果' },
+  { key: 'clickPv', label: '笔记商品点击次数', group: '转化效果' },
+  { key: 'clickRatePv', label: '笔记商品点击率（PV）', group: '转化效果' },
+  { key: 'payConvRatePv', label: '笔记支付转化率（PV）', group: '转化效果' },
+  { key: 'refundAmount', label: '笔记退款金额', group: '转化效果' },
+  { key: 'addCartQty', label: '笔记加购件数', group: '转化效果' },
+  { key: 'toShopPay', label: '引流店铺主页支付金额', group: '转化效果' },
+  { key: 'finishRatePv', label: '完播率（PV）', group: '转化效果' },
+];
+
+const GOODS_ALWAYS_COLS: any[] = [
+  { title: '商品名', dataIndex: 'name', key: 'name', fixed: 'left', width: 240, ellipsis: true },
+];
+const GOODS_COL_MAP: Record<string, any> = {
+  cat1: { title: '一级品类', dataIndex: 'cat1', key: 'cat1', width: 140, ellipsis: true },
+  visitors: { title: '访客', dataIndex: 'visitors', key: 'visitors', width: 90, sorter: (a: any, b: any) => a.visitors - b.visitors },
+  cart: { title: '加购', dataIndex: 'cart', key: 'cart', width: 80 },
+  gmv: { title: '支付金额', dataIndex: 'gmv', key: 'gmv', width: 110, render: yuan, sorter: (a: any, b: any) => a.gmv - b.gmv },
+  orders: { title: '订单', dataIndex: 'orders', key: 'orders', width: 80 },
+  qty: { title: '件数', dataIndex: 'qty', key: 'qty', width: 80 },
+  aov: { title: '客单价', dataIndex: 'aov', key: 'aov', width: 100, render: yuan },
+  refund: { title: '退款', dataIndex: 'refund', key: 'refund', width: 100, render: yuan },
+};
+const GOODS_META: CfColMeta[] = [
+  { key: 'cat1', label: '一级品类', group: '商品销售' },
+  { key: 'visitors', label: '访客', group: '商品销售' },
+  { key: 'cart', label: '加购', group: '商品销售' },
+  { key: 'gmv', label: '支付金额', group: '商品销售' },
+  { key: 'orders', label: '订单', group: '商品销售' },
+  { key: 'qty', label: '件数', group: '商品销售' },
+  { key: 'aov', label: '客单价', group: '商品销售' },
+  { key: 'refund', label: '退款', group: '商品销售' },
+];
+const NOTE_LS = 'xhs_note_cols_v1';
+const GOODS_LS = 'xhs_goods_cols_v1';
+
+const loadCols = (lsKey: string): string[] | null => {
+  try {
+    const saved = localStorage.getItem(lsKey);
+    if (saved != null) { const arr = JSON.parse(saved); if (Array.isArray(arr)) return arr; }
+  } catch { /* ignore */ }
+  return null;
+};
 
 // 单条笔记按【数据更新日】的每天走势（明细行展开时拉取）
 const NoteTrend: React.FC<{ noteId: string; start: string; end: string }> = ({ noteId, start, end }) => {
@@ -64,6 +144,44 @@ const XiaohongshuDashboard: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
+
+  // 自定义指标：笔记/商品各一套(localStorage 分开存), null = 默认全部列
+  const [noteVisible, setNoteVisible] = useState<string[] | null>(() => loadCols(NOTE_LS));
+  const [goodsVisible, setGoodsVisible] = useState<string[] | null>(() => loadCols(GOODS_LS));
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [presets, setPresets] = useState<CfPreset[]>([]);
+
+  const scope = tab === 'note' ? 'xhs_note' : 'xhs_goods';
+
+  const loadPresets = useCallback((sc: string) => {
+    fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets?scope=${sc}`)
+      .then((r) => r.json())
+      .then((res) => setPresets(res.data?.presets || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { loadPresets(scope); }, [scope, loadPresets]);
+
+  const savePreset = useCallback((sc: string, name: string, keys: string[]) => {
+    fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets/save`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: sc, name, keys }),
+    }).then((r) => r.json()).then((j) => {
+      if (j.code && j.code !== 0) { message.error(j.msg || '保存常用方案失败'); return; }
+      message.success('已保存常用方案'); loadPresets(sc);
+    }).catch(() => message.error('保存常用方案失败'));
+  }, [loadPresets]);
+  const deletePreset = useCallback((sc: string, id: number) => {
+    fetch(`${API_BASE}/api/xiaohongshu/chengfeng/presets/delete`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+    }).then((r) => r.json()).then((j) => {
+      if (j.code && j.code !== 0) { message.error(j.msg || '删除失败'); return; }
+      loadPresets(sc);
+    }).catch(() => message.error('删除常用方案失败'));
+  }, [loadPresets]);
+
+  const setCols = useCallback((t: 'note' | 'goods', keys: string[]) => {
+    if (t === 'note') { setNoteVisible(keys); try { localStorage.setItem(NOTE_LS, JSON.stringify(keys)); } catch { /* ignore */ } }
+    else { setGoodsVisible(keys); try { localStorage.setItem(GOODS_LS, JSON.stringify(keys)); } catch { /* ignore */ } }
+  }, []);
 
   // 初次拉 filters，默认数据更新时间 = 本月
   useEffect(() => {
@@ -144,42 +262,23 @@ const XiaohongshuDashboard: React.FC = () => {
     ],
   });
 
-  const yuan = (v: number) => `¥${(v || 0).toFixed(2)}`;
-  const pct = (v: number) => `${((v || 0) * 100).toFixed(2)}%`;
-  // 计算字段表头：带问号图标，悬停显示业务口径公式
-  const headTip = (label: string, formula: string) => (
-    <Tooltip title={formula}>
-      <span>{label} <QuestionCircleOutlined /></span>
-    </Tooltip>
-  );
-  // 列宽给足让每个表头都单行显示；总宽超一屏时由横向滚动条承载
-  const noteColumns = [
-    { title: '笔记标题', dataIndex: 'title', width: 220, ellipsis: true, render: (t: string, r: any) => (r.url ? <a href={r.url} target="_blank" rel="noreferrer">{t}</a> : t) },
-    { title: '笔记ID', dataIndex: 'noteId', width: 230, ellipsis: true, render: (v: string) => (v ? <Text copyable={{ text: v }} style={{ whiteSpace: 'nowrap' }}>{v}</Text> : '-') },
-    { title: '作者昵称', dataIndex: 'author', width: 110, ellipsis: true },
-    { title: '笔记创建时间', dataIndex: 'createTime', width: 155 },
-    { title: '笔记类型', dataIndex: 'type', width: 90 },
-    { title: '关联商品名称', dataIndex: 'product', width: 200, ellipsis: true },
-    { title: '笔记支付金额', dataIndex: 'payAmount', width: 120, render: yuan, sorter: (a: any, b: any) => a.payAmount - b.payAmount },
-    { title: '笔记商品点击次数', dataIndex: 'clickPv', width: 135, sorter: (a: any, b: any) => a.clickPv - b.clickPv },
-    { title: headTip('笔记商品点击率（PV）', '商品点击次数 ÷ 笔记阅读数'), dataIndex: 'clickRatePv', width: 190, render: pct },
-    { title: headTip('笔记支付转化率（PV）', '支付订单数 ÷ 商品点击次数'), dataIndex: 'payConvRatePv', width: 190, render: pct },
-    { title: '笔记退款金额（退款时间）', dataIndex: 'refundAmount', width: 200, render: yuan },
-    { title: '笔记加购件数', dataIndex: 'addCartQty', width: 115 },
-    { title: '引流店铺主页支付金额', dataIndex: 'toShopPay', width: 180, render: yuan },
-    { title: headTip('完播率（PV）', '视频看完的次数 ÷ 播放量（看多天时按阅读量加权汇总）'), dataIndex: 'finishRatePv', width: 145, render: (v: number) => (v > 0 ? pct(v) : '-') },
-  ];
-  const goodsColumns = [
-    { title: '商品名', dataIndex: 'name', ellipsis: true },
-    { title: '一级品类', dataIndex: 'cat1', width: 140, ellipsis: true },
-    { title: '访客', dataIndex: 'visitors', width: 80, sorter: (a: any, b: any) => a.visitors - b.visitors },
-    { title: '加购', dataIndex: 'cart', width: 70 },
-    { title: '支付金额', dataIndex: 'gmv', width: 100, render: yuan, sorter: (a: any, b: any) => a.gmv - b.gmv },
-    { title: '订单', dataIndex: 'orders', width: 70 },
-    { title: '件数', dataIndex: 'qty', width: 70 },
-    { title: '客单价', dataIndex: 'aov', width: 90, render: yuan },
-    { title: '退款', dataIndex: 'refund', width: 90, render: yuan },
-  ];
+  // 明细表列：固定列 + 按已选指标顺序渲染(顺序来自弹窗拖拽)
+  const tableColumns = useMemo(() => {
+    let cols: any[];
+    if (tab === 'note') {
+      const keys = noteVisible ?? NOTE_META.map((m) => m.key);
+      cols = [...NOTE_ALWAYS_COLS, ...keys.map((k) => NOTE_COL_MAP[k]).filter(Boolean)];
+    } else {
+      const keys = goodsVisible ?? GOODS_META.map((m) => m.key);
+      cols = [...GOODS_ALWAYS_COLS, ...keys.map((k) => GOODS_COL_MAP[k]).filter(Boolean)];
+    }
+    return cols.map((c: any) => ({ ...c, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }) }));
+  }, [tab, noteVisible, goodsVisible]);
+
+  // 弹窗用的当前 tab 配置
+  const pickerMeta = tab === 'note' ? NOTE_META : GOODS_META;
+  const pickerValue = (tab === 'note' ? noteVisible : goodsVisible) ?? pickerMeta.map((m) => m.key);
+  const pickerDefault = pickerMeta.map((m) => m.key);
 
   return (
     <div>
@@ -256,10 +355,11 @@ const XiaohongshuDashboard: React.FC = () => {
           <Card
             className="bi-table-card"
             title={tab === 'note' ? '明细 TOP50（点开每行 ▸ 看这条笔记每天走势）' : '明细 TOP50（数据更新时间累计）'}
+            extra={<Button icon={<SettingOutlined />} onClick={() => setPickerOpen(true)}>自定义指标</Button>}
           >
             <Table
               dataSource={data.detail || []}
-              columns={(tab === 'note' ? noteColumns : goodsColumns).map((c: any) => ({ ...c, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }) }))}
+              columns={tableColumns}
               rowKey={(r: any, i) => (tab === 'note' && r.noteId ? r.noteId : String(i))}
               size="small"
               pagination={false}
@@ -276,6 +376,18 @@ const XiaohongshuDashboard: React.FC = () => {
           </Card>
         </>
       )}
+
+      <CfMetricPicker
+        open={pickerOpen}
+        columns={pickerMeta}
+        value={pickerValue}
+        defaultKeys={pickerDefault}
+        presets={presets}
+        onOk={(keys) => { setCols(tab, keys); setPickerOpen(false); }}
+        onCancel={() => setPickerOpen(false)}
+        onSavePreset={(name, keys) => savePreset(scope, name, keys)}
+        onDeletePreset={(id) => deletePreset(scope, id)}
+      />
     </div>
   );
 };
