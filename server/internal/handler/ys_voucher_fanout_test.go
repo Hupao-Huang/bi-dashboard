@@ -2,6 +2,8 @@ package handler
 
 import (
 	"testing"
+
+	"bi-dashboard/internal/yonsuite"
 )
 
 func TestFlattenVoucherRecordsTagsAccbook(t *testing.T) {
@@ -56,3 +58,114 @@ func TestFlattenVoucherRecordsTagsAccbook(t *testing.T) {
 		t.Errorf("分录错: %+v", r.Lines)
 	}
 }
+
+// dummyVoucherRecords 造 n 条最小 record (fanOut 只数行数+读 RecordCount, 不关心字段)
+func dummyVoucherRecords(n int) []map[string]interface{} {
+	out := make([]map[string]interface{}, n)
+	for i := range out {
+		out[i] = map[string]interface{}{"header": map[string]interface{}{"id": "x"}}
+	}
+	return out
+}
+
+func voucherResp(recordCount, n int) *yonsuite.VoucherListResp {
+	r := &yonsuite.VoucherListResp{}
+	r.Data.RecordCount = recordCount
+	r.Data.RecordList = dummyVoucherRecords(n)
+	return r
+}
+
+func TestFanOutVouchersFastMode(t *testing.T) {
+	nameOf := map[string]string{"A": "甲账簿", "B": "乙账簿"}
+	calls := 0
+	fetch := func(code string, pi, ps int) (*yonsuite.VoucherListResp, error) {
+		calls++
+		if ps != voucherPerBookLimit {
+			t.Errorf("快模式每本应只拉 %d 条, got pageSize=%d", voucherPerBookLimit, ps)
+		}
+		switch code {
+		case "A":
+			return voucherResp(50, 20), nil // 甲账簿共 50, 只拉到 20
+		case "B":
+			return voucherResp(5, 5), nil
+		}
+		return voucherResp(0, 0), nil
+	}
+	rows, meta, truncated := fanOutVouchers([]string{"A", "B"}, nameOf, false, fetch)
+	if calls != 2 {
+		t.Errorf("快模式 2 本账应只调 2 次, got %d", calls)
+	}
+	if len(rows) != 25 {
+		t.Errorf("合并行数应 20+5=25, got %d", len(rows))
+	}
+	if truncated {
+		t.Error("快模式不应标 truncated")
+	}
+	if meta[0].RecordCount != 50 || meta[0].Fetched != 20 || meta[0].Name != "甲账簿" {
+		t.Errorf("甲账簿 meta 错: %+v", meta[0])
+	}
+	if meta[1].RecordCount != 5 || meta[1].Fetched != 5 {
+		t.Errorf("乙账簿 meta 错: %+v", meta[1])
+	}
+}
+
+func TestFanOutVouchersFullModePaginates(t *testing.T) {
+	nameOf := map[string]string{"A": "甲"}
+	pages := map[int]int{1: 200, 2: 200, 3: 50} // 共 450
+	fetch := func(code string, pi, ps int) (*yonsuite.VoucherListResp, error) {
+		if ps != voucherFullPageSize {
+			t.Errorf("拉全每页应 %d, got %d", voucherFullPageSize, ps)
+		}
+		return voucherResp(450, pages[pi]), nil
+	}
+	rows, meta, truncated := fanOutVouchers([]string{"A"}, nameOf, true, fetch)
+	if len(rows) != 450 {
+		t.Errorf("拉全应翻页到 450, got %d", len(rows))
+	}
+	if truncated {
+		t.Error("450 行未触顶, 不应 truncated")
+	}
+	if meta[0].Fetched != 450 || meta[0].RecordCount != 450 {
+		t.Errorf("meta 错: %+v", meta[0])
+	}
+}
+
+func TestFanOutVouchersCapTruncates(t *testing.T) {
+	nameOf := map[string]string{"A": "甲"}
+	fetch := func(code string, pi, ps int) (*yonsuite.VoucherListResp, error) {
+		return voucherResp(1000000, voucherFullPageSize), nil // 永远还有更多
+	}
+	rows, _, truncated := fanOutVouchers([]string{"A"}, nameOf, true, fetch)
+	if !truncated {
+		t.Error("超大账簿拉全应触顶 truncated")
+	}
+	if len(rows) > voucherMaxRows {
+		t.Errorf("行数不应超过闸值 %d, got %d", voucherMaxRows, len(rows))
+	}
+}
+
+func TestFanOutVouchersPerBookErrorIsolated(t *testing.T) {
+	nameOf := map[string]string{"A": "甲", "B": "乙"}
+	fetch := func(code string, pi, ps int) (*yonsuite.VoucherListResp, error) {
+		if code == "A" {
+			return nil, errVoucherTest
+		}
+		return voucherResp(3, 3), nil
+	}
+	rows, meta, _ := fanOutVouchers([]string{"A", "B"}, nameOf, false, fetch)
+	if len(rows) != 3 {
+		t.Errorf("甲失败应只剩乙的 3 行, got %d", len(rows))
+	}
+	if meta[0].Error == "" {
+		t.Error("甲账簿应记 error")
+	}
+	if meta[1].Error != "" || meta[1].Fetched != 3 {
+		t.Errorf("乙账簿不应受影响: %+v", meta[1])
+	}
+}
+
+var errVoucherTest = &voucherTestErr{}
+
+type voucherTestErr struct{}
+
+func (*voucherTestErr) Error() string { return "用友连接失败(测试)" }
