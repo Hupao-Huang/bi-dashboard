@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Row, Col, Card, Table, Statistic, Select, Empty, Input, Typography, Button, message } from 'antd';
-import { SettingOutlined } from '@ant-design/icons';
+import { Row, Col, Card, Table, Statistic, Select, Empty, Input, Typography, Button, Space, message } from 'antd';
+import { SettingOutlined, DownloadOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
-import CfMetricPicker, { CfPreset, cfColSorter } from './CfMetricPicker';
+import CfMetricPicker, { CfPreset, cfColSorter, exportXhsExcel } from './CfMetricPicker';
 
 const { Text } = Typography;
 
@@ -211,6 +212,22 @@ const ChengfengDashboard: React.FC = () => {
     ].map((c: any) => ({ ...c, onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }) }));
   }, [columns, visibleKeys]);
 
+  // 下载当前明细(已选列 + 当前筛选下的全部行)成 Excel
+  const handleDownload = () => {
+    const rows = data?.detail || [];
+    if (!rows.length) { message.info('当前没有可下载的数据'); return; }
+    const colMap: Record<string, ColMeta> = {};
+    columns.forEach((c) => { colMap[c.key] = c; });
+    const fixed = [
+      { key: 'title', label: '笔记标题' },
+      { key: 'noteId', label: '笔记/素材ID' },
+      { key: 'url', label: '笔记链接' },
+    ];
+    const dyn = (visibleKeys ?? []).map((k) => colMap[k]).filter(Boolean).map((c) => ({ key: c.key, label: c.label, fmt: c.fmt }));
+    const fn = `小红书乘风_${start}_${end}_${dayjs().format('YYYYMMDD_HHmm')}.xlsx`;
+    exportXhsExcel(fn, '乘风明细', [...fixed, ...dyn], rows);
+  };
+
   return (
     <div>
       <DateFilter label="数据更新时间" start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e); }} />
@@ -251,7 +268,10 @@ const ChengfengDashboard: React.FC = () => {
             className="bi-table-card"
             title="明细（全部 · 点开每行 ▸ 看这条笔记每天走势）"
             extra={
-              <Button icon={<SettingOutlined />} onClick={() => setPickerOpen(true)}>自定义指标</Button>
+              <Space>
+                <Button icon={<DownloadOutlined />} onClick={handleDownload}>下载</Button>
+                <Button icon={<SettingOutlined />} onClick={() => setPickerOpen(true)}>自定义指标</Button>
+              </Space>
             }
           >
             <Table
