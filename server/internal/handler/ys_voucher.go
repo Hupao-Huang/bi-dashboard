@@ -18,33 +18,38 @@ var (
 	accbookCacheTime time.Time
 )
 
+// accbooksCached 返回账簿清单 (24h 缓存, 空/过期则现拉)。多账簿名映射与下拉共用一份缓存。
+func (h *DashboardHandler) accbooksCached() ([]yonsuite.Accbook, error) {
+	accbookCacheMu.Lock()
+	if accbookCache != nil && time.Since(accbookCacheTime) < 24*time.Hour {
+		cached := accbookCache
+		accbookCacheMu.Unlock()
+		return cached, nil
+	}
+	accbookCacheMu.Unlock()
+
+	list, err := h.YS.QueryAccbookList()
+	if err != nil {
+		return nil, err
+	}
+	accbookCacheMu.Lock()
+	accbookCache = list
+	accbookCacheTime = time.Now()
+	accbookCacheMu.Unlock()
+	return list, nil
+}
+
 // GetVoucherAccbooks 账簿下拉数据 (缓存 24h)
 func (h *DashboardHandler) GetVoucherAccbooks(w http.ResponseWriter, r *http.Request) {
 	if h.YS == nil {
 		writeError(w, 503, "用友 YS 未配置")
 		return
 	}
-
-	accbookCacheMu.Lock()
-	if accbookCache != nil && time.Since(accbookCacheTime) < 24*time.Hour {
-		cached := accbookCache
-		accbookCacheMu.Unlock()
-		writeJSON(w, cached)
-		return
-	}
-	accbookCacheMu.Unlock()
-
-	list, err := h.YS.QueryAccbookList()
+	list, err := h.accbooksCached()
 	if err != nil {
 		writeServerError(w, 500, "查询账簿失败", err)
 		return
 	}
-
-	accbookCacheMu.Lock()
-	accbookCache = list
-	accbookCacheTime = time.Now()
-	accbookCacheMu.Unlock()
-
 	writeJSON(w, list)
 }
 
@@ -207,7 +212,7 @@ func flattenVoucherRecords(recordList []map[string]interface{}, accbookCode, acc
 	return rows
 }
 
-// GetVoucherList 实时查用友凭证 (POST)
+// GetVoucherList 实时查用友凭证 (POST), 支持多账簿合并
 func (h *DashboardHandler) GetVoucherList(w http.ResponseWriter, r *http.Request) {
 	if h.YS == nil {
 		writeError(w, 503, "用友 YS 未配置")
@@ -219,56 +224,55 @@ func (h *DashboardHandler) GetVoucherList(w http.ResponseWriter, r *http.Request
 	}
 
 	var body struct {
-		AccbookCode   string `json:"accbookCode"`
-		PeriodStart   string `json:"periodStart"`
-		PeriodEnd     string `json:"periodEnd"`
-		VoucherStatus string `json:"voucherStatus"` // "" 全部 / "01" 保存 / "04" 已记账
-		BillcodeMin   int    `json:"billcodeMin"`
-		BillcodeMax   int    `json:"billcodeMax"`
-		PageIndex     int    `json:"pageIndex"`
-		PageSize      int    `json:"pageSize"`
+		AccbookCodes  []string `json:"accbookCodes"`
+		PeriodStart   string   `json:"periodStart"`
+		PeriodEnd     string   `json:"periodEnd"`
+		VoucherStatus string   `json:"voucherStatus"`
+		BillcodeMin   int      `json:"billcodeMin"`
+		BillcodeMax   int      `json:"billcodeMax"`
+		Full          bool     `json:"full"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, 400, "请求参数解析失败")
 		return
 	}
-	if body.AccbookCode == "" {
+	if len(body.AccbookCodes) == 0 {
 		writeError(w, 400, "请选择账簿")
 		return
 	}
-	if body.PageIndex <= 0 {
-		body.PageIndex = 1
-	}
-	if body.PageSize <= 0 || body.PageSize > 200 {
-		body.PageSize = 20
+
+	// 账簿名映射 (拉不到也不致命, fanOut 会退回编码)
+	nameOf := map[string]string{}
+	if books, err := h.accbooksCached(); err == nil {
+		for _, b := range books {
+			nameOf[b.Code] = b.Name
+		}
 	}
 
-	req := &yonsuite.VoucherListReq{
-		AccbookCode: body.AccbookCode,
-		PeriodStart: body.PeriodStart,
-		PeriodEnd:   body.PeriodEnd,
-		BillcodeMin: body.BillcodeMin,
-		BillcodeMax: body.BillcodeMax,
-	}
-	req.Pager.PageIndex = body.PageIndex
-	req.Pager.PageSize = body.PageSize
-	if body.VoucherStatus != "" {
-		req.VoucherStatusList = []string{body.VoucherStatus}
-	}
-
-	resp, err := h.YS.QueryVoucherList(req)
-	if err != nil {
-		writeServerError(w, 500, "查询凭证失败", err)
-		return
+	// fetch 闭包: 把账期/状态/凭证号过滤条件 baked 进去, 只暴露 (code, pageIndex, pageSize)
+	fetch := func(code string, pageIndex, pageSize int) (*yonsuite.VoucherListResp, error) {
+		req := &yonsuite.VoucherListReq{
+			AccbookCode: code,
+			PeriodStart: body.PeriodStart,
+			PeriodEnd:   body.PeriodEnd,
+			BillcodeMin: body.BillcodeMin,
+			BillcodeMax: body.BillcodeMax,
+		}
+		req.Pager.PageIndex = pageIndex
+		req.Pager.PageSize = pageSize
+		if body.VoucherStatus != "" {
+			req.VoucherStatusList = []string{body.VoucherStatus}
+		}
+		return h.YS.QueryVoucherList(req)
 	}
 
-	rows := flattenVoucherRecords(resp.Data.RecordList, body.AccbookCode, "")
+	rows, meta, truncated := fanOutVouchers(body.AccbookCodes, nameOf, body.Full, fetch)
 
 	writeJSON(w, map[string]interface{}{
-		"list":        rows,
-		"recordCount": resp.Data.RecordCount,
-		"pageIndex":   resp.Data.PageIndex,
-		"pageSize":    resp.Data.PageSize,
+		"list":      rows,
+		"books":     meta,
+		"truncated": truncated,
+		"full":      body.Full,
 	})
 }
 

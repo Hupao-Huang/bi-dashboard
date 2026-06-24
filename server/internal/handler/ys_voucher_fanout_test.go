@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"bi-dashboard/internal/yonsuite"
@@ -169,3 +171,18 @@ var errVoucherTest = &voucherTestErr{}
 type voucherTestErr struct{}
 
 func (*voucherTestErr) Error() string { return "用友连接失败(测试)" }
+
+func TestGetVoucherListEmptyCodes400(t *testing.T) {
+	// YS 非 nil(用 NewClient 构造但永不拨号), accbookCodes 为空应在调用用友前就 400
+	h := &DashboardHandler{YS: yonsuite.NewClient("k", "s", "http://127.0.0.1:0")}
+	req := httptest.NewRequest("POST", "/api/finance/voucher/list",
+		strings.NewReader(`{"accbookCodes":[],"periodStart":"2026-06","periodEnd":"2026-06"}`))
+	w := httptest.NewRecorder()
+	h.GetVoucherList(w, req)
+	if w.Code != 400 {
+		t.Fatalf("空账簿应返回 400, got %d, body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "请选择账簿") {
+		t.Errorf("应提示请选择账簿, got %s", w.Body.String())
+	}
+}
