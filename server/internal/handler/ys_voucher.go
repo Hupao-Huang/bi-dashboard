@@ -61,6 +61,8 @@ type voucherLine struct {
 
 // voucherRow 凭证 (头 + 分录, 抽平后给前端)
 type voucherRow struct {
+	AccbookCode string        `json:"accbookCode"` // 账簿编码 (多账簿合并用)
+	AccbookName string        `json:"accbookName"` // 账簿名称
 	ID          string        `json:"id"`
 	Period      string        `json:"period"`      // 账期 yyyy-MM
 	VoucherNo   string        `json:"voucherNo"`   // 凭证字号 如 "转-1"
@@ -76,6 +78,55 @@ type voucherRow struct {
 	MakeTime    string        `json:"makeTime"`    // 制单日期
 	Attached    string        `json:"attached"`    // 附单据数
 	Lines       []voucherLine `json:"lines"`       // 分录明细
+}
+
+// flattenVoucherRecords 把用友 recordList 抽平成 voucherRow, 每行打上账簿标记
+func flattenVoucherRecords(recordList []map[string]interface{}, accbookCode, accbookName string) []voucherRow {
+	rows := make([]voucherRow, 0, len(recordList))
+	for _, rec := range recordList {
+		header := mapObj(rec, "header")
+		row := voucherRow{
+			AccbookCode: accbookCode,
+			AccbookName: accbookName,
+			ID:          ysMapStr(header, "id"),
+			Period:      ysMapStr(header, "period"),
+			VoucherNo:   ysMapStr(header, "displayname"),
+			VoucherType: ysMapStr(mapObj(header, "vouchertype"), "name"),
+			Description: ysMapStr(header, "description"),
+			TotalDebit:  ysMapFloat(header, "totaldebit_org"),
+			TotalCredit: ysMapFloat(header, "totalcredit_org"),
+			SrcSystem:   ysMapStr(header, "srcsystem"),
+			Maker:       ysMapStr(mapObj(header, "maker"), "name"),
+			Auditor:     ysMapStr(mapObj(header, "auditor"), "name"),
+			Tallyman:    ysMapStr(mapObj(header, "tallyman"), "name"),
+			Status:      voucherStatusText(ysMapStr(header, "voucherstatus")),
+			MakeTime:    ysMapStr(header, "maketime"),
+			Attached:    ysMapStr(header, "attachedbill"),
+		}
+		if bodyArr, ok := rec["body"].([]interface{}); ok {
+			for _, bi := range bodyArr {
+				lm, ok := bi.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				row.Lines = append(row.Lines, voucherLine{
+					RecordNumber: ysMapStr(lm, "recordnumber"),
+					Description:  ysMapStr(lm, "description"),
+					SubjectCode:  ysMapStr(mapObj(lm, "accsubject"), "code"),
+					SubjectName:  ysMapStr(mapObj(lm, "accsubject"), "name"),
+					Auxiliary:    ysMapStr(lm, "auxiliaryShow"),
+					Debit:        ysMapFloat(lm, "debit_original"),
+					Credit:       ysMapFloat(lm, "credit_original"),
+				})
+			}
+		}
+		// 凭证头摘要为空时, 用第一条分录摘要兜底
+		if row.Description == "" && len(row.Lines) > 0 {
+			row.Description = row.Lines[0].Description
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // GetVoucherList 实时查用友凭证 (POST)
@@ -133,48 +184,7 @@ func (h *DashboardHandler) GetVoucherList(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	rows := make([]voucherRow, 0, len(resp.Data.RecordList))
-	for _, rec := range resp.Data.RecordList {
-		header := mapObj(rec, "header")
-		row := voucherRow{
-			ID:          ysMapStr(header, "id"),
-			Period:      ysMapStr(header, "period"),
-			VoucherNo:   ysMapStr(header, "displayname"),
-			VoucherType: ysMapStr(mapObj(header, "vouchertype"), "name"),
-			Description: ysMapStr(header, "description"),
-			TotalDebit:  ysMapFloat(header, "totaldebit_org"),
-			TotalCredit: ysMapFloat(header, "totalcredit_org"),
-			SrcSystem:   ysMapStr(header, "srcsystem"),
-			Maker:       ysMapStr(mapObj(header, "maker"), "name"),
-			Auditor:     ysMapStr(mapObj(header, "auditor"), "name"),
-			Tallyman:    ysMapStr(mapObj(header, "tallyman"), "name"),
-			Status:      voucherStatusText(ysMapStr(header, "voucherstatus")),
-			MakeTime:    ysMapStr(header, "maketime"),
-			Attached:    ysMapStr(header, "attachedbill"),
-		}
-		if bodyArr, ok := rec["body"].([]interface{}); ok {
-			for _, bi := range bodyArr {
-				lm, ok := bi.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				row.Lines = append(row.Lines, voucherLine{
-					RecordNumber: ysMapStr(lm, "recordnumber"),
-					Description:  ysMapStr(lm, "description"),
-					SubjectCode:  ysMapStr(mapObj(lm, "accsubject"), "code"),
-					SubjectName:  ysMapStr(mapObj(lm, "accsubject"), "name"),
-					Auxiliary:    ysMapStr(lm, "auxiliaryShow"),
-					Debit:        ysMapFloat(lm, "debit_original"),
-					Credit:       ysMapFloat(lm, "credit_original"),
-				})
-			}
-		}
-		// 凭证头摘要为空时, 用第一条分录摘要兜底
-		if row.Description == "" && len(row.Lines) > 0 {
-			row.Description = row.Lines[0].Description
-		}
-		rows = append(rows, row)
-	}
+	rows := flattenVoucherRecords(resp.Data.RecordList, body.AccbookCode, "")
 
 	writeJSON(w, map[string]interface{}{
 		"list":        rows,
