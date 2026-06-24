@@ -442,6 +442,26 @@ var rpaSealCutoff = map[string]string{
 	"拼多多": "2026-02-25",
 }
 
+// rpaSealRanges 文件封存区间: platform -> [[start,end]] (闭区间, yyyy-MM-dd)。
+// 用途同 rpaSealCutoff, 但针对"中间段"缺失(前后都有正常数据), 单个截止日表达不了。
+// 案例: 抖音商品数据春节 2/14~2/19 这6天店铺没产出(正常历史现象), 前后数据正常 → 只封这段, 不误伤年初。
+var rpaSealRanges = map[string][][2]string{
+	"抖音": {{"2026-02-14", "2026-02-19"}},
+}
+
+// isRPASealed 某平台某日期是否封存(历史): 落在截止日之前, 或落在某封存区间(闭区间)内。
+func isRPASealed(platform, date string) bool {
+	if cutoff, ok := rpaSealCutoff[platform]; ok && date < cutoff {
+		return true
+	}
+	for _, r := range rpaSealRanges[platform] {
+		if date >= r[0] && date <= r[1] {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *DashboardHandler) enrichDBStatus(result *rpaScanResult) {
 	for i := range result.Platforms {
 		p := &result.Platforms[i]
@@ -513,14 +533,12 @@ func (h *DashboardHandler) enrichDBStatus(result *rpaScanResult) {
 		for j := range p.Dates {
 			p.Dates[j].DBImported = importedDates[p.Dates[j].FormattedDate]
 		}
-		// 文件封存: 截止日之前的日期标 sealed (平台老文件已拿不到但数据已全入库), 不算异常 / 不进完整率
-		if cutoff, ok := rpaSealCutoff[p.Name]; ok {
-			for j := range p.Dates {
-				if p.Dates[j].FormattedDate < cutoff {
-					p.Dates[j].Status = "sealed"
-					for k := range p.Dates[j].Stores {
-						p.Dates[j].Stores[k].Status = "sealed"
-					}
+		// 文件封存: 截止日之前 或 落在封存区间内的日期标 sealed (平台老文件拿不到/历史不产出但已确认), 不算异常 / 不进完整率
+		for j := range p.Dates {
+			if isRPASealed(p.Name, p.Dates[j].FormattedDate) {
+				p.Dates[j].Status = "sealed"
+				for k := range p.Dates[j].Stores {
+					p.Dates[j].Stores[k].Status = "sealed"
 				}
 			}
 		}

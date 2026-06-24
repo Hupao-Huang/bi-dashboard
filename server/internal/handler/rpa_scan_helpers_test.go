@@ -38,6 +38,32 @@ func TestRpaStatusMissing(t *testing.T) {
 	}
 }
 
+// ============ isRPASealed (封存截止日 + 封存区间) ============
+
+func TestIsRPASealed(t *testing.T) {
+	cases := []struct {
+		platform string
+		date     string
+		want     bool
+		desc     string
+	}{
+		{"拼多多", "2026-02-24", true, "拼多多截止日前(<2/25)封存"},
+		{"拼多多", "2026-02-25", false, "拼多多截止日当天不封存"},
+		{"拼多多", "2026-03-01", false, "拼多多截止日后不封存"},
+		{"抖音", "2026-02-13", false, "抖音区间前一天不封存"},
+		{"抖音", "2026-02-14", true, "抖音区间起点封存(闭区间)"},
+		{"抖音", "2026-02-17", true, "抖音区间中间封存"},
+		{"抖音", "2026-02-19", true, "抖音区间终点封存(闭区间)"},
+		{"抖音", "2026-02-20", false, "抖音区间后一天不封存"},
+		{"天猫", "2026-02-15", false, "未配置封存的平台不封存"},
+	}
+	for _, c := range cases {
+		if got := isRPASealed(c.platform, c.date); got != c.want {
+			t.Errorf("%s: isRPASealed(%q,%q)=%v want %v", c.desc, c.platform, c.date, got, c.want)
+		}
+	}
+}
+
 // ============ clearRPAScanCache + getRPAScanCached state ============
 
 func TestClearRPAScanCache(t *testing.T) {
