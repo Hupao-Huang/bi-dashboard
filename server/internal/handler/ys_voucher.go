@@ -80,6 +80,84 @@ type voucherRow struct {
 	Lines       []voucherLine `json:"lines"`       // 分录明细
 }
 
+// 多账簿合并参数 (spec §7)
+const (
+	voucherPerBookLimit = 20   // 快模式每本账拉前几条
+	voucherFullPageSize = 200  // 拉全模式每页大小
+	voucherMaxCalls     = 30   // 拉全总调用上限 (≈33s 封顶, 防堵死 YS 共享通道)
+	voucherMaxRows      = 6000 // 拉全总行数上限
+)
+
+// voucherFetchPage 拉一本账一页凭证 (注入便于单测)
+type voucherFetchPage func(accbookCode string, pageIndex, pageSize int) (*yonsuite.VoucherListResp, error)
+
+// voucherBookMeta 每本账的拉取情况 (回前端用于截断提示/失败提示)
+type voucherBookMeta struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	RecordCount int    `json:"recordCount"`     // 用友报的总条数
+	Fetched     int    `json:"fetched"`         // 实际拉到的条数
+	Error       string `json:"error,omitempty"` // 该本账查询失败信息
+}
+
+// fanOutVouchers 逐账簿调用 fetch 并合并。
+// full=false: 每本只拉第 1 页 (前 voucherPerBookLimit 条)。
+// full=true:  每本循环翻页拉到底, 受 voucherMaxCalls / voucherMaxRows 兜底闸约束。
+// 单本账失败不中断其他账簿 (记入 meta.Error)。
+// 行顺序 = 账簿勾选顺序 + 用友返回的自然顺序, 不额外排序 (合并表按账簿分组天然成立)。
+func fanOutVouchers(codes []string, nameOf map[string]string, full bool, fetch voucherFetchPage) (rows []voucherRow, meta []voucherBookMeta, truncated bool) {
+	calls := 0
+	for _, code := range codes {
+		name := nameOf[code]
+		if name == "" {
+			name = code // 账簿名查不到时退回编码
+		}
+		if !full {
+			if calls >= voucherMaxCalls {
+				truncated = true
+				break
+			}
+			r, err := fetch(code, 1, voucherPerBookLimit)
+			calls++
+			if err != nil {
+				meta = append(meta, voucherBookMeta{Code: code, Name: name, Error: err.Error()})
+				continue
+			}
+			recs := flattenVoucherRecords(r.Data.RecordList, code, name)
+			rows = append(rows, recs...)
+			meta = append(meta, voucherBookMeta{Code: code, Name: name, RecordCount: r.Data.RecordCount, Fetched: len(recs)})
+			continue
+		}
+		// full: 翻页拉到底
+		fetched, recordCount, bookErr, pageIndex := 0, 0, "", 1
+		for {
+			if calls >= voucherMaxCalls || len(rows) >= voucherMaxRows {
+				truncated = true
+				break
+			}
+			r, err := fetch(code, pageIndex, voucherFullPageSize)
+			calls++
+			if err != nil {
+				bookErr = err.Error()
+				break
+			}
+			recordCount = r.Data.RecordCount
+			recs := flattenVoucherRecords(r.Data.RecordList, code, name)
+			rows = append(rows, recs...)
+			fetched += len(recs)
+			if len(recs) == 0 || fetched >= recordCount {
+				break
+			}
+			pageIndex++
+		}
+		meta = append(meta, voucherBookMeta{Code: code, Name: name, RecordCount: recordCount, Fetched: fetched, Error: bookErr})
+		if truncated {
+			break
+		}
+	}
+	return rows, meta, truncated
+}
+
 // flattenVoucherRecords 把用友 recordList 抽平成 voucherRow, 每行打上账簿标记
 func flattenVoucherRecords(recordList []map[string]interface{}, accbookCode, accbookName string) []voucherRow {
 	rows := make([]voucherRow, 0, len(recordList))
