@@ -40,7 +40,8 @@ var permissionSeeds = []permissionSeed{
 	{Code: "social.product_dashboard:view", Name: "社媒-货品看板", Type: "page"},
 	{Code: "social.feigua:view", Name: "社媒-飞瓜看板", Type: "page"},
 	{Code: "social.marketing:view", Name: "社媒-营销看板", Type: "page"},
-	{Code: "social.xiaohongshu:view", Name: "社媒-小红书看板", Type: "page"},
+	{Code: "social.xiaohongshu:view", Name: "社媒-小红书千帆", Type: "page"},
+	{Code: "social.xiaohongshu-chengfeng:view", Name: "社媒-小红书乘风", Type: "page"},
 	{Code: "offline:view", Name: "线下部门", Type: "menu"},
 	{Code: "offline.store_preview:view", Name: "线下-店铺数据预览", Type: "page"},
 	{Code: "offline.store_dashboard:view", Name: "线下-店铺看板", Type: "page"},
@@ -583,11 +584,28 @@ func EnsureAuthSchemaAndSeed(db *sql.DB) error {
 	if err := seedSuperAdminRolePermissions(db); err != nil {
 		return err
 	}
+	if err := migrateXhsChengfengPermission(db); err != nil {
+		return err
+	}
 	if err := ensureDefaultAdmin(db); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// migrateXhsChengfengPermission 小红书权限拆分的一次性迁移(幂等):
+//   小红书原先千帆/乘风共用 social.xiaohongshu:view。拆成独立权限位后,
+//   给所有已拥有(原)千帆权限的角色自动补上乘风权限, 避免拆分后乘风页突然打不开(线上回归)。
+//   INSERT IGNORE 幂等, 每次启动跑无副作用; 跑完后管理员可在角色管理里按需取消某些角色的乘风权限。
+func migrateXhsChengfengPermission(db *sql.DB) error {
+	_, err := db.Exec(`
+		INSERT IGNORE INTO role_permissions (role_id, permission_id)
+		SELECT rp.role_id, pc.id
+		FROM role_permissions rp
+		JOIN permissions pq ON rp.permission_id = pq.id AND pq.code = 'social.xiaohongshu:view'
+		JOIN permissions pc ON pc.code = 'social.xiaohongshu-chengfeng:view'`)
+	return err
 }
 
 func seedPermissions(db *sql.DB) error {

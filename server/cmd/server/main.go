@@ -417,13 +417,14 @@ func main() {
 	mux.HandleFunc("/api/xiaohongshu/note", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsNote)))
 	mux.HandleFunc("/api/xiaohongshu/note-trend", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsNoteTrend)))
 	mux.HandleFunc("/api/xiaohongshu/goods", pageProtected("social.xiaohongshu:view", cache24h(h.GetXhsGoods)))
-	// 小红书乘风(信息流投流) — 复用 social.xiaohongshu:view 权限
-	mux.HandleFunc("/api/xiaohongshu/chengfeng/filters", pageProtected("social.xiaohongshu:view", cache24h(h.GetCfFilters)))
-	mux.HandleFunc("/api/xiaohongshu/chengfeng/list", pageProtected("social.xiaohongshu:view", cache24h(h.GetCfList)))
-	mux.HandleFunc("/api/xiaohongshu/chengfeng/note-trend", pageProtected("social.xiaohongshu:view", cache24h(h.GetCfNoteTrend)))
-	mux.HandleFunc("/api/xiaohongshu/chengfeng/presets", pageProtected("social.xiaohongshu:view", h.ListCfPresets))
-	mux.HandleFunc("/api/xiaohongshu/chengfeng/presets/save", pageProtected("social.xiaohongshu:view", h.SaveCfPreset))
-	mux.HandleFunc("/api/xiaohongshu/chengfeng/presets/delete", pageProtected("social.xiaohongshu:view", h.DeleteCfPreset))
+	// 小红书乘风(信息流投流) — 独立权限 social.xiaohongshu-chengfeng:view
+	mux.HandleFunc("/api/xiaohongshu/chengfeng/filters", pageProtected("social.xiaohongshu-chengfeng:view", cache24h(h.GetCfFilters)))
+	mux.HandleFunc("/api/xiaohongshu/chengfeng/list", pageProtected("social.xiaohongshu-chengfeng:view", cache24h(h.GetCfList)))
+	mux.HandleFunc("/api/xiaohongshu/chengfeng/note-trend", pageProtected("social.xiaohongshu-chengfeng:view", cache24h(h.GetCfNoteTrend)))
+	// 预设方案接口千帆/乘风共用(千帆页也调此存列方案), 有任一权限即可访问, 防拆分后只授一边的角色丢预设功能
+	mux.HandleFunc("/api/xiaohongshu/chengfeng/presets", pageAnyProtected(h.ListCfPresets, "social.xiaohongshu:view", "social.xiaohongshu-chengfeng:view"))
+	mux.HandleFunc("/api/xiaohongshu/chengfeng/presets/save", pageAnyProtected(h.SaveCfPreset, "social.xiaohongshu:view", "social.xiaohongshu-chengfeng:view"))
+	mux.HandleFunc("/api/xiaohongshu/chengfeng/presets/delete", pageAnyProtected(h.DeleteCfPreset, "social.xiaohongshu:view", "social.xiaohongshu-chengfeng:view"))
 	mux.HandleFunc("/api/douyin/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinOps)))
 	mux.HandleFunc("/api/douyin-dist/ops", pageProtected("social.marketing:view", cache24h(h.GetDouyinDistOps)))
 	mux.HandleFunc("/api/marketing-cost", pageProtected("ecommerce.marketing_cost:view", cache24h(h.GetMarketingCost)))
