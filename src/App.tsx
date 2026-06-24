@@ -160,7 +160,7 @@ const App: React.FC = () => (
               <Route path="/social/feigua" element={guard('social.feigua:view', <SocialFeiguaDashboard />)} />
               <Route path="/social/marketing" element={guard('social.marketing:view', <SocialMarketingDashboard />)} />
               <Route path="/social/xiaohongshu" element={guard('social.xiaohongshu:view', <SocialXiaohongshuDashboard />)} />
-              <Route path="/social/xiaohongshu-chengfeng" element={guard('social.xiaohongshu:view', <SocialXhsChengfengDashboard />)} />
+              <Route path="/social/xiaohongshu-chengfeng" element={guard('social.xiaohongshu-chengfeng:view', <SocialXhsChengfengDashboard />)} />
 
               <Route path="/offline" element={guard('offline:view', <OfflinePage />)} />
               <Route path="/offline/store-preview" element={guard('offline.store_preview:view', <OfflineStorePreview />)} />

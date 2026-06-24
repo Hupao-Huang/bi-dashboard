@@ -109,7 +109,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/social/feigua', icon: <VideoCameraOutlined />, label: '飞瓜看板', permission: 'social.feigua:view' },
       { key: '/social/marketing', icon: <RiseOutlined />, label: '营销看板', permission: 'social.marketing:view' },
       { key: '/social/xiaohongshu', icon: <FundOutlined />, label: '小红书千帆', permission: 'social.xiaohongshu:view' },
-      { key: '/social/xiaohongshu-chengfeng', icon: <FundOutlined />, label: '小红书乘风', permission: 'social.xiaohongshu:view' },
+      { key: '/social/xiaohongshu-chengfeng', icon: <FundOutlined />, label: '小红书乘风', permission: 'social.xiaohongshu-chengfeng:view' },
     ],
   },
   {
@@ -371,7 +371,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/social/feigua', permission: 'social.feigua:view' },
   { path: '/social/marketing', permission: 'social.marketing:view' },
   { path: '/social/xiaohongshu', permission: 'social.xiaohongshu:view' },
-  { path: '/social/xiaohongshu-chengfeng', permission: 'social.xiaohongshu:view' },
+  { path: '/social/xiaohongshu-chengfeng', permission: 'social.xiaohongshu-chengfeng:view' },
   { path: '/offline', permission: 'offline:view' },
   { path: '/offline/store-preview', permission: 'offline.store_preview:view' },
   { path: '/offline/store-dashboard', permission: 'offline.store_dashboard:view' },
