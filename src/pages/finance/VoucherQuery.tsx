@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Card, Table, Select, DatePicker, InputNumber, Button, Space, Tag, message, Typography } from 'antd';
+import { Card, Table, Select, DatePicker, InputNumber, Button, Space, Tag, message, Typography, Modal, Alert } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { API_BASE } from '../../config';
@@ -10,6 +10,7 @@ const { RangePicker } = DatePicker;
 const { Text } = Typography;
 
 interface Accbook { code: string; name: string; }
+interface BookMeta { code: string; name: string; recordCount: number; fetched: number; error?: string; }
 interface VoucherLine {
   recordNumber: string;
   description: string;
@@ -20,6 +21,8 @@ interface VoucherLine {
   credit: number;
 }
 interface VoucherRow {
+  accbookCode: string;
+  accbookName: string;
   id: string;
   period: string;
   voucherNo: string;
@@ -53,14 +56,15 @@ const VoucherQuery: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
 
   const [accbooks, setAccbooks] = useState<Accbook[]>([]);
-  const [accbookCode, setAccbookCode] = useState<string>('');
+  const [accbookCodes, setAccbookCodes] = useState<string[]>([]);
   const [period, setPeriod] = useState<[Dayjs, Dayjs]>([dayjs(), dayjs()]);
   const [status, setStatus] = useState<string>('');
   const [billMin, setBillMin] = useState<number | null>(null);
   const [billMax, setBillMax] = useState<number | null>(null);
 
   const [rows, setRows] = useState<VoucherRow[]>([]);
-  const [recordCount, setRecordCount] = useState(0);
+  const [books, setBooks] = useState<BookMeta[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [pageIndex, setPageIndex] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
@@ -75,13 +79,13 @@ const VoucherQuery: React.FC = () => {
         setAccbooks(list);
         // 默认选"浙江松鲜鲜"账簿, 找不到就第一个
         const def = list.find(a => a.name.includes('浙江松鲜鲜自然调味品')) || list[0];
-        if (def) setAccbookCode(def.code);
+        if (def) setAccbookCodes([def.code]);
       })
       .catch(() => message.error('账簿加载失败, 请确认用友连接正常'));
   }, []);
 
-  const fetchVouchers = useCallback((pi: number, ps: number) => {
-    if (!accbookCode) { message.warning('请先选择账簿'); return; }
+  const fetchVouchers = useCallback((full: boolean) => {
+    if (!accbookCodes.length) { message.warning('请先选择账簿'); return; }
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -92,37 +96,54 @@ const VoucherQuery: React.FC = () => {
       headers: { 'Content-Type': 'application/json' },
       signal: ctrl.signal,
       body: JSON.stringify({
-        accbookCode,
+        accbookCodes,
         periodStart: period[0].format('YYYY-MM'),
         periodEnd: period[1].format('YYYY-MM'),
         voucherStatus: status,
         billcodeMin: billMin || 0,
         billcodeMax: billMax || 0,
-        pageIndex: pi,
-        pageSize: ps,
+        full,
       }),
     })
       .then(res => res.json())
       .then(res => {
         if (res.code !== 0 && res.code !== 200) {
           message.error(res.message || '查询失败');
-          setRows([]); setRecordCount(0); setLoading(false); return;
+          setRows([]); setBooks([]); setTruncated(false); setLoading(false); return;
         }
         const d = res.data || {};
         setRows(d.list || []);
-        setRecordCount(d.recordCount || 0);
-        setPageIndex(d.pageIndex || pi);
+        setBooks(d.books || []);
+        setTruncated(!!d.truncated);
+        setPageIndex(1);
         setLoading(false);
         setQueried(true);
+        // 单本账失败提示
+        (d.books || []).filter((b: BookMeta) => b.error).forEach((b: BookMeta) =>
+          message.warning(`账簿「${b.name}」查询失败:${b.error}`));
       })
       .catch((e: any) => {
         if (e?.name !== 'AbortError') { message.error('查询失败'); setLoading(false); }
       });
-  }, [accbookCode, period, status, billMin, billMax]);
+  }, [accbookCodes, period, status, billMin, billMax]);
 
-  const onSearch = () => { setPageIndex(1); fetchVouchers(1, pageSize); };
+  const onSearch = () => fetchVouchers(false);
+
+  const onFullPull = () => {
+    const totalMore = books.reduce((s, b) => s + Math.max(0, b.recordCount - b.fetched), 0);
+    Modal.confirm({
+      title: '拉取全部凭证',
+      content: `将逐本账簿拉取选中账簿在当前条件下的全部凭证${accbookCodes.length > 3 || totalMore > 500 ? ',账簿多/数据量大时可能要等几十秒' : ''}。继续?`,
+      onOk: () => fetchVouchers(true),
+    });
+  };
+
+  // 是否有账簿还有更多未显示 (快模式截断提示)
+  const hasMore = books.some(b => b.recordCount > b.fetched);
 
   const columns = [
+    { title: '账簿', dataIndex: 'accbookName', width: 160, ellipsis: true,
+      render: (v: string) => v || '-' },
     { title: '账期', dataIndex: 'period', width: 90 },
     { title: '凭证字号', dataIndex: 'voucherNo', width: 100 },
     { title: '类型', dataIndex: 'voucherType', width: 100 },
@@ -171,11 +192,14 @@ const VoucherQuery: React.FC = () => {
           <span>
             账簿：
             <Select
+              mode="multiple"
               showSearch
-              style={{ width: 320 }}
-              placeholder="选择账簿"
-              value={accbookCode || undefined}
-              onChange={setAccbookCode}
+              allowClear
+              maxTagCount="responsive"
+              style={{ minWidth: 320, maxWidth: 560 }}
+              placeholder="选择账簿(可多选)"
+              value={accbookCodes}
+              onChange={setAccbookCodes}
               optionFilterProp="label"
               options={accbooks.map(a => ({ label: `${a.code} ${a.name}`, value: a.code }))}
             />
@@ -211,11 +235,25 @@ const VoucherQuery: React.FC = () => {
           <Button type="primary" icon={<SearchOutlined />} onClick={onSearch} loading={loading}>
             查询
           </Button>
+          <Button onClick={onFullPull} loading={loading} disabled={!queried}>
+            拉全
+          </Button>
         </Space>
       </div>
 
+      {queried && (hasMore || truncated) && (
+        <Alert
+          style={{ marginBottom: 12 }}
+          type="warning"
+          showIcon
+          message={truncated
+            ? '结果太多已截断,请缩小账期或减少账簿后重试'
+            : '部分账簿还有更多凭证未显示,点「拉全」查看完整,或缩小账期/凭证号范围'}
+        />
+      )}
+
       <Table<VoucherRow>
-        rowKey="id"
+        rowKey={(r) => `${r.accbookCode}-${r.id}`}
         size="small"
         loading={loading}
         columns={columns}
@@ -238,11 +276,10 @@ const VoucherQuery: React.FC = () => {
         pagination={{
           current: pageIndex,
           pageSize,
-          total: recordCount,
           showSizeChanger: true,
           pageSizeOptions: ['20', '50', '100'],
           showTotal: (t) => `共 ${t} 张凭证`,
-          onChange: (p, ps) => { setPageSize(ps); fetchVouchers(p, ps); },
+          onChange: (p, ps) => { setPageIndex(p); setPageSize(ps); },
         }}
       />
     </Card>
