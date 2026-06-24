@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker, Input, Typography, Button, message } from 'antd';
-import { SettingOutlined } from '@ant-design/icons';
+import { Row, Col, Card, Table, Statistic, Tabs, Select, Empty, DatePicker, Input, Typography, Button, Space, message } from 'antd';
+import { SettingOutlined, DownloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ReactECharts from '../../components/Chart';
 import DateFilter from '../../components/DateFilter';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import { CHART_COLORS } from '../../chartTheme';
-import CfMetricPicker, { CfColMeta, CfPreset, cfColSorter } from './CfMetricPicker';
+import CfMetricPicker, { CfColMeta, CfPreset, cfColSorter, exportXhsExcel } from './CfMetricPicker';
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
@@ -247,6 +247,21 @@ const XiaohongshuDashboard: React.FC = () => {
 
   const pickerValue = ((tab === 'note' ? noteVisible : goodsVisible) ?? defaultKeys);
 
+  // 下载当前明细(已选列 + 当前筛选下的全部行)成 Excel
+  const handleDownload = () => {
+    const rows = data?.detail || [];
+    if (!rows.length) { message.info('当前没有可下载的数据'); return; }
+    const metaMap: Record<string, CfColMeta> = {};
+    colMeta.forEach((m) => { metaMap[m.key] = m; });
+    const fixed = tab === 'note'
+      ? [{ key: 'title', label: '笔记标题' }, { key: 'noteId', label: '笔记ID' }, { key: 'url', label: '笔记链接' }]
+      : [{ key: 'name', label: '商品名' }];
+    const dyn = pickerValue.map((k) => metaMap[k]).filter(Boolean).map((m) => ({ key: m.key, label: m.label, fmt: m.fmt }));
+    const tabName = tab === 'note' ? '笔记效果' : '商品销售';
+    const fn = `小红书千帆_${tabName}_${start}_${end}_${dayjs().format('YYYYMMDD_HHmm')}.xlsx`;
+    exportXhsExcel(fn, `千帆${tabName}`, [...fixed, ...dyn], rows);
+  };
+
   return (
     <div>
       <DateFilter label="数据更新时间" start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e); }} />
@@ -322,7 +337,12 @@ const XiaohongshuDashboard: React.FC = () => {
           <Card
             className="bi-table-card"
             title={tab === 'note' ? '明细（全部 · 点开每行 ▸ 看这条笔记每天走势）' : '明细（全部 · 数据更新时间累计）'}
-            extra={<Button icon={<SettingOutlined />} onClick={() => setPickerOpen(true)}>自定义指标</Button>}
+            extra={
+              <Space>
+                <Button icon={<DownloadOutlined />} onClick={handleDownload}>下载</Button>
+                <Button icon={<SettingOutlined />} onClick={() => setPickerOpen(true)}>自定义指标</Button>
+              </Space>
+            }
           >
             <Table
               dataSource={data.detail || []}

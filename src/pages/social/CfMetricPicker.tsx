@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Input, Checkbox, Switch, Button, Tag, Empty, Typography, message, Popconfirm } from 'antd';
 import { CloseOutlined, HolderOutlined } from '@ant-design/icons';
+import * as XLSX from 'xlsx-js-style';
 
 const { Text } = Typography;
 
@@ -17,6 +18,39 @@ export const cfColSorter = (key: string, fmt?: string): ((a: any, b: any) => num
   if (fmt && CF_NUM_FMTS.has(fmt)) return (a, b) => (Number(a[key]) || 0) - (Number(b[key]) || 0);
   if (key === 'createTime') return (a, b) => String(a[key] || '').localeCompare(String(b[key] || ''));
   return undefined;
+};
+
+// 导出列定义：key=行字段名 / label=表头 / fmt=格式(决定数值列导成数字、文字列导成字符串)
+export type CfExportCol = { key: string; label: string; fmt?: string };
+
+// exportXhsExcel 把当前明细(已选列+全部行)导成 .xlsx 本地下载(千帆/乘风共用)。
+//   数值列(money/cost/int/rate/roi/num2)导成数字(Excel 可再排序/求和)，其余导成文本；表头加粗。
+export const exportXhsExcel = (filename: string, sheetName: string, columns: CfExportCol[], rows: any[]): void => {
+  const cell = (v: any, fmt?: string): any => {
+    if (fmt && CF_NUM_FMTS.has(fmt)) return Number(v) || 0;
+    return v == null ? '' : String(v);
+  };
+  const aoa = [columns.map((c) => c.label), ...rows.map((r) => columns.map((c) => cell(r[c.key], c.fmt)))];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = columns.map((c) => ({ wch: Math.min(Math.max(c.label.length * 2 + 2, 10), 40) }));
+  const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'F0F0F0' } }, alignment: { horizontal: 'center' as const } };
+  for (let C = 0; C < columns.length; C++) {
+    const addr = XLSX.utils.encode_cell({ r: 0, c: C });
+    if (ws[addr]) ws[addr].s = headStyle;
+  }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 };
 
 type Props = {
