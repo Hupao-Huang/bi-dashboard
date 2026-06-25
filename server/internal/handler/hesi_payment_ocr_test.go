@@ -26,6 +26,13 @@ func TestReconcilePayment(t *testing.T) {
 	if !f3 {
 		t.Error("付款200>发票100 应flag")
 	}
+	// 2元容差(跑哥6-25口径): 付款比发票多出 ≤2元 自动通过, >2元才flag
+	if f4, _, _ := reconcilePayment([]float64{102}, []float64{100}, paymentOverToleranceYuan); f4 {
+		t.Error("付款102 仅多2元(=容差) 不该flag")
+	}
+	if f5, _, _ := reconcilePayment([]float64{103}, []float64{100}, paymentOverToleranceYuan); !f5 {
+		t.Error("付款103 多3元(>容差) 应flag")
+	}
 }
 
 func TestCheckFlowPayment(t *testing.T) {
