@@ -138,6 +138,16 @@ func (h *DashboardHandler) checkFlowPayment(flowID string) PaymentCheck {
 	return PaymentCheck{Flag: flag, PayTotal: payTotal, InvTotal: invTotal, Pending: pending, Note: note}
 }
 
+// EnsurePaymentOcrTable 导出包装: 供 cmd/ocr-hesi-payment 等外部包调用。
+func EnsurePaymentOcrTable(db *sql.DB) error {
+	return ensurePaymentOcrTable(db)
+}
+
+// UpsertPaymentOcr 导出包装: 供 cmd/ocr-hesi-payment 等外部包调用。
+func UpsertPaymentOcr(db *sql.DB, fileID, flowID, fileName string, amount float64, status, raw string) error {
+	return upsertPaymentOcr(db, fileID, flowID, fileName, amount, status, raw)
+}
+
 // getPaymentOcrByFlow 按单据ID查该单所有截图的OCR摘要。
 func getPaymentOcrByFlow(db *sql.DB, flowID string) ([]paymentOcrRow, error) {
 	rows, err := db.Query(
