@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目本质
 
-松鲜鲜内部 BI 看板。前端 React + AntD + ECharts，后端 Go (`net/http` 标准库) + MySQL。聚合多源数据（吉客云 ERP、YS 用友 YonBIP、合思费控、11 平台运营 RPA Excel）做销售/库存/采购/财务/物流分析。**Windows 11 部署**（schtasks 调度，不是 cron），全栈 ~17,000 行 Go + ~30 个 React 业务页。
+松鲜鲜内部 BI 看板。前端 React + AntD + ECharts，后端 Go (`net/http` 标准库) + MySQL。聚合多源数据（吉客云 ERP、YS 用友 YonBIP、合思费控、11 平台运营 RPA Excel）做销售/库存/采购/财务/物流分析。**Windows 11 部署**（schtasks 调度，不是 cron）。全栈约 11 万行纯代码（后端 Go ~7.6 万 + 前端 ~3.1 万；精确数会随开发变，要看实时数用 `cloc --vcs git`，见 memory `reference_cloc`）。
 
 ## 常用命令
 
@@ -30,7 +30,7 @@ $pid = (Get-NetTCPConnection -LocalPort 8080 -State Listen).OwningProcess
 Stop-Process -Id $pid -Force
 Start-Process -FilePath "bi-server.exe" -WindowStyle Hidden
 
-# 构建独立 cli 工具（30+ 个 cmd/* 子目录）
+# 构建独立 cli 工具（80+ 个 cmd/* 子目录）
 cd server && go build -o import-tmall.exe ./cmd/import-tmall
 cd server && go build -o build-warehouse-flow-summary.exe ./cmd/build-warehouse-flow-summary
 
@@ -62,18 +62,12 @@ mysql -h127.0.0.1 -uroot -p<pwd> bi_dashboard
 - **后端响应包裹**: 所有 `writeJSON` 返回 `{code, data}` 结构，前端 `fetch().then(j => j.data.xxx)`，**不是直接 j.xxx**
 
 ### 后端 (`server/`)
-- **入口**: `cmd/server/main.go`（276 行，编译产物 = `bi-server.exe`，部署到 `server/` 根目录）
-- **Handler 层 `internal/handler/`** (~37k 行含测试 / 125 文件, 2026-05-26 校准 v1.74.5)：
-  - **dashboard 系列已拆完** (v0.96): `dashboard.go` (65 行 入口) + `dashboard_overview.go` (942) + `dashboard_department.go` (992) + `dashboard_cache.go` (131) + `dashboard_helpers.go` (172) + `dashboard_sproducts.go` (229)
-    - v1.74.3 拓范让 `dashboard_overview.go` 从 416 → 942 (加 5 个调拨 helper: loadEcommerceAllotAdjustment / DailyAllot / ShopAllot / GoodsAllotDetail + applyAllot* 子函数), `dashboard_department.go` 从 733 → 992 (helper 复用 + 即时零售部朴朴 inline SQL)
-  - **当前 top 5 大文件**:
-    - `yingdao_rpa.go` (1012) — 影刀 RPA 触发/状态/批量队列 (v1.66 加, 主题单一)
-    - `dashboard_department.go` (992) — 部门页详情 + crossDept=1 跨部门聚合 (v1.74.3 拓范)
-    - `task_monitor.go` (973) — schtasks 监控 + 手动跑任务 (主题略混杂, 可拆)
-    - `dashboard_overview.go` (942) — 综合看板 + 5 调拨 helper + instant_retail 朴朴 (v1.74.3+v1.74.3-3)
-    - `offline_sales_forecast.go` (929) — 销量预测算法 + 回测
-  - 其他高频: `supply_chain_dashboard.go` (865) / `business_report.go` (772) / `marketing_cost.go` (720) / `auth_seed.go` (680) / `hesi.go` (651) / `distribution_customer.go` (640) / `finance_report_query.go` (504)
-  - `auth.go` / `auth_login.go` / `auth_dingtalk.go` / `auth_session.go` — 用户/角色/钉钉 OAuth/审计 (v1.71.0+1.72.0 加强 errcheck + cleanup)
+- **入口**: `cmd/server/main.go`（编译产物 = `bi-server.exe`，部署到 `server/` 根目录）
+- **Handler 层 `internal/handler/`**：后端最大的层，近 200 个 .go 文件 / 约 5 万行（含测试）。具体文件数/行数会随开发变，**要看实时清单别信写死的数字**——用 `fuck-u-code analyze internal/handler --top 10`（按糟糕指数）或按行数排序实测。
+  - **dashboard 系列已拆分**: `dashboard.go`(入口) + `dashboard_overview.go` / `dashboard_department.go` / `dashboard_cache.go` / `dashboard_helpers.go` / `dashboard_sproducts.go`
+  - **行数/复杂度靠前的几个文件**（随重构变动）: dashboard_department / hesi / yonbip_outbound / yingdao_rpa(影刀RPA) / dashboard_overview / offline_sales_forecast(销量预测) / marketing_cost / task_monitor(schtasks监控) 等
+  - **合思审批规则引擎**: `hesi_audit_*.go`（规则 2-19，已按域拆 rules/params/common/invoice/travel/offline 多文件）—— 财务红线，改判定逻辑前必走 /code-review 二审 + 先补测试网
+  - `auth.go` / `auth_login.go` / `auth_dingtalk.go` / `auth_session.go` — 用户/角色/钉钉 OAuth/审计
   - `sync.go` / `task_monitor.go` — 同步触发/进度
 - **业务子模块**: `internal/jackyun/` (吉客云 SDK) / `internal/yonsuite/` (YS 用友) / `internal/finance/` (财务解析) / `internal/business/` (业务规则) / `internal/importutil/` (Excel 导入工具)
 - **数据库结构**:
@@ -86,10 +80,10 @@ mysql -h127.0.0.1 -uroot -p<pwd> bi_dashboard
 
 ### CLI 工具 (`server/cmd/`)
 - **`server/`** = 主 bi-server
-- **`import-*`** = 14 个 RPA Excel 导入器（每平台 1 个），由 webhook (`/api/webhook/sync-ops`) 或 schtasks 触发
+- **`import-*`** = 每平台一个 RPA Excel 导入器（现 ~19 个，随平台增减），由 webhook (`/api/webhook/sync-ops`) 或 schtasks 触发
 - **`sync-*`** = 同步工具（不在 cmd 下，独立编译；含 `sync-daily-trades` / `sync-trades-v2` / `sync-stock` 等）
 - **`probe-*`** / **`check-*`** / **`debug-*`** = 一次性探针/审计工具（已 .gitignore 部分）
-- **`build-warehouse-flow-summary/`** = 物化表重建（v0.60）
+- **`build-warehouse-flow-summary/`** = 物化表重建
 - **`diff-finance/`** + **`sheet-peek/`** = 财务报表 audit
 
 ### 外部系统
@@ -161,7 +155,7 @@ mysql -h127.0.0.1 -uroot -p<pwd> bi_dashboard
 - 双轨路由：handler 自动判断 `canUseSummary(ym)`，没物化降级到原 SQL
 
 ### CHANGELOG / 版本号
-- `CHANGELOG.md` 维护版本演进（v0.1.0 起步，当前 v0.60）
+- `CHANGELOG.md` 维护版本演进（v0.1.0 起步；**当前版本号以 `CHANGELOG.md` 顶部为准，本文件不写死**——现已 v1.77.x 量级）
 - 每次 commit 走 `<type>(<scope>): 主题 — 详情` 格式（中文 em dash）
 
 ## 用户记忆系统
@@ -185,7 +179,7 @@ BI 看板**保持"改完直接生产"模式**（不上 staging）。35-43 人内
 1. **错峰重启** —— 避开 09:00-09:30 / 14:00-14:30 / 月初 1-5 号 / 月底盘点
 2. **重大改动发钉钉** —— 新增页面/改业务规则/调字段时，给同事发一句"HH:MM 重启 30 秒新增 XX，刷新即可"
 3. **业务红线（必须先本地跑通才推）**：
-   - 业务规则/算法（KPI 公式 / 客服平均 / 财务科目 / 库存计费）—— `/codex` 二审
+   - 业务规则/算法（KPI 公式 / 客服平均 / 财务科目 / 库存计费）—— `/code-review` 二审（本机 codex 不可用，一律用 /code-review，见 memory `feedback_no_codex_use_code_review`）
    - 数据库 schema 变更（加表/删表/改字段）
    - 定时任务调度 / 关停同步
    - main.go / 路由 / 权限
@@ -210,7 +204,7 @@ Key routing rules:
 - 改了代码后 / "看下我的改动" / 代码审查 → invoke /review
 - 视觉细节 / "看着不对" / 设计稿审查 → invoke /design-review
 - 部署 / "上线" / 创建 PR / "推上去" → invoke /ship
-- 第二意见 / "另一个 AI 看看" / 高风险改动复核 → invoke /codex
+- 第二意见 / "另一个 AI 看看" / 高风险改动复核 → invoke /code-review（本机 codex 不可用，不用 /codex）
 - 安全模式 / "小心点" / "锁起来" → invoke /careful 或 /guard
 - 限制改动范围到某目录 → invoke /freeze 或 /unfreeze
 - 浏览网页 / 看 GitHub 仓库 / 看文档 → invoke /browse (禁用 mcp__claude-in-chrome__*)
@@ -219,8 +213,8 @@ Key routing rules:
 - 升级 gstack 工具 → invoke /gstack-upgrade
 
 BI 看板特定规则 (按 v0.94 客服越界教训定制):
-- **改任何业务规则/算法/口径前必须先 invoke /codex 二审**
+- **改任何业务规则/算法/口径前必须先 invoke /code-review 二审**（本机 codex 不可用，一律 /code-review）
   涵盖: 客服 KPI 算法 / 财务科目映射 / 销售部门口径 / 库存计费规则 / 业务预决算公式
-  决策点: "这是技术 bug 修复? 还是业务规则改造?" 后者必须 /codex
+  决策点: "这是技术 bug 修复? 还是业务规则改造?" 后者必须 /code-review
 - 改完代码自检完后 invoke /qa 浏览器实测一遍 (smoke 401 不算实测)
 - 多 commit 攒够 4 个以上不要直接 commit, 先 invoke /review 复盘是否分批合理
