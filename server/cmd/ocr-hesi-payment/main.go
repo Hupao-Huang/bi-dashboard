@@ -101,9 +101,13 @@ func getAttachmentURLs(token string, flowIDs []string) (map[string]attachInfo, e
 
 		body := map[string]interface{}{"flowIds": batch}
 		b, _ := json.Marshal(body)
-		req, _ := http.NewRequest("POST",
+		req, err := http.NewRequest("POST",
 			fmt.Sprintf("%s/api/openapi/v1/flowDetails/attachment?accessToken=%s", hesiAPIBase, token),
 			bytes.NewReader(b))
+		if err != nil {
+			log.Printf("[ocr-hesi-payment] 构造附件请求失败 batch: %v", err)
+			continue
+		}
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := client.Do(req)
@@ -175,12 +179,13 @@ func downloadImage(url string) ([]byte, error) {
 	return data, nil
 }
 
-// truncate 截断字符串到最多 n 个字节(避免 raw_text 字段超长)
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
+// truncate 限制为最多 maxRunes 个字符(按rune, 不切断多字节中文; 配合 VARCHAR(500))
+func truncate(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) > maxRunes {
+		return string(r[:maxRunes])
 	}
-	return s[:n]
+	return s
 }
 
 // pendingRow 是待OCR的一行记录
