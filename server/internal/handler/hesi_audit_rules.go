@@ -519,6 +519,13 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		warnings = append(warnings, r18Warn...)
 	}
 
+	// 规则 19: 付款截图金额 vs 发票总额核对 (口径B, 跑哥 2026-06-25)
+	// 付款截图实付总额 > 发票价税合计总额 → 转人工复核 (warnings → Action "manual")。
+	// Pending(截图还没OCR完) / 查询出错 → checkFlowPayment 返回 Flag=false, 此处不动判定。
+	if pc := h.checkFlowPayment(flowID); pc.Flag {
+		warnings = append(warnings, pc.Note)
+	}
+
 	// 优先级: reject > manual > agree
 	if len(rejectReasons) > 0 {
 		all := rejectReasons
