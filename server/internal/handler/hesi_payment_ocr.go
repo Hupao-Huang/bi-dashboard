@@ -20,7 +20,7 @@ func ensurePaymentOcrTable(db *sql.DB) error {
   amount     DECIMAL(14,4)         COMMENT 'OCR识别的实付金额(保留符号)',
   status     VARCHAR(16)  NOT NULL COMMENT 'ok/fail/skip',
   raw_text   VARCHAR(500)          COMMENT 'OCR原始返回',
-  updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (file_id),
   KEY idx_flow (flow_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='合思付款截图OCR结果缓存'`)
