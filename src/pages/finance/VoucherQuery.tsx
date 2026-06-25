@@ -3,6 +3,7 @@ import { Card, Table, Select, DatePicker, InputNumber, Button, Space, Tag, messa
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { API_BASE } from '../../config';
+import AccbookPicker from '../../components/AccbookPicker';
 
 // 财务-凭证查询 (2026-06-16, 仅超管)
 // 实时查用友 YS 凭证, 不入库。选账簿+账期查凭证头, 点开看分录明细(借贷)。
@@ -191,17 +192,11 @@ const VoucherQuery: React.FC = () => {
         <Space size="middle" wrap>
           <span>
             账簿：
-            <Select
-              mode="multiple"
-              showSearch
-              allowClear
-              maxTagCount="responsive"
-              style={{ minWidth: 320, maxWidth: 560 }}
-              placeholder="选择账簿(可多选)"
+            <AccbookPicker
+              books={accbooks}
               value={accbookCodes}
               onChange={setAccbookCodes}
-              optionFilterProp="label"
-              options={accbooks.map(a => ({ label: `${a.code} ${a.name}`, value: a.code }))}
+              style={{ minWidth: 320, maxWidth: 560 }}
             />
           </span>
           <span>
