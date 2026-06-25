@@ -98,29 +98,11 @@ func (h *DashboardHandler) checkFlowPayment(flowID string) PaymentCheck {
 		}
 	}
 
-	// 3. 查发票金额
-	invRows, err := h.DB.Query(
-		`SELECT total_amount FROM hesi_flow_invoice WHERE flow_id=?`,
-		flowID,
-	)
-	if err != nil {
-		return PaymentCheck{Note: "查询发票金额失败"}
-	}
-	defer invRows.Close()
-	var invTotals []float64
-	for invRows.Next() {
-		var v float64
-		if err := invRows.Scan(&v); err != nil {
-			return PaymentCheck{Note: "查询发票金额失败"}
-		}
-		invTotals = append(invTotals, v)
-	}
-	if err := invRows.Err(); err != nil {
-		return PaymentCheck{Note: "查询发票金额失败"}
-	}
+	// 3. 查发票金额 (复用 sumInvoiceTotal，IFNULL 处理 NULL total_amount)
+	invSum := h.sumInvoiceTotal(flowID)
 
 	// 4. 对账
-	flag, payTotal, invTotal := reconcilePayment(okAmounts, invTotals, 0.01)
+	flag, payTotal, invTotal := reconcilePayment(okAmounts, []float64{invSum}, 0.01)
 
 	// 5. 有未完成OCR时不下判定
 	if pending {
