@@ -26,4 +26,13 @@ func TestUpsertAndGetPaymentOcr(t *testing.T) {
 	if err != nil || len(got) != 2 {
 		t.Fatalf("got %v err %v", got, err)
 	}
+	if got[0].FileID != "fileA" || got[0].Amount != 175.91 || got[0].Status != "ok" {
+		t.Errorf("row 0: got %+v", got[0])
+	}
+	if got[1].FileID != "fileB" || got[1].Amount != -118.0 || got[1].Status != "ok" {
+		t.Errorf("row 1 (负数金额): got %+v", got[1])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("未满足的 mock 期望: %v", err)
+	}
 }
