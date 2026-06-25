@@ -81,8 +81,14 @@ func RecognizePaymentAmount(ctx context.Context, apiKey string, img []byte) (amo
 			},
 		}},
 	}
-	bs, _ := json.Marshal(body)
-	req, _ := http.NewRequestWithContext(ctx, "POST", dashScopeEndpoint, bytes.NewReader(bs))
+	bs, err := json.Marshal(body)
+	if err != nil {
+		return 0, "", fmt.Errorf("序列化OCR请求体失败: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", dashScopeEndpoint, bytes.NewReader(bs))
+	if err != nil {
+		return 0, "", fmt.Errorf("构造OCR请求失败: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	// 阿里云直连, 不走 env 代理
@@ -96,12 +102,16 @@ func RecognizePaymentAmount(ctx context.Context, apiKey string, img []byte) (amo
 		Choices []struct {
 			Message struct{ Content string } `json:"message"`
 		} `json:"choices"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return 0, "", err
 	}
 	if resp.StatusCode != 200 || len(out.Choices) == 0 {
-		return 0, "", fmt.Errorf("ocr http %d", resp.StatusCode)
+		return 0, "", fmt.Errorf("OCR调用失败 http %d: %s %s", resp.StatusCode, out.Error.Code, out.Error.Message)
 	}
 	raw = out.Choices[0].Message.Content
 	amt, err := ParseAmount(raw)

@@ -52,4 +52,22 @@ func TestShrinkJPEG(t *testing.T) {
 	if cfg.Height != 1280 || cfg.Width != 640 {
 		t.Errorf("缩后尺寸 = %dx%d, want 640x1280", cfg.Width, cfg.Height)
 	}
+
+	// 不放大：长边 ≤ longest 时原尺寸不变
+	small := image.NewRGBA(image.Rect(0, 0, 640, 480))
+	var buf2 bytes.Buffer
+	if err := png.Encode(&buf2, small); err != nil {
+		t.Fatal(err)
+	}
+	out2, err := ShrinkJPEG(buf2.Bytes(), 1280)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg2, _, err := image.DecodeConfig(bytes.NewReader(out2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg2.Width != 640 || cfg2.Height != 480 {
+		t.Errorf("不放大: 尺寸 = %dx%d, want 640x480", cfg2.Width, cfg2.Height)
+	}
 }
