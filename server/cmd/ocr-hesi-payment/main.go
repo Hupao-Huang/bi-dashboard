@@ -439,6 +439,11 @@ WHERE f.form_type='expense' AND f.state IN ('approving','pending')
 		text, err := ocr.TranscribeText(ctx, apiKey, img)
 		if err != nil {
 			log.Printf("[fx][%d/%d] 转写失败: %v", i+1, len(pending), err)
+			// 写 is_foreign=0 占位, 防坏图每轮重下重OCR烧钱(转写失败多为图本身问题)。
+			// 保守判非外币→走正常规则10(无票仍可能被驳), 是安全侧(不会误自动放行)。(二审修)
+			if upErr := handler.UpsertForeignScan(db, row.FileID, row.FlowID, row.FileName, false, truncate("转写失败: "+err.Error(), 500)); upErr != nil {
+				log.Printf("[fx][%d/%d] 失败占位 upsert 失败: %v", i+1, len(pending), upErr)
+			}
 			continue
 		}
 		isForeign := ocr.HasForeignCurrencyMarker(text)
