@@ -653,7 +653,8 @@ func saveDetails(db *sql.DB, flowId string, form map[string]interface{}) error {
 		return nil
 	}
 
-	var flowInvKeys [][2]string // 全单当前所有 (detailId, invoiceId), 循环后删不在其中的发票残留 (跑哥 2026-06-17)
+	var flowInvKeys [][2]string  // 全单当前所有 (detailId, invoiceId), 循环后删不在其中的发票残留 (跑哥 2026-06-17)
+	var currentDetailIds []string // 全单当前所有 detailId, 循环后删不在其中的明细残留 (跑哥 2026-06-25)
 	for i, d := range detailList {
 		det, ok := d.(map[string]interface{})
 		if !ok {
@@ -668,6 +669,9 @@ func saveDetails(db *sql.DB, flowId string, form map[string]interface{}) error {
 		}
 
 		detailId := getStr(ftf, "detailId")
+		if detailId != "" {
+			currentDetailIds = append(currentDetailIds, detailId)
+		}
 		amount := getMoney(ftf, "amount")
 		feeDate := getInt64(ftf, "feeDate")
 		reasons := getStr(ftf, "consumptionReasons")
@@ -735,6 +739,9 @@ func saveDetails(db *sql.DB, flowId string, form map[string]interface{}) error {
 	// 防驳回换发票后旧发票残留致规则8-1/8-2误报。仅当解析到≥1张当前发票才清(全单无发票时保守不动,
 	// 防合思偶发不返发票误删全单) (跑哥 2026-06-17)。
 	pruneFlowInvoices(db, flowId, flowInvKeys)
+	// 单据级删残留(明细): 删掉该单"当前 raw_json 已没有"的费用明细行(如合思里删掉的过路费),
+	// 防机器人/详情页显示幽灵明细 (B26001907 过路费案例, 跑哥 2026-06-25)。空集保守不删, 对称发票清理。
+	pruneFlowDetails(db, flowId, currentDetailIds)
 	return nil
 }
 
@@ -754,6 +761,25 @@ func pruneFlowInvoices(db *sql.DB, flowId string, keys [][2]string) {
 	}
 	if _, err := db.Exec(`DELETE FROM hesi_flow_invoice WHERE flow_id=? AND (detail_id, invoice_id) NOT IN (`+tuples+`)`, args...); err != nil {
 		log.Printf("[sync-hesi] prune flow invoice 失败 flow=%s: %v", flowId, err)
+	}
+}
+
+// pruneFlowDetails 删除某单"合思已移除"的费用明细残留, 保持 hesi_flow_detail 与单据当前明细一致。
+// detailIds = 当前 raw_json 全部明细的 detailId。按 detail_id NOT IN 删, 清掉"合思里删掉的费用行"(如过路费)的残留,
+// 防机器人/详情页显示幽灵明细 (B26001907 过路费案例, 跑哥 2026-06-25)。
+// detailIds 空(全单当前无明细)→ 保守不删, 防合思偶发不返明细把整单明细误删 (对称 pruneFlowInvoices)。
+func pruneFlowDetails(db *sql.DB, flowId string, detailIds []string) {
+	if flowId == "" || len(detailIds) == 0 {
+		return
+	}
+	ph := strings.TrimRight(strings.Repeat("?,", len(detailIds)), ",")
+	args := make([]interface{}, 0, len(detailIds)+1)
+	args = append(args, flowId)
+	for _, id := range detailIds {
+		args = append(args, id)
+	}
+	if _, err := db.Exec(`DELETE FROM hesi_flow_detail WHERE flow_id=? AND detail_id NOT IN (`+ph+`)`, args...); err != nil {
+		log.Printf("[sync-hesi] prune flow detail 失败 flow=%s: %v", flowId, err)
 	}
 }
 
