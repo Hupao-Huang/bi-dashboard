@@ -236,7 +236,7 @@ func main() {
 	baseSQL := `SELECT a.flow_id, a.file_id, a.file_name
 FROM hesi_flow_attachment a
 JOIN hesi_flow f ON f.flow_id = a.flow_id
-WHERE f.form_type='expense' AND f.state='approving'
+WHERE f.form_type='expense' AND f.state IN ('approving','pending')
   AND a.is_invoice=0
   AND (LOWER(a.file_name) LIKE '%.jpg' OR LOWER(a.file_name) LIKE '%.jpeg' OR LOWER(a.file_name) LIKE '%.png')
   AND (a.file_name LIKE '%付款%' OR a.file_name LIKE '%支付%' OR a.file_name LIKE '%转账%' OR a.file_name LIKE '%回单%' OR a.file_name LIKE '%账单%')

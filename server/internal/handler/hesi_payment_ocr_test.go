@@ -40,10 +40,10 @@ func TestCheckFlowPayment(t *testing.T) {
 		mock.ExpectQuery("SELECT file_id, amount, status FROM hesi_payment_ocr WHERE flow_id=").
 			WithArgs("flowX").WillReturnRows(ocrRows)
 
-		// hesi_flow_invoice SELECT
-		invRows := sqlmock.NewRows([]string{"total_amount"}).
-			AddRow(175.91).AddRow(118.0)
-		mock.ExpectQuery("SELECT total_amount FROM hesi_flow_invoice WHERE flow_id=").
+		// sumInvoiceTotal: SELECT SUM(IFNULL(total_amount,0)) FROM hesi_flow_invoice WHERE flow_id=?
+		invRows := sqlmock.NewRows([]string{"SUM(IFNULL(total_amount,0))"}).
+			AddRow(293.91)
+		mock.ExpectQuery(`SELECT SUM\(IFNULL\(total_amount,0\)\) FROM hesi_flow_invoice WHERE flow_id=`).
 			WithArgs("flowX").WillReturnRows(invRows)
 
 		h := &DashboardHandler{DB: db}
@@ -75,9 +75,10 @@ func TestCheckFlowPayment(t *testing.T) {
 		mock.ExpectQuery("SELECT file_id, amount, status FROM hesi_payment_ocr WHERE flow_id=").
 			WithArgs("flowY").WillReturnRows(ocrRows)
 
-		invRows := sqlmock.NewRows([]string{"total_amount"}).
+		// sumInvoiceTotal: SUM返回100, 付款200 > 发票100 → flag
+		invRows := sqlmock.NewRows([]string{"SUM(IFNULL(total_amount,0))"}).
 			AddRow(100.0)
-		mock.ExpectQuery("SELECT total_amount FROM hesi_flow_invoice WHERE flow_id=").
+		mock.ExpectQuery(`SELECT SUM\(IFNULL\(total_amount,0\)\) FROM hesi_flow_invoice WHERE flow_id=`).
 			WithArgs("flowY").WillReturnRows(invRows)
 
 		h := &DashboardHandler{DB: db}
@@ -104,9 +105,10 @@ func TestCheckFlowPayment(t *testing.T) {
 		mock.ExpectQuery("SELECT file_id, amount, status FROM hesi_payment_ocr WHERE flow_id=").
 			WithArgs("flowZ").WillReturnRows(ocrRows)
 
-		invRows := sqlmock.NewRows([]string{"total_amount"}).
+		// sumInvoiceTotal SUM
+		invRows := sqlmock.NewRows([]string{"SUM(IFNULL(total_amount,0))"}).
 			AddRow(100.0)
-		mock.ExpectQuery("SELECT total_amount FROM hesi_flow_invoice WHERE flow_id=").
+		mock.ExpectQuery(`SELECT SUM\(IFNULL\(total_amount,0\)\) FROM hesi_flow_invoice WHERE flow_id=`).
 			WithArgs("flowZ").WillReturnRows(invRows)
 
 		h := &DashboardHandler{DB: db}
