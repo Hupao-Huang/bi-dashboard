@@ -4,10 +4,128 @@ package handler
 // sqlmock default matcher = regexp
 
 import (
+	"math"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+func TestReconcilePayment(t *testing.T) {
+	// B26003890: 付款 175.91+118 = 293.91, 发票 293.91 → 不flag
+	f, p, i := reconcilePayment([]float64{175.91, 118}, []float64{175.91, 118}, 0.01)
+	if f || math.Abs(p-293.91) > 0.001 || math.Abs(i-293.91) > 0.001 {
+		t.Errorf("890: flag=%v pay=%v inv=%v", f, p, i)
+	}
+	// B26003807 差旅: 付款 |−529|+|−564| = 1093, 发票 1241.20 → 付款<发票 → 不flag
+	f2, _, _ := reconcilePayment([]float64{-529, -564}, []float64{529, 564, 35.72, 11.09, 23.34, 15.95, 26, 26.09, 10.01}, 0.01)
+	if f2 {
+		t.Error("差旅 付款<发票 不该flag")
+	}
+	// 付款 > 发票 → flag
+	f3, _, _ := reconcilePayment([]float64{200}, []float64{100}, 0.01)
+	if !f3 {
+		t.Error("付款200>发票100 应flag")
+	}
+}
+
+func TestCheckFlowPayment(t *testing.T) {
+	t.Run("付款=发票 不flag", func(t *testing.T) {
+		db, mock, _ := sqlmock.New()
+		defer db.Close()
+
+		// getPaymentOcrByFlow SELECT
+		ocrRows := sqlmock.NewRows([]string{"file_id", "amount", "status"}).
+			AddRow("fileA", 175.91, "ok").
+			AddRow("fileB", -118.0, "ok")
+		mock.ExpectQuery("SELECT file_id, amount, status FROM hesi_payment_ocr WHERE flow_id=").
+			WithArgs("flowX").WillReturnRows(ocrRows)
+
+		// hesi_flow_invoice SELECT
+		invRows := sqlmock.NewRows([]string{"total_amount"}).
+			AddRow(175.91).AddRow(118.0)
+		mock.ExpectQuery("SELECT total_amount FROM hesi_flow_invoice WHERE flow_id=").
+			WithArgs("flowX").WillReturnRows(invRows)
+
+		h := &DashboardHandler{DB: db}
+		got := h.checkFlowPayment("flowX")
+
+		if got.Flag {
+			t.Errorf("付款=发票 不应flag, got=%+v", got)
+		}
+		if math.Abs(got.PayTotal-293.91) > 0.001 {
+			t.Errorf("PayTotal=%.4f, want 293.91", got.PayTotal)
+		}
+		if math.Abs(got.InvTotal-293.91) > 0.001 {
+			t.Errorf("InvTotal=%.4f, want 293.91", got.InvTotal)
+		}
+		if got.Pending {
+			t.Error("Pending 应为 false")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("未满足的 mock 期望: %v", err)
+		}
+	})
+
+	t.Run("付款>发票 flag=true", func(t *testing.T) {
+		db, mock, _ := sqlmock.New()
+		defer db.Close()
+
+		ocrRows := sqlmock.NewRows([]string{"file_id", "amount", "status"}).
+			AddRow("fileC", 200.0, "ok")
+		mock.ExpectQuery("SELECT file_id, amount, status FROM hesi_payment_ocr WHERE flow_id=").
+			WithArgs("flowY").WillReturnRows(ocrRows)
+
+		invRows := sqlmock.NewRows([]string{"total_amount"}).
+			AddRow(100.0)
+		mock.ExpectQuery("SELECT total_amount FROM hesi_flow_invoice WHERE flow_id=").
+			WithArgs("flowY").WillReturnRows(invRows)
+
+		h := &DashboardHandler{DB: db}
+		got := h.checkFlowPayment("flowY")
+
+		if !got.Flag {
+			t.Errorf("付款200>发票100 应flag, got=%+v", got)
+		}
+		if got.Note == "" {
+			t.Error("Flag=true 时 Note 不应为空")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("未满足的 mock 期望: %v", err)
+		}
+	})
+
+	t.Run("有pending截图 flag强制false", func(t *testing.T) {
+		db, mock, _ := sqlmock.New()
+		defer db.Close()
+
+		ocrRows := sqlmock.NewRows([]string{"file_id", "amount", "status"}).
+			AddRow("fileD", 200.0, "ok").
+			AddRow("fileE", 0.0, "fail")
+		mock.ExpectQuery("SELECT file_id, amount, status FROM hesi_payment_ocr WHERE flow_id=").
+			WithArgs("flowZ").WillReturnRows(ocrRows)
+
+		invRows := sqlmock.NewRows([]string{"total_amount"}).
+			AddRow(100.0)
+		mock.ExpectQuery("SELECT total_amount FROM hesi_flow_invoice WHERE flow_id=").
+			WithArgs("flowZ").WillReturnRows(invRows)
+
+		h := &DashboardHandler{DB: db}
+		got := h.checkFlowPayment("flowZ")
+
+		if got.Flag {
+			t.Errorf("有pending时 flag 应强制false, got=%+v", got)
+		}
+		if !got.Pending {
+			t.Error("Pending 应为 true")
+		}
+		if got.Note != "部分付款截图待识别" {
+			t.Errorf("Note 不对: %q", got.Note)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("未满足的 mock 期望: %v", err)
+		}
+	})
+}
 
 func TestUpsertAndGetPaymentOcr(t *testing.T) {
 	db, mock, _ := sqlmock.New()

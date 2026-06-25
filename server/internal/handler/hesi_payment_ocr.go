@@ -8,6 +8,7 @@ package handler
 import (
 	"database/sql"
 	"fmt"
+	"math"
 )
 
 // ensurePaymentOcrTable 懒建表：建 hesi_payment_ocr（幂等，CREATE TABLE IF NOT EXISTS）。
@@ -51,6 +52,90 @@ func upsertPaymentOcr(db *sql.DB, fileID, flowID, fileName string, amount float6
 		return fmt.Errorf("upsertPaymentOcr: %w", err)
 	}
 	return nil
+}
+
+// reconcilePayment 对账纯函数（口径B）：
+// payTotal = Σ|payAmounts|（取绝对值，兼容负号支出）
+// invTotal = ΣinvoiceTotals
+// flag = payTotal > invTotal + tolerance（付款超发票才需人工复核）
+func reconcilePayment(payAmounts, invoiceTotals []float64, tolerance float64) (bool, float64, float64) {
+	var pay, inv float64
+	for _, a := range payAmounts {
+		pay += math.Abs(a)
+	}
+	for _, t := range invoiceTotals {
+		inv += t
+	}
+	return pay > inv+tolerance, pay, inv
+}
+
+// PaymentCheck 汇总付款截图与发票的对账结果，供审批建议(Task 6)消费。
+type PaymentCheck struct {
+	Flag     bool    // true = 付款>发票, 建议人工复核
+	PayTotal float64 // 付款截图实付总额(绝对值)
+	InvTotal float64 // 发票价税合计总额
+	Pending  bool    // 有付款截图还没OCR成功, 暂不判定
+	Note     string  // 给审批建议看的说明
+}
+
+// checkFlowPayment 查询某单的付款截图OCR结果和发票金额，输出对账结论。
+// 仅统计 status=ok 的截图金额；有 status!=ok 的截图时 Pending=true，Flag 强制 false。
+func (h *DashboardHandler) checkFlowPayment(flowID string) PaymentCheck {
+	// 1. 读付款截图OCR结果
+	ocrRows, err := getPaymentOcrByFlow(h.DB, flowID)
+	if err != nil {
+		return PaymentCheck{Note: "查询付款OCR缓存失败"}
+	}
+
+	// 2. 分类：ok 的金额 + 是否有 pending
+	var okAmounts []float64
+	pending := false
+	for _, r := range ocrRows {
+		if r.Status == "ok" {
+			okAmounts = append(okAmounts, r.Amount)
+		} else {
+			pending = true
+		}
+	}
+
+	// 3. 查发票金额
+	invRows, err := h.DB.Query(
+		`SELECT total_amount FROM hesi_flow_invoice WHERE flow_id=?`,
+		flowID,
+	)
+	if err != nil {
+		return PaymentCheck{Note: "查询发票金额失败"}
+	}
+	defer invRows.Close()
+	var invTotals []float64
+	for invRows.Next() {
+		var v float64
+		if err := invRows.Scan(&v); err != nil {
+			return PaymentCheck{Note: "查询发票金额失败"}
+		}
+		invTotals = append(invTotals, v)
+	}
+	if err := invRows.Err(); err != nil {
+		return PaymentCheck{Note: "查询发票金额失败"}
+	}
+
+	// 4. 对账
+	flag, payTotal, invTotal := reconcilePayment(okAmounts, invTotals, 0.01)
+
+	// 5. 有未完成OCR时不下判定
+	if pending {
+		flag = false
+	}
+
+	// 6. 组装说明
+	var note string
+	if flag {
+		note = fmt.Sprintf("付款截图实付 ¥%.2f 超过发票总额 ¥%.2f, 建议人工复核", payTotal, invTotal)
+	} else if pending {
+		note = "部分付款截图待识别"
+	}
+
+	return PaymentCheck{Flag: flag, PayTotal: payTotal, InvTotal: invTotal, Pending: pending, Note: note}
 }
 
 // getPaymentOcrByFlow 按单据ID查该单所有截图的OCR摘要。
