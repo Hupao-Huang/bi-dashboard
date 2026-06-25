@@ -45,21 +45,103 @@ var adFeeTypes = map[string]bool{
 //   - 豁免 C: u_无票原因截图说明 (实查 0 单, 当前不实现, 等合思后台加字段)
 //
 // 返回 (rejectReasons, warnings)
+
 func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDeptID, flowID string, isForeign bool) ([]string, []string) {
 	if flowID == "" {
 		return nil, nil
 	}
 
-	// 拉单据全部发票 + LEFT JOIN detail 拿 detail_no 行号
-	type inv struct {
-		detailID  string
-		detailNo  int
-		buyerName string
-		taxNo     string
-		date      int64
-		total     float64
-		approve   float64
+	// 拉单据全部发票 (读取失败/不完整 → 整体转人工)
+	invoices, loadErr := h.loadFlowInvoicesForAudit(flowID)
+	if loadErr != "" {
+		return nil, []string{loadErr}
 	}
+
+	// 从 raw_json 建明细索引 (行号/金额/fee_type, 用于规则 8-3 + 规则 10)
+	dm := buildInvoiceDetailMaps(raw, invoices)
+
+	detailHasInvoice := map[string]bool{}
+	for _, iv := range invoices {
+		detailHasInvoice[iv.detailID] = true
+	}
+
+	// 规则 10: 无票判定 + 豁免 (A 研发样品 / B 补贴 / D 私车 / E 外币)
+	isResearch := h.isResearchDept(ownerDeptID)
+	noInvoiceReject, missingFeeType := checkNoInvoiceExemptions(dm.allIDs, detailHasInvoice, dm.feeType, dm.no, isResearch, isForeign)
+
+	var missingFeeTypeWarn []string
+	if len(missingFeeType) > 0 {
+		missingFeeTypeWarn = append(missingFeeTypeWarn, fmt.Sprintf("明细 %v 无发票且费用类型缺失, 豁免无法自动判定, 需人工核 (规则 10)", uniqueInts(missingFeeType)))
+	}
+	if len(invoices) == 0 {
+		// 无发票时, 只跑规则 10 — 其他规则 8-1/8-2/8-3/8-4 都不适用
+		if len(noInvoiceReject) > 0 {
+			return []string{fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/私车公用/特殊截图说明 豁免)", uniqueInts(noInvoiceReject))}, missingFeeTypeWarn
+		}
+		return nil, missingFeeTypeWarn
+	}
+
+	var rejects, warnings []string
+	warnings = append(warnings, missingFeeTypeWarn...)
+
+	// 拉所属公司 (法人实体) 的开票字典 (抬头/税号)
+	legalEntityID, _ := raw["法人实体"].(string)
+	var expectedTitle, expectedTaxNo string
+	if legalEntityID != "" {
+		_ = h.DB.QueryRow(`SELECT IFNULL(invoice_title,''), IFNULL(tax_no,'') FROM hesi_legal_entity_invoice_info WHERE legal_entity_id = ? AND active=1 LIMIT 1`,
+			legalEntityID).Scan(&expectedTitle, &expectedTaxNo)
+	}
+
+	// 规则 8-1/8-2: 抬头 + 税号 vs 法人实体
+	r81, w81 := checkInvoiceTitleTax(invoices, dm.no, expectedTitle, expectedTaxNo)
+	rejects = append(rejects, r81...)
+	warnings = append(warnings, w81...)
+
+	// 规则 8-3: 每明细发票合计 ≥ 明细金额 (定额发票识别不出转人工)
+	r83, w83 := checkInvoiceAmount(dm.amt, invoices, dm.no, detailHasInvoice)
+	rejects = append(rejects, r83...)
+	warnings = append(warnings, w83...)
+
+	// 规则 8-4: 开票时间 (距单据提交) ≤1月 OK / 1-3月 manual / >3月 reject
+	submitDate := int64(0)
+	if v, ok := raw["submitDate"].(float64); ok {
+		submitDate = int64(v)
+	}
+	r84, w84 := checkInvoiceDate(invoices, dm.no, dm.feeType, submitDate)
+	rejects = append(rejects, r84...)
+	warnings = append(warnings, w84...)
+
+	// 规则 10: 部分明细无票且不豁免 → reject (有票明细的规则 8 已上面跑过)
+	if len(noInvoiceReject) > 0 {
+		rejects = append(rejects, fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/私车公用/特殊截图说明 豁免)", uniqueInts(noInvoiceReject)))
+	}
+
+	return rejects, warnings
+}
+
+// invoiceRow 单据一张发票的关键字段 (规则 8/10 用)。原为 ruleInvoiceChecks 内的局部类型, 拆子函数后提到包级共享。
+type invoiceRow struct {
+	detailID  string
+	detailNo  int
+	buyerName string
+	taxNo     string
+	date      int64
+	total     float64
+	approve   float64
+}
+
+// invoiceDetailIndex 从 raw_json details 建出的明细索引: detail_id → 金额/行号/fee_type + 全部 detail_id 列表。
+type invoiceDetailIndex struct {
+	amt     map[string]float64
+	no      map[string]int
+	feeType map[string]string
+	allIDs  []string
+}
+
+// loadFlowInvoicesForAudit 拉单据全部发票 (LEFT JOIN detail 拿 detail_no 行号)。
+// 返回 (发票列表, 错误提示)。错误提示非空时调用方应整体转人工 —— 区分"读取失败"(查询出错)与
+// "读取不完整"(行解析/中断), 文案与拆分前逐字一致。
+func (h *DashboardHandler) loadFlowInvoicesForAudit(flowID string) ([]invoiceRow, string) {
 	rows, err := h.DB.Query(`SELECT
 		IFNULL(i.detail_id,''), IFNULL(d.detail_no, 0),
 		IFNULL(i.buyer_name,''), IFNULL(i.buyer_tax_no,''),
@@ -69,13 +151,13 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 		WHERE i.flow_id = ?`, flowID)
 	if err != nil {
 		log.Printf("[hesi-audit] 规则8/10 查发票失败 flow=%s: %v", flowID, err)
-		return nil, []string{"发票数据读取失败, 规则 8/10 未自动判定, 需人工核发票"}
+		return nil, "发票数据读取失败, 规则 8/10 未自动判定, 需人工核发票"
 	}
 	defer rows.Close()
-	var invoices []inv
+	var invoices []invoiceRow
 	invoiceReadBroken := false
 	for rows.Next() {
-		var i inv
+		var i invoiceRow
 		if err := rows.Scan(&i.detailID, &i.detailNo, &i.buyerName, &i.taxNo, &i.date, &i.total, &i.approve); err == nil {
 			invoices = append(invoices, i)
 		} else {
@@ -91,10 +173,14 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 	}
 	// 发票数据不完整时规则 8/10 两个方向都会判错 (漏驳/误驳), 整体降级转人工
 	if invoiceReadBroken {
-		return nil, []string{"发票数据读取不完整, 规则 8/10 未自动判定, 需人工核发票"}
+		return nil, "发票数据读取不完整, 规则 8/10 未自动判定, 需人工核发票"
 	}
-	// 拉 details (从 raw_json) → 行号/金额/fee_type (用于规则 8-3 + 规则 10)
-	details, _ := raw["details"].([]interface{})
+	return invoices, ""
+}
+
+// buildInvoiceDetailMaps 从 raw_json.details 建明细索引 (detailId/detailNo/amount 嵌在 feeTypeForm 子对象,
+// feeTypeId 在 detail 顶层; 合思 raw_json 结构实查)。detailNo 先取发票上的 (>0), 再用明细自填覆盖。
+func buildInvoiceDetailMaps(raw map[string]interface{}, invoices []invoiceRow) invoiceDetailIndex {
 	detailAmtMap := map[string]float64{}
 	detailNoMap := map[string]int{}
 	detailFeeTypeMap := map[string]string{}
@@ -104,12 +190,12 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 			detailNoMap[iv.detailID] = iv.detailNo
 		}
 	}
+	details, _ := raw["details"].([]interface{})
 	for _, d := range details {
 		dm, _ := d.(map[string]interface{})
 		if dm == nil {
 			continue
 		}
-		// detailId/detailNo/amount 都嵌在 feeTypeForm 子对象里 (合思 raw_json 结构实查)
 		form, _ := dm["feeTypeForm"].(map[string]interface{})
 		if form == nil {
 			continue
@@ -122,7 +208,6 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 		if no, ok := form["detailNo"].(float64); ok && int(no) > 0 {
 			detailNoMap[did] = int(no)
 		}
-		// feeTypeId 在 detail 顶层 (跟其他规则一致)
 		if ft, ok := dm["feeTypeId"].(string); ok {
 			detailFeeTypeMap[did] = ft
 		}
@@ -134,20 +219,17 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 			}
 		}
 	}
+	return invoiceDetailIndex{amt: detailAmtMap, no: detailNoMap, feeType: detailFeeTypeMap, allIDs: allDetailIDs}
+}
 
-	// 规则 10: 无票判定 — 每个明细必须有票, 除非属于豁免
-	// 跑哥规则: 研发部门 + 样品 / 出差补贴类 / 特殊无票截图说明 (字段未存, 走 manual)
-	detailHasInvoice := map[string]bool{}
-	for _, iv := range invoices {
-		detailHasInvoice[iv.detailID] = true
-	}
-	isResearch := h.isResearchDept(ownerDeptID)
-	var noInvoiceReject, missingFeeType []int
+// checkNoInvoiceExemptions 规则 10: 每个无票明细判是否豁免 → (不豁免驳回行号, 费用类型缺失行号)。
+// 豁免: E 外币(整单) / B 补贴 / A 研发部门+样品 / D 私车公用; 缺 feeTypeId 无法判 → 转人工。
+func checkNoInvoiceExemptions(allDetailIDs []string, detailHasInvoice map[string]bool, detailFeeTypeMap map[string]string, detailNoMap map[string]int, isResearch, isForeign bool) (noInvoiceReject, missingFeeType []int) {
 	for _, did := range allDetailIDs {
 		if detailHasInvoice[did] {
 			continue // 有票, 不进规则 10
 		}
-		// 豁免 E: 外币(国外)无票 — 整单检测到外币汇率 → 无票OK, 自动通过 (跑哥 2026-06-25)
+		// 豁免 E: 外币(国外)无票 — 整单检测到外币汇率 → 无票OK (跑哥 2026-06-25)
 		if isForeign {
 			continue
 		}
@@ -173,52 +255,38 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 		// 都不豁免 → reject
 		noInvoiceReject = append(noInvoiceReject, no)
 	}
-	var missingFeeTypeWarn []string
-	if len(missingFeeType) > 0 {
-		missingFeeTypeWarn = append(missingFeeTypeWarn, fmt.Sprintf("明细 %v 无发票且费用类型缺失, 豁免无法自动判定, 需人工核 (规则 10)", uniqueInts(missingFeeType)))
-	}
-	if len(invoices) == 0 {
-		// 无发票时, 只跑规则 10 — 其他规则 8-1/8-2/8-3/8-4 都不适用
-		if len(noInvoiceReject) > 0 {
-			return []string{fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/私车公用/特殊截图说明 豁免)", uniqueInts(noInvoiceReject))}, missingFeeTypeWarn
-		}
-		return nil, missingFeeTypeWarn
-	}
+	return noInvoiceReject, missingFeeType
+}
 
-	var rejects, warnings []string
-	warnings = append(warnings, missingFeeTypeWarn...)
-
-	// 拉所属公司 (法人实体) 的开票字典
-	legalEntityID, _ := raw["法人实体"].(string)
-	var expectedTitle, expectedTaxNo string
-	if legalEntityID != "" {
-		_ = h.DB.QueryRow(`SELECT IFNULL(invoice_title,''), IFNULL(tax_no,'') FROM hesi_legal_entity_invoice_info WHERE legal_entity_id = ? AND active=1 LIMIT 1`,
-			legalEntityID).Scan(&expectedTitle, &expectedTaxNo)
-	}
-
-	// 规则 8-1/8-2: 抬头+税号 vs 法人实体 (法人实体未在字典 → 转人工)
+// checkInvoiceTitleTax 规则 8-1/8-2: 发票抬头 + 税号 vs 法人实体开票字典。
+// 法人实体未在字典 (expectedTitle 空) → 转人工, 不判。
+func checkInvoiceTitleTax(invoices []invoiceRow, detailNoMap map[string]int, expectedTitle, expectedTaxNo string) (rejects, warnings []string) {
 	if expectedTitle == "" {
 		warnings = append(warnings, "所属公司未在开票资料字典内, 抬头/税号无法判定 (规则 8-1/8-2)")
-	} else {
-		var wrongTitle, wrongTax []int
-		for _, iv := range invoices {
-			no := detailNoMap[iv.detailID]
-			if iv.buyerName != "" && iv.buyerName != expectedTitle {
-				wrongTitle = append(wrongTitle, no)
-			}
-			if iv.taxNo != "" && iv.taxNo != expectedTaxNo {
-				wrongTax = append(wrongTax, no)
-			}
+		return rejects, warnings
+	}
+	var wrongTitle, wrongTax []int
+	for _, iv := range invoices {
+		no := detailNoMap[iv.detailID]
+		if iv.buyerName != "" && iv.buyerName != expectedTitle {
+			wrongTitle = append(wrongTitle, no)
 		}
-		if len(wrongTitle) > 0 {
-			rejects = append(rejects, fmt.Sprintf("明细 %v 发票抬头 ≠「%s」(规则 8-1)", uniqueInts(wrongTitle), expectedTitle))
-		}
-		if len(wrongTax) > 0 {
-			rejects = append(rejects, fmt.Sprintf("明细 %v 发票税号 ≠「%s」(规则 8-2)", uniqueInts(wrongTax), expectedTaxNo))
+		if iv.taxNo != "" && iv.taxNo != expectedTaxNo {
+			wrongTax = append(wrongTax, no)
 		}
 	}
+	if len(wrongTitle) > 0 {
+		rejects = append(rejects, fmt.Sprintf("明细 %v 发票抬头 ≠「%s」(规则 8-1)", uniqueInts(wrongTitle), expectedTitle))
+	}
+	if len(wrongTax) > 0 {
+		rejects = append(rejects, fmt.Sprintf("明细 %v 发票税号 ≠「%s」(规则 8-2)", uniqueInts(wrongTax), expectedTaxNo))
+	}
+	return rejects, warnings
+}
 
-	// 规则 8-3: 每个明细发票合计 ≥ 明细金额
+// checkInvoiceAmount 规则 8-3: 每个明细发票合计 ≥ 明细金额。
+// 有票但票面金额识别不出 (定额发票, 合计=核定额=0) → 报销额无法自动核对 → 转人工 (樊雪娇 2026-06-18)。
+func checkInvoiceAmount(detailAmtMap map[string]float64, invoices []invoiceRow, detailNoMap map[string]int, detailHasInvoice map[string]bool) (rejects, warnings []string) {
 	detailInvoiceSum := map[string]float64{}
 	for _, iv := range invoices {
 		amt := iv.total
@@ -227,7 +295,7 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 		}
 		detailInvoiceSum[iv.detailID] += amt
 	}
-	var undetAmt []int // 有票但价税合计/核定额都识别不出(定额发票等) → 报销≤票面无法自动核, 转人工 (樊雪娇 2026-06-18)
+	var undetAmt []int
 	for did, detailAmt := range detailAmtMap {
 		sumInv := detailInvoiceSum[did]
 		switch {
@@ -238,52 +306,44 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 				rejects = append(rejects, fmt.Sprintf("明细#%d 报销 ¥%.2f > 发票合计 ¥%.2f (规则 8-3)", no, detailAmt, sumInv))
 			}
 		case detailHasInvoice[did] && detailAmt > 0:
-			// 有发票但金额=0(系统识别不出, 如定额发票): 报销≤票面没法自动核对 → 人工 (樊雪娇 2026-06-18)
 			undetAmt = append(undetAmt, detailNoMap[did])
 		}
 	}
 	if len(undetAmt) > 0 {
 		warnings = append(warnings, fmt.Sprintf("明细 %v 发票金额无法识别(如定额发票), 报销额无法自动核对票面, 需人工核 (规则 8-3)", uniqueInts(undetAmt)))
 	}
+	return rejects, warnings
+}
 
-	// 规则 8-4: 开票时间 (距单据提交) ≤1月 OK / 1-3月 manual / >3月 reject
-	// raw_json.submitDate 是 毫秒级时间戳
-	submitDate := int64(0)
-	if v, ok := raw["submitDate"].(float64); ok {
-		submitDate = int64(v)
+// checkInvoiceDate 规则 8-4: 开票时间距单据提交 ≤1月 OK / 1-3月 manual / >3月 reject。
+// 健康证及体检明细不走本通用线 (规则 14 单独给 6 个月)。submitDate ≤0 时不判。
+func checkInvoiceDate(invoices []invoiceRow, detailNoMap map[string]int, detailFeeTypeMap map[string]string, submitDate int64) (rejects, warnings []string) {
+	if submitDate <= 0 {
+		return rejects, warnings
 	}
-	if submitDate > 0 {
-		const month = int64(30 * 24 * 3600 * 1000)
-		var stale1m, stale3m []int
-		for _, iv := range invoices {
-			if iv.date == 0 {
-				continue
-			}
-			// 健康证及体检明细不走 3 个月通用线 (规则 14 单独给 6 个月)
-			if detailFeeTypeMap[iv.detailID] == healthExamFeeTypeID {
-				continue
-			}
-			diff := submitDate - iv.date
-			no := detailNoMap[iv.detailID]
-			if diff > 3*month {
-				stale3m = append(stale3m, no)
-			} else if diff > month {
-				stale1m = append(stale1m, no)
-			}
+	const month = int64(30 * 24 * 3600 * 1000)
+	var stale1m, stale3m []int
+	for _, iv := range invoices {
+		if iv.date == 0 {
+			continue
 		}
-		if len(stale3m) > 0 {
-			rejects = append(rejects, fmt.Sprintf("明细 %v 发票开票时间 > 3 个月 (规则 8-4)", uniqueInts(stale3m)))
+		if detailFeeTypeMap[iv.detailID] == healthExamFeeTypeID {
+			continue
 		}
-		if len(stale1m) > 0 {
-			warnings = append(warnings, fmt.Sprintf("明细 %v 发票开票时间 1-3 个月, 需酌情核 (规则 8-4)", uniqueInts(stale1m)))
+		diff := submitDate - iv.date
+		no := detailNoMap[iv.detailID]
+		if diff > 3*month {
+			stale3m = append(stale3m, no)
+		} else if diff > month {
+			stale1m = append(stale1m, no)
 		}
 	}
-
-	// 规则 10: 部分明细无票且不豁免 → reject (有票明细的规则 8 已上面跑过)
-	if len(noInvoiceReject) > 0 {
-		rejects = append(rejects, fmt.Sprintf("明细 %v 无发票, 不属于豁免 (规则 10: 仅研发样品/出差补贴/私车公用/特殊截图说明 豁免)", uniqueInts(noInvoiceReject)))
+	if len(stale3m) > 0 {
+		rejects = append(rejects, fmt.Sprintf("明细 %v 发票开票时间 > 3 个月 (规则 8-4)", uniqueInts(stale3m)))
 	}
-
+	if len(stale1m) > 0 {
+		warnings = append(warnings, fmt.Sprintf("明细 %v 发票开票时间 1-3 个月, 需酌情核 (规则 8-4)", uniqueInts(stale1m)))
+	}
 	return rejects, warnings
 }
 
