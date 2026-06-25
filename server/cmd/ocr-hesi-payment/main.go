@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -188,6 +189,24 @@ func truncate(s string, maxRunes int) string {
 	return s
 }
 
+// paymentNameKeywords 付款截图文件名关键词 (与下方查询 SQL 的 LIKE 粗筛一致)。
+var paymentNameKeywords = []string{"付款", "支付", "转账", "回单", "账单"}
+
+// isPaymentScreenshotName 判定文件名是否为"应OCR的付款截图"(权威判定, 扫表后逐条过)。
+// 命中任一付款关键词 且 不含"对账" 才算。排除"对账单": 它含"账单"会被关键词误命中,
+// 但金额是对账总额而非单次实付, 拿去比发票会误判超付转人工 (潍坊中百对账单案例, 跑哥 2026-06-25)。
+func isPaymentScreenshotName(name string) bool {
+	if strings.Contains(name, "对账") {
+		return false
+	}
+	for _, kw := range paymentNameKeywords {
+		if strings.Contains(name, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 // pendingRow 是待OCR的一行记录
 type pendingRow struct {
 	FlowID   string
@@ -240,6 +259,7 @@ WHERE f.form_type='expense' AND f.state IN ('approving','pending')
   AND a.is_invoice=0
   AND (LOWER(a.file_name) LIKE '%.jpg' OR LOWER(a.file_name) LIKE '%.jpeg' OR LOWER(a.file_name) LIKE '%.png')
   AND (a.file_name LIKE '%付款%' OR a.file_name LIKE '%支付%' OR a.file_name LIKE '%转账%' OR a.file_name LIKE '%回单%' OR a.file_name LIKE '%账单%')
+  AND a.file_name NOT LIKE '%对账%'
   AND a.file_id NOT IN (SELECT file_id FROM hesi_payment_ocr WHERE status='ok')`
 
 	var rows *sql.Rows
@@ -258,6 +278,10 @@ WHERE f.form_type='expense' AND f.state IN ('approving','pending')
 		var r pendingRow
 		if err := rows.Scan(&r.FlowID, &r.FileID, &r.FileName); err != nil {
 			log.Printf("Scan失败: %v", err)
+			continue
+		}
+		// 权威判定: 排除"对账单"等被关键词误命中的非付款截图 (SQL 已粗筛, 这里收口)
+		if !isPaymentScreenshotName(r.FileName) {
 			continue
 		}
 		pending = append(pending, r)
