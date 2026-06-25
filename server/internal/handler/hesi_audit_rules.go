@@ -369,6 +369,9 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 		}
 	}
 
+	// 外币(国外)无票判定: 整单一次, 供规则10豁免E + 规则19跳过 (跑哥 2026-06-25)
+	isForeign := h.isForeignFlow(flowID)
+
 	var rejectReasons []string
 	var warnings []string
 
@@ -450,7 +453,7 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 
 	// 规则 8 + 10: 发票审核 (抬头/税号/金额/开票时间) + 无票判定 + 3 种豁免
 	// 规则10 研发样品无票豁免按 submitDeptID(单据填的提交人部门) 判研发链, 与规则1同口径 (跑哥 2026-06-23)
-	if invRej, invWarn := h.ruleInvoiceChecks(raw, submitDeptID, flowID); len(invRej) > 0 || len(invWarn) > 0 {
+	if invRej, invWarn := h.ruleInvoiceChecks(raw, submitDeptID, flowID, isForeign); len(invRej) > 0 || len(invWarn) > 0 {
 		rejectReasons = append(rejectReasons, invRej...)
 		warnings = append(warnings, invWarn...)
 	}
@@ -522,8 +525,11 @@ func (h *DashboardHandler) AuditDailyExpense(ownerDeptID, departmentID, submitte
 	// 规则 19: 付款截图金额 vs 发票总额核对 (口径B, 跑哥 2026-06-25)
 	// 付款截图实付总额 > 发票价税合计总额 → 转人工复核 (warnings → Action "manual")。
 	// Pending(截图还没OCR完) / 查询出错 → checkFlowPayment 返回 Flag=false, 此处不动判定。
-	if pc := h.checkFlowPayment(flowID); pc.Flag {
-		warnings = append(warnings, pc.Note)
+	// 外币(国外)单无发票可比, 跳过规则19 (跑哥 2026-06-25)
+	if !isForeign {
+		if pc := h.checkFlowPayment(flowID); pc.Flag {
+			warnings = append(warnings, pc.Note)
+		}
 	}
 
 	// 优先级: reject > manual > agree
@@ -1154,7 +1160,7 @@ func (h *DashboardHandler) isResearchDept(deptID string) bool {
 //   - 豁免 C: u_无票原因截图说明 (实查 0 单, 当前不实现, 等合思后台加字段)
 //
 // 返回 (rejectReasons, warnings)
-func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDeptID, flowID string) ([]string, []string) {
+func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDeptID, flowID string, isForeign bool) ([]string, []string) {
 	if flowID == "" {
 		return nil, nil
 	}
@@ -1255,6 +1261,10 @@ func (h *DashboardHandler) ruleInvoiceChecks(raw map[string]interface{}, ownerDe
 	for _, did := range allDetailIDs {
 		if detailHasInvoice[did] {
 			continue // 有票, 不进规则 10
+		}
+		// 豁免 E: 外币(国外)无票 — 整单检测到外币汇率 → 无票OK, 自动通过 (跑哥 2026-06-25)
+		if isForeign {
+			continue
 		}
 		feeTypeID := detailFeeTypeMap[did]
 		no := detailNoMap[did]
