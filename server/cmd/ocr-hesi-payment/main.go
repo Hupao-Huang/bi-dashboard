@@ -368,5 +368,91 @@ WHERE f.form_type='expense' AND f.state IN ('approving','pending')
 		time.Sleep(300 * time.Millisecond)
 	}
 
-	log.Printf("========== 跑批完成: 成功 %d / 失败 %d / 跳过(无URL) %d ==========", nOK, nFail, nSkip)
+	log.Printf("========== 金额跑批完成: 成功 %d / 失败 %d / 跳过(无URL) %d ==========", nOK, nFail, nSkip)
+
+	// 外币(国外)无票检测 pass (跑哥 2026-06-25)
+	log.Println("========== 外币(国外)无票检测 ==========")
+	runForeignScan(db, token, cfg.DashScope.APIKey, *flowCode)
+}
+
+// runForeignScan 外币(国外)无票检测: 扫无票报销单的非发票图, OCR转写→查外币标记→标 is_foreign。
+// 范围是"无发票单的所有非发票图"(含哈希命名), 不挂付款关键词(否则哈希名截图看不到)。
+func runForeignScan(db *sql.DB, token, apiKey, flowCode string) {
+	baseSQL := `SELECT a.flow_id, a.file_id, a.file_name
+FROM hesi_flow_attachment a
+JOIN hesi_flow f ON f.flow_id = a.flow_id
+LEFT JOIN hesi_flow_invoice i ON i.flow_id = f.flow_id
+WHERE f.form_type='expense' AND f.state IN ('approving','pending')
+  AND a.is_invoice=0
+  AND (LOWER(a.file_name) LIKE '%.jpg' OR LOWER(a.file_name) LIKE '%.jpeg' OR LOWER(a.file_name) LIKE '%.png')
+  AND i.flow_id IS NULL
+  AND a.file_id NOT IN (SELECT file_id FROM hesi_payment_ocr WHERE is_foreign IS NOT NULL)`
+	var rows *sql.Rows
+	var err error
+	if flowCode != "" {
+		rows, err = db.Query(baseSQL+" AND f.code = ? GROUP BY a.flow_id, a.file_id, a.file_name", flowCode)
+	} else {
+		rows, err = db.Query(baseSQL + " GROUP BY a.flow_id, a.file_id, a.file_name")
+	}
+	if err != nil {
+		log.Printf("[fx] 查询待检测外币截图失败: %v", err)
+		return
+	}
+	var pending []pendingRow
+	flowIDSet := make(map[string]bool)
+	for rows.Next() {
+		var r pendingRow
+		if err := rows.Scan(&r.FlowID, &r.FileID, &r.FileName); err != nil {
+			log.Printf("[fx] Scan失败: %v", err)
+			continue
+		}
+		pending = append(pending, r)
+		flowIDSet[r.FlowID] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("[fx] 查询行错误: %v", err)
+		return
+	}
+	if len(pending) == 0 {
+		log.Println("[fx] 无待检测外币截图")
+		return
+	}
+	log.Printf("[fx] 待检测外币截图: %d 张, 涉及 %d 个无票单", len(pending), len(flowIDSet))
+
+	flowIDs := make([]string, 0, len(flowIDSet))
+	for fid := range flowIDSet {
+		flowIDs = append(flowIDs, fid)
+	}
+	urlMap, _ := getAttachmentURLs(token, flowIDs)
+
+	ctx := context.Background()
+	nFx := 0
+	for i, row := range pending {
+		att, ok := urlMap[row.FileID]
+		if !ok {
+			log.Printf("[fx][%d/%d] file_id=%s 无签名URL, 跳过(留NULL下轮重试)", i+1, len(pending), row.FileID)
+			continue
+		}
+		img, err := downloadImage(att.URL)
+		if err != nil {
+			log.Printf("[fx][%d/%d] 下载失败: %v", i+1, len(pending), err)
+			continue
+		}
+		text, err := ocr.TranscribeText(ctx, apiKey, img)
+		if err != nil {
+			log.Printf("[fx][%d/%d] 转写失败: %v", i+1, len(pending), err)
+			continue
+		}
+		isForeign := ocr.HasForeignCurrencyMarker(text)
+		if err := handler.UpsertForeignScan(db, row.FileID, row.FlowID, row.FileName, isForeign, truncate(text, 500)); err != nil {
+			log.Printf("[fx][%d/%d] upsert失败: %v", i+1, len(pending), err)
+		}
+		if isForeign {
+			nFx++
+			log.Printf("[fx][%d/%d] 国外无票: flow=%s file=%s", i+1, len(pending), row.FlowID, row.FileName)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	log.Printf("[fx] 外币检测完成: 共 %d 张, 标记 %d 张为国外无票", len(pending), nFx)
 }
