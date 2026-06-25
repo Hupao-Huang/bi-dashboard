@@ -78,6 +78,10 @@ type PaymentCheck struct {
 	Note     string  // 给审批建议看的说明
 }
 
+// paymentOverToleranceYuan 付款比发票多出的容差(元)：多出 ≤2 元(手续费/凑整)算正常、自动通过；
+// 超过 2 元才转人工复核。付款少于发票永远自动通过(差旅通行费等有票无截图不受影响)。(跑哥 2026-06-25 口径)
+const paymentOverToleranceYuan = 2.0
+
 // checkFlowPayment 查询某单的付款截图OCR结果和发票金额，输出对账结论。
 // 仅统计 status=ok 的截图金额；有 status!=ok 的截图时 Pending=true，Flag 强制 false。
 func (h *DashboardHandler) checkFlowPayment(flowID string) PaymentCheck {
@@ -102,7 +106,7 @@ func (h *DashboardHandler) checkFlowPayment(flowID string) PaymentCheck {
 	invSum := h.sumInvoiceTotal(flowID)
 
 	// 4. 对账
-	flag, payTotal, invTotal := reconcilePayment(okAmounts, []float64{invSum}, 0.01)
+	flag, payTotal, invTotal := reconcilePayment(okAmounts, []float64{invSum}, paymentOverToleranceYuan)
 
 	// 5. 有未完成OCR时不下判定
 	if pending {
@@ -112,7 +116,7 @@ func (h *DashboardHandler) checkFlowPayment(flowID string) PaymentCheck {
 	// 6. 组装说明
 	var note string
 	if flag {
-		note = fmt.Sprintf("付款截图实付 ¥%.2f 超过发票总额 ¥%.2f, 建议人工复核", payTotal, invTotal)
+		note = fmt.Sprintf("付款截图实付 ¥%.2f 比发票总额 ¥%.2f 多出超过2元, 建议人工复核", payTotal, invTotal)
 	} else if pending {
 		note = "部分付款截图待识别"
 	}
