@@ -21,12 +21,21 @@ func ensurePaymentOcrTable(db *sql.DB) error {
   amount     DECIMAL(14,4)         COMMENT 'OCR识别的实付金额(保留符号)',
   status     VARCHAR(16)  NOT NULL COMMENT 'ok/fail/skip',
   raw_text   VARCHAR(500)          COMMENT 'OCR原始返回',
+  is_foreign TINYINT      DEFAULT NULL COMMENT '外币检测: NULL=未扫 0=无外币 1=有外币(国外无票)',
   updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (file_id),
   KEY idx_flow (flow_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='合思付款截图OCR结果缓存'`)
 	if err != nil {
 		return fmt.Errorf("ensurePaymentOcrTable: %w", err)
+	}
+	// 幂等迁移: 老表补 is_foreign 列 (外币国外无票, 跑哥 2026-06-25)
+	var col string
+	if e := db.QueryRow(`SELECT COLUMN_NAME FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='hesi_payment_ocr' AND COLUMN_NAME='is_foreign'`).Scan(&col); e == sql.ErrNoRows {
+		if _, ae := db.Exec(`ALTER TABLE hesi_payment_ocr ADD COLUMN is_foreign TINYINT DEFAULT NULL COMMENT '外币检测: NULL=未扫 0=无外币 1=有外币(国外无票)'`); ae != nil {
+			return fmt.Errorf("ensurePaymentOcrTable 迁移 is_foreign: %w", ae)
+		}
 	}
 	return nil
 }
@@ -134,10 +143,40 @@ func UpsertPaymentOcr(db *sql.DB, fileID, flowID, fileName string, amount float6
 	return upsertPaymentOcr(db, fileID, flowID, fileName, amount, status, raw)
 }
 
+// isForeignFlow 该单是否检测到外币(国外无票)。供规则10豁免E + 规则19跳过用。
+func (h *DashboardHandler) isForeignFlow(flowID string) bool {
+	if h.DB == nil || flowID == "" {
+		return false
+	}
+	var ok bool
+	if err := h.DB.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM hesi_payment_ocr WHERE flow_id=? AND is_foreign=1)`, flowID,
+	).Scan(&ok); err != nil {
+		return false // 查不到/出错 → 不豁免(安全: 维持原判定)
+	}
+	return ok
+}
+
+// UpsertForeignScan 写外币检测结果。新图(付款金额OCR没处理过)插 status='fx' 行;
+// 已有行(付款关键词图)只更 is_foreign/raw_text, 不动 amount/status (PK=file_id)。
+func UpsertForeignScan(db *sql.DB, fileID, flowID, fileName string, isForeign bool, raw string) error {
+	_, err := db.Exec(
+		`INSERT INTO hesi_payment_ocr (file_id, flow_id, file_name, amount, status, raw_text, is_foreign)`+
+			` VALUES (?, ?, ?, 0, 'fx', ?, ?)`+
+			` ON DUPLICATE KEY UPDATE is_foreign=VALUES(is_foreign), raw_text=VALUES(raw_text)`,
+		fileID, flowID, fileName, raw, isForeign,
+	)
+	if err != nil {
+		return fmt.Errorf("UpsertForeignScan: %w", err)
+	}
+	return nil
+}
+
 // getPaymentOcrByFlow 按单据ID查该单所有截图的OCR摘要。
 func getPaymentOcrByFlow(db *sql.DB, flowID string) ([]paymentOcrRow, error) {
 	rows, err := db.Query(
-		`SELECT file_id, amount, status FROM hesi_payment_ocr WHERE flow_id=?`,
+		// status<>'fx' 排除外币检测行 (status='fx'), 只取金额行供规则19对账
+		`SELECT file_id, amount, status FROM hesi_payment_ocr WHERE flow_id=? AND status<>'fx'`,
 		flowID,
 	)
 	if err != nil {

@@ -35,6 +35,63 @@ func TestReconcilePayment(t *testing.T) {
 	}
 }
 
+func TestIsForeignFlowTrue(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	h := &DashboardHandler{DB: db}
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("FX1").
+		WillReturnRows(sqlmock.NewRows([]string{"x"}).AddRow(true))
+	if !h.isForeignFlow("FX1") {
+		t.Error("有 is_foreign=1 行应返回 true")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestUpsertForeignScan(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// 绑定参数只有 5 个: fileID, flowID, fileName, raw, isForeign (status='fx'/amount=0 是 SQL 字面量)
+	mock.ExpectExec("INSERT INTO hesi_payment_ocr").
+		WithArgs("F1", "FLOW1", "x.jpg", "汇率…", true).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	if err := UpsertForeignScan(db, "F1", "FLOW1", "x.jpg", true, "汇率…"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestGetPaymentOcrByFlowExcludesFx(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery("status<>'fx'").
+		WithArgs("FLOW1").
+		WillReturnRows(sqlmock.NewRows([]string{"file_id", "amount", "status"}).AddRow("F1", 100.0, "ok"))
+	rows, err := getPaymentOcrByFlow(db, "FLOW1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Status != "ok" {
+		t.Errorf("应只返回非fx行, 得 %+v", rows)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestCheckFlowPayment(t *testing.T) {
 	t.Run("付款=发票 不flag", func(t *testing.T) {
 		db, mock, _ := sqlmock.New()
