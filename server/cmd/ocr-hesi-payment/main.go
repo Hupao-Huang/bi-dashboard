@@ -118,6 +118,15 @@ func getAttachmentURLs(token string, flowIDs []string) (map[string]attachInfo, e
 		}
 		data, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			snip := string(data)
+			if len(snip) > 200 {
+				snip = snip[:200]
+			}
+			// 非200(如token失效)别静默解析成空Items当"没附件", 留痕跳过本批 (二审)
+			log.Printf("[attachments] batch %d-%d HTTP %d (token失效/限流?), body: %s", i, end, resp.StatusCode, snip)
+			continue
+		}
 
 		var parsed struct {
 			Items []struct {

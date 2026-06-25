@@ -64,11 +64,12 @@ func ShrinkJPEG(img []byte, longest int) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// RecognizePaymentAmount 缩图→调 qwen-vl-ocr→ParseAmount。amount 保留符号(调用方取绝对值)。
-func RecognizePaymentAmount(ctx context.Context, apiKey string, img []byte) (amount float64, raw string, err error) {
+// chatVL 调 qwen-vl-ocr (缩图→DashScope→返回模型文本)。RecognizePaymentAmount/TranscribeText 共用,
+// 让代理(Proxy:nil 国内直连)/端点/超时/响应解析只有一处, 改一处不会漏另一处 (二审 去重)。
+func chatVL(ctx context.Context, apiKey string, img []byte, prompt string) (string, error) {
 	small, err := ShrinkJPEG(img, 1280)
 	if err != nil {
-		return 0, "", err
+		return "", err
 	}
 	dataURL := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(small)
 	body := map[string]any{
@@ -77,17 +78,17 @@ func RecognizePaymentAmount(ctx context.Context, apiKey string, img []byte) (amo
 			"role": "user",
 			"content": []any{
 				map[string]any{"type": "image_url", "image_url": map[string]string{"url": dataURL}},
-				map[string]any{"type": "text", "text": ocrPrompt},
+				map[string]any{"type": "text", "text": prompt},
 			},
 		}},
 	}
 	bs, err := json.Marshal(body)
 	if err != nil {
-		return 0, "", fmt.Errorf("序列化OCR请求体失败: %w", err)
+		return "", fmt.Errorf("序列化OCR请求体失败: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, "POST", dashScopeEndpoint, bytes.NewReader(bs))
 	if err != nil {
-		return 0, "", fmt.Errorf("构造OCR请求失败: %w", err)
+		return "", fmt.Errorf("构造OCR请求失败: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -95,7 +96,7 @@ func RecognizePaymentAmount(ctx context.Context, apiKey string, img []byte) (amo
 	client := &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{Proxy: nil}}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, "", err
+		return "", err
 	}
 	defer resp.Body.Close()
 	var out struct {
@@ -108,66 +109,27 @@ func RecognizePaymentAmount(ctx context.Context, apiKey string, img []byte) (amo
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return 0, "", err
+		return "", err
 	}
 	if resp.StatusCode != 200 || len(out.Choices) == 0 {
-		return 0, "", fmt.Errorf("OCR调用失败 http %d: %s %s", resp.StatusCode, out.Error.Code, out.Error.Message)
+		return "", fmt.Errorf("OCR调用失败 http %d: %s %s", resp.StatusCode, out.Error.Code, out.Error.Message)
 	}
-	raw = out.Choices[0].Message.Content
+	return out.Choices[0].Message.Content, nil
+}
+
+// RecognizePaymentAmount 缩图→调 qwen-vl-ocr→ParseAmount。amount 保留符号(调用方取绝对值)。
+func RecognizePaymentAmount(ctx context.Context, apiKey string, img []byte) (amount float64, raw string, err error) {
+	raw, err = chatVL(ctx, apiKey, img, ocrPrompt)
+	if err != nil {
+		return 0, "", err
+	}
 	amt, err := ParseAmount(raw)
 	return amt, raw, err
 }
 
 const transcribePrompt = "请识别并完整输出这张图片中的所有文字内容, 原样输出, 不要总结、不要解释。"
 
-// TranscribeText 转写图片全文 (用于外币检测 HasForeignCurrencyMarker)。缩图→qwen-vl-ocr→返回原始文本。
-// 注: 与 RecognizePaymentAmount 共用 DashScope 端点, 故意不抽公共 helper 以免动已验证的金额路径。
+// TranscribeText 转写图片全文 (用于外币检测 HasForeignCurrencyMarker)。
 func TranscribeText(ctx context.Context, apiKey string, img []byte) (string, error) {
-	small, err := ShrinkJPEG(img, 1280)
-	if err != nil {
-		return "", err
-	}
-	dataURL := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(small)
-	body := map[string]any{
-		"model": "qwen-vl-ocr",
-		"messages": []any{map[string]any{
-			"role": "user",
-			"content": []any{
-				map[string]any{"type": "image_url", "image_url": map[string]string{"url": dataURL}},
-				map[string]any{"type": "text", "text": transcribePrompt},
-			},
-		}},
-	}
-	bs, err := json.Marshal(body)
-	if err != nil {
-		return "", fmt.Errorf("序列化转写请求体失败: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", dashScopeEndpoint, bytes.NewReader(bs))
-	if err != nil {
-		return "", fmt.Errorf("构造转写请求失败: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{Proxy: nil}}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Choices []struct {
-			Message struct{ Content string } `json:"message"`
-		} `json:"choices"`
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", err
-	}
-	if resp.StatusCode != 200 || len(out.Choices) == 0 {
-		return "", fmt.Errorf("转写调用失败 http %d: %s %s", resp.StatusCode, out.Error.Code, out.Error.Message)
-	}
-	return out.Choices[0].Message.Content, nil
+	return chatVL(ctx, apiKey, img, transcribePrompt)
 }

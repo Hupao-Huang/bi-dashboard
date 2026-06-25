@@ -147,6 +147,11 @@ func main() {
 	}
 	log.Println("Auth schema ready")
 
+	// 合思付款截图OCR缓存表(规则19/外币豁免读它): 启动建表兜底, 不再只靠跑批工具首跑才建
+	if err := handler.EnsurePaymentOcrTable(db); err != nil {
+		log.Printf("ensure hesi_payment_ocr table: %v (继续启动, 跑批工具会兜底建表)", err)
+	}
+
 	notifier := dingtalk.NewNotifier(cfg.DingTalk.NotifyAppKey, cfg.DingTalk.NotifyAppSecret, cfg.DingTalk.NotifyRobotCode)
 	if notifier != nil {
 		log.Println("DingTalk notifier ready (反馈回复 + 定时任务失败将推送 admin)")
