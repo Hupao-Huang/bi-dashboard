@@ -19,7 +19,7 @@ func ensurePaymentOcrTable(db *sql.DB) error {
   flow_id    VARCHAR(64)  NOT NULL COMMENT '单据ID',
   file_name  VARCHAR(500)          COMMENT '文件名',
   amount     DECIMAL(14,4)         COMMENT 'OCR识别的实付金额(保留符号)',
-  status     VARCHAR(16)  NOT NULL COMMENT 'ok/fail/skip',
+  status     VARCHAR(16)  NOT NULL COMMENT 'ok/fail/skip/fx(外币检测行)',
   raw_text   VARCHAR(500)          COMMENT 'OCR原始返回',
   is_foreign TINYINT      DEFAULT NULL COMMENT '外币检测: NULL=未扫 0=无外币 1=有外币(国外无票)',
   updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
