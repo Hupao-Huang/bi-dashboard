@@ -28,7 +28,7 @@ func TestRule10PrivateCarNoInvoiceExempt(t *testing.T) {
 			},
 		},
 	}}
-	rej, _ := h.ruleInvoiceChecks(raw, "", "F1")
+	rej, _ := h.ruleInvoiceChecks(raw, "", "F1", false)
 	for _, r := range rej {
 		if strings.Contains(r, "规则 10") {
 			t.Errorf("私车公用无发票应豁免, 不应触发规则10驳回, got %q", r)
@@ -54,7 +54,7 @@ func TestRule10NonExemptNoInvoiceStillRejects(t *testing.T) {
 			},
 		},
 	}}
-	rej, _ := h.ruleInvoiceChecks(raw, "", "F1")
+	rej, _ := h.ruleInvoiceChecks(raw, "", "F1", false)
 	hit := false
 	for _, r := range rej {
 		if strings.Contains(r, "规则 10") {

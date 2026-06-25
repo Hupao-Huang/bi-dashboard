@@ -123,7 +123,7 @@ func TestRule10MissingFeeTypeManualNotReject(t *testing.T) {
 			},
 		},
 	}}
-	rej, warn := h.ruleInvoiceChecks(raw, "", "F1")
+	rej, warn := h.ruleInvoiceChecks(raw, "", "F1", false)
 	if len(rej) != 0 {
 		t.Errorf("费用类型缺失不应误驳, got %v", rej)
 	}
@@ -145,7 +145,7 @@ func TestRule8InvoiceReadBrokenManual(t *testing.T) {
 	mock.ExpectQuery(invSelectPattern).WillReturnRows(broken)
 	h := &DashboardHandler{DB: db}
 	raw := map[string]interface{}{"details": []interface{}{}}
-	rej, warn := h.ruleInvoiceChecks(raw, "", "F1")
+	rej, warn := h.ruleInvoiceChecks(raw, "", "F1", false)
 	if len(rej) != 0 {
 		t.Errorf("读取中断不应输出驳回, got %v", rej)
 	}
@@ -174,7 +174,7 @@ func TestRule83UndeterminableInvoiceAmountManual(t *testing.T) {
 			},
 		},
 	}}
-	rej, warn := h.ruleInvoiceChecks(raw, "", "F1")
+	rej, warn := h.ruleInvoiceChecks(raw, "", "F1", false)
 	if len(rej) != 0 {
 		t.Errorf("定额发票金额识别不出不应直接驳回, got %v", rej)
 	}
@@ -203,7 +203,7 @@ func TestRule83DeterminableAmountStillChecks(t *testing.T) {
 			},
 		},
 	}}
-	rej, _ := h.ruleInvoiceChecks(raw, "", "F1")
+	rej, _ := h.ruleInvoiceChecks(raw, "", "F1", false)
 	if !strings.Contains(strings.Join(rej, "; "), "规则 8-3") {
 		t.Errorf("报销超发票合计应驳 8-3, got %v", rej)
 	}
