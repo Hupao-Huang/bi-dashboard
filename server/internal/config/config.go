@@ -18,6 +18,7 @@ type Config struct {
 	Webhook      WebhookConfig       `json:"webhook"`
 	YingDao      YingDaoConfig       `json:"yingdao"`
 	AIAssistant  AIAssistantConfig   `json:"ai_assistant"`
+	DashScope    DashScopeConfig     `json:"dashscope"`
 }
 
 type ServerConfig struct {
@@ -64,6 +65,11 @@ type DingTalkConfig struct {
 type HesiConfig struct {
 	AppKey string `json:"appkey"`
 	Secret string `json:"secret"`
+}
+
+// DashScopeConfig 阿里云百炼 (DashScope) 配置, qwen-vl-ocr 付款截图金额识别用
+type DashScopeConfig struct {
+	APIKey string `json:"api_key"`
 }
 
 // YonSuiteConfig 用友 YonBIP 开放平台配置
