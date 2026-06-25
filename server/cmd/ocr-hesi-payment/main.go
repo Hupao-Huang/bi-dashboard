@@ -292,11 +292,8 @@ WHERE f.form_type='expense' AND f.state IN ('approving','pending')
 		log.Fatalf("查询行错误: %v", err)
 	}
 
-	if len(pending) == 0 {
-		log.Println("无待OCR截图, 退出")
-		return
-	}
-	log.Printf("待OCR截图: %d 张, 涉及 %d 个单据", len(pending), len(flowIDSet))
+	// 注意: 金额 pending 为空也不能 return — 后面还要跑外币检测 pass。空 pending 时下面各步自然空转。
+	log.Printf("待金额OCR截图: %d 张, 涉及 %d 个单据", len(pending), len(flowIDSet))
 
 	// 收集唯一 flowIDs
 	flowIDs := make([]string, 0, len(flowIDSet))
