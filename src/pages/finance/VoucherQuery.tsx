@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Card, Table, Select, DatePicker, InputNumber, Button, Space, Tag, message, Typography, Modal, Alert } from 'antd';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Card, Table, Select, DatePicker, InputNumber, Button, Space, Tag, message, Typography, Alert } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { API_BASE } from '../../config';
 import AccbookPicker from '../../components/AccbookPicker';
+import { TableLayout, loadLayout, saveLayout, reorder, clampWidth } from './voucherTableLayout';
 
 // 财务-凭证查询 (2026-06-16, 仅超管)
 // 实时查用友 YS 凭证, 不入库。选账簿+账期查凭证头, 点开看分录明细(借贷)。
@@ -53,6 +54,79 @@ const statusColor = (s: string): string => {
   return 'default';
 };
 
+const VOUCHER_LAYOUT_KEY = 'bi_voucher_table_layout_v1';
+
+// 凭证表格列定义（静态；列宽/顺序在运行时由 layout 覆盖）
+const VOUCHER_BASE_COLUMNS = [
+  { title: '账簿', key: 'accbookName', dataIndex: 'accbookName', width: 160, ellipsis: true, render: (v: string) => v || '-' },
+  { title: '账期', key: 'period', dataIndex: 'period', width: 90 },
+  { title: '凭证字号', key: 'voucherNo', dataIndex: 'voucherNo', width: 100 },
+  { title: '类型', key: 'voucherType', dataIndex: 'voucherType', width: 100 },
+  { title: '摘要', key: 'description', dataIndex: 'description', width: 280, ellipsis: true },
+  { title: '借方合计', key: 'totalDebit', dataIndex: 'totalDebit', width: 130, align: 'right' as const, render: (v: number) => fmtAmount(v) },
+  { title: '贷方合计', key: 'totalCredit', dataIndex: 'totalCredit', width: 130, align: 'right' as const, render: (v: number) => fmtAmount(v) },
+  { title: '来源', key: 'srcSystem', dataIndex: 'srcSystem', width: 100 },
+  { title: '制单人', key: 'maker', dataIndex: 'maker', width: 90 },
+  { title: '状态', key: 'status', dataIndex: 'status', width: 90, render: (s: string) => (s ? <Tag color={statusColor(s)}>{s}</Tag> : '-') },
+  { title: '制单日期', key: 'makeTime', dataIndex: 'makeTime', width: 110 },
+];
+const VOUCHER_COL_KEYS = VOUCHER_BASE_COLUMNS.map((c) => c.key);
+const VOUCHER_DEFAULT_WIDTHS: Record<string, number> = Object.fromEntries(
+  VOUCHER_BASE_COLUMNS.map((c) => [c.key, c.width]),
+);
+
+// 可拖宽 + 可拖序的表头单元格（props 由 column.onHeaderCell 注入）
+const ResizableTitle: React.FC<any> = (props) => {
+  const { columnKey, colWidth, onColResize, onColReorder, dragKeyRef, children, style, ...rest } = props;
+  const resizingRef = useRef(false);
+
+  // 没有 columnKey 的列（如展开图标列）按普通表头渲染
+  if (!columnKey) return <th {...rest} style={style}>{children}</th>;
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingRef.current = true;
+    const startX = e.clientX;
+    const startW = colWidth || 100;
+    const onMove = (ev: MouseEvent) => onColResize(columnKey, startW + (ev.clientX - startX));
+    const onUp = () => {
+      resizingRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  return (
+    <th
+      {...rest}
+      style={{ ...style, position: 'relative' }}
+      draggable
+      onDragStart={(e) => {
+        if (resizingRef.current) { e.preventDefault(); return; }
+        dragKeyRef.current = columnKey;
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        const from = dragKeyRef.current;
+        if (from && from !== columnKey) onColReorder(from, columnKey);
+        dragKeyRef.current = null;
+      }}
+    >
+      {children}
+      <span
+        onMouseDown={startResize}
+        onClick={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', right: -4, top: 0, height: '100%', width: 8, cursor: 'col-resize', userSelect: 'none', zIndex: 1 }}
+      />
+    </th>
+  );
+};
+
 const VoucherQuery: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
 
@@ -64,12 +138,27 @@ const VoucherQuery: React.FC = () => {
   const [billMax, setBillMax] = useState<number | null>(null);
 
   const [rows, setRows] = useState<VoucherRow[]>([]);
-  const [books, setBooks] = useState<BookMeta[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [pageIndex, setPageIndex] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
   const [queried, setQueried] = useState(false);
+
+  // 表格列布局（可拖宽 + 可拖序，持久化到 localStorage，每浏览器各自）
+  const dragKeyRef = useRef<string | null>(null);
+  const [layout, setLayout] = useState<TableLayout>(() =>
+    loadLayout(VOUCHER_LAYOUT_KEY, VOUCHER_COL_KEYS, VOUCHER_DEFAULT_WIDTHS));
+  useEffect(() => { saveLayout(VOUCHER_LAYOUT_KEY, layout); }, [layout]);
+  const handleColResize = useCallback((key: string, w: number) => {
+    setLayout((prev) => ({ ...prev, widths: { ...prev.widths, [key]: clampWidth(w) } }));
+  }, []);
+  const handleColReorder = useCallback((fromKey: string, toKey: string) => {
+    setLayout((prev) => ({
+      ...prev,
+      order: reorder(prev.order, prev.order.indexOf(fromKey), prev.order.indexOf(toKey)),
+    }));
+  }, []);
+  const resetLayout = () => setLayout({ order: VOUCHER_COL_KEYS.slice(), widths: { ...VOUCHER_DEFAULT_WIDTHS } });
 
   // 加载账簿下拉
   useEffect(() => {
@@ -110,11 +199,10 @@ const VoucherQuery: React.FC = () => {
       .then(res => {
         if (res.code !== 0 && res.code !== 200) {
           message.error(res.message || '查询失败');
-          setRows([]); setBooks([]); setTruncated(false); setLoading(false); return;
+          setRows([]); setTruncated(false); setLoading(false); return;
         }
         const d = res.data || {};
         setRows(d.list || []);
-        setBooks(d.books || []);
         setTruncated(!!d.truncated);
         setPageIndex(1);
         setLoading(false);
@@ -128,43 +216,33 @@ const VoucherQuery: React.FC = () => {
       });
   }, [accbookCodes, period, status, billMin, billMax]);
 
-  const onSearch = () => fetchVouchers(false);
+  // 点查询直接拉全部 (full=true): 逐本翻页拉到底, 受后端兜底闸 voucherMaxCalls/voucherMaxRows 约束
+  const onSearch = () => fetchVouchers(true);
 
-  const onFullPull = () => {
-    const totalMore = books.reduce((s, b) => s + Math.max(0, b.recordCount - b.fetched), 0);
-    Modal.confirm({
-      title: '拉取全部凭证',
-      content: `将逐本账簿拉取选中账簿在当前条件下的全部凭证${accbookCodes.length > 3 || totalMore > 500 ? ',账簿多/数据量大时可能要等几十秒' : ''}。继续?`,
-      onOk: () => fetchVouchers(true),
+  // 按 layout（顺序 + 宽度）派生当前列；onHeaderCell 注入拖宽/拖序所需 props
+  const orderedColumns = useMemo(() => {
+    const byKey: Record<string, any> = {};
+    VOUCHER_BASE_COLUMNS.forEach((c) => { byKey[c.key] = c; });
+    return layout.order.map((k) => byKey[k]).filter(Boolean).map((col) => {
+      const w = layout.widths[col.key] ?? col.width;
+      return {
+        ...col,
+        width: w,
+        onHeaderCell: () => ({
+          columnKey: col.key,
+          colWidth: w,
+          onColResize: handleColResize,
+          onColReorder: handleColReorder,
+          dragKeyRef,
+        }),
+      };
     });
-  };
-
-  // 是否有账簿还有更多未显示 (快模式截断提示)
-  const hasMore = books.some(b => b.recordCount > b.fetched);
-
-  const columns = [
-    { title: '账簿', dataIndex: 'accbookName', width: 160, ellipsis: true,
-      render: (v: string) => v || '-' },
-    { title: '账期', dataIndex: 'period', width: 90 },
-    { title: '凭证字号', dataIndex: 'voucherNo', width: 100 },
-    { title: '类型', dataIndex: 'voucherType', width: 100 },
-    { title: '摘要', dataIndex: 'description', ellipsis: true },
-    {
-      title: '借方合计', dataIndex: 'totalDebit', width: 130, align: 'right' as const,
-      render: (v: number) => fmtAmount(v),
-    },
-    {
-      title: '贷方合计', dataIndex: 'totalCredit', width: 130, align: 'right' as const,
-      render: (v: number) => fmtAmount(v),
-    },
-    { title: '来源', dataIndex: 'srcSystem', width: 100 },
-    { title: '制单人', dataIndex: 'maker', width: 90 },
-    {
-      title: '状态', dataIndex: 'status', width: 90,
-      render: (s: string) => s ? <Tag color={statusColor(s)}>{s}</Tag> : '-',
-    },
-    { title: '制单日期', dataIndex: 'makeTime', width: 110 },
-  ];
+  }, [layout, handleColResize, handleColReorder]);
+  // 各列宽之和 → 横滚宽度（列固定宽后需要横滚）
+  const totalWidth = useMemo(
+    () => layout.order.reduce((s, k) => s + (layout.widths[k] || 0), 0),
+    [layout],
+  );
 
   const lineColumns = [
     { title: '行号', dataIndex: 'recordNumber', width: 60 },
@@ -230,20 +308,16 @@ const VoucherQuery: React.FC = () => {
           <Button type="primary" icon={<SearchOutlined />} onClick={onSearch} loading={loading}>
             查询
           </Button>
-          <Button onClick={onFullPull} loading={loading} disabled={!queried}>
-            拉全
-          </Button>
+          <Button onClick={resetLayout}>恢复默认列</Button>
         </Space>
       </div>
 
-      {queried && (hasMore || truncated) && (
+      {queried && truncated && (
         <Alert
           style={{ marginBottom: 12 }}
           type="warning"
           showIcon
-          message={truncated
-            ? '结果太多已截断,请缩小账期或减少账簿后重试'
-            : '部分账簿还有更多凭证未显示,点「拉全」查看完整,或缩小账期/凭证号范围'}
+          message="结果太多已截断,请缩小账期、减少账簿或缩小凭证号范围后重试"
         />
       )}
 
@@ -251,10 +325,11 @@ const VoucherQuery: React.FC = () => {
         rowKey={(r) => `${r.accbookCode}-${r.id}`}
         size="small"
         loading={loading}
-        columns={columns}
+        columns={orderedColumns as any}
+        components={{ header: { cell: ResizableTitle } }}
         dataSource={rows}
         locale={{ emptyText: queried ? '该条件下没有凭证' : '请选择账簿和账期后点查询' }}
-        scroll={{ x: 1100 }}
+        scroll={{ x: totalWidth }}
         expandable={{
           expandedRowRender: (record) => (
             <Table<VoucherLine>
