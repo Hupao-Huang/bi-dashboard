@@ -9,6 +9,13 @@ import (
 const excludeAnhuiOrgWHERE = " AND org_name != '安徽香松自然调味品有限公司'"
 const excludeAnhuiOrgYsWHERE = " AND ys.org_name != '安徽香松自然调味品有限公司'"
 
+// 2026-06-26: 采购口径只算真实对外采购(普通采购/采购退货), 排除内部购销/内部购销退货(公司间调拨)。
+// 内部购销占在途采购约 97%(12514/12854 行), 混进来会把"在途采购"算虚高 → 建议采购量被算成 0(劝你别补缺货)。
+// ys_purchase_orders 无交易类型编码字段, 用 bustype_name 名称过滤。
+// 仅 ys_purchase_orders 有此字段(采购订单); ys_subcontract_orders(委外)不涉及交易类型, 不加。
+// 注: prodSQL/otherSQL 的 po/po_arr 子查询 + in-transit 明细 带 p. 别名, 同等条件直接写在 SQL 串里(那里 org 排除也是硬编码), 不用本常量。
+const onlyExtPurchaseWHERE = " AND bustype_name IN ('普通采购', '采购退货')"
+
 // planWarehouses 计划/采购看板 + 库存预警共用的 8 仓白名单 (2026-06-03 加南京自营仓 7→8)
 // 改这一处即可同步影响：计划看板、库存预警等所有"按仓库白名单"过滤的查询
 // 注意: 快递仓储分析(warehouse_flow.go)+物化表(cmd/build-warehouse-flow-summary)也共用此名单; 加/减仓须同步改 CLI 并重建 warehouse_flow_summary

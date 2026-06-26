@@ -62,6 +62,7 @@ func (h *DashboardHandler) GetInTransitDetail(w http.ResponseWriter, r *http.Req
 		WHERE p.purchase_orders_in_wh_status IN (2,3)
 		  AND p.qty > IFNULL(p.total_in_qty, 0)
 		  AND p.org_name != '安徽香松自然调味品有限公司'
+		  AND p.bustype_name IN ('普通采购', '采购退货')
 		  AND (
 		    p.product_c_code IN (SELECT sku_code FROM goods WHERE goods_no = ? AND sku_code IS NOT NULL AND sku_code != '')
 		    OR p.product_c_code = ?
