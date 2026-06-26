@@ -37,7 +37,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 
 	// 在途采购订单数 (v0.52: 排除安徽香松组织)
 	h.DB.QueryRow(`SELECT COUNT(DISTINCT id) FROM ys_purchase_orders
-		WHERE purchase_orders_in_wh_status IN (2,3)` + excludeAnhuiOrgWHERE).Scan(&kpi.InTransitOrders)
+		WHERE purchase_orders_in_wh_status IN (2,3)` + excludeAnhuiOrgWHERE + onlyExtPurchaseWHERE).Scan(&kpi.InTransitOrders)
 
 	// 在途委外订单数 (v0.52: 排除安徽香松组织)
 	h.DB.QueryRow(`SELECT COUNT(DISTINCT id) FROM ys_subcontract_orders
@@ -46,7 +46,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	// 最近 30 天采购金额 (相对 DB 内 MAX(vouchdate) 滚动) (v0.52: 排除安徽香松)
 	var amt sql.NullFloat64
 	h.DB.QueryRow(`SELECT SUM(ori_sum) FROM ys_purchase_orders
-		WHERE vouchdate >= DATE_SUB((SELECT MAX(vouchdate) FROM ys_purchase_orders), INTERVAL 30 DAY)` + excludeAnhuiOrgWHERE).Scan(&amt)
+		WHERE vouchdate >= DATE_SUB((SELECT MAX(vouchdate) FROM ys_purchase_orders), INTERVAL 30 DAY)` + excludeAnhuiOrgWHERE + onlyExtPurchaseWHERE).Scan(&amt)
 	kpi.Recent30Amount = amt.Float64
 
 	// === 2. 月度趋势 (近 6 个月采购金额) ===
@@ -58,7 +58,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	mRows, _ := h.DB.Query(`SELECT DATE_FORMAT(vouchdate, '%Y-%m') AS month,
 		ROUND(SUM(ori_sum), 0) AS amount
 		FROM ys_purchase_orders
-		WHERE vouchdate >= DATE_SUB((SELECT MAX(vouchdate) FROM ys_purchase_orders), INTERVAL 6 MONTH)` + excludeAnhuiOrgWHERE + `
+		WHERE vouchdate >= DATE_SUB((SELECT MAX(vouchdate) FROM ys_purchase_orders), INTERVAL 6 MONTH)` + excludeAnhuiOrgWHERE + onlyExtPurchaseWHERE + `
 		GROUP BY DATE_FORMAT(vouchdate, '%Y-%m') ORDER BY month`)
 	if mRows != nil {
 		for mRows.Next() {
@@ -79,7 +79,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 	topVendors := []vendorRow{}
 	vRows, _ := h.DB.Query(`SELECT vendor_name, ROUND(SUM(ori_sum), 0) AS amount,
 		COUNT(DISTINCT id) AS order_count
-		FROM ys_purchase_orders WHERE vendor_name IS NOT NULL` + excludeAnhuiOrgWHERE + `
+		FROM ys_purchase_orders WHERE vendor_name IS NOT NULL` + excludeAnhuiOrgWHERE + onlyExtPurchaseWHERE + `
 		GROUP BY vendor_name ORDER BY amount DESC LIMIT 10`)
 	if vRows != nil {
 		for vRows.Next() {
@@ -151,6 +151,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  WHERE p.purchase_orders_in_wh_status IN (2,3) AND p.qty > IFNULL(p.total_in_qty, 0)
 		    AND (p.recieve_date IS NULL OR p.recieve_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))
 		    AND p.org_name != '安徽香松自然调味品有限公司'
+		    AND p.bustype_name IN ('普通采购', '采购退货')
 		  GROUP BY g.goods_no
 		) po ON po.jky_no = sq.goods_no
 		LEFT JOIN (
@@ -158,6 +159,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  FROM ys_purchase_orders p JOIN goods g ON g.sku_code = p.product_c_code
 		  WHERE p.purchase_orders_in_wh_status IN (2,3) AND p.qty > IFNULL(p.total_in_qty, 0)
 		    AND p.org_name != '安徽香松自然调味品有限公司'
+		    AND p.bustype_name IN ('普通采购', '采购退货')
 		  GROUP BY g.goods_no
 		) po_arr ON po_arr.jky_no = sq.goods_no
 		LEFT JOIN (
@@ -237,13 +239,13 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  SELECT product_c_code, SUM(qty - IFNULL(total_in_qty, 0)) AS in_transit_qty
 		  FROM ys_purchase_orders
 		  WHERE purchase_orders_in_wh_status IN (2,3) AND qty > IFNULL(total_in_qty, 0)
-		    AND (recieve_date IS NULL OR recieve_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))` + excludeAnhuiOrgWHERE + `
+		    AND (recieve_date IS NULL OR recieve_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))` + excludeAnhuiOrgWHERE + onlyExtPurchaseWHERE + `
 		  GROUP BY product_c_code
 		) po ON po.product_c_code = ys.product_code
 		LEFT JOIN (
 		  SELECT product_c_code, MIN(IFNULL(recieve_date, DATE_ADD(vouchdate, INTERVAL 30 DAY))) AS next_arrive
 		  FROM ys_purchase_orders
-		  WHERE purchase_orders_in_wh_status IN (2,3) AND qty > IFNULL(total_in_qty, 0)` + excludeAnhuiOrgWHERE + `
+		  WHERE purchase_orders_in_wh_status IN (2,3) AND qty > IFNULL(total_in_qty, 0)` + excludeAnhuiOrgWHERE + onlyExtPurchaseWHERE + `
 		  GROUP BY product_c_code
 		) po_arr ON po_arr.product_c_code = ys.product_code
 		LEFT JOIN (
@@ -310,6 +312,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  WHERE p.purchase_orders_in_wh_status IN (2,3) AND p.qty > IFNULL(p.total_in_qty, 0)
 		    AND (p.recieve_date IS NULL OR p.recieve_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY))
 		    AND p.org_name != '安徽香松自然调味品有限公司'
+		    AND p.bustype_name IN ('普通采购', '采购退货')
 		  GROUP BY g.goods_no
 		) po ON po.jky_no = sq.goods_no
 		LEFT JOIN (
@@ -317,6 +320,7 @@ func (h *DashboardHandler) GetPurchasePlan(w http.ResponseWriter, r *http.Reques
 		  FROM ys_purchase_orders p JOIN goods g ON g.sku_code = p.product_c_code
 		  WHERE p.purchase_orders_in_wh_status IN (2,3) AND p.qty > IFNULL(p.total_in_qty, 0)
 		    AND p.org_name != '安徽香松自然调味品有限公司'
+		    AND p.bustype_name IN ('普通采购', '采购退货')
 		  GROUP BY g.goods_no
 		) po_arr ON po_arr.jky_no = sq.goods_no
 		LEFT JOIN (
