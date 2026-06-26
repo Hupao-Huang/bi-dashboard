@@ -4,7 +4,7 @@
 // 5 秒一次轮询 /api/admin/rpa/job-status, 显示状态 + 实时日志
 // 完成 → toast + 自动关闭 + 触发外部 onDone (刷新主表)
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Modal, Progress, Statistic, Tag, Typography, Empty, Button, message } from 'antd';
+import { Modal, Progress, Statistic, Tag, Typography, Empty, Button, message, Space, Popconfirm } from 'antd';
 import { SyncOutlined } from '@ant-design/icons';
 import { API_BASE } from '../../config';
 
@@ -48,6 +48,7 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [localElapsed, setLocalElapsed] = useState(0); // 本地秒表 1s 一跳, 不等后端 5s 轮询
+  const [stopping, setStopping] = useState(false); // 终止请求进行中
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logsBoxRef = useRef<HTMLDivElement>(null);
@@ -87,6 +88,8 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
         const ok = d.status === 'finish';
         if (ok) {
           message.success(`${platform} 同步完成（耗时 ${formatTime(d.elapsed_sec)}）`);
+        } else if (d.status === 'cancel') {
+          message.info(`${platform} 已终止`);
         } else {
           message.error(`${platform} 同步失败（${d.status_name || d.status}）`);
         }
@@ -97,6 +100,32 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [triggerId, platform, stopPoll, onDone, onClose]);
+
+  // 终止运行: 调后端 /api/admin/rpa/stop, 后端转调影刀 job/stop
+  const handleStop = useCallback(async () => {
+    if (!triggerId) return;
+    setStopping(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/rpa/stop`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trigger_id: triggerId }),
+      });
+      const j = await res.json();
+      if (j.code === 200) {
+        message.success('已发送终止指令，机器人会停止运行');
+        onDone?.();   // 刷新父级"正在同步"角标
+        poll();       // 立刻再拉一次状态
+      } else {
+        message.error(j.msg || j.error || '终止失败');
+      }
+    } catch {
+      message.error('终止请求失败（网络错误）');
+    } finally {
+      setStopping(false);
+    }
+  }, [triggerId, onDone, poll]);
 
   // 启动轮询
   useEffect(() => {
@@ -146,7 +175,8 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
 
   const statusTagColor = (s: string) => {
     if (s === 'finish') return 'success';
-    if (['error', 'fail', 'cancel'].includes(s)) return 'error';
+    if (['error', 'fail'].includes(s)) return 'error';
+    if (s === 'cancel') return 'default';
     if (s === 'running') return 'processing';
     return 'warning';
   };
@@ -167,9 +197,23 @@ const RPASyncModal: React.FC<Props> = ({ triggerId, platform, robotName, date, o
       width={720}
       maskClosable={false}
       footer={
-        <Button onClick={onClose}>
-          {status?.done ? '关闭' : '最小化（后台继续跑，跑完发钉钉通知）'}
-        </Button>
+        <Space>
+          {status && !status.done && (
+            <Popconfirm
+              title="终止这个采集任务？"
+              description="影刀机器人会停止运行，本次没跑完的数据不会保存。"
+              okText="确定终止"
+              okButtonProps={{ danger: true }}
+              cancelText="再等等"
+              onConfirm={handleStop}
+            >
+              <Button danger loading={stopping}>终止运行</Button>
+            </Popconfirm>
+          )}
+          <Button onClick={onClose}>
+            {status?.done ? '关闭' : '最小化（后台继续跑，跑完发钉钉通知）'}
+          </Button>
+        </Space>
       }
     >
       {!status ? (

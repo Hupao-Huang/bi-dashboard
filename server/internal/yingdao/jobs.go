@@ -123,6 +123,14 @@ func (c *Client) QueryJob(ctx context.Context, jobUuid string) (*JobStatus, erro
 	return &resp, nil
 }
 
+// StopJob 停止一个正在运行的应用 (job/stop)
+// jobUuid 来自启动应用 (StartJob); 应用已处于终态时影刀返回成功但无实际效果
+// 响应体只有 {code,success,msg} 没有 data, out 传 nil, 由 doJSON 的 code 判定成败
+func (c *Client) StopJob(ctx context.Context, jobUuid string) error {
+	body := map[string]string{"jobUuid": jobUuid}
+	return c.doJSON(ctx, "POST", c.AuthURL, "/oapi/dispatch/v2/job/stop", body, nil)
+}
+
 // NotifyLog 通知影刀准备日志, 拿到 requestId 后续 60s 内可轮询日志
 func (c *Client) NotifyLog(ctx context.Context, jobUuid string, page, size int) (string, error) {
 	if page <= 0 {
