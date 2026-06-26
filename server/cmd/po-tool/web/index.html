@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>新增采购订单</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", -apple-system, sans-serif; margin: 0; background: #f5f6f8; color: #1f2329; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  .sub { color: #8a8f99; font-size: 13px; margin-bottom: 20px; }
+  .card { background: #fff; border-radius: 10px; padding: 20px 22px; margin-bottom: 18px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .card h2 { font-size: 16px; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; }
+  .step-no { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; background: #2f6fed; color: #fff; font-size: 13px; align-items: center; justify-content: center; }
+  .card.done h2 .step-no { background: #18a058; }
+  .card.disabled { opacity: .5; pointer-events: none; }
+  input[type=password], input[type=file] { font-size: 15px; }
+  input[type=password] { padding: 9px 12px; border: 1px solid #d0d3d9; border-radius: 6px; width: 220px; }
+  button { font-size: 15px; padding: 9px 20px; border: none; border-radius: 6px; cursor: pointer; background: #2f6fed; color: #fff; }
+  button:disabled { background: #b9c2d0; cursor: not-allowed; }
+  button.danger { background: #e8632a; }
+  button.ghost { background: #eef1f5; color: #1f2329; }
+  .msg { margin-left: 12px; font-size: 14px; }
+  .msg.err { color: #d4380d; }
+  .msg.ok { color: #18a058; }
+  .summary { display: flex; gap: 26px; flex-wrap: wrap; margin: 4px 0 14px; }
+  .summary div b { font-size: 22px; }
+  .summary .green b { color: #18a058; }
+  .summary .red b { color: #d4380d; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid #eceef1; padding: 6px 8px; text-align: left; white-space: nowrap; }
+  th { background: #fafbfc; position: sticky; top: 0; }
+  .tbl-scroll { max-height: 420px; overflow: auto; border: 1px solid #eceef1; border-radius: 6px; }
+  tr.bad { background: #fff1f0; }
+  tr.warn { background: #fffbe6; }
+  .tag-bad { color: #d4380d; }
+  .tag-warn { color: #d48806; }
+  .tag-ok { color: #18a058; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .hint { font-size: 12px; color: #8a8f99; margin-top: 8px; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>新增采购订单</h1>
+  <div class="sub">导入 Excel 模板 → 自动翻译编码、算价 → 确认后在用友建采购订单（开立态，不自动审核）。建单不可撤回，请先看清预览。</div>
+
+  <!-- 步骤1: 解锁 -->
+  <div class="card" id="card1">
+    <h2><span class="step-no">1</span> 输入口令解锁</h2>
+    <input type="password" id="pwd" placeholder="请输入口令" autofocus />
+    <button id="btnUnlock" onclick="unlock()">解锁</button>
+    <span class="msg" id="unlockMsg"></span>
+    <div class="hint">口令向管理员索取。解锁后才能使用，关闭工具后需重新输入。</div>
+  </div>
+
+  <!-- 步骤2: 上传预览 -->
+  <div class="card disabled" id="card2">
+    <h2><span class="step-no">2</span> 选择填好的 Excel，预览</h2>
+    <input type="file" id="file" accept=".xlsx" />
+    <button id="btnPreview" onclick="preview()">上传并预览</button>
+    <span class="msg" id="previewMsg"></span>
+
+    <div id="previewBox" class="hide" style="margin-top:16px">
+      <div class="summary">
+        <div>订单张数 <b id="sOrders">0</b></div>
+        <div class="green">可建 <b id="sOk">0</b></div>
+        <div class="red">有问题 <b id="sBad">0</b></div>
+        <div>含税总额 <b id="sSum">0</b></div>
+      </div>
+      <div class="tbl-scroll">
+        <table id="tbl">
+          <thead><tr>
+            <th>行</th><th>采购组织</th><th>供应商</th><th>物料编码</th><th>物料名称</th>
+            <th>数量</th><th>含税单价</th><th>含税金额</th><th>税率</th><th>到货日期</th><th>状态</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div class="hint">红色行有问题不会建单（多为：供应商名单里没有、物料/组织编码查不到、日期或金额填错）。橙色是提醒（已按货品档案税率算）。</div>
+    </div>
+  </div>
+
+  <!-- 步骤3: 建单 -->
+  <div class="card disabled" id="card3">
+    <h2><span class="step-no">3</span> 确认建单（写入用友，不可撤回）</h2>
+    <button id="btnCommit" class="danger" onclick="commit(false)">确认建单</button>
+    <span class="msg" id="commitMsg"></span>
+    <div id="resultBox" class="hide" style="margin-top:16px">
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr><th>采购组织</th><th>供应商</th><th>单据日期</th><th>明细数</th><th>结果</th><th>用友单号</th></tr></thead>
+          <tbody id="resBody"></tbody>
+        </table>
+      </div>
+      <div class="hint">显示“已跳过/10分钟内已提交”是防重复保护。确需重建，点下面按钮强制重发。</div>
+      <button class="ghost" style="margin-top:10px" onclick="forceRebuild()">强制重发（重新预览并跳过防重复）</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let token = "";
+let canCommit = 0;
+
+function setMsg(id, text, cls) {
+  const el = document.getElementById(id);
+  el.textContent = text || "";
+  el.className = "msg" + (cls ? " " + cls : "");
+}
+function fmtMoney(n) { return (n == null ? 0 : n).toLocaleString("zh-CN", {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+
+async function unlock() {
+  const pwd = document.getElementById("pwd").value;
+  setMsg("unlockMsg", "解锁中…", "");
+  document.getElementById("btnUnlock").disabled = true;
+  try {
+    const r = await fetch("/api/unlock", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({password: pwd})});
+    const j = await r.json();
+    if (j.ok) {
+      setMsg("unlockMsg", "✓ 已解锁", "ok");
+      document.getElementById("card1").classList.add("done");
+      document.getElementById("card2").classList.remove("disabled");
+    } else {
+      setMsg("unlockMsg", j.error || "解锁失败", "err");
+      document.getElementById("btnUnlock").disabled = false;
+    }
+  } catch(e) {
+    setMsg("unlockMsg", "解锁请求失败：" + e, "err");
+    document.getElementById("btnUnlock").disabled = false;
+  }
+}
+document.getElementById("pwd").addEventListener("keydown", e => { if (e.key === "Enter") unlock(); });
+
+async function preview() {
+  const f = document.getElementById("file").files[0];
+  if (!f) { setMsg("previewMsg", "请先选择 Excel 文件", "err"); return false; }
+  setMsg("previewMsg", "上传解析中（查用友翻译编码，约几秒到几十秒）…", "");
+  document.getElementById("btnPreview").disabled = true;
+  const fd = new FormData();
+  fd.append("file", f);
+  let ok = false;
+  try {
+    const r = await fetch("/api/preview", {method:"POST", body: fd});
+    const j = await r.json();
+    if (j.error) { setMsg("previewMsg", j.error, "err"); document.getElementById("btnPreview").disabled = false; return false; }
+    token = j.token;
+    renderPreview(j.rows || [], j.orders || []);
+    setMsg("previewMsg", "", "");
+    ok = true;
+  } catch(e) {
+    setMsg("previewMsg", "预览失败：" + e, "err");
+  }
+  document.getElementById("btnPreview").disabled = false;
+  return ok;
+}
+
+function renderPreview(rows, orders) {
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    const bad = row.problems && row.problems.length;
+    const warn = !bad && row.warnings && row.warnings.length;
+    if (bad) tr.className = "bad"; else if (warn) tr.className = "warn";
+    let status;
+    if (bad) status = '<span class="tag-bad">✗ ' + esc(row.problems.join("；")) + '</span>';
+    else if (warn) status = '<span class="tag-warn">⚠ ' + esc(row.warnings.join("；")) + '</span>';
+    else status = '<span class="tag-ok">✓ 可建</span>';
+    tr.innerHTML =
+      "<td>" + row.rowNo + "</td>" +
+      "<td>" + esc(row.orgName) + "</td>" +
+      "<td>" + esc(row.vendorName) + "</td>" +
+      "<td>" + esc(row.productCode) + "</td>" +
+      "<td>" + esc(row.productName) + "</td>" +
+      '<td class="num">' + (row.qty ?? "") + "</td>" +
+      '<td class="num">' + fmtMoney(row.taxInclPrice) + "</td>" +
+      '<td class="num">' + fmtMoney(row.oriSum) + "</td>" +
+      '<td class="num">' + (row.taxRatePct ?? "") + "%</td>" +
+      "<td>" + esc((row.arriveDate || "").slice(0,10)) + "</td>" +
+      "<td>" + status + "</td>";
+    tbody.appendChild(tr);
+  }
+  let okCnt = 0, badCnt = 0, sum = 0;
+  for (const o of orders) { if (o.hasProblem) badCnt++; else okCnt++; sum += (o.totalSum || 0); }
+  document.getElementById("sOrders").textContent = orders.length;
+  document.getElementById("sOk").textContent = okCnt;
+  document.getElementById("sBad").textContent = badCnt;
+  document.getElementById("sSum").textContent = fmtMoney(sum);
+  document.getElementById("previewBox").classList.remove("hide");
+
+  canCommit = okCnt;
+  const card3 = document.getElementById("card3");
+  const btn = document.getElementById("btnCommit");
+  if (okCnt > 0) {
+    card3.classList.remove("disabled");
+    btn.disabled = false;
+    btn.textContent = "确认建单（" + okCnt + " 张写入用友，不可撤回）";
+    setMsg("commitMsg", badCnt > 0 ? ("有 " + badCnt + " 张红色订单会自动跳过") : "", badCnt > 0 ? "err" : "");
+  } else {
+    card3.classList.add("disabled");
+    setMsg("commitMsg", "没有可建的订单，请先修正 Excel 后重新预览", "err");
+  }
+  document.getElementById("resultBox").classList.add("hide");
+}
+
+// 普通建单：当前 token 提交。token 一旦发出就被服务端消费，无论成败本地都作废，
+// 失败/部分失败的重试一律走"重新上传并预览"（服务端按内容防重，已建成的会自动跳过）。
+async function commit(force) {
+  if (!token) { setMsg("commitMsg", "请重新上传并预览后再建单", "err"); return; }
+  if (!confirm("确认把 " + canCommit + " 张订单写入用友吗？建单后不可撤回。")) return;
+  const t = token;
+  token = ""; // 立即作废本地 token，杜绝重复点击发第二次
+  setMsg("commitMsg", "建单中，请勿关闭窗口…", "");
+  document.getElementById("btnCommit").disabled = true;
+  try {
+    const r = await fetch("/api/commit", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({token: t, force: !!force})});
+    const j = await r.json();
+    if (j.error) { setMsg("commitMsg", j.error + "（如需重试请重新上传并预览）", "err"); return; }
+    renderResults(j.results || []);
+    setMsg("commitMsg", "建单完成，结果见下表", "ok");
+  } catch(e) {
+    setMsg("commitMsg", "建单请求可能已发出但连接中断：" + e + "。请勿直接重试，重新上传预览后按提示处理（已建成的会自动跳过）。", "err");
+  }
+}
+
+// 强制重发：跳过 10 分钟防重复。token 已被上次提交消费，必须先重新预览拿新 token 再 force 提交。
+async function forceRebuild() {
+  if (!confirm("强制重发会跳过 10 分钟防重复，可能把已经建好的单再建一遍！确定继续？")) return;
+  const ok = await preview(); // 重新翻译算价，拿到新 token
+  if (!ok) return;
+  await commit(true);
+}
+
+function renderResults(results) {
+  const tb = document.getElementById("resBody");
+  tb.innerHTML = "";
+  for (const r of results) {
+    const tr = document.createElement("tr");
+    let res;
+    if (r.ok) res = '<span class="tag-ok">✓ 建单成功</span>' + (r.warn ? '<br><span class="tag-warn">⚠ ' + esc(r.warn) + '</span>' : '');
+    else if (r.skipped) res = '<span class="tag-warn">⚠ ' + esc(r.error || "已跳过") + '</span>';
+    else res = '<span class="tag-bad">✗ ' + esc(r.error || "失败") + '</span>';
+    tr.innerHTML =
+      "<td>" + esc(r.orgName || r.orgCode) + "</td>" +
+      "<td>" + esc(r.vendorName) + "</td>" +
+      "<td>" + esc((r.vouchDate||"").slice(0,10)) + "</td>" +
+      "<td>" + r.lineCount + "</td>" +
+      "<td>" + res + "</td>" +
+      "<td>" + esc(r.orderId || "") + "</td>";
+    tb.appendChild(tr);
+  }
+  document.getElementById("resultBox").classList.remove("hide");
+  // 防重复点击：token 已被服务端消费，重建需重新预览
+  token = "";
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+</script>
+</body>
+</html>
