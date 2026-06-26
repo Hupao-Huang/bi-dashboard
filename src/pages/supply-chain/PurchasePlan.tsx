@@ -93,11 +93,11 @@ const PurchasePlan: React.FC = () => {
 
   // 原材料/包材: 当前库存点击 → 各仓库组成弹窗 (口径同列, 排香松后各仓库相加=列里的数)
   const [stockModal, setStockModal] = useState<{
-    productCode: string; goodsName: string; kind: 'finished' | 'material'; loading: boolean;
+    productCode: string; goodsName: string; kind: 'finished' | 'material'; codeText: string; loading: boolean;
     warehouses: { warehouseName: string; orgName: string; qty: number }[]; total: number;
   } | null>(null);
   // 在途采购点击 → 采购单明细大弹窗 (替代原 hover 小浮层)
-  const [inTransitModal, setInTransitModal] = useState<{ goodsNo: string; goodsName: string; kind: 'purchase' | 'subcontract' } | null>(null);
+  const [inTransitModal, setInTransitModal] = useState<{ goodsNo: string; goodsName: string; kind: 'purchase' | 'subcontract'; codeText: string } | null>(null);
   const loadInTransitDetail = (goodsNo: string) => {
     if (!goodsNo) return;
     const cur = inTransitCache[goodsNo];
@@ -162,26 +162,30 @@ const PurchasePlan: React.FC = () => {
     );
   };
 
+  // 弹窗标题用: 吉客云 + 用友 双编码标签 (跟列表两列一致, 空的省略)
+  const codeLabel = (jkyCode?: string, ysCode?: string) =>
+    [jkyCode && `吉客云 ${jkyCode}`, ysCode && `用友 ${ysCode}`].filter(Boolean).join('  ·  ');
+
   // kind=finished: 成品/半成品+其他(吉客云 stock_quantity 8 仓); material: 原材料/包材(用友 ys_stock)
-  const openStockModal = (productCode: string, goodsName: string, kind: 'finished' | 'material' = 'material') => {
+  const openStockModal = (productCode: string, goodsName: string, kind: 'finished' | 'material' = 'material', codeText = '') => {
     if (!productCode) return;
-    setStockModal({ productCode, goodsName, kind, loading: true, warehouses: [], total: 0 });
+    setStockModal({ productCode, goodsName, kind, codeText, loading: true, warehouses: [], total: 0 });
     fetch(`${API_BASE}/api/supply-chain/stock-detail?productCode=${encodeURIComponent(productCode)}&kind=${kind}`, { credentials: 'include' })
       .then((r) => r.json())
       .then((j) => {
         if (j.code === 200 && j.data) {
-          setStockModal({ productCode, goodsName, kind, loading: false,
+          setStockModal({ productCode, goodsName, kind, codeText, loading: false,
             warehouses: j.data.warehouses || [], total: j.data.total || 0 });
         } else {
-          setStockModal({ productCode, goodsName, kind, loading: false, warehouses: [], total: 0 });
+          setStockModal({ productCode, goodsName, kind, codeText, loading: false, warehouses: [], total: 0 });
         }
       })
-      .catch(() => setStockModal({ productCode, goodsName, kind, loading: false, warehouses: [], total: 0 }));
+      .catch(() => setStockModal({ productCode, goodsName, kind, codeText, loading: false, warehouses: [], total: 0 }));
   };
 
-  const openInTransitModal = (code: string, goodsName: string, kind: 'purchase' | 'subcontract' = 'purchase') => {
+  const openInTransitModal = (code: string, goodsName: string, kind: 'purchase' | 'subcontract' = 'purchase', codeText = '') => {
     if (!code) return;
-    setInTransitModal({ goodsNo: code, goodsName, kind });
+    setInTransitModal({ goodsNo: code, goodsName, kind, codeText });
     loadInTransitDetail(code);
   };
 
@@ -572,7 +576,7 @@ const PurchasePlan: React.FC = () => {
                 // 原材料用 ysCode 查 ys_stock; 成品/其他用 jkyCode(=goods_no) 查吉客云 stock_quantity 8 仓
                 const code = isMaterial ? r.ysCode : r.jkyCode;
                 return code
-                  ? <Button type="link" size="small" style={{ padding: 0, height: 'auto', color: '#1e40af' }} onClick={() => openStockModal(code, r.goodsName, isMaterial ? 'material' : 'finished')}>{fmtQty(v)}</Button>
+                  ? <Button type="link" size="small" style={{ padding: 0, height: 'auto', color: '#1e40af' }} onClick={() => openStockModal(code, r.goodsName, isMaterial ? 'material' : 'finished', codeLabel(r.jkyCode, r.ysCode))}>{fmtQty(v)}</Button>
                   : fmtQty(v);
               },
               sorter: (a: SuggestRow, b: SuggestRow) => a.stock - b.stock },
@@ -627,7 +631,7 @@ const PurchasePlan: React.FC = () => {
               dataIndex: 'inTransit', width: 100, align: 'right',
               render: (v: number, r: SuggestRow) => v > 0 ? (
                 <Button type="link" size="small" style={{ padding: 0, height: 'auto', color: '#1e40af' }}
-                   onClick={() => openInTransitModal(isMaterial ? r.ysCode : r.jkyCode, r.goodsName)}>{fmtQty(v)}</Button>
+                   onClick={() => openInTransitModal(isMaterial ? r.ysCode : r.jkyCode, r.goodsName, 'purchase', codeLabel(r.jkyCode, r.ysCode))}>{fmtQty(v)}</Button>
               ) : <span style={{ color: '#cbd5e1' }}>—</span> },
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
@@ -642,7 +646,7 @@ const PurchasePlan: React.FC = () => {
               dataIndex: 'inTransitSubcontract', width: 100, align: 'right',
               render: (v: number, r: SuggestRow) => v > 0 ? (
                 <Button type="link" size="small" style={{ padding: 0, height: 'auto', color: '#7c3aed' }}
-                   onClick={() => openInTransitModal(r.jkyCode, r.goodsName, 'subcontract')}>{fmtQty(v)}</Button>
+                   onClick={() => openInTransitModal(r.jkyCode, r.goodsName, 'subcontract', codeLabel(r.jkyCode, r.ysCode))}>{fmtQty(v)}</Button>
               ) : <span style={{ color: '#cbd5e1' }}>—</span> },
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
@@ -742,7 +746,10 @@ const PurchasePlan: React.FC = () => {
             <Empty description="该物料在用友里暂无仓库库存" />
           ) : (
             <>
-              <div style={{ marginBottom: 6, fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{stockModal.goodsName}</div>
+              <div style={{ marginBottom: 6 }}>
+                <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{stockModal.goodsName}</span>
+                {stockModal.codeText && <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-tertiary)' }}>{stockModal.codeText}</span>}
+              </div>
               <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--text-secondary)' }}>
                 共 <b>{stockModal.warehouses.length}</b> 个仓库, 合计 <b style={{ color: '#1e40af' }}>{fmtQty(stockModal.total)}</b>
               </div>
@@ -776,7 +783,10 @@ const PurchasePlan: React.FC = () => {
         className="pp-fit-modal"
       >
         {inTransitModal && <>
-          <div style={{ marginBottom: 6, fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{inTransitModal.goodsName}</div>
+          <div style={{ marginBottom: 6 }}>
+            <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{inTransitModal.goodsName}</span>
+            {inTransitModal.codeText && <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-tertiary)' }}>{inTransitModal.codeText}</span>}
+          </div>
           {renderInTransitPopover(inTransitModal.goodsNo, inTransitModal.kind, true)}
         </>}
       </Modal>
