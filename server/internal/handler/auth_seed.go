@@ -74,7 +74,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "finance.report:import", Name: "财务-财务报表导入", Type: "action"},
 	{Code: "finance.business_report:import", Name: "财务-业务报表导入", Type: "action"},
 	{Code: "finance.sku_movement:view", Name: "财务-SKU动销率", Type: "page"}, // 2026-06-15 暂不发 finance 角色, 仅超管可见(验收后再放)
-	{Code: "finance.voucher:view", Name: "财务-凭证查询(仅超管)", Type: "page"}, // 2026-06-16 实时查用友凭证, 暂不发 finance 角色, 仅超管可见
+	{Code: "finance.voucher:view", Name: "财务-凭证查询", Type: "page"}, // 2026-06-16 实时查用友凭证; 2026-06-26 开放给 finance 角色
 	{Code: "customer:view", Name: "客服部门", Type: "menu"},
 	{Code: "customer.overview:view", Name: "客服-客服总览", Type: "page"},
 	{Code: "customer.comment:view", Name: "客服-评论数据", Type: "page"},
@@ -151,7 +151,7 @@ var roleDefaultPermissions = map[string][]string{
 	"finance": {
 		"overview:view",
 		"brand:view", "brand.overview:view", "brand.awareness:view", "brand.affinity:view", "brand.binding:view",
-		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view", "finance.report:view", "finance.report:import",
+		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view", "finance.report:view", "finance.report:import", "finance.voucher:view",
 		"profit:view", "cost:view", "gross_margin:view",
 		"profile.hesi_bot:view",
 	},
