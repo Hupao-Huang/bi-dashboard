@@ -917,6 +917,47 @@ func (h *DashboardHandler) loadEcommerceGoodsAllotDetail(
 	return out, nil
 }
 
+// loadInstantRetailGoodsAllotDetail 2026-06-26: 即时零售(朴朴/小象/叮咚)调拨 SKU 详情, 按 goods_no 聚合。
+// 与 loadEcommerceGoodsAllotDetail 同构(供货品看板 TOP15/明细/品牌/Grade 复用); 区别仅渠道清单是运行时白名单
+// (价格门控渠道是否纳入由 instantRetailAllotChannels 决定), 用 allotChannelsInClause 拼 IN(白名单, 无注入)。
+// 与 loadDeptGoodsTotals 里那段 instant_retail KPI 累加同口径(SUM excel_amount/sku_count), 只是这里按 goods_no 拆开,
+// 用它合并进货品明细后, 总计就改走 len(allotGoods)>0 那条统一加和, 避免两处各加一遍调拨。
+func (h *DashboardHandler) loadInstantRetailGoodsAllotDetail(
+	ctx context.Context, start, end string, channels []string,
+) ([]GoodsAllotItem, error) {
+	if len(channels) == 0 {
+		return nil, nil
+	}
+	rows, err := h.DB.QueryContext(ctx, `
+		SELECT d.goods_no, d.goods_name,
+		       IFNULL(g.brand_name, '') AS brand_name,
+		       IFNULL(g.cate_name, '') AS cate_name,
+		       IFNULL(g.goods_field7, '') AS grade,
+		       IFNULL(SUM(d.excel_amount), 0) AS sales,
+		       IFNULL(SUM(d.sku_count), 0) AS qty
+		FROM allocate_orders o
+		JOIN allocate_details d ON d.allocate_no = o.allocate_no
+		LEFT JOIN (SELECT DISTINCT goods_no, brand_name, cate_name, goods_field7 FROM goods) g ON g.goods_no = d.goods_no
+		WHERE o.channel_key IN (`+allotChannelsInClause(channels)+`)
+		  AND o.stat_date BETWEEN ? AND ?
+		GROUP BY d.goods_no, d.goods_name, g.brand_name, g.cate_name, g.goods_field7
+	`, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("查即时零售 goods 调拨详情失败: %w", err)
+	}
+	defer rows.Close()
+
+	var out []GoodsAllotItem
+	for rows.Next() {
+		var it GoodsAllotItem
+		if err := rows.Scan(&it.GoodsNo, &it.GoodsName, &it.BrandName, &it.CateName, &it.Grade, &it.Sales, &it.Qty); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
 // applyEcommerceShopAllot v1.74.3 拓范: 把 shop-level 双口径应用到 TOP shops 列表
 // 对每个 2 调拨渠道 shop:
 //   - 如果在 topShops 内: sales = sales - salesExcluded + allotAmt; qty 同理
