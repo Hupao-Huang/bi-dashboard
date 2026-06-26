@@ -331,6 +331,67 @@ func (dh *DashboardHandler) notifyRPADone(platform, robotName, runDate, status s
 	dh.sendDingTalk(content)
 }
 
+// ======== POST /api/admin/rpa/stop ========
+
+// RPAStopReq 终止请求
+type RPAStopReq struct {
+	TriggerID int64 `json:"trigger_id"`
+}
+
+// StopRPASync POST /api/admin/rpa/stop
+// 终止一个正在运行的同步: 查出 jobUuid → 调影刀 job/stop → 标记 trigger_log 为 cancel
+func (dh *DashboardHandler) StopRPASync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	if dh.YingDao == nil || !dh.YingDao.Configured() {
+		writeError(w, 500, "影刀 RPA 未配置")
+		return
+	}
+	var req RPAStopReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TriggerID <= 0 {
+		writeError(w, 400, "trigger_id 必填")
+		return
+	}
+
+	// 查 jobUuid + 当前状态
+	var jobUuid, status string
+	err := dh.DB.QueryRowContext(r.Context(),
+		`SELECT job_uuid, status FROM rpa_trigger_log WHERE id=?`, req.TriggerID,
+	).Scan(&jobUuid, &status)
+	if err != nil {
+		writeError(w, 404, "trigger_id 不存在")
+		return
+	}
+	if status != "running" {
+		writeError(w, 400, fmt.Sprintf("该任务当前是「%s」状态, 不能终止", status))
+		return
+	}
+	if jobUuid == "" {
+		writeError(w, 400, "该任务没有影刀 jobUuid, 无法终止")
+		return
+	}
+
+	// 调影刀 job/stop
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	if err := dh.YingDao.StopJob(ctx, jobUuid); err != nil {
+		writeServerError(w, 500, fmt.Sprintf("终止影刀任务失败: %v", err), err)
+		return
+	}
+
+	// 乐观标记 cancel: 立刻从"正在同步"角标移除; 同时让轮询(GetRPAJobStatus)和
+	// reaper 的终态守卫(status != "cancel" / WHERE status='running')生效,
+	// 避免手动终止后再误发一条"同步失败"钉钉
+	user := getCurrentUserName(r)
+	_, _ = dh.DB.ExecContext(r.Context(),
+		`UPDATE rpa_trigger_log SET status='cancel', result_msg=?, finished_at=NOW() WHERE id=? AND status='running'`,
+		fmt.Sprintf("由 %s 手动终止", user), req.TriggerID)
+
+	writeJSON(w, map[string]interface{}{"ok": true, "message": "已发送终止指令"})
+}
+
 // ======== 3. GET /api/admin/rpa/platform-mapping ========
 
 // RPAPlatformMappingRow 映射表项
