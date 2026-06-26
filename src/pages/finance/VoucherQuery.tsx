@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Card, Table, Select, DatePicker, InputNumber, Button, Space, Tag, message, Typography, Alert } from 'antd';
+import { Card, Table, Select, DatePicker, InputNumber, Button, Space, Tag, message, Typography, Alert, Modal, Descriptions } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { API_BASE } from '../../config';
 import AccbookPicker from '../../components/AccbookPicker';
 import { TableLayout, loadLayout, saveLayout, reorder, clampWidth } from './voucherTableLayout';
+import { amountToChinese } from './voucherAmount';
 
 // 财务-凭证查询 (2026-06-16, 仅超管)
 // 实时查用友 YS 凭证, 不入库。选账簿+账期查凭证头, 点开看分录明细(借贷)。
@@ -73,6 +74,26 @@ const VOUCHER_BASE_COLUMNS = [
 const VOUCHER_COL_KEYS = VOUCHER_BASE_COLUMNS.map((c) => c.key);
 const VOUCHER_DEFAULT_WIDTHS: Record<string, number> = Object.fromEntries(
   VOUCHER_BASE_COLUMNS.map((c) => [c.key, c.width]),
+);
+
+const VOUCHER_LINE_LAYOUT_KEY = 'bi_voucher_line_layout_v1';
+// 凭证详情弹窗里分录表的列定义（也支持拖宽/拖序）
+const VOUCHER_LINE_BASE_COLUMNS = [
+  { title: '行号', key: 'recordNumber', dataIndex: 'recordNumber', width: 60 },
+  { title: '摘要', key: 'lineDesc', dataIndex: 'description', width: 240, ellipsis: true },
+  {
+    title: '科目', key: 'subject', dataIndex: 'subjectName', width: 280,
+    render: (_: any, l: VoucherLine) => (
+      <span>{l.subjectCode ? <Text type="secondary">{l.subjectCode}</Text> : null} {l.subjectName}</span>
+    ),
+  },
+  { title: '辅助核算', key: 'auxiliary', dataIndex: 'auxiliary', width: 220, ellipsis: true, render: (v: string) => v || '-' },
+  { title: '借方金额', key: 'debit', dataIndex: 'debit', width: 130, align: 'right' as const, render: (v: number) => fmtAmount(v, true) },
+  { title: '贷方金额', key: 'credit', dataIndex: 'credit', width: 130, align: 'right' as const, render: (v: number) => fmtAmount(v, true) },
+];
+const VOUCHER_LINE_COL_KEYS = VOUCHER_LINE_BASE_COLUMNS.map((c) => c.key);
+const VOUCHER_LINE_DEFAULT_WIDTHS: Record<string, number> = Object.fromEntries(
+  VOUCHER_LINE_BASE_COLUMNS.map((c) => [c.key, c.width]),
 );
 
 // 可拖宽 + 可拖序的表头单元格（props 由 column.onHeaderCell 注入）
@@ -160,6 +181,14 @@ const VoucherQuery: React.FC = () => {
   }, []);
   const resetLayout = () => setLayout({ order: VOUCHER_COL_KEYS.slice(), widths: { ...VOUCHER_DEFAULT_WIDTHS } });
 
+  // 凭证详情弹窗（点凭证号打开，替代 +号 展开）
+  const [detailRow, setDetailRow] = useState<VoucherRow | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const openDetail = useCallback((record: VoucherRow) => {
+    setDetailRow(record);
+    setDetailOpen(true);
+  }, []);
+
   // 加载账簿下拉
   useEffect(() => {
     fetch(`${API_BASE}/api/finance/voucher/accbooks`, { credentials: 'include' })
@@ -225,7 +254,7 @@ const VoucherQuery: React.FC = () => {
     VOUCHER_BASE_COLUMNS.forEach((c) => { byKey[c.key] = c; });
     return layout.order.map((k) => byKey[k]).filter(Boolean).map((col) => {
       const w = layout.widths[col.key] ?? col.width;
-      return {
+      const merged: any = {
         ...col,
         width: w,
         onHeaderCell: () => ({
@@ -236,36 +265,62 @@ const VoucherQuery: React.FC = () => {
           dragKeyRef,
         }),
       };
+      // 凭证号列改成可点链接，打开详情弹窗（替代 +号 展开）
+      if (col.key === 'voucherNo') {
+        merged.render = (v: string, record: VoucherRow) => (
+          <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => openDetail(record)}>
+            {v || '-'}
+          </Button>
+        );
+      }
+      return merged;
     });
-  }, [layout, handleColResize, handleColReorder]);
+  }, [layout, handleColResize, handleColReorder, openDetail]);
   // 各列宽之和 → 横滚宽度（列固定宽后需要横滚）
   const totalWidth = useMemo(
     () => layout.order.reduce((s, k) => s + (layout.widths[k] || 0), 0),
     [layout],
   );
 
-  const lineColumns = [
-    { title: '行号', dataIndex: 'recordNumber', width: 60 },
-    { title: '摘要', dataIndex: 'description', ellipsis: true },
-    {
-      title: '科目', key: 'subject', width: 280,
-      render: (_: any, l: VoucherLine) => (
-        <span>{l.subjectCode ? <Text type="secondary">{l.subjectCode}</Text> : null} {l.subjectName}</span>
-      ),
-    },
-    { title: '辅助核算', dataIndex: 'auxiliary', width: 220, ellipsis: true, render: (v: string) => v || '-' },
-    {
-      title: '借方金额', dataIndex: 'debit', width: 130, align: 'right' as const,
-      render: (v: number) => fmtAmount(v, true),
-    },
-    {
-      title: '贷方金额', dataIndex: 'credit', width: 130, align: 'right' as const,
-      render: (v: number) => fmtAmount(v, true),
-    },
-  ];
+  // 分录表也支持拖宽/拖序（独立一套 layout，与主表同构；未抽 hook 以免动已验收的主表逻辑）
+  const lineDragKeyRef = useRef<string | null>(null);
+  const [lineLayout, setLineLayout] = useState<TableLayout>(() =>
+    loadLayout(VOUCHER_LINE_LAYOUT_KEY, VOUCHER_LINE_COL_KEYS, VOUCHER_LINE_DEFAULT_WIDTHS));
+  useEffect(() => { saveLayout(VOUCHER_LINE_LAYOUT_KEY, lineLayout); }, [lineLayout]);
+  const handleLineResize = useCallback((key: string, w: number) => {
+    setLineLayout((prev) => ({ ...prev, widths: { ...prev.widths, [key]: clampWidth(w) } }));
+  }, []);
+  const handleLineReorder = useCallback((fromKey: string, toKey: string) => {
+    setLineLayout((prev) => ({
+      ...prev,
+      order: reorder(prev.order, prev.order.indexOf(fromKey), prev.order.indexOf(toKey)),
+    }));
+  }, []);
+  const orderedLineColumns = useMemo(() => {
+    const byKey: Record<string, any> = {};
+    VOUCHER_LINE_BASE_COLUMNS.forEach((c) => { byKey[c.key] = c; });
+    return lineLayout.order.map((k) => byKey[k]).filter(Boolean).map((col) => {
+      const w = lineLayout.widths[col.key] ?? col.width;
+      return {
+        ...col,
+        width: w,
+        onHeaderCell: () => ({
+          columnKey: col.key,
+          colWidth: w,
+          onColResize: handleLineResize,
+          onColReorder: handleLineReorder,
+          dragKeyRef: lineDragKeyRef,
+        }),
+      };
+    });
+  }, [lineLayout, handleLineResize, handleLineReorder]);
+  const lineTotalWidth = useMemo(
+    () => lineLayout.order.reduce((s, k) => s + (lineLayout.widths[k] || 0), 0),
+    [lineLayout],
+  );
 
   return (
-    <Card title="凭证查询" extra={<Tag color="purple">仅超管</Tag>}>
+    <Card title="凭证查询">
       <div style={{ marginBottom: 16 }}>
         <Space size="middle" wrap>
           <span>
@@ -330,19 +385,6 @@ const VoucherQuery: React.FC = () => {
         dataSource={rows}
         locale={{ emptyText: queried ? '该条件下没有凭证' : '请选择账簿和账期后点查询' }}
         scroll={{ x: totalWidth }}
-        expandable={{
-          expandedRowRender: (record) => (
-            <Table<VoucherLine>
-              rowKey={(l) => `${record.id}-${l.recordNumber}`}
-              size="small"
-              columns={lineColumns}
-              dataSource={record.lines}
-              pagination={false}
-              scroll={{ x: 900 }}
-            />
-          ),
-          rowExpandable: (record) => (record.lines?.length || 0) > 0,
-        }}
         pagination={{
           current: pageIndex,
           pageSize,
@@ -352,6 +394,50 @@ const VoucherQuery: React.FC = () => {
           onChange: (p, ps) => { setPageIndex(p); setPageSize(ps); },
         }}
       />
+
+      <Modal
+        open={detailOpen}
+        onCancel={() => setDetailOpen(false)}
+        footer={null}
+        width={1280}
+        style={{ top: 24 }}
+        title={detailRow ? `${detailRow.voucherType || '凭证'}  ${detailRow.voucherNo}` : '凭证详情'}
+      >
+        {detailRow && (
+          <>
+            <Descriptions size="small" column={3} bordered style={{ marginBottom: 12 }}>
+              <Descriptions.Item label="账簿">{detailRow.accbookName || '-'}</Descriptions.Item>
+              <Descriptions.Item label="制单日期">{detailRow.makeTime || '-'}</Descriptions.Item>
+              <Descriptions.Item label="会计期间">{detailRow.period || '-'}</Descriptions.Item>
+              <Descriptions.Item label="凭证字号">{detailRow.voucherNo || '-'}</Descriptions.Item>
+              <Descriptions.Item label="来源应用">{detailRow.srcSystem || '-'}</Descriptions.Item>
+              <Descriptions.Item label="附单据数">{detailRow.attached || '0'}</Descriptions.Item>
+              <Descriptions.Item label="凭证摘要" span={3}>{detailRow.description || '-'}</Descriptions.Item>
+            </Descriptions>
+
+            <Table<VoucherLine>
+              rowKey={(l) => `${detailRow.id}-${l.recordNumber}`}
+              size="small"
+              columns={orderedLineColumns as any}
+              components={{ header: { cell: ResizableTitle } }}
+              dataSource={detailRow.lines}
+              pagination={false}
+              scroll={{ x: lineTotalWidth }}
+            />
+            <div style={{ marginTop: 8, textAlign: 'right' }}>
+              合计：{amountToChinese(detailRow.totalDebit)}
+              <span style={{ marginLeft: 24 }}>借方 {fmtAmount(detailRow.totalDebit)}</span>
+              <span style={{ marginLeft: 24 }}>贷方 {fmtAmount(detailRow.totalCredit)}</span>
+            </div>
+
+            <Descriptions size="small" column={3} style={{ marginTop: 12 }}>
+              <Descriptions.Item label="制单人">{detailRow.maker || '-'}</Descriptions.Item>
+              <Descriptions.Item label="审核人">{detailRow.auditor || '-'}</Descriptions.Item>
+              <Descriptions.Item label="记账人">{detailRow.tallyman || '-'}</Descriptions.Item>
+            </Descriptions>
+          </>
+        )}
+      </Modal>
     </Card>
   );
 };
