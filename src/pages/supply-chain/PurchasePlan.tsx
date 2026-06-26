@@ -120,7 +120,9 @@ const PurchasePlan: React.FC = () => {
         setInTransitCache((c) => ({ ...c, [goodsNo]: { loading: false, purchaseOrders: [], subcontractOrders: [] } }));
       });
   };
-  const renderInTransitPopover = (goodsNo: string, kind: 'purchase' | 'subcontract') => {
+  // inModal: 在弹窗里渲染时不要再套一层 maxHeight/overflow 滚动容器, 否则跟 Modal 自身滚动叠成两条滚动条;
+  //   弹窗里行数多就靠 Modal(modal-wrap)整体滚动。弹窗外(委外 hover Popover)浮层自身不滚, 仍需这层内部滚动。
+  const renderInTransitPopover = (goodsNo: string, kind: 'purchase' | 'subcontract', inModal = false) => {
     const detail = inTransitCache[goodsNo];
     if (!detail || detail.loading) {
       return <div style={{ padding: 12, textAlign: 'center', color: 'var(--text-tertiary)' }}><Spin size="small" /> 加载中...</div>;
@@ -131,7 +133,7 @@ const PurchasePlan: React.FC = () => {
     }
     const totalIn = orders.reduce((s, o) => s + (o.inTransitQty || 0), 0);
     return (
-      <div style={{ maxHeight: 420, overflow: 'auto' }}>
+      <div style={inModal ? undefined : { maxHeight: 420, overflow: 'auto' }}>
         <div style={{ marginBottom: 6, fontSize: 12, color: 'var(--text-tertiary)' }}>
           共 <b style={{ color: kind === 'purchase' ? '#1e40af' : '#7c3aed' }}>{orders.length}</b> 单, 在途合计 <b>{fmtQty(totalIn)}</b>
         </div>
@@ -388,6 +390,9 @@ const PurchasePlan: React.FC = () => {
         /* 弹窗宽度随内容自适应 (库存/在途采购明细): 贴合表格内容, 不写死宽度 */
         .pp-fit-modal.ant-modal, .pp-fit-modal .ant-modal { width: fit-content !important; min-width: 380px; max-width: 92vw; }
         .pp-fit-modal .ant-table table, .pp-fit-modal table { width: auto !important; }
+        /* index.css 给全局 .ant-table 设了 min-width:700px(移动端横滚用), 会把弹窗里定宽的小表撑到 700px → 右侧留白.
+           只在自适应弹窗内抵消这个下限, 让表贴合真实列宽(横滚 overflow-x:auto 仍保留, 真超宽时还能滚). */
+        .pp-fit-modal .ant-table-wrapper .ant-table { min-width: 0 !important; }
         /* 标题不强撑弹窗宽度: 让弹窗贴合表格内容而非长标题 */
         .pp-fit-modal .ant-modal-title { white-space: normal; word-break: break-word; }
       `}</style>
@@ -750,7 +755,9 @@ const PurchasePlan: React.FC = () => {
                 dataSource={stockModal.warehouses}
                 rowKey={(r, i) => `${r.warehouseName}-${i}`}
                 columns={[
-                  { title: '仓库', dataIndex: 'warehouseName', ellipsis: true },
+                  // 定宽: ellipsis 让表格 table-layout:fixed, 无宽度列在 width:auto 表里宽度不确定;
+                  // 全列定宽(跟在途明细表看齐)让 fit-content 弹窗能精确贴合表宽。
+                  { title: '仓库', dataIndex: 'warehouseName', width: 300, ellipsis: true },
                   { title: '所属组织', dataIndex: 'orgName', width: 210, ellipsis: true,
                     render: (v: string) => v || <span style={{ color: '#cbd5e1' }}>—</span> },
                   { title: '库存量', dataIndex: 'qty', width: 110, align: 'right' as const,
@@ -772,7 +779,7 @@ const PurchasePlan: React.FC = () => {
       >
         {inTransitModal && <>
           <div style={{ marginBottom: 6, fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{inTransitModal.goodsName}</div>
-          {renderInTransitPopover(inTransitModal.goodsNo, 'purchase')}
+          {renderInTransitPopover(inTransitModal.goodsNo, 'purchase', true)}
         </>}
       </Modal>
     </div>
