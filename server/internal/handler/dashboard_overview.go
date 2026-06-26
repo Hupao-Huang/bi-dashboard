@@ -171,7 +171,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		r.Context(), trendStart, trendEnd, instantAllotChans); puErr != nil {
 		log.Printf("[overview] 朴朴日级调拨加载失败, 即时零售趋势缺朴朴黄柱: %v", puErr)
 	} else {
-		applyInstantRetailDailyAllot(trend, puDailyAllot)
+		trend = applyInstantRetailDailyAllot(trend, puDailyAllot)
 	}
 
 	// 3. 商品销售排行 TOP15
@@ -696,18 +696,31 @@ func (h *DashboardHandler) loadInstantRetailDailyAllot(
 
 // applyInstantRetailDailyAllot v1.74.3-3: 即时零售部门趋势加日级朴朴调拨
 // 朴朴没销售单, 不需要排除, 只加 AllotSales/AllotQty 让前端拼黄色堆叠柱
-func applyInstantRetailDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDailyAllot) {
+func applyInstantRetailDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDailyAllot) []TrendPoint {
+	seen := make(map[string]bool)
 	for i := range trend {
 		if trend[i].Department != "instant_retail" {
 			continue
 		}
-		d, ok := dailyAllot[trend[i].Date]
-		if !ok {
-			continue
+		seen[trend[i].Date] = true
+		if d, ok := dailyAllot[trend[i].Date]; ok {
+			trend[i].AllotSales = d.allotAmt
+			trend[i].AllotQty = d.allotQty
 		}
-		trend[i].AllotSales = d.allotAmt
-		trend[i].AllotQty = d.allotQty
 	}
+	// 2026-06-26: 纯调拨日(朴朴当天无销售单 → 当天无 instant_retail 趋势点)要补点, 否则趋势漏掉这些天的调拨,
+	// 跟部门汇总(本就含调拨)对不上(实测漏 8 天共 203 万)。补点 sales=0、只有 allot(前端拼黄色堆叠柱)。
+	added := false
+	for date, a := range dailyAllot {
+		if !seen[date] {
+			trend = append(trend, TrendPoint{Date: date, Department: "instant_retail", AllotSales: a.allotAmt, AllotQty: a.allotQty})
+			added = true
+		}
+	}
+	if added {
+		sort.SliceStable(trend, func(i, j int) bool { return trend[i].Date < trend[j].Date })
+	}
+	return trend
 }
 
 // applyEcommerceDailyAllot v1.74.3 拓范: 把 dailyAllot 应用到趋势数据
