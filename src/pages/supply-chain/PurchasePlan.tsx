@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { ColumnsType } from 'antd/es/table';
-import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message, Tabs, Popover, Spin, Modal, Progress } from 'antd';
+import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message, Tabs, Spin, Modal, Progress } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import {
   AlertOutlined,
@@ -77,7 +77,7 @@ const PurchasePlan: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [keyword, setKeyword] = useState('');
 
-  // v0.67: 在途订单详情按需异步加载 (hover Popover 触发)
+  // v0.67: 在途订单详情按需异步加载 (点击弹窗触发)
   type InTransitOrder = {
     code: string; vendorName: string; orgName: string;
     vouchDate: string; arriveDate: string;
@@ -93,11 +93,11 @@ const PurchasePlan: React.FC = () => {
 
   // 原材料/包材: 当前库存点击 → 各仓库组成弹窗 (口径同列, 排香松后各仓库相加=列里的数)
   const [stockModal, setStockModal] = useState<{
-    productCode: string; goodsName: string; loading: boolean;
+    productCode: string; goodsName: string; kind: 'finished' | 'material'; loading: boolean;
     warehouses: { warehouseName: string; orgName: string; qty: number }[]; total: number;
   } | null>(null);
   // 在途采购点击 → 采购单明细大弹窗 (替代原 hover 小浮层)
-  const [inTransitModal, setInTransitModal] = useState<{ goodsNo: string; goodsName: string } | null>(null);
+  const [inTransitModal, setInTransitModal] = useState<{ goodsNo: string; goodsName: string; kind: 'purchase' | 'subcontract' } | null>(null);
   const loadInTransitDetail = (goodsNo: string) => {
     if (!goodsNo) return;
     const cur = inTransitCache[goodsNo];
@@ -121,7 +121,7 @@ const PurchasePlan: React.FC = () => {
       });
   };
   // inModal: 在弹窗里渲染时不要再套一层 maxHeight/overflow 滚动容器, 否则跟 Modal 自身滚动叠成两条滚动条;
-  //   弹窗里行数多就靠 Modal(modal-wrap)整体滚动。弹窗外(委外 hover Popover)浮层自身不滚, 仍需这层内部滚动。
+  //   弹窗里行数多就靠 Modal(modal-wrap)整体滚动。(在途采购/在途委外明细现都走点击弹窗, 故 inModal 恒为 true。)
   const renderInTransitPopover = (goodsNo: string, kind: 'purchase' | 'subcontract', inModal = false) => {
     const detail = inTransitCache[goodsNo];
     if (!detail || detail.loading) {
@@ -162,25 +162,26 @@ const PurchasePlan: React.FC = () => {
     );
   };
 
-  const openStockModal = (productCode: string, goodsName: string) => {
+  // kind=finished: 成品/半成品+其他(吉客云 stock_quantity 8 仓); material: 原材料/包材(用友 ys_stock)
+  const openStockModal = (productCode: string, goodsName: string, kind: 'finished' | 'material' = 'material') => {
     if (!productCode) return;
-    setStockModal({ productCode, goodsName, loading: true, warehouses: [], total: 0 });
-    fetch(`${API_BASE}/api/supply-chain/stock-detail?productCode=${encodeURIComponent(productCode)}`, { credentials: 'include' })
+    setStockModal({ productCode, goodsName, kind, loading: true, warehouses: [], total: 0 });
+    fetch(`${API_BASE}/api/supply-chain/stock-detail?productCode=${encodeURIComponent(productCode)}&kind=${kind}`, { credentials: 'include' })
       .then((r) => r.json())
       .then((j) => {
         if (j.code === 200 && j.data) {
-          setStockModal({ productCode, goodsName, loading: false,
+          setStockModal({ productCode, goodsName, kind, loading: false,
             warehouses: j.data.warehouses || [], total: j.data.total || 0 });
         } else {
-          setStockModal({ productCode, goodsName, loading: false, warehouses: [], total: 0 });
+          setStockModal({ productCode, goodsName, kind, loading: false, warehouses: [], total: 0 });
         }
       })
-      .catch(() => setStockModal({ productCode, goodsName, loading: false, warehouses: [], total: 0 }));
+      .catch(() => setStockModal({ productCode, goodsName, kind, loading: false, warehouses: [], total: 0 }));
   };
 
-  const openInTransitModal = (code: string, goodsName: string) => {
+  const openInTransitModal = (code: string, goodsName: string, kind: 'purchase' | 'subcontract' = 'purchase') => {
     if (!code) return;
-    setInTransitModal({ goodsNo: code, goodsName });
+    setInTransitModal({ goodsNo: code, goodsName, kind });
     loadInTransitDetail(code);
   };
 
@@ -567,9 +568,13 @@ const PurchasePlan: React.FC = () => {
                 )
               }><span>当前库存 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
               dataIndex: 'stock', width: 110, align: 'right',
-              render: (v: number, r: SuggestRow) => (isMaterial && r.ysCode)
-                ? <Button type="link" size="small" style={{ padding: 0, height: 'auto', color: '#1e40af' }} onClick={() => openStockModal(r.ysCode, r.goodsName)}>{fmtQty(v)}</Button>
-                : fmtQty(v),
+              render: (v: number, r: SuggestRow) => {
+                // 原材料用 ysCode 查 ys_stock; 成品/其他用 jkyCode(=goods_no) 查吉客云 stock_quantity 8 仓
+                const code = isMaterial ? r.ysCode : r.jkyCode;
+                return code
+                  ? <Button type="link" size="small" style={{ padding: 0, height: 'auto', color: '#1e40af' }} onClick={() => openStockModal(code, r.goodsName, isMaterial ? 'material' : 'finished')}>{fmtQty(v)}</Button>
+                  : fmtQty(v);
+              },
               sorter: (a: SuggestRow, b: SuggestRow) => a.stock - b.stock },
             { title: <Tooltip title={
                 isSalesType ? (
@@ -636,15 +641,8 @@ const PurchasePlan: React.FC = () => {
               }><span>在途委外 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
               dataIndex: 'inTransitSubcontract', width: 100, align: 'right',
               render: (v: number, r: SuggestRow) => v > 0 ? (
-                <Popover
-                  content={renderInTransitPopover(r.jkyCode, 'subcontract')}
-                  trigger="hover"
-                  placement="left"
-                  overlayStyle={{ maxWidth: 820 }}
-                  onOpenChange={(open) => open && loadInTransitDetail(r.jkyCode)}
-                >
-                  <span style={{ color: '#7c3aed', cursor: 'help', borderBottom: '1px dashed #7c3aed' }}>{fmtQty(v)}</span>
-                </Popover>
+                <Button type="link" size="small" style={{ padding: 0, height: 'auto', color: '#7c3aed' }}
+                   onClick={() => openInTransitModal(r.jkyCode, r.goodsName, 'subcontract')}>{fmtQty(v)}</Button>
               ) : <span style={{ color: '#cbd5e1' }}>—</span> },
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
@@ -748,7 +746,7 @@ const PurchasePlan: React.FC = () => {
               <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--text-secondary)' }}>
                 共 <b>{stockModal.warehouses.length}</b> 个仓库, 合计 <b style={{ color: '#1e40af' }}>{fmtQty(stockModal.total)}</b>
               </div>
-              <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-tertiary)' }}>已排除安徽香松, 与列表口径一致</div>
+              <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-tertiary)' }}>{stockModal.kind === 'finished' ? '仅 8 个核心成品仓, 与列表口径一致' : '已排除安徽香松, 与列表口径一致'}</div>
               <Table
                 size="small"
                 pagination={false}
@@ -762,7 +760,7 @@ const PurchasePlan: React.FC = () => {
                     render: (v: string) => v || <span style={{ color: '#cbd5e1' }}>—</span> },
                   { title: '库存量', dataIndex: 'qty', width: 110, align: 'right' as const,
                     render: (v: number) => <b>{fmtQty(v)}</b> },
-                ]}
+                ].filter((c: any) => stockModal.kind !== 'finished' || c.dataIndex !== 'orgName')}
               />
             </>
           )
@@ -772,14 +770,14 @@ const PurchasePlan: React.FC = () => {
       {/* 在途采购明细 (点击在途采购数字) */}
       <Modal
         open={!!inTransitModal}
-        title="在途采购明细"
+        title={inTransitModal?.kind === 'subcontract' ? '在途委外明细' : '在途采购明细'}
         onCancel={() => setInTransitModal(null)}
         footer={null}
         className="pp-fit-modal"
       >
         {inTransitModal && <>
           <div style={{ marginBottom: 6, fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{inTransitModal.goodsName}</div>
-          {renderInTransitPopover(inTransitModal.goodsNo, 'purchase', true)}
+          {renderInTransitPopover(inTransitModal.goodsNo, inTransitModal.kind, true)}
         </>}
       </Modal>
     </div>
