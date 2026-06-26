@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import type { ColumnsType } from 'antd/es/table';
 import { Row, Col, Card, Table, Tag, Input, Select, Empty, Tooltip, Button, message, Tabs, Popover, Spin, Modal, Progress } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import {
@@ -72,6 +73,7 @@ const PurchasePlan: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'成品/半成品' | '原材料/包材' | '其他'>('成品/半成品');
   const isSalesType = typeFilter !== '原材料/包材'; // 成品/半成品 + 其他 都用吉客云销售口径(45天)，原材料/包材用用友消耗口径(90天)
+  const isMaterial = typeFilter === '原材料/包材'; // 原材料/包材 tab: 隐藏吉客云相关列+在途委外列, 库存/在途采购改点击弹窗
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [keyword, setKeyword] = useState('');
 
@@ -88,6 +90,14 @@ const PurchasePlan: React.FC = () => {
     subcontractOrders?: InTransitOrder[];
   };
   const [inTransitCache, setInTransitCache] = useState<Record<string, InTransitDetail>>({});
+
+  // 原材料/包材: 当前库存点击 → 各仓库组成弹窗 (口径同列, 排香松后各仓库相加=列里的数)
+  const [stockModal, setStockModal] = useState<{
+    productCode: string; goodsName: string; loading: boolean;
+    warehouses: { warehouseName: string; orgName: string; qty: number }[]; total: number;
+  } | null>(null);
+  // 在途采购点击 → 采购单明细大弹窗 (替代原 hover 小浮层)
+  const [inTransitModal, setInTransitModal] = useState<{ goodsNo: string; goodsName: string } | null>(null);
   const loadInTransitDetail = (goodsNo: string) => {
     if (!goodsNo) return;
     const cur = inTransitCache[goodsNo];
@@ -148,6 +158,28 @@ const PurchasePlan: React.FC = () => {
         />
       </div>
     );
+  };
+
+  const openStockModal = (productCode: string, goodsName: string) => {
+    if (!productCode) return;
+    setStockModal({ productCode, goodsName, loading: true, warehouses: [], total: 0 });
+    fetch(`${API_BASE}/api/supply-chain/stock-detail?productCode=${encodeURIComponent(productCode)}`, { credentials: 'include' })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.code === 200 && j.data) {
+          setStockModal({ productCode, goodsName, loading: false,
+            warehouses: j.data.warehouses || [], total: j.data.total || 0 });
+        } else {
+          setStockModal({ productCode, goodsName, loading: false, warehouses: [], total: 0 });
+        }
+      })
+      .catch(() => setStockModal({ productCode, goodsName, loading: false, warehouses: [], total: 0 }));
+  };
+
+  const openInTransitModal = (code: string, goodsName: string) => {
+    if (!code) return;
+    setInTransitModal({ goodsNo: code, goodsName });
+    loadInTransitDetail(code);
   };
 
   const fetchData = () => {
@@ -353,6 +385,11 @@ const PurchasePlan: React.FC = () => {
           z-index: 100 !important;
           background: #fafafa !important;
         }
+        /* 弹窗宽度随内容自适应 (库存/在途采购明细): 贴合表格内容, 不写死宽度 */
+        .pp-fit-modal.ant-modal, .pp-fit-modal .ant-modal { width: fit-content !important; min-width: 380px; max-width: 92vw; }
+        .pp-fit-modal .ant-table table, .pp-fit-modal table { width: auto !important; }
+        /* 标题不强撑弹窗宽度: 让弹窗贴合表格内容而非长标题 */
+        .pp-fit-modal .ant-modal-title { white-space: normal; word-break: break-word; }
       `}</style>
 
       {/* 顶部分类 Tab — 成品 / 包材 */}
@@ -525,7 +562,9 @@ const PurchasePlan: React.FC = () => {
                 )
               }><span>当前库存 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
               dataIndex: 'stock', width: 110, align: 'right',
-              render: (v: number) => fmtQty(v),
+              render: (v: number, r: SuggestRow) => (isMaterial && r.ysCode)
+                ? <Button type="link" size="small" style={{ padding: 0, height: 'auto', color: '#1e40af' }} onClick={() => openStockModal(r.ysCode, r.goodsName)}>{fmtQty(v)}</Button>
+                : fmtQty(v),
               sorter: (a: SuggestRow, b: SuggestRow) => a.stock - b.stock },
             { title: <Tooltip title={
                 isSalesType ? (
@@ -577,15 +616,8 @@ const PurchasePlan: React.FC = () => {
               }><span>在途采购 <InfoCircleOutlined style={{ color: '#94a3b8' }} /></span></Tooltip>,
               dataIndex: 'inTransit', width: 100, align: 'right',
               render: (v: number, r: SuggestRow) => v > 0 ? (
-                <Popover
-                  content={renderInTransitPopover(r.jkyCode, 'purchase')}
-                  trigger="hover"
-                  placement="left"
-                  overlayStyle={{ maxWidth: 820 }}
-                  onOpenChange={(open) => open && loadInTransitDetail(r.jkyCode)}
-                >
-                  <span style={{ color: '#1e40af', cursor: 'help', borderBottom: '1px dashed #1e40af' }}>{fmtQty(v)}</span>
-                </Popover>
+                <Button type="link" size="small" style={{ padding: 0, height: 'auto', color: '#1e40af' }}
+                   onClick={() => openInTransitModal(isMaterial ? r.ysCode : r.jkyCode, r.goodsName)}>{fmtQty(v)}</Button>
               ) : <span style={{ color: '#cbd5e1' }}>—</span> },
             { title: <Tooltip title={
                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
@@ -629,7 +661,7 @@ const PurchasePlan: React.FC = () => {
                 return <Tooltip title={`预计 ${date} 到货`}><span style={{ color, fontWeight: 600 }}>{label}</span></Tooltip>;
               },
               sorter: (a: SuggestRow, b: SuggestRow) => a.nextArriveDays - b.nextArriveDays },
-          ]}
+          ].filter((c: any) => !isMaterial || !['jkyCode', 'position', 'cateName', 'inTransitSubcontract'].includes(c.dataIndex)) as ColumnsType<SuggestRow>}
         />
       </Card>
 
@@ -690,6 +722,58 @@ const PurchasePlan: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* 当前库存按仓库组成 (原材料/包材点击库存数字) */}
+      <Modal
+        open={!!stockModal}
+        title="当前库存明细"
+        onCancel={() => setStockModal(null)}
+        footer={null}
+        className="pp-fit-modal"
+      >
+        {stockModal && (
+          stockModal.loading ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}><Spin /> 加载中...</div>
+          ) : stockModal.warehouses.length === 0 ? (
+            <Empty description="该物料在用友里暂无仓库库存" />
+          ) : (
+            <>
+              <div style={{ marginBottom: 6, fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{stockModal.goodsName}</div>
+              <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--text-secondary)' }}>
+                共 <b>{stockModal.warehouses.length}</b> 个仓库, 合计 <b style={{ color: '#1e40af' }}>{fmtQty(stockModal.total)}</b>
+              </div>
+              <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-tertiary)' }}>已排除安徽香松, 与列表口径一致</div>
+              <Table
+                size="small"
+                pagination={false}
+                dataSource={stockModal.warehouses}
+                rowKey={(r, i) => `${r.warehouseName}-${i}`}
+                columns={[
+                  { title: '仓库', dataIndex: 'warehouseName', ellipsis: true },
+                  { title: '所属组织', dataIndex: 'orgName', width: 210, ellipsis: true,
+                    render: (v: string) => v || <span style={{ color: '#cbd5e1' }}>—</span> },
+                  { title: '库存量', dataIndex: 'qty', width: 110, align: 'right' as const,
+                    render: (v: number) => <b>{fmtQty(v)}</b> },
+                ]}
+              />
+            </>
+          )
+        )}
+      </Modal>
+
+      {/* 在途采购明细 (点击在途采购数字) */}
+      <Modal
+        open={!!inTransitModal}
+        title="在途采购明细"
+        onCancel={() => setInTransitModal(null)}
+        footer={null}
+        className="pp-fit-modal"
+      >
+        {inTransitModal && <>
+          <div style={{ marginBottom: 6, fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{inTransitModal.goodsName}</div>
+          {renderInTransitPopover(inTransitModal.goodsNo, 'purchase')}
+        </>}
       </Modal>
     </div>
   );
