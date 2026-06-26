@@ -424,6 +424,31 @@ func (h *DashboardHandler) loadDeptDailyTrend(w http.ResponseWriter, r *http.Req
 				}
 			}
 		}
+	} else if dept == "instant_retail" {
+		// 2026-06-26: 即时零售部门页趋势也加日级调拨(朴朴/小象/叮咚), 跟本页 KPI/货品口径对齐
+		// (此前只电商加, 即时零售趋势只算销售单, 跟含调拨的总销售额对不上)。复用综合看板同款 helper。
+		// 兜底: 失败 → log + 不阻塞, 趋势用原口径(显瘦但页面不挂)。
+		if puDailyAllot, puErr := h.loadInstantRetailDailyAllot(
+			r.Context(), trendStart, trendEnd, h.instantRetailAllotChannels()); puErr != nil {
+			log.Printf("[department/instant_retail] 趋势日级调拨加载失败, 用原口径: %v", puErr)
+		} else {
+			// 即时零售调拨日不一定有销售单(朴朴是纯调拨), 不能只更新已有销售日:
+			// 已有销售日→加和; 纯调拨日→补一个点。否则趋势漏掉这些天的调拨, 总和跟含调拨的总销售额对不上
+			// (实测漏 8 天纯调拨日共 203 万)。allot-only 日的 Profit/Cost 留 0(调拨无利润成本)。
+			idx := make(map[string]int, len(daily))
+			for i := range daily {
+				idx[daily[i].Date] = i
+			}
+			for date, a := range puDailyAllot {
+				if i, ok := idx[date]; ok {
+					daily[i].Sales += a.allotAmt
+					daily[i].Qty += a.allotQty
+				} else {
+					daily = append(daily, deptDailyData{Date: date, Sales: a.allotAmt, Qty: a.allotQty})
+				}
+			}
+			sort.Slice(daily, func(i, j int) bool { return daily[i].Date < daily[j].Date })
+		}
 	}
 	return daily, trendStart, trendEnd, true
 }
@@ -665,6 +690,16 @@ func (h *DashboardHandler) loadDeptGoodsRanking(w http.ResponseWriter, r *http.R
 		} else {
 			allotGoods = items
 		}
+	} else if dept == "instant_retail" && platform == "" {
+		// 2026-06-26: 即时零售货品明细/TOP15 也合并调拨 SKU(朴朴/小象/叮咚), 跟本页"总销售额"口径对齐
+		// (此前只把调拨加进 KPI 总数, 明细仍只算销售单, 大数字含调拨/明细不含, 自相矛盾)。
+		// 平台 Tab 视图(platform!="")不并, 避免单平台下重复展示全渠道调拨(沿用电商按视图门控的做法);
+		// 此时 allotGoods 仍空, loadDeptGoodsTotals 用 len==0 守卫走旧路补 KPI, 口径不变。
+		if items, err := h.loadInstantRetailGoodsAllotDetail(r.Context(), start, end, h.instantRetailAllotChannels()); err != nil {
+			log.Printf("[dept-detail] instant_retail goods 调拨加载失败: %v", err)
+		} else {
+			allotGoods = items
+		}
 	}
 
 	// 合并调拨 SKU 进 topGoods (按 goods_no merge + 加和 sales/qty/profit)
@@ -730,7 +765,10 @@ func (h *DashboardHandler) loadDeptGoodsTotals(r *http.Request, q deptQuery, all
 	}
 
 	// v1.74.3-2 + 2026-06-05 拓: instant_retail 调拨当销售 KPI 加 (朴朴/小象/叮咚, 仅已配价格表的渠道)
-	if dept == "instant_retail" {
+	// 2026-06-26 守卫 len(allotGoods)==0: 默认视图 loadDeptGoodsRanking 已把即时零售调拨塞进 allotGoods,
+	//   上面 len(allotGoods)>0 那段已加和到 KPI, 这里就别再加一遍(否则总销售额 = 销售单+调拨+调拨 翻倍)。
+	//   仅平台 Tab 视图(allotGoods 为空)才走这条旧路补 KPI, 口径与之前完全一致。
+	if dept == "instant_retail" && len(allotGoods) == 0 {
 		var puAmt, puQty float64
 		var puSku int
 		_ = h.DB.QueryRowContext(r.Context(), `SELECT IFNULL(SUM(d.excel_amount), 0),
@@ -1195,6 +1233,26 @@ func (h *DashboardHandler) loadDeptPlatformSales(w http.ResponseWriter, r *http.
 				ps.Qty += q
 			} else {
 				platSalesMap[ck.label] = &deptPlatSales{Platform: ck.label, Sales: s, Qty: q}
+			}
+		}
+	} else if dept == "instant_retail" && platform == "" {
+		// 2026-06-26: 平台销售额饼图加即时零售调拨(朴朴/小象/叮咚各成一个平台块), 跟本页总销售额口径对齐。
+		// 渠道动态(价格门控决定纳入), 标签=channel_key。base 已含 小象/叮咚 销售单, 这里加它们的调拨
+		// (两批不同货, 不重复); 朴朴纯调拨无销售单, 新增一块。channel_key 是白名单, 但用 ? 参数化更稳。
+		for _, ck := range h.instantRetailAllotChannels() {
+			var s, q float64
+			_ = h.DB.QueryRow(`SELECT IFNULL(SUM(d.excel_amount), 0), IFNULL(SUM(d.sku_count), 0)
+				FROM allocate_orders o
+				JOIN allocate_details d ON d.allocate_no = o.allocate_no
+				WHERE o.channel_key = ? AND o.stat_date BETWEEN ? AND ?`, ck, start, end).Scan(&s, &q)
+			if s == 0 && q == 0 {
+				continue
+			}
+			if ps, ok := platSalesMap[ck]; ok {
+				ps.Sales += s
+				ps.Qty += q
+			} else {
+				platSalesMap[ck] = &deptPlatSales{Platform: ck, Sales: s, Qty: q}
 			}
 		}
 	}
