@@ -36,6 +36,7 @@ func main() {
 	rpaPath := flag.String("rpa", `C:\Users\Administrator\Desktop\RPA映射表.xlsx`, "含『销售渠道映射』『箱规映射』的 xlsx")
 	palletPath := flag.String("pallet", `C:\Users\Administrator\Desktop\箱规拖规.xlsx`, "含 名称|箱规|托规 的 xlsx")
 	configPath := flag.String("config", `C:\Users\Administrator\bi-dashboard\server\config.json`, "配置")
+	only := flag.String("only", "all", "只跑某部分: all|channel|box|pallet(页面已手改渠道映射时用 --only=pallet 只补装箱规格, 避免覆盖)")
 	flag.Parse()
 
 	db, err := connectDB(*configPath)
@@ -47,9 +48,16 @@ func main() {
 	if err := ensureTables(db); err != nil {
 		log.Fatal("建表失败:", err)
 	}
-	fmt.Printf("✅ 渠道映射 upsert %d 条\n", importChannelMap(db, *rpaPath))
-	fmt.Printf("✅ 箱规 upsert %d 条\n", importBoxSpec(db, *rpaPath))
-	fmt.Printf("✅ 箱规托规(主力品) upsert %d 条\n", importPalletSpec(db, *palletPath))
+	run := func(part string) bool { return *only == "all" || *only == part }
+	if run("channel") {
+		fmt.Printf("✅ 渠道映射 upsert %d 条\n", importChannelMap(db, *rpaPath))
+	}
+	if run("box") {
+		fmt.Printf("✅ 销售规格(每件瓶数) upsert %d 条\n", importBoxSpec(db, *rpaPath))
+	}
+	if run("pallet") {
+		fmt.Printf("✅ 装箱规格(每箱瓶数)+托规 upsert %d 条\n", importPalletSpec(db, *palletPath))
+	}
 	fmt.Println("🎯 完成")
 }
 
@@ -64,7 +72,8 @@ func ensureTables(db *sql.DB) error {
 		) COMMENT='销售日报-渠道映射' COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE IF NOT EXISTS dim_goods_pack_spec (
 			goods_no VARCHAR(64) NOT NULL COMMENT '货品编码(对 trade_goods.goods_no / goods.goods_no)',
-			box_qty DECIMAL(14,4) NULL COMMENT '箱规=每箱单瓶数',
+			box_qty DECIMAL(14,4) NULL COMMENT '销售规格=每件瓶数(吉客云下单1件折几瓶,算发货件数)',
+			carton_pieces DECIMAL(14,4) NULL COMMENT '装箱规格=每箱瓶数(仓库1箱几瓶,算发货箱数,空则默认取box_qty)',
 			pallet_box_qty DECIMAL(14,4) NULL COMMENT '托规=每托箱数',
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 			PRIMARY KEY(goods_no)
@@ -74,6 +83,16 @@ func ensureTables(db *sql.DB) error {
 		if _, err := db.Exec(s); err != nil {
 			return err
 		}
+	}
+	// 老表容错加 carton_pieces 列(装箱规格); 已存在忽略 Duplicate column
+	if _, err := db.Exec(`ALTER TABLE dim_goods_pack_spec ADD COLUMN carton_pieces DECIMAL(14,4) NULL COMMENT '装箱规格=每箱瓶数(仓库1箱几瓶,算发货箱数,空则默认取box_qty)' AFTER box_qty`); err != nil {
+		if !strings.Contains(err.Error(), "Duplicate column") {
+			return err
+		}
+	}
+	// 订正 box_qty 注释为"销售规格"(与新语义对齐)
+	if _, err := db.Exec(`ALTER TABLE dim_goods_pack_spec MODIFY COLUMN box_qty DECIMAL(14,4) NULL COMMENT '销售规格=每件瓶数(吉客云下单1件折几瓶,算发货件数)'`); err != nil {
+		return err
 	}
 	return nil
 }
@@ -159,8 +178,9 @@ func importBoxSpec(db *sql.DB, path string) int {
 	return cnt
 }
 
-// importPalletSpec 读箱规拖规(Sheet1: A=名称, B=箱规, C=托规),名称→goods_no(经 goods 表),
-// **只补 pallet_box_qty(托规), 不碰 box_qty(箱规)** —— 箱规以 RPA映射表为准(跑哥定, 箱规拖规里的箱规会误覆盖)。
+// importPalletSpec 读箱规拖规(Sheet1: A=名称, B=箱规=装箱规格每箱瓶数, C=托规每托箱数),名称→goods_no(经 goods 表),
+// 写 carton_pieces(装箱规格)+ pallet_box_qty(托规), **不碰 box_qty(销售规格)** —— 销售规格以 RPA映射表为准(跑哥定)。
+//   整箱货装箱规格=销售规格(如180g都18); 单品散卖货装箱规格是真实每箱数(如35g=150), 二者靠这两个独立列区分。
 func importPalletSpec(db *sql.DB, path string) int {
 	f, err := excelize.OpenFile(path)
 	if err != nil {
@@ -177,23 +197,32 @@ func importPalletSpec(db *sql.DB, path string) int {
 		if name == "" {
 			continue
 		}
-		pallet := safeCell(r, 2)
-		if pallet == "" {
+		carton := safeCell(r, 1) // 装箱规格=每箱瓶数
+		pallet := safeCell(r, 2) // 托规=每托箱数
+		if carton == "" && pallet == "" {
 			continue
 		}
 		var no string
 		err := db.QueryRow(`SELECT goods_no FROM goods WHERE goods_name=? AND is_delete=0 LIMIT 1`, name).Scan(&no)
 		if err == sql.ErrNoRows {
-			log.Printf("⚠️  托规表名称对不上 goods, 跳过: %q", name)
+			log.Printf("⚠️  箱规拖规名称对不上 goods, 跳过: %q", name)
 			continue
 		} else if err != nil {
 			log.Fatalf("查 goods %q: %v", name, err)
 		}
-		// 只写托规: 若该 goods_no 还没箱规行则插一条(箱规留 NULL, 后续 RPA映射表箱规导入会补); 有则只更托规。
-		if _, err := db.Exec(`INSERT INTO dim_goods_pack_spec(goods_no,pallet_box_qty) VALUES(?,?)
-			ON DUPLICATE KEY UPDATE pallet_box_qty=VALUES(pallet_box_qty)`,
-			no, pallet); err != nil {
-			log.Fatalf("upsert 托规 %q: %v", no, err)
+		// 空串转 NULL(避免写成 0); 只写 carton_pieces + 托规, 若该 goods_no 无行则插一条(box_qty 留 NULL 由 RPA映射表补)
+		var cartonV, palletV interface{}
+		if carton != "" {
+			cartonV = carton
+		}
+		if pallet != "" {
+			palletV = pallet
+		}
+		// ON DUPLICATE 用 COALESCE(VALUES(x),x): 本次为空的列不覆盖旧值(否则某行只填一列会把另一列已维护值清成 NULL)
+		if _, err := db.Exec(`INSERT INTO dim_goods_pack_spec(goods_no,carton_pieces,pallet_box_qty) VALUES(?,?,?)
+			ON DUPLICATE KEY UPDATE carton_pieces=COALESCE(VALUES(carton_pieces),carton_pieces), pallet_box_qty=COALESCE(VALUES(pallet_box_qty),pallet_box_qty)`,
+			no, cartonV, palletV); err != nil {
+			log.Fatalf("upsert 装箱规格/托规 %q: %v", no, err)
 		}
 		cnt++
 	}

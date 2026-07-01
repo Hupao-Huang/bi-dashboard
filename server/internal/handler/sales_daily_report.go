@@ -49,8 +49,8 @@ type ChannelRow struct {
 // GoodsStat 单品一组统计
 type GoodsStat struct {
 	Orders  int     `json:"orders"`
-	Bottles float64 `json:"bottles"`
-	Boxes   float64 `json:"boxes"`   // 箱数=Σsell_count
+	Bottles float64 `json:"bottles"` // 发货件数=Σ(sell_count×销售规格)
+	Boxes   float64 `json:"boxes"`   // 发货箱数=件数÷装箱规格
 	Pallets float64 `json:"pallets"` // 托数=箱数÷托规
 }
 
@@ -58,7 +58,7 @@ type GoodsStat struct {
 type GoodsRow struct {
 	GoodsNo    string    `json:"goodsNo"`
 	GoodsName  string    `json:"goodsName"`
-	BoxQty     float64   `json:"boxQty"`     // 箱规(每箱瓶数), 对齐 Excel「箱规」列
+	BoxQty     float64   `json:"boxQty"`     // 装箱规格(每箱瓶数), 对齐 Excel「箱规」列 = 箱数分母
 	Today      GoodsStat `json:"today"`
 	Month      GoodsStat `json:"month"`
 	PrevBottles float64  `json:"prevBottles"` // 前一发货日发货件数, 前端算环比用(单品环比按件数)
@@ -275,24 +275,24 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, prevDa
 }
 
 // queryTopGoods TOP10 单品: 按当月单瓶排 TOP10(对齐 Excel 榜单口径), 每行同时出当日/当月两组 + 前一日件数(环比)。
+// 件数=Σ(sell_count×销售规格box_qty); 箱数=件数÷装箱规格carton_pieces(空则默认取box_qty→整箱货箱数=sell_count)。
 func (h *DashboardHandler) queryTopGoods(ctx context.Context, part, partG, prevDay, dayStart, monStart, end string) []GoodsRow {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	whPH, whArgs := whereWarehouseArgs()
-	q := fmt.Sprintf(`SELECT tg.goods_no, MAX(tg.goods_name) AS nm, MAX(p.box_qty) AS box_qty,
+	q := fmt.Sprintf(`SELECT tg.goods_no, MAX(tg.goods_name) AS nm,
+		MAX(COALESCE(p.carton_pieces, p.box_qty, 1)) AS carton_pieces,
 		COUNT(DISTINCT CASE WHEN t.consign_time>=? THEN t.trade_id END) AS today_orders,
 		IFNULL(SUM(CASE WHEN t.consign_time>=? THEN tg.sell_count*COALESCE(p.box_qty,1) ELSE 0 END),0) AS today_bottles,
-		IFNULL(SUM(CASE WHEN t.consign_time>=? THEN tg.sell_count ELSE 0 END),0) AS today_boxes,
 		IFNULL(SUM(CASE WHEN t.consign_time>=? AND t.consign_time<? THEN tg.sell_count*COALESCE(p.box_qty,1) ELSE 0 END),0) AS prev_bottles,
 		COUNT(DISTINCT t.trade_id) AS month_orders,
 		IFNULL(SUM(tg.sell_count*COALESCE(p.box_qty,1)),0) AS month_bottles,
-		IFNULL(SUM(tg.sell_count),0) AS month_boxes,
 		MAX(p.pallet_box_qty) AS pallet_box_qty
 		FROM %s t JOIN %s tg ON tg.trade_id=t.trade_id
 		LEFT JOIN dim_goods_pack_spec p ON p.goods_no=tg.goods_no
 		WHERE t.trade_type NOT IN (8,12) AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
 		GROUP BY tg.goods_no ORDER BY month_bottles DESC LIMIT 10`, part, partG, whPH)
-	args := append([]interface{}{dayStart, dayStart, dayStart, prevDay, dayStart, monStart, end}, whArgs...)
+	args := append([]interface{}{dayStart, dayStart, prevDay, dayStart, monStart, end}, whArgs...)
 	rows, err := h.DB.QueryContext(ctx, q, args...)
 	if err != nil {
 		log.Printf("[sales-daily-report] queryTopGoods 失败 (%s %s~%s): %v", part, monStart, end, err)
@@ -302,16 +302,21 @@ func (h *DashboardHandler) queryTopGoods(ctx context.Context, part, partG, prevD
 	var out []GoodsRow
 	for rows.Next() {
 		var g GoodsRow
-		var boxQty, pallet sql.NullFloat64
-		if err := rows.Scan(&g.GoodsNo, &g.GoodsName, &boxQty,
-			&g.Today.Orders, &g.Today.Bottles, &g.Today.Boxes, &g.PrevBottles,
-			&g.Month.Orders, &g.Month.Bottles, &g.Month.Boxes, &pallet); err != nil {
+		var cartonPieces, pallet sql.NullFloat64
+		if err := rows.Scan(&g.GoodsNo, &g.GoodsName, &cartonPieces,
+			&g.Today.Orders, &g.Today.Bottles, &g.PrevBottles,
+			&g.Month.Orders, &g.Month.Bottles, &pallet); err != nil {
 			log.Printf("[sales-daily-report] queryTopGoods scan 失败: %v", err)
 			return nil
 		}
-		if boxQty.Valid {
-			g.BoxQty = boxQty.Float64
+		// 装箱规格(每箱瓶数): 已由 SQL COALESCE 兜底为 box_qty/1, 一定>0; 箱数=件数÷它
+		cp := 1.0
+		if cartonPieces.Valid && cartonPieces.Float64 > 0 {
+			cp = cartonPieces.Float64
 		}
+		g.BoxQty = cp
+		g.Today.Boxes = g.Today.Bottles / cp
+		g.Month.Boxes = g.Month.Bottles / cp
 		if pallet.Valid {
 			g.Today.Pallets = palletsOf(g.Today.Boxes, pallet.Float64)
 			g.Month.Pallets = palletsOf(g.Month.Boxes, pallet.Float64)
