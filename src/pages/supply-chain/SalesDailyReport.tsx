@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import ChannelMapManager from './ChannelMapManager';
+import PackSpecManager from './PackSpecManager';
 import {
   pct, int0, num0, perOrderStr, isSummaryChannel, yoy, signPct,
   type ChannelRow, type GoodsRow, type ComboRow,
@@ -158,7 +159,8 @@ const SalesDailyReport: React.FC = () => {
         />
       </Card>
 
-      <Card title="TOP10 单品" size="small" style={{ marginBottom: 16 }} loading={loading}>
+      <Card title="TOP10 单品" size="small" style={{ marginBottom: 16 }} loading={loading}
+        extra={<PackSpecManager onSaved={() => fetchData(date)} />}>
         <Table rowKey="goodsNo" columns={goodsCols(todayBottleGrand, monthBottleGrand, dayOfMonth)} dataSource={goods} pagination={false} size="small" scroll={{ x: 'max-content' }} />
       </Card>
 
