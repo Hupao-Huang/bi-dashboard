@@ -1,0 +1,32 @@
+/* 销售日报: 当日/当月累计 + 合计行 视觉区分 */
+
+/* 当月累计整列: 浅蓝底, 跟当日分开 */
+.sdr-month-col {
+  background-color: #f2f7fc;
+}
+
+/* 平台小计行(社媒合计/电商合计/其他合计): 浅灰底 + 加粗 */
+.sdr-subtotal-row > td {
+  background-color: #fafafa;
+  font-weight: 600;
+}
+/* 小计行里当月列, 底色叠加更深一点保持区分 */
+.sdr-subtotal-row > td.sdr-month-col {
+  background-color: #eaf1f9;
+}
+
+/* 总计行: 更醒目, 浅黄底 + 加粗 + 上边框 */
+.sdr-grand-row > td {
+  background-color: #fff7e6;
+  font-weight: 700;
+  border-top: 2px solid #ffd591;
+}
+.sdr-grand-row > td.sdr-month-col {
+  background-color: #fdefd3;
+}
+
+/* hover 时小计/总计行保持自己的底色(不被 antd hover 盖掉) */
+.sdr-subtotal-row:hover > td { background-color: #f0f0f0 !important; }
+.sdr-subtotal-row:hover > td.sdr-month-col { background-color: #e3ecf6 !important; }
+.sdr-grand-row:hover > td { background-color: #ffefc7 !important; }
+.sdr-grand-row:hover > td.sdr-month-col { background-color: #f8e6bf !important; }
