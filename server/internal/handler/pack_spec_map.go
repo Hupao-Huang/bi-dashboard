@@ -36,7 +36,7 @@ type packSpecRow struct {
 // GetPackSpec GET /api/supply-chain/pack-spec — 列出全部箱规映射(按货品编码排)
 func (h *DashboardHandler) GetPackSpec(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT goods_no, box_qty, IFNULL(pallet_box_qty,0) FROM dim_goods_pack_spec`)
+		`SELECT goods_no, IFNULL(box_qty,0), IFNULL(pallet_box_qty,0) FROM dim_goods_pack_spec`)
 	if err != nil {
 		writeDatabaseError(w, err)
 		return
