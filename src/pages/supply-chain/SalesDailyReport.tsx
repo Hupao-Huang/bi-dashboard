@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
+import ChannelMapManager from './ChannelMapManager';
 import {
   pct, kg1, int0, num0, perOrderStr, isSummaryChannel,
   type ChannelRow, type GoodsRow, type ComboRow,
@@ -103,7 +104,8 @@ const SalesDailyReport: React.FC = () => {
         <Text type="secondary">发货口径 · 仅统计 4 个成品仓 · 只算销售单</Text>
       </Space>
 
-      <Card title="渠道汇总" size="small" style={{ marginBottom: 16 }} loading={loading}>
+      <Card title="渠道汇总" size="small" style={{ marginBottom: 16 }} loading={loading}
+        extra={<ChannelMapManager onSaved={() => fetchData(date)} />}>
         <Table
           rowKey={(r) => r.platform + '|' + r.channel}
           columns={channelCols(grandOf(ch || []))}
