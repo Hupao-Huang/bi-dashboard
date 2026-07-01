@@ -14,9 +14,12 @@ interface Row {
   shopName: string;
   channel: string;
   platform: string;
+  _uid: string;     // 稳定唯一 key(已有行=shop:店铺名, 新增行=new:自增), 不用数组下标做 key
   _isNew?: boolean; // 新增未保存的行(shopName 可编辑)
   _dirty?: boolean; // 改过待保存
 }
+
+let newRowSeq = 0; // 新增行自增序号, 保证 rowKey 稳定不随 prepend 漂移
 
 interface Props {
   onSaved?: () => void; // 保存后通知父组件刷新销售日报(口径变了)
@@ -36,7 +39,7 @@ const ChannelMapManager: React.FC<Props> = ({ onSaved }) => {
     fetch(`${API_BASE}/api/supply-chain/channel-map`, { credentials: 'include' })
       .then(r => r.json())
       .then(j => {
-        if (j.code === 200) setRows((j.data?.list || []).map((m: Row) => ({ ...m })));
+        if (j.code === 200) setRows((j.data?.list || []).map((m: Row) => ({ ...m, _uid: 'shop:' + m.shopName })));
         else message.error(j.msg || '加载失败');
       })
       .catch(err => message.error(`加载失败: ${err instanceof Error ? err.message : String(err)}`))
@@ -45,19 +48,20 @@ const ChannelMapManager: React.FC<Props> = ({ onSaved }) => {
 
   useEffect(() => { if (open) load(); }, [open, load]);
 
-  const setCell = (idx: number, key: keyof Row, val: string) => {
-    setRows(prev => prev.map((r, i) => (i === idx ? { ...r, [key]: val, _dirty: true } : r)));
+  // 按 _uid 定位改哪行(不用数组下标, 搜索过滤/prepend 都不会错位)
+  const setCell = (uid: string, key: keyof Row, val: string) => {
+    setRows(prev => prev.map(r => (r._uid === uid ? { ...r, [key]: val, _dirty: true } : r)));
   };
 
   const addRow = () => {
-    setRows(prev => [{ shopName: '', channel: '', platform: '电商', _isNew: true, _dirty: true }, ...prev]);
+    newRowSeq += 1;
+    setRows(prev => [{ shopName: '', channel: '', platform: '电商', _uid: 'new:' + newRowSeq, _isNew: true, _dirty: true }, ...prev]);
   };
 
-  const removeRow = (idx: number) => {
-    const row = rows[idx];
+  const removeRow = (row: Row) => {
     if (row._isNew) {
-      // 新增未保存的直接从前端去掉
-      setRows(prev => prev.filter((_, i) => i !== idx));
+      // 新增未保存的直接从前端去掉(按 _uid, 不受 prepend 影响)
+      setRows(prev => prev.filter(r => r._uid !== row._uid));
       return;
     }
     fetch(`${API_BASE}/api/supply-chain/channel-map/delete`, {
@@ -67,7 +71,7 @@ const ChannelMapManager: React.FC<Props> = ({ onSaved }) => {
     })
       .then(r => r.json())
       .then(j => {
-        if (j.code === 200) { message.success('已删除'); setRows(prev => prev.filter((_, i) => i !== idx)); onSaved?.(); }
+        if (j.code === 200) { message.success('已删除'); setRows(prev => prev.filter(r => r._uid !== row._uid)); onSaved?.(); }
         else message.error(j.msg || '删除失败');
       })
       .catch(err => message.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`));
@@ -103,43 +107,31 @@ const ChannelMapManager: React.FC<Props> = ({ onSaved }) => {
   const columns: ColumnsType<Row> = [
     {
       title: '店铺名', dataIndex: 'shopName', key: 'shopName',
-      render: (v: string, r: Row) => {
-        const idx = rows.indexOf(r);
-        return (canEdit && r._isNew)
-          ? <Input value={v} placeholder="店铺全名(同吉客云)" onChange={e => setCell(idx, 'shopName', e.target.value)} />
-          : v;
-      },
+      render: (v: string, r: Row) => (canEdit && r._isNew)
+        ? <Input value={v} placeholder="店铺全名(同吉客云)" onChange={e => setCell(r._uid, 'shopName', e.target.value)} />
+        : v,
     },
     {
       title: '渠道', dataIndex: 'channel', key: 'channel', width: 180,
-      render: (v: string, r: Row) => {
-        const idx = rows.indexOf(r);
-        return canEdit
-          ? <Input value={v} placeholder="如 抖音/天猫/分销" onChange={e => setCell(idx, 'channel', e.target.value)} />
-          : v;
-      },
+      render: (v: string, r: Row) => canEdit
+        ? <Input value={v} placeholder="如 抖音/天猫/分销" onChange={e => setCell(r._uid, 'channel', e.target.value)} />
+        : v,
     },
     {
       title: '平台', dataIndex: 'platform', key: 'platform', width: 130,
-      render: (v: string, r: Row) => {
-        const idx = rows.indexOf(r);
-        return canEdit
-          ? <Select value={v} style={{ width: '100%' }} options={PLATFORMS.map(p => ({ label: p, value: p }))} onChange={val => setCell(idx, 'platform', val)} />
-          : v;
-      },
+      render: (v: string, r: Row) => canEdit
+        ? <Select value={v} style={{ width: '100%' }} options={PLATFORMS.map(p => ({ label: p, value: p }))} onChange={val => setCell(r._uid, 'platform', val)} />
+        : v,
     },
   ];
   if (canEdit) {
     columns.push({
       title: '操作', key: 'op', width: 80,
-      render: (_: unknown, r: Row) => {
-        const idx = rows.indexOf(r);
-        return (
-          <Popconfirm title="删除这条映射?" onConfirm={() => removeRow(idx)} okText="删除" cancelText="取消">
-            <Button type="link" danger size="small">删除</Button>
-          </Popconfirm>
-        );
-      },
+      render: (_: unknown, r: Row) => (
+        <Popconfirm title="删除这条映射?" onConfirm={() => removeRow(r)} okText="删除" cancelText="取消">
+          <Button type="link" danger size="small">删除</Button>
+        </Popconfirm>
+      ),
     });
   }
 
@@ -175,7 +167,7 @@ const ChannelMapManager: React.FC<Props> = ({ onSaved }) => {
           {!canEdit && <Tag>只读(无编辑权限)</Tag>}
         </Space>
         <Table
-          rowKey={(r) => (r._isNew ? 'new-' + rows.indexOf(r) : r.shopName)}
+          rowKey="_uid"
           columns={columns}
           dataSource={filtered}
           loading={loading}

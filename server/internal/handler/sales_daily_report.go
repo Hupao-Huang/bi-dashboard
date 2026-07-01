@@ -186,16 +186,19 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, start,
 		FROM %s t LEFT JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
 		WHERE t.trade_type=1 AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
 		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, part, whPH)
-	// 单瓶数(sell_count×箱规, 缺箱规×1), 按 渠道(同样兜底未分类)
-	qBottles := fmt.Sprintf(`SELECT COALESCE(m.channel,'未分类') AS channel,
+	// 单瓶数(sell_count×箱规, 缺箱规×1), 按 平台+渠道(同样兜底未分类)。
+	// 必须带 platform: 若同渠道名被人工映射到两个平台(编辑器允许), 只按 channel 合并会串行/丢数。
+	qBottles := fmt.Sprintf(`SELECT COALESCE(m.platform,'其他') AS platform,
+		COALESCE(m.channel,'未分类') AS channel,
 		IFNULL(SUM(tg.sell_count*COALESCE(p.box_qty,1)),0) AS bottles
 		FROM %s t JOIN %s tg ON tg.trade_id=t.trade_id
 		LEFT JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
 		LEFT JOIN dim_goods_pack_spec p ON p.goods_no=tg.goods_no
 		WHERE t.trade_type=1 AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
-		GROUP BY COALESCE(m.channel,'未分类')`, part, partG, whPH)
+		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, part, partG, whPH)
 
 	args := append([]interface{}{start, end}, whArgs...)
+	// key = platform|channel 复合键, 防同渠道跨平台互相覆盖
 	byCh := map[string]*ChannelRow{}
 	rows, err := h.DB.QueryContext(ctx, qOrders, args...)
 	if err != nil {
@@ -209,7 +212,7 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, start,
 			return nil
 		}
 		cp := c
-		byCh[c.Channel] = &cp
+		byCh[c.Platform+"|"+c.Channel] = &cp
 	}
 	rows.Close()
 
@@ -219,13 +222,13 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, start,
 		return nil
 	}
 	for brows.Next() {
-		var ch string
+		var plat, ch string
 		var bottles float64
-		if err := brows.Scan(&ch, &bottles); err != nil {
+		if err := brows.Scan(&plat, &ch, &bottles); err != nil {
 			brows.Close()
 			return nil
 		}
-		if c, ok := byCh[ch]; ok {
+		if c, ok := byCh[plat+"|"+ch]; ok {
 			c.Bottles = bottles
 		}
 	}

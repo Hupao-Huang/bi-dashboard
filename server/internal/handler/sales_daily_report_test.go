@@ -23,6 +23,29 @@ func TestRatioPerOrderPallets(t *testing.T) {
 	}
 }
 
+// 同渠道名跨两个平台(编辑器允许手动配)时, rollup 必须各自独立不串
+func TestRollupPlatforms_SameChannelCrossPlatform(t *testing.T) {
+	in := []ChannelRow{
+		{Platform: "电商", Channel: "分销", Orders: 10, Bottles: 100, WeightKg: 20},
+		{Platform: "社媒", Channel: "分销", Orders: 5, Bottles: 50, WeightKg: 10},
+	}
+	out := rollupPlatforms(in)
+	last := out[len(out)-1]
+	if last.Channel != "总计" || last.Orders != 15 || last.Bottles != 150 {
+		t.Fatalf("同渠道跨平台总计应 15/150, got %+v", last)
+	}
+	// 两个「分销」明细行都要在(社媒块1个 + 电商块1个), 不能被吞
+	cnt := 0
+	for _, r := range out {
+		if r.Channel == "分销" {
+			cnt++
+		}
+	}
+	if cnt != 2 {
+		t.Fatalf("两个平台下的『分销』明细行都应保留, got %d", cnt)
+	}
+}
+
 func TestRollupPlatforms(t *testing.T) {
 	in := []ChannelRow{
 		{Platform: "电商", Channel: "天猫", Orders: 10, Bottles: 100, WeightKg: 20},
