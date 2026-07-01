@@ -141,7 +141,7 @@ const PackSpecManager: React.FC<Props> = ({ onSaved }) => {
         title="箱规映射表(货品 → 箱规 → 托规)"
         open={open}
         onCancel={() => setOpen(false)}
-        width={640}
+        width={860}
         footer={
           canEdit ? [
             <Button key="cancel" onClick={() => setOpen(false)}>关闭</Button>,
