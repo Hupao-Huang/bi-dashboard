@@ -404,7 +404,7 @@ func TestApplyEcommerceDailyAllot_HappyPath(t *testing.T) {
 		"2026-05-01": {salesExcluded: 30000.0, allotAmt: 50000.0, qtyExcluded: 30, allotQty: 40},
 		"2026-05-02": {salesExcluded: 0, allotAmt: 80000.0, qtyExcluded: 0, allotQty: 60},
 	}
-	applyEcommerceDailyAllot(trend, dailyAllot)
+	trend = applyEcommerceDailyAllot(trend, dailyAllot)
 
 	// 5/1 ecommerce: sales 排除 30000 = 70000; allotSales = 50000; 总高 = 120000
 	if trend[0].Sales != 70000.0 {
@@ -441,7 +441,7 @@ func TestApplyEcommerceDailyAllot_NegativeClamped(t *testing.T) {
 	dailyAllot := map[string]ecomDailyAllot{
 		"2026-05-01": {salesExcluded: 50000.0, allotAmt: 5000.0, qtyExcluded: 100, allotQty: 5},
 	}
-	applyEcommerceDailyAllot(trend, dailyAllot)
+	trend = applyEcommerceDailyAllot(trend, dailyAllot)
 
 	// sales = 10000 - 50000 = -40000 → 钳 0; allotSales = 5000 单独
 	if trend[0].Sales != 0 {
@@ -456,6 +456,59 @@ func TestApplyEcommerceDailyAllot_NegativeClamped(t *testing.T) {
 	}
 	if trend[0].AllotQty != 5.0 {
 		t.Errorf("AllotQty 应是 5, 实际 %v", trend[0].AllotQty)
+	}
+}
+
+func TestApplyEcommerceDailyAllot_AddsAllotOnlyDay(t *testing.T) {
+	trend := []TrendPoint{
+		{Date: "2026-05-02", Department: "social", Sales: 1000.0, Qty: 10},
+		{Date: "2026-05-03", Department: "ecommerce", Sales: 2000.0, Qty: 20},
+	}
+	dailyAllot := map[string]ecomDailyAllot{
+		"2026-05-01": {allotAmt: 500.0, allotQty: 5},
+		"2026-05-03": {allotAmt: 800.0, allotQty: 8},
+	}
+
+	trend = applyEcommerceDailyAllot(trend, dailyAllot)
+
+	var added *TrendPoint
+	for i := range trend {
+		if trend[i].Date == "2026-05-01" && trend[i].Department == "ecommerce" {
+			added = &trend[i]
+			break
+		}
+	}
+	if added == nil {
+		t.Fatalf("应补 2026-05-01 ecommerce 纯调拨点, trend=%v", trend)
+	}
+	if added.Sales != 0 || added.Qty != 0 || added.AllotSales != 500.0 || added.AllotQty != 5 {
+		t.Errorf("补点口径不对: %+v", *added)
+	}
+	if trend[0].Date != "2026-05-01" {
+		t.Errorf("补点后应按日期重排, 第一个日期=%s", trend[0].Date)
+	}
+}
+
+func TestApplyDeptEcommerceDailyAllot_AddsAllotOnlyDay(t *testing.T) {
+	daily := []deptDailyData{
+		{Date: "2026-05-02", Sales: 1000.0, Qty: 10},
+		{Date: "2026-05-03", Sales: 2000.0, Qty: 20},
+	}
+	dailyAllot := map[string]ecomDailyAllot{
+		"2026-05-01": {allotAmt: 500.0, allotQty: 5},
+		"2026-05-03": {allotAmt: 800.0, allotQty: 8},
+	}
+
+	daily = applyDeptEcommerceDailyAllot(daily, dailyAllot)
+
+	if len(daily) != 3 {
+		t.Fatalf("daily 应补到 3 行, got %d: %+v", len(daily), daily)
+	}
+	if daily[0].Date != "2026-05-01" || daily[0].Sales != 500.0 || daily[0].Qty != 5 {
+		t.Errorf("补点不对: %+v", daily[0])
+	}
+	if daily[2].Date != "2026-05-03" || daily[2].Sales != 2800.0 || daily[2].Qty != 28 {
+		t.Errorf("已有日期应加调拨: %+v", daily[2])
 	}
 }
 

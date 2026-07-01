@@ -417,12 +417,7 @@ func (h *DashboardHandler) loadDeptDailyTrend(w http.ResponseWriter, r *http.Req
 			r.Context(), trendStart, trendEnd, pureScopeCond, scopeArgs); dailyErr != nil {
 			log.Printf("[department/ecommerce] 趋势日级调拨加载失败, 用原口径: %v", dailyErr)
 		} else {
-			for i := range daily {
-				if d, ok := dailyAllot[daily[i].Date]; ok {
-					daily[i].Sales += d.allotAmt
-					daily[i].Qty += d.allotQty
-				}
-			}
+			daily = applyDeptEcommerceDailyAllot(daily, dailyAllot)
 		}
 	} else if dept == "instant_retail" {
 		// 2026-06-26: 即时零售部门页趋势也加日级调拨(朴朴/小象/叮咚), 跟本页 KPI/货品口径对齐
@@ -451,6 +446,28 @@ func (h *DashboardHandler) loadDeptDailyTrend(w http.ResponseWriter, r *http.Req
 		}
 	}
 	return daily, trendStart, trendEnd, true
+}
+
+func applyDeptEcommerceDailyAllot(daily []deptDailyData, dailyAllot map[string]ecomDailyAllot) []deptDailyData {
+	idx := make(map[string]int, len(daily))
+	for i := range daily {
+		idx[daily[i].Date] = i
+	}
+
+	added := false
+	for date, a := range dailyAllot {
+		if i, ok := idx[date]; ok {
+			daily[i].Sales += a.allotAmt
+			daily[i].Qty += a.allotQty
+		} else if a.allotAmt != 0 || a.allotQty != 0 {
+			daily = append(daily, deptDailyData{Date: date, Sales: a.allotAmt, Qty: a.allotQty})
+			added = true
+		}
+	}
+	if added {
+		sort.Slice(daily, func(i, j int) bool { return daily[i].Date < daily[j].Date })
+	}
+	return daily
 }
 
 // loadDeptShopRanking 店铺/大区排行 (offline 按大区合并, 其余按 shop_name) + 电商/即时零售调拨合并。

@@ -162,7 +162,7 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		r.Context(), trendStart, trendEnd, scopeCond, scopeArgs); dailyErr != nil {
 		log.Printf("[overview] 日级调拨加载失败, 趋势图用原口径: %v", dailyErr)
 	} else {
-		applyEcommerceDailyAllot(trend, dailyAllot)
+		trend = applyEcommerceDailyAllot(trend, dailyAllot)
 	}
 
 	// v1.74.3-3 拓范: 趋势图即时零售部门加日级朴朴调拨
@@ -541,11 +541,12 @@ func (h *DashboardHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 // 综合看板长期用销售单口径 → 跟业务对账不一致. 本 helper 单独查 2 渠道双口径.
 //
 // 返回 4 个值 + err:
-//   salesExcluded: 这 2 渠道在 sales_goods_summary 的销售单口径 sales (要从 dept.sales 减掉)
-//   allotAmt: 这 2 渠道在 allocate_details 的 excel_amount (要加到 dept.sales)
-//   qtyExcluded: 这 2 渠道在 sales_goods_summary 的销售单口径 qty (要从 dept.qty 减掉)
-//   allotQty: 这 2 渠道在 allocate_details 的 sku_count (要加到 dept.qty)
-//   err: 任一 query 失败返 err, 调用方决定 fallback 还是 fail
+//
+//	salesExcluded: 这 2 渠道在 sales_goods_summary 的销售单口径 sales (要从 dept.sales 减掉)
+//	allotAmt: 这 2 渠道在 allocate_details 的 excel_amount (要加到 dept.sales)
+//	qtyExcluded: 这 2 渠道在 sales_goods_summary 的销售单口径 qty (要从 dept.qty 减掉)
+//	allotQty: 这 2 渠道在 allocate_details 的 sku_count (要加到 dept.qty)
+//	err: 任一 query 失败返 err, 调用方决定 fallback 还是 fail
 func (h *DashboardHandler) loadEcommerceAllotAdjustment(
 	ctx context.Context,
 	start, end string,
@@ -725,17 +726,21 @@ func applyInstantRetailDailyAllot(trend []TrendPoint, dailyAllot map[string]ecom
 
 // applyEcommerceDailyAllot v1.74.3 拓范: 把 dailyAllot 应用到趋势数据
 // v1.74.3 跑哥 5/25 UX: 不再 merge 到 sales, 单独输出 AllotSales/AllotQty 字段
-//   sales      = trend.sales - salesExcluded     (= 其它电商渠道销售单)
-//   allotSales = allotAmt                        (= 2 调拨渠道, 前端用黄色堆叠柱)
-//   qty/allotQty 同理
+//
+//	sales      = trend.sales - salesExcluded     (= 其它电商渠道销售单)
+//	allotSales = allotAmt                        (= 2 调拨渠道, 前端用黄色堆叠柱)
+//	qty/allotQty 同理
+//
 // 总高 (sales + allotSales) = 旧合并版的 sales, 跟综合看板 mini 卡总额一致
 //
 // 提取为独立函数便于单测.
-func applyEcommerceDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDailyAllot) {
+func applyEcommerceDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDailyAllot) []TrendPoint {
+	seen := make(map[string]bool)
 	for i := range trend {
 		if trend[i].Department != "ecommerce" {
 			continue
 		}
+		seen[trend[i].Date] = true
 		d, ok := dailyAllot[trend[i].Date]
 		if !ok {
 			continue // 该日无 2 渠道数据 (既没销售单又没调拨), 保持原 trend
@@ -756,6 +761,19 @@ func applyEcommerceDailyAllot(trend []TrendPoint, dailyAllot map[string]ecomDail
 		trend[i].Qty = newQty
 		trend[i].AllotQty = d.allotQty
 	}
+	// 纯调拨日没有 ecommerce 销售点时, 原趋势 SQL 不会产出该日 ecommerce 行。
+	// 需要补一个 sales=0 的点, 否则趋势合计小于 KPI/部门汇总。
+	added := false
+	for date, a := range dailyAllot {
+		if !seen[date] && (a.allotAmt != 0 || a.allotQty != 0) {
+			trend = append(trend, TrendPoint{Date: date, Department: "ecommerce", AllotSales: a.allotAmt, AllotQty: a.allotQty})
+			added = true
+		}
+	}
+	if added {
+		sort.SliceStable(trend, func(i, j int) bool { return trend[i].Date < trend[j].Date })
+	}
+	return trend
 }
 
 // TrendPoint v1.74.3 拓范: 提到包级别便于 applyEcommerceDailyAllot 引用
@@ -975,6 +993,7 @@ func (h *DashboardHandler) loadInstantRetailGoodsAllotDetail(
 // 对每个 2 调拨渠道 shop:
 //   - 如果在 topShops 内: sales = sales - salesExcluded + allotAmt; qty 同理
 //   - 如果不在 (因销售单数据小排在 TOP 外): 新加 entry (sales = allotAmt, qty = allotQty)
+//
 // 然后重新按 sales DESC 排, 截 topN (LIMIT 15)
 //
 // 提取为独立函数便于单测.
@@ -1028,10 +1047,12 @@ func applyEcommerceShopAllot(topShops []ShopRank, shopAllot map[string]shopAllot
 
 // applyEcommerceAllotAdjustment v1.74.3: 把 2 调拨渠道的口径换到 dept.Sales + dept.Qty
 // 找到 ecommerce dept, 计算:
-//   SalesAmt = Sales - salesExcluded (其它电商渠道销售口径)
-//   AllotAmt = allotAmt              (这 2 调拨渠道)
-//   Sales    = SalesAmt + AllotAmt   (新总和, 给顶部 totalSales / 右上角 tag 用)
-//   Qty      = Qty - qtyExcluded + allotQty  (同步处理货品数, 客单价自动跟着)
+//
+//	SalesAmt = Sales - salesExcluded (其它电商渠道销售口径)
+//	AllotAmt = allotAmt              (这 2 调拨渠道)
+//	Sales    = SalesAmt + AllotAmt   (新总和, 给顶部 totalSales / 右上角 tag 用)
+//	Qty      = Qty - qtyExcluded + allotQty  (同步处理货品数, 客单价自动跟着)
+//
 // 兜底: SalesAmt/Qty < 0 钳到 0 (理论不应发生, 防数据异常)
 //
 // 提取为独立函数便于单测 (不依赖 DB).
