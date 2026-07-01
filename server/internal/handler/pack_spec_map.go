@@ -29,14 +29,17 @@ func validatePackSpecRow(goodsNo string, boxQty, palletBoxQty float64) error {
 
 type packSpecRow struct {
 	GoodsNo      string  `json:"goodsNo"`
+	GoodsName    string  `json:"goodsName"` // join goods 拿名称(只看编码认不出货)
 	BoxQty       float64 `json:"boxQty"`
 	PalletBoxQty float64 `json:"palletBoxQty"` // 0 = 未填(前端显—)
 }
 
-// GetPackSpec GET /api/supply-chain/pack-spec — 列出全部箱规映射(按货品编码排)
+// GetPackSpec GET /api/supply-chain/pack-spec — 列出全部箱规映射(按货品编码排), 带货品名称
 func (h *DashboardHandler) GetPackSpec(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT goods_no, IFNULL(box_qty,0), IFNULL(pallet_box_qty,0) FROM dim_goods_pack_spec`)
+		`SELECT p.goods_no, IFNULL(MAX(g.goods_name),''), IFNULL(p.box_qty,0), IFNULL(p.pallet_box_qty,0)
+		 FROM dim_goods_pack_spec p LEFT JOIN goods g ON g.goods_no=p.goods_no
+		 GROUP BY p.goods_no, p.box_qty, p.pallet_box_qty`)
 	if err != nil {
 		writeDatabaseError(w, err)
 		return
@@ -45,7 +48,7 @@ func (h *DashboardHandler) GetPackSpec(w http.ResponseWriter, r *http.Request) {
 	var list []packSpecRow
 	for rows.Next() {
 		var m packSpecRow
-		if err := rows.Scan(&m.GoodsNo, &m.BoxQty, &m.PalletBoxQty); err != nil {
+		if err := rows.Scan(&m.GoodsNo, &m.GoodsName, &m.BoxQty, &m.PalletBoxQty); err != nil {
 			writeError(w, http.StatusInternalServerError, "读取失败")
 			return
 		}

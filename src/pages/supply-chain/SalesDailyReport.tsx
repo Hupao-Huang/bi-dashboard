@@ -54,7 +54,13 @@ const channelCols = (todayGrand: number, monthGrand: number): ColumnsType<Channe
 // 单品块列(照 Excel): 货品 ‖ 当日[日发货件数·日发货量占比·日发货量环比·箱规·发货箱数·发货托数] ‖ 当月[月发货件数·月发货量占比·日均发货箱数·月发货箱数·月发货托数]
 // 单品占比分母=渠道总计发货件数; 单品环比按发货件数; 日均发货箱数=月发货箱数÷本月天数
 const goodsCols = (todayBottleGrand: number, monthBottleGrand: number, dayOfMonth: number): ColumnsType<GoodsRow> => [
-  { title: '货品', dataIndex: 'goodsName', key: 'goodsName', fixed: 'left', width: 230 },
+  { title: '货品', dataIndex: 'goodsName', key: 'goodsName', fixed: 'left', width: 230,
+    render: (v: string, r: GoodsRow) => (
+      <div>
+        <div>{v}</div>
+        <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>{r.goodsNo}</div>
+      </div>
+    ) },
   { title: '当日', children: [
     { title: '日发货件数', key: 'tb', align: 'right', render: (_: unknown, r: GoodsRow) => num0(r.today.bottles) },
     { title: '日发货量占比', key: 'tr', align: 'right', render: (_: unknown, r: GoodsRow) => pct(todayBottleGrand ? r.today.bottles / todayBottleGrand : 0) },

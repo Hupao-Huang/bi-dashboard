@@ -11,6 +11,7 @@ const EDIT_PERM = 'supply_chain.sales_daily_report:edit';
 
 interface Row {
   goodsNo: string;
+  goodsName: string;
   boxQty: number;
   palletBoxQty: number; // 0 = 未填
   _uid: string;
@@ -53,7 +54,7 @@ const PackSpecManager: React.FC<Props> = ({ onSaved }) => {
 
   const addRow = () => {
     newRowSeq += 1;
-    setRows(prev => [{ goodsNo: '', boxQty: 1, palletBoxQty: 0, _uid: 'new:' + newRowSeq, _isNew: true, _dirty: true }, ...prev]);
+    setRows(prev => [{ goodsNo: '', goodsName: '', boxQty: 1, palletBoxQty: 0, _uid: 'new:' + newRowSeq, _isNew: true, _dirty: true }, ...prev]);
   };
 
   const removeRow = (row: Row) => {
@@ -97,32 +98,34 @@ const PackSpecManager: React.FC<Props> = ({ onSaved }) => {
   };
 
   const filtered = kw.trim()
-    ? rows.filter(r => r.goodsNo.toLowerCase().includes(kw.trim().toLowerCase()))
+    ? rows.filter(r => (r.goodsNo + r.goodsName).toLowerCase().includes(kw.trim().toLowerCase()))
     : rows;
 
   const columns: ColumnsType<Row> = [
     {
-      title: '货品编码', dataIndex: 'goodsNo', key: 'goodsNo',
+      title: '货品编码', dataIndex: 'goodsNo', key: 'goodsNo', width: 150,
       render: (v: string, r: Row) => (canEdit && r._isNew)
-        ? <Input value={v} placeholder="货品编码(同吉客云)" onChange={e => setCell(r._uid, 'goodsNo', e.target.value)} />
+        ? <Input value={v} placeholder="货品编码" onChange={e => setCell(r._uid, 'goodsNo', e.target.value)} />
+        : v,
+    },
+    { title: '货品名称', dataIndex: 'goodsName', key: 'goodsName', ellipsis: true,
+      render: (v: string) => v || <span style={{ color: 'rgba(0,0,0,0.25)' }}>—</span> },
+    {
+      title: '箱规', dataIndex: 'boxQty', key: 'boxQty', width: 90,
+      render: (v: number, r: Row) => canEdit
+        ? <InputNumber min={1} value={v} style={{ width: '100%' }} size="small" onChange={val => setCell(r._uid, 'boxQty', Number(val) || 1)} />
         : v,
     },
     {
-      title: '箱规(每箱数量)', dataIndex: 'boxQty', key: 'boxQty', width: 150,
+      title: '托规', dataIndex: 'palletBoxQty', key: 'palletBoxQty', width: 90,
       render: (v: number, r: Row) => canEdit
-        ? <InputNumber min={1} value={v} style={{ width: '100%' }} onChange={val => setCell(r._uid, 'boxQty', Number(val) || 1)} />
-        : v,
-    },
-    {
-      title: '托规(每托箱数)', dataIndex: 'palletBoxQty', key: 'palletBoxQty', width: 150,
-      render: (v: number, r: Row) => canEdit
-        ? <InputNumber min={0} value={v} style={{ width: '100%' }} placeholder="空=不填" onChange={val => setCell(r._uid, 'palletBoxQty', Number(val) || 0)} />
+        ? <InputNumber min={0} value={v} style={{ width: '100%' }} size="small" placeholder="空" onChange={val => setCell(r._uid, 'palletBoxQty', Number(val) || 0)} />
         : (v > 0 ? v : '—'),
     },
   ];
   if (canEdit) {
     columns.push({
-      title: '操作', key: 'op', width: 80,
+      title: '操作', key: 'op', width: 60,
       render: (_: unknown, r: Row) => (
         <Popconfirm title="删除这条箱规?" onConfirm={() => removeRow(r)} okText="删除" cancelText="取消">
           <Button type="link" danger size="small">删除</Button>
@@ -168,7 +171,8 @@ const PackSpecManager: React.FC<Props> = ({ onSaved }) => {
           dataSource={filtered}
           loading={loading}
           size="small"
-          pagination={{ pageSize: 20, showSizeChanger: false }}
+          pagination={{ pageSize: 8, showSizeChanger: false, showTotal: (t) => `共 ${t} 条` }}
+          scroll={{ y: 360 }}
         />
       </Modal>
     </>

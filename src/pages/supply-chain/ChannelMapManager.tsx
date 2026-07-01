@@ -172,7 +172,8 @@ const ChannelMapManager: React.FC<Props> = ({ onSaved }) => {
           dataSource={filtered}
           loading={loading}
           size="small"
-          pagination={{ pageSize: 20, showSizeChanger: false }}
+          pagination={{ pageSize: 8, showSizeChanger: false, showTotal: (t) => `共 ${t} 条` }}
+          scroll={{ y: 360 }}
         />
       </Modal>
     </>
