@@ -34,28 +34,50 @@ type channelMapRow struct {
 	ShopName string `json:"shopName"`
 	Channel  string `json:"channel"`
 	Platform string `json:"platform"`
+	Mapped   bool   `json:"mapped"`   // 是否已配渠道/平台(前端区分未归类店铺)
+	CateName string `json:"cateName"` // 吉客云渠道分类(cate_name), 给业务填渠道/平台时参考
 }
 
-// GetChannelMap GET /api/supply-chain/channel-map — 列出全部映射(按平台/渠道/店铺排)
+// GetChannelMap GET /api/supply-chain/channel-map
+// 列出吉客云全部店铺(sales_channel.channel_name)+ 已有映射: 已配的带出渠道/平台, 没配的空着等业务选。
 func (h *DashboardHandler) GetChannelMap(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT shop_name, channel, platform FROM dim_sales_channel_map`)
+		`SELECT sc.channel_name,
+		        IFNULL(m.channel,''), IFNULL(m.platform,''),
+		        IF(m.shop_name IS NULL, 0, 1) AS mapped,
+		        IFNULL(NULLIF(sc.cate_name,''),'') AS cate_name
+		 FROM (SELECT DISTINCT channel_name FROM sales_channel WHERE channel_name<>'') sc
+		 LEFT JOIN dim_sales_channel_map m ON m.shop_name=sc.channel_name
+		 UNION
+		 SELECT m2.shop_name, m2.channel, m2.platform, 1, ''
+		 FROM dim_sales_channel_map m2
+		 WHERE m2.shop_name NOT IN (SELECT channel_name FROM sales_channel WHERE channel_name<>'')`)
 	if err != nil {
 		writeDatabaseError(w, err)
 		return
 	}
 	defer rows.Close()
 	var list []channelMapRow
+	seen := map[string]bool{}
 	for rows.Next() {
 		var m channelMapRow
-		if err := rows.Scan(&m.ShopName, &m.Channel, &m.Platform); err != nil {
+		var mapped int
+		if err := rows.Scan(&m.ShopName, &m.Channel, &m.Platform, &mapped, &m.CateName); err != nil {
 			writeError(w, http.StatusInternalServerError, "读取失败")
 			return
 		}
+		if seen[m.ShopName] {
+			continue
+		}
+		seen[m.ShopName] = true
+		m.Mapped = mapped == 1
 		list = append(list, m)
 	}
-	// 按 平台(社媒/电商/其他) → 渠道 → 店铺 排, 与看板口径一致
+	// 排序: 先未配的(等业务处理), 再按 平台→渠道→店铺
 	sort.SliceStable(list, func(i, j int) bool {
+		if list[i].Mapped != list[j].Mapped {
+			return !list[i].Mapped // 未配的排前面
+		}
 		oi, oj := platformOrder[list[i].Platform], platformOrder[list[j].Platform]
 		if oi != oj {
 			return oi < oj
