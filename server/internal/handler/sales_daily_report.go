@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -33,7 +35,7 @@ func whereWarehouseArgs() (string, []interface{}) {
 // ChannelStat 渠道一组统计(当日或当月)
 type ChannelStat struct {
 	Orders   int     `json:"orders"`   // 发货单数
-	Bottles  float64 `json:"bottles"`  // 单瓶数(sell_count×箱规)
+	Bottles  float64 `json:"bottles"`  // 发货件数(汇总账 goods_qty×销售规格, 排除退货/仅退款)
 	WeightKg float64 `json:"weightKg"` // 重量(kg)
 }
 
@@ -46,22 +48,32 @@ type ChannelRow struct {
 	PrevOrders int         `json:"prevOrders"` // 前一发货日发货量(订单数), 前端算环比用
 }
 
+type channelOrderAgg struct {
+	Platform    string
+	Channel     string
+	TodayOrders int
+	TodayWeight float64
+	PrevOrders  int
+	MonthOrders int
+	MonthWeight float64
+}
+
 // GoodsStat 单品一组统计
 type GoodsStat struct {
 	Orders  int     `json:"orders"`
-	Bottles float64 `json:"bottles"` // 发货件数=Σ(sell_count×销售规格)
+	Bottles float64 `json:"bottles"` // 发货件数(汇总账 goods_qty×销售规格, 排除退货/仅退款)
 	Boxes   float64 `json:"boxes"`   // 发货箱数=件数÷装箱规格
 	Pallets float64 `json:"pallets"` // 托数=箱数÷托规
 }
 
 // GoodsRow TOP10 单品行(按当月单瓶排), 当日+当月两组
 type GoodsRow struct {
-	GoodsNo    string    `json:"goodsNo"`
-	GoodsName  string    `json:"goodsName"`
-	BoxQty     float64   `json:"boxQty"`     // 装箱规格(每箱瓶数), 对齐 Excel「箱规」列 = 箱数分母
-	Today      GoodsStat `json:"today"`
-	Month      GoodsStat `json:"month"`
-	PrevBottles float64  `json:"prevBottles"` // 前一发货日发货件数, 前端算环比用(单品环比按件数)
+	GoodsNo     string    `json:"goodsNo"`
+	GoodsName   string    `json:"goodsName"`
+	BoxQty      float64   `json:"boxQty"` // 装箱规格(每箱瓶数), 对齐 Excel「箱规」列 = 箱数分母
+	Today       GoodsStat `json:"today"`
+	Month       GoodsStat `json:"month"`
+	PrevBottles float64   `json:"prevBottles"` // 前一发货日发货件数, 前端算环比用(单品环比按件数)
 }
 
 // ComboStat 组合一组统计
@@ -167,11 +179,29 @@ func (h *DashboardHandler) GetSalesDailyReport(w http.ResponseWriter, r *http.Re
 
 	ctx := r.Context()
 	// 三块都跑「当月区间 + CASE WHEN 当日/前一日」条件聚合, 一行同时出当日/当月/环比分母, 榜单按当月排
+	var channels []ChannelRow
+	var goods []GoodsRow
+	var combos []ComboRow
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		channels = h.queryChannel(ctx, part, partG, prevDay, dayStart, monStart, dayEnd)
+	}()
+	go func() {
+		defer wg.Done()
+		goods = h.queryTopGoods(ctx, part, partG, prevDay, dayStart, monStart, dayEnd)
+	}()
+	go func() {
+		defer wg.Done()
+		combos = h.queryTopCombos(ctx, part, partG, prevDay, dayStart, monStart, dayEnd)
+	}()
+	wg.Wait()
 	resp := map[string]interface{}{
 		"date":     date,
-		"channels": h.queryChannel(ctx, part, partG, prevDay, dayStart, monStart, dayEnd),
-		"goods":    h.queryTopGoods(ctx, part, partG, prevDay, dayStart, monStart, dayEnd),
-		"combos":   h.queryTopCombos(ctx, part, partG, prevDay, dayStart, monStart, dayEnd),
+		"channels": channels,
+		"goods":    goods,
+		"combos":   combos,
 	}
 	writeJSON(w, resp)
 }
@@ -200,53 +230,46 @@ func (h *DashboardHandler) latestConsignDate() string {
 	return now.AddDate(0, 0, -1).Format("2006-01-02")
 }
 
-// queryChannel 渠道块: 当月区间跑, CASE WHEN 当日/前一日 拆各组; 订单+重量按订单粒度, 单瓶按明细粒度。
+// queryChannel 渠道块: 当月区间跑, CASE WHEN 当日/前一日 拆各组。
+// 订单+重量仍按销售单明细的订单粒度; 发货件数用吉客云汇总账拆订单类型后的 goods_qty×销售规格, 排除退货/仅退款。
 // prevDay~dayStart=前一发货日(环比分母, 双边界确保月初1号时落在WHERE外→prev=0对齐Excel #DIV/0!)。
 func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, prevDay, dayStart, monStart, end string) []ChannelRow {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	whPH, whArgs := whereWarehouseArgs()
 
-	// 订单数 + 重量: 当月 COUNT/SUM, 当日/前一日用 CASE WHEN。LEFT JOIN 兜底未映射店铺。
-	qOrders := fmt.Sprintf(`SELECT COALESCE(m.platform,'其他') AS platform, COALESCE(m.channel,'未分类') AS channel,
-		SUM(CASE WHEN t.consign_time>=? THEN 1 ELSE 0 END) AS today_orders,
-		IFNULL(SUM(CASE WHEN t.consign_time>=? THEN t.estimate_weight ELSE 0 END),0)/1000 AS today_weight,
-		SUM(CASE WHEN t.consign_time>=? AND t.consign_time<? THEN 1 ELSE 0 END) AS prev_orders,
-		COUNT(*) AS month_orders,
-		IFNULL(SUM(t.estimate_weight),0)/1000 AS month_weight
-		FROM %s t LEFT JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
-		WHERE t.trade_type NOT IN (8,12) AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
-		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, part, whPH)
-	// 单瓶数(sell_count×箱规, 缺箱规×1), 平台+渠道复合(防同渠道跨平台串), 当日/当月各一组。
+	// 发货件数: 以吉客云汇总账 goods_qty 为准, 再乘销售规格 box_qty 还原单瓶/单包件数。
 	qBottles := fmt.Sprintf(`SELECT COALESCE(m.platform,'其他') AS platform, COALESCE(m.channel,'未分类') AS channel,
-		IFNULL(SUM(CASE WHEN t.consign_time>=? THEN tg.sell_count*COALESCE(p.box_qty,1) ELSE 0 END),0) AS today_bottles,
-		IFNULL(SUM(tg.sell_count*COALESCE(p.box_qty,1)),0) AS month_bottles
-		FROM %s t JOIN %s tg ON tg.trade_id=t.trade_id
-		LEFT JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
-		LEFT JOIN dim_goods_pack_spec p ON p.goods_no=tg.goods_no
-		WHERE t.trade_type NOT IN (8,12) AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
-		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, part, partG, whPH)
+		IFNULL(SUM(CASE WHEN s.stat_date=? THEN s.goods_qty*COALESCE(p.box_qty,1) ELSE 0 END),0) AS today_bottles,
+		IFNULL(SUM(s.goods_qty*COALESCE(p.box_qty,1)),0) AS month_bottles
+		FROM sales_goods_summary_by_order_type s
+		LEFT JOIN dim_sales_channel_map m ON m.shop_name=s.shop_name
+		LEFT JOIN dim_goods_pack_spec p ON p.goods_no=s.goods_no
+		WHERE s.trade_order_type NOT IN ('8','12') AND s.stat_date>=? AND s.stat_date<? AND s.warehouse_name IN (%s)
+		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, whPH)
 
-	// qOrders 参数: today CASE(dayStart) + today_weight CASE(dayStart) + prev CASE(prevDay,dayStart) + WHERE(monStart,end) + wh
-	oArgs := append([]interface{}{dayStart, dayStart, prevDay, dayStart, monStart, end}, whArgs...)
 	bArgs := append([]interface{}{dayStart, monStart, end}, whArgs...)
 
 	byCh := map[string]*ChannelRow{}
-	rows, err := h.DB.QueryContext(ctx, qOrders, oArgs...)
+	orderRows, err := h.queryChannelOrdersSummary(ctx, prevDay, dayStart, monStart, end)
 	if err != nil {
-		log.Printf("[sales-daily-report] queryChannel qOrders 失败 (%s %s~%s): %v", part, monStart, end, err)
-		return nil
-	}
-	for rows.Next() {
-		var c ChannelRow
-		if err := rows.Scan(&c.Platform, &c.Channel, &c.Today.Orders, &c.Today.WeightKg, &c.PrevOrders, &c.Month.Orders, &c.Month.WeightKg); err != nil {
-			rows.Close()
+		log.Printf("[sales-daily-report] queryChannel orders summary 失败, 回退明细查询 (%s %s~%s): %v", part, monStart, end, err)
+		orderRows, err = h.queryChannelOrdersRaw(ctx, part, prevDay, dayStart, monStart, end)
+		if err != nil {
+			log.Printf("[sales-daily-report] queryChannel qOrders 失败 (%s %s~%s): %v", part, monStart, end, err)
 			return nil
 		}
-		cp := c
-		byCh[c.Platform+"|"+c.Channel] = &cp
 	}
-	rows.Close()
+	for _, o := range orderRows {
+		c := ChannelRow{
+			Platform:   o.Platform,
+			Channel:    o.Channel,
+			Today:      ChannelStat{Orders: o.TodayOrders, WeightKg: o.TodayWeight},
+			Month:      ChannelStat{Orders: o.MonthOrders, WeightKg: o.MonthWeight},
+			PrevOrders: o.PrevOrders,
+		}
+		byCh[c.Platform+"|"+c.Channel] = &c
+	}
 
 	brows, err := h.DB.QueryContext(ctx, qBottles, bArgs...)
 	if err != nil {
@@ -263,6 +286,13 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, prevDa
 		if c, ok := byCh[plat+"|"+ch]; ok {
 			c.Today.Bottles = todayB
 			c.Month.Bottles = monthB
+		} else {
+			byCh[plat+"|"+ch] = &ChannelRow{
+				Platform: plat,
+				Channel:  ch,
+				Today:    ChannelStat{Bottles: todayB},
+				Month:    ChannelStat{Bottles: monthB},
+			}
 		}
 	}
 	brows.Close()
@@ -274,25 +304,88 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, prevDa
 	return rollupPlatforms(out)
 }
 
-// queryTopGoods TOP10 单品: 按当月单瓶排 TOP10(对齐 Excel 榜单口径), 每行同时出当日/当月两组 + 前一日件数(环比)。
-// 件数=Σ(sell_count×销售规格box_qty); 箱数=件数÷装箱规格carton_pieces(空则默认取box_qty→整箱货箱数=sell_count)。
+func (h *DashboardHandler) queryChannelOrdersSummary(ctx context.Context, prevDay, dayStart, monStart, end string) ([]channelOrderAgg, error) {
+	var dayRows int
+	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM sales_daily_shop_order_summary WHERE stat_date=?`, dayStart).Scan(&dayRows); err != nil {
+		return nil, err
+	}
+	if dayRows == 0 {
+		return nil, fmt.Errorf("sales_daily_shop_order_summary 缺少当天数据: %s", dayStart)
+	}
+	rows, err := h.DB.QueryContext(ctx, `SELECT COALESCE(m.platform,'其他') AS platform, COALESCE(m.channel,'未分类') AS channel,
+		IFNULL(SUM(CASE WHEN s.stat_date=? THEN s.orders ELSE 0 END),0) AS today_orders,
+		IFNULL(SUM(CASE WHEN s.stat_date=? THEN s.weight_kg ELSE 0 END),0) AS today_weight,
+		IFNULL(SUM(CASE WHEN s.stat_date>=? AND s.stat_date<? THEN s.orders ELSE 0 END),0) AS prev_orders,
+		IFNULL(SUM(s.orders),0) AS month_orders,
+		IFNULL(SUM(s.weight_kg),0) AS month_weight
+		FROM sales_daily_shop_order_summary s
+		LEFT JOIN dim_sales_channel_map m ON m.shop_name=s.shop_name
+		WHERE s.stat_date>=? AND s.stat_date<?
+		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, dayStart, dayStart, prevDay, dayStart, monStart, end)
+	if err != nil {
+		return nil, err
+	}
+	return scanChannelOrderAggRows(rows)
+}
+
+func (h *DashboardHandler) queryChannelOrdersRaw(ctx context.Context, part, prevDay, dayStart, monStart, end string) ([]channelOrderAgg, error) {
+	whPH, whArgs := whereWarehouseArgs()
+	q := fmt.Sprintf(`SELECT COALESCE(m.platform,'其他') AS platform, COALESCE(m.channel,'未分类') AS channel,
+		SUM(CASE WHEN t.consign_time>=? THEN 1 ELSE 0 END) AS today_orders,
+		IFNULL(SUM(CASE WHEN t.consign_time>=? THEN t.estimate_weight ELSE 0 END),0)/1000 AS today_weight,
+		SUM(CASE WHEN t.consign_time>=? AND t.consign_time<? THEN 1 ELSE 0 END) AS prev_orders,
+		COUNT(*) AS month_orders,
+		IFNULL(SUM(t.estimate_weight),0)/1000 AS month_weight
+		FROM %s t LEFT JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
+		WHERE t.trade_type NOT IN (8,12) AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
+		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, part, whPH)
+	args := append([]interface{}{dayStart, dayStart, prevDay, dayStart, monStart, end}, whArgs...)
+	rows, err := h.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanChannelOrderAggRows(rows)
+}
+
+func scanChannelOrderAggRows(rows *sql.Rows) ([]channelOrderAgg, error) {
+	defer rows.Close()
+	var out []channelOrderAgg
+	for rows.Next() {
+		var o channelOrderAgg
+		var todayOrders, prevOrders, monthOrders float64
+		if err := rows.Scan(&o.Platform, &o.Channel, &todayOrders, &o.TodayWeight, &prevOrders, &monthOrders, &o.MonthWeight); err != nil {
+			return nil, err
+		}
+		o.TodayOrders = int(math.Round(todayOrders))
+		o.PrevOrders = int(math.Round(prevOrders))
+		o.MonthOrders = int(math.Round(monthOrders))
+		out = append(out, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// queryTopGoods TOP10 单品: 按当月发货件数排 TOP10, 每行同时出当日/当月两组 + 前一日件数(环比)。
+// 件数=吉客云汇总账 goods_qty×销售规格(按订单类型拆分后排除 8/12); 箱数=件数÷装箱规格carton_pieces。
 func (h *DashboardHandler) queryTopGoods(ctx context.Context, part, partG, prevDay, dayStart, monStart, end string) []GoodsRow {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	whPH, whArgs := whereWarehouseArgs()
-	q := fmt.Sprintf(`SELECT tg.goods_no, MAX(tg.goods_name) AS nm,
+	q := fmt.Sprintf(`SELECT s.goods_no, MAX(s.goods_name) AS nm,
 		MAX(COALESCE(p.carton_pieces, p.box_qty, 1)) AS carton_pieces,
-		COUNT(DISTINCT CASE WHEN t.consign_time>=? THEN t.trade_id END) AS today_orders,
-		IFNULL(SUM(CASE WHEN t.consign_time>=? THEN tg.sell_count*COALESCE(p.box_qty,1) ELSE 0 END),0) AS today_bottles,
-		IFNULL(SUM(CASE WHEN t.consign_time>=? AND t.consign_time<? THEN tg.sell_count*COALESCE(p.box_qty,1) ELSE 0 END),0) AS prev_bottles,
-		COUNT(DISTINCT t.trade_id) AS month_orders,
-		IFNULL(SUM(tg.sell_count*COALESCE(p.box_qty,1)),0) AS month_bottles,
+		IFNULL(SUM(CASE WHEN s.stat_date=? THEN s.so_qty ELSE 0 END),0) AS today_orders,
+		IFNULL(SUM(CASE WHEN s.stat_date=? THEN s.goods_qty*COALESCE(p.box_qty,1) ELSE 0 END),0) AS today_bottles,
+		IFNULL(SUM(CASE WHEN s.stat_date=? THEN s.goods_qty*COALESCE(p.box_qty,1) ELSE 0 END),0) AS prev_bottles,
+		IFNULL(SUM(s.so_qty),0) AS month_orders,
+		IFNULL(SUM(s.goods_qty*COALESCE(p.box_qty,1)),0) AS month_bottles,
 		MAX(p.pallet_box_qty) AS pallet_box_qty
-		FROM %s t JOIN %s tg ON tg.trade_id=t.trade_id
-		LEFT JOIN dim_goods_pack_spec p ON p.goods_no=tg.goods_no
-		WHERE t.trade_type NOT IN (8,12) AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
-		GROUP BY tg.goods_no ORDER BY month_bottles DESC LIMIT 10`, part, partG, whPH)
-	args := append([]interface{}{dayStart, dayStart, prevDay, dayStart, monStart, end}, whArgs...)
+		FROM sales_goods_summary_by_order_type s
+		LEFT JOIN dim_goods_pack_spec p ON p.goods_no=s.goods_no
+		WHERE s.trade_order_type NOT IN ('8','12') AND s.stat_date>=? AND s.stat_date<? AND s.warehouse_name IN (%s)
+		GROUP BY s.goods_no ORDER BY month_bottles DESC LIMIT 10`, whPH)
+	args := append([]interface{}{dayStart, dayStart, prevDay, monStart, end}, whArgs...)
 	rows, err := h.DB.QueryContext(ctx, q, args...)
 	if err != nil {
 		log.Printf("[sales-daily-report] queryTopGoods 失败 (%s %s~%s): %v", part, monStart, end, err)
@@ -303,12 +396,15 @@ func (h *DashboardHandler) queryTopGoods(ctx context.Context, part, partG, prevD
 	for rows.Next() {
 		var g GoodsRow
 		var cartonPieces, pallet sql.NullFloat64
+		var todayOrders, monthOrders float64
 		if err := rows.Scan(&g.GoodsNo, &g.GoodsName, &cartonPieces,
-			&g.Today.Orders, &g.Today.Bottles, &g.PrevBottles,
-			&g.Month.Orders, &g.Month.Bottles, &pallet); err != nil {
+			&todayOrders, &g.Today.Bottles, &g.PrevBottles,
+			&monthOrders, &g.Month.Bottles, &pallet); err != nil {
 			log.Printf("[sales-daily-report] queryTopGoods scan 失败: %v", err)
 			return nil
 		}
+		g.Today.Orders = int(math.Round(todayOrders))
+		g.Month.Orders = int(math.Round(monthOrders))
 		// 装箱规格(每箱瓶数): 已由 SQL COALESCE 兜底为 box_qty/1, 一定>0; 箱数=件数÷它
 		cp := 1.0
 		if cartonPieces.Valid && cartonPieces.Float64 > 0 {
@@ -330,6 +426,54 @@ func (h *DashboardHandler) queryTopGoods(ctx context.Context, part, partG, prevD
 func (h *DashboardHandler) queryTopCombos(ctx context.Context, part, partG, prevDay, dayStart, monStart, end string) []ComboRow {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	var dayRows int
+	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM sales_daily_combo_summary WHERE stat_date=?`, dayStart).Scan(&dayRows); err != nil {
+		log.Printf("[sales-daily-report] queryTopCombos summary 检查失败, 回退明细查询 (%s %s): %v", part, dayStart, err)
+		return h.queryTopCombosRaw(ctx, part, partG, prevDay, dayStart, monStart, end)
+	}
+	if dayRows == 0 {
+		log.Printf("[sales-daily-report] queryTopCombos summary 缺少当天数据, 回退明细查询 (%s %s)", part, dayStart)
+		return h.queryTopCombosRaw(ctx, part, partG, prevDay, dayStart, monStart, end)
+	}
+	rows, err := h.DB.QueryContext(ctx, `SELECT MAX(combo_display) AS combo_display,
+		SUM(CASE WHEN stat_date=? THEN orders ELSE 0 END) AS today_orders,
+		IFNULL(SUM(CASE WHEN stat_date=? THEN bottles ELSE 0 END),0) AS today_bottles,
+		IFNULL(SUM(CASE WHEN stat_date=? THEN weight_kg ELSE 0 END),0) AS today_weight,
+		SUM(CASE WHEN stat_date=? THEN orders ELSE 0 END) AS prev_orders,
+		SUM(orders) AS month_orders,
+		IFNULL(SUM(bottles),0) AS month_bottles,
+		IFNULL(SUM(weight_kg),0) AS month_weight
+		FROM sales_daily_combo_summary
+		WHERE stat_date>=? AND stat_date<?
+		GROUP BY combo_hash, combo_sig
+		ORDER BY month_orders DESC LIMIT 10`, dayStart, dayStart, dayStart, prevDay, monStart, end)
+	if err != nil {
+		log.Printf("[sales-daily-report] queryTopCombos summary 查询失败, 回退明细查询 (%s %s~%s): %v", part, monStart, end, err)
+		return h.queryTopCombosRaw(ctx, part, partG, prevDay, dayStart, monStart, end)
+	}
+	defer rows.Close()
+	var out []ComboRow
+	for rows.Next() {
+		var c ComboRow
+		if err := rows.Scan(&c.Display, &c.Today.Orders, &c.Today.Bottles, &c.Today.WeightKg, &c.PrevOrders,
+			&c.Month.Orders, &c.Month.Bottles, &c.Month.WeightKg); err != nil {
+			log.Printf("[sales-daily-report] queryTopCombos summary scan 失败: %v", err)
+			return h.queryTopCombosRaw(ctx, part, partG, prevDay, dayStart, monStart, end)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[sales-daily-report] queryTopCombos summary rows 失败: %v", err)
+		return h.queryTopCombosRaw(ctx, part, partG, prevDay, dayStart, monStart, end)
+	}
+	if len(out) > 0 {
+		return out
+	}
+	log.Printf("[sales-daily-report] queryTopCombos summary 无数据, 回退明细查询 (%s %s~%s)", part, monStart, end)
+	return h.queryTopCombosRaw(ctx, part, partG, prevDay, dayStart, monStart, end)
+}
+
+func (h *DashboardHandler) queryTopCombosRaw(ctx context.Context, part, partG, prevDay, dayStart, monStart, end string) []ComboRow {
 	// SET SESSION 与后续查询必须落在同一物理连接: h.DB 是连接池, ExecContext 设的 session 变量
 	// 可能作用在别的连接上, 导致长篮子 GROUP_CONCAT 仍按默认 1024 截断。用 Conn() 锁定单连接。
 	conn, err := h.DB.Conn(ctx)

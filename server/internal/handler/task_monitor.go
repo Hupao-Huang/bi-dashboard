@@ -46,6 +46,7 @@ type TaskStatus struct {
 // 未在此 map 里的 BI-* 任务会用 TaskName 作为 Name 兜底
 var taskMetaByName = map[string]TaskConfig{
 	"BI-SyncDailySummary":           {Name: "每日汇总帐同步", Description: "销售货品汇总帐(最近7天覆盖)", Schedule: "每天 08:00", LogFile: "sync-daily-summary.log", Category: "sync"},
+	"BI-SyncSummaryByOrderType":     {Name: "订单类型汇总帐同步", Description: "销售日报按订单类型拆分汇总帐", Schedule: "每天 08:20", LogFile: "sync-daily-summary-by-order-type.log", Category: "sync"},
 	"BI-SyncMonthlySummary":         {Name: "月汇总帐同步", Description: "本月销售货品月度聚合", Schedule: "每天 08:30", LogFile: "sync-monthly-summary.log", Category: "sync"},
 	"BI-RefreshLastMonth":           {Name: "刷新上月汇总", Description: "每月7号刷上月汇总数据(收尾确认)", Schedule: "每月7号 02:00", LogFile: "sync-monthly-summary.log", Category: "ops"},
 	"BI-SyncStock":                  {Name: "库存同步", Description: "吉客云库存分页查询", Schedule: "每天 23:05", LogFile: "sync-stock.log", Category: "stock"},

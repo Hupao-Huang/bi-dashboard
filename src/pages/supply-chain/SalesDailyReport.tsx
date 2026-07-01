@@ -147,7 +147,7 @@ const SalesDailyReport: React.FC = () => {
   const dayOfMonth = date ? dayjs(date).date() : 0;
 
   return (
-    <div style={{ padding: 16 }}>
+    <div className="sales-daily-report-page" style={{ padding: 16 }}>
       <Space style={{ marginBottom: 16 }} wrap>
         <Title level={4} style={{ margin: 0 }}>销售日报</Title>
         <DatePicker
@@ -155,7 +155,7 @@ const SalesDailyReport: React.FC = () => {
           onChange={(d) => { const s = d ? d.format('YYYY-MM-DD') : ''; setDate(s); fetchData(s); }}
           allowClear={false}
         />
-        <Text type="secondary">发货口径 · 仅统计 4 个成品仓 · 只算销售单 · TOP10 按当月累计排</Text>
+        <Text type="secondary">发货口径 · 仅统计 4 个成品仓 · 排除退货和仅退款 · TOP10 按当月累计排</Text>
       </Space>
 
       <Card title="渠道汇总" size="small" style={{ marginBottom: 16 }} loading={loading}

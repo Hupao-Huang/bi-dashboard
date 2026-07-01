@@ -4,7 +4,9 @@ import (
 	"bi-dashboard/internal/config"
 	"bi-dashboard/internal/importutil"
 	"bi-dashboard/internal/jackyun"
+	"bi-dashboard/internal/salesdaily"
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -522,6 +524,14 @@ func main() {
 		log.Printf("[%s] 订单: %d, 明细: %d", dayStr, dayTrades, dayGoods)
 	}
 	log.Printf("销售单同步完成(昨天): 订单 %d, 明细 %d", tradeTotal, goodsTotal)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	if err := salesdaily.RebuildReportSummaryRange(ctx, db, startDate, endDate); err != nil {
+		cancel()
+		log.Printf("[sales-daily-report-summary] 重建失败: %v", err)
+	} else {
+		cancel()
+		log.Printf("[sales-daily-report-summary] 已重建 %s ~ %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+	}
 	log.Println("========== 每日销售单同步结束 ==========")
 }
 
