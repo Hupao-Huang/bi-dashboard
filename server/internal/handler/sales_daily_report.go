@@ -177,7 +177,7 @@ func (h *DashboardHandler) latestConsignDate() string {
 	tryMonth := func(t time.Time) string {
 		part := "trade_" + t.Format("200601")
 		q := fmt.Sprintf(`SELECT IFNULL(DATE_FORMAT(MAX(consign_time),'%%Y-%%m-%%d'),'')
-			FROM %s WHERE trade_type=1 AND warehouse_name IN (%s)`, part, whPH)
+			FROM %s WHERE trade_type NOT IN (8,12) AND warehouse_name IN (%s)`, part, whPH)
 		var s string
 		if err := h.DB.QueryRow(q, whArgs...).Scan(&s); err != nil {
 			return "" // 表不存在等, 交给上层回退上月
@@ -208,7 +208,7 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, daySta
 		COUNT(*) AS month_orders,
 		IFNULL(SUM(t.estimate_weight),0)/1000 AS month_weight
 		FROM %s t LEFT JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
-		WHERE t.trade_type=1 AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
+		WHERE t.trade_type NOT IN (8,12) AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
 		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, part, whPH)
 	// 单瓶数(sell_count×箱规, 缺箱规×1), 平台+渠道复合(防同渠道跨平台串), 当日/当月各一组。
 	qBottles := fmt.Sprintf(`SELECT COALESCE(m.platform,'其他') AS platform, COALESCE(m.channel,'未分类') AS channel,
@@ -217,7 +217,7 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, daySta
 		FROM %s t JOIN %s tg ON tg.trade_id=t.trade_id
 		LEFT JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
 		LEFT JOIN dim_goods_pack_spec p ON p.goods_no=tg.goods_no
-		WHERE t.trade_type=1 AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
+		WHERE t.trade_type NOT IN (8,12) AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
 		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, part, partG, whPH)
 
 	// 参数顺序: qOrders 有 3 个 dayStart(today_orders/today_weight CASE) + monStart + end
@@ -282,7 +282,7 @@ func (h *DashboardHandler) queryTopGoods(ctx context.Context, part, partG, daySt
 		MAX(p.pallet_box_qty) AS pallet_box_qty
 		FROM %s t JOIN %s tg ON tg.trade_id=t.trade_id
 		LEFT JOIN dim_goods_pack_spec p ON p.goods_no=tg.goods_no
-		WHERE t.trade_type=1 AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
+		WHERE t.trade_type NOT IN (8,12) AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
 		GROUP BY tg.goods_no ORDER BY month_bottles DESC LIMIT 10`, part, partG, whPH)
 	args := append([]interface{}{dayStart, dayStart, dayStart, monStart, end}, whArgs...)
 	rows, err := h.DB.QueryContext(ctx, q, args...)
@@ -346,7 +346,7 @@ func (h *DashboardHandler) queryTopCombos(ctx context.Context, part, partG, dayS
 		    SUM(tg.sell_count*COALESCE(p.box_qty,1)) AS ob
 		  FROM %s t JOIN %s tg ON tg.trade_id=t.trade_id
 		  LEFT JOIN dim_goods_pack_spec p ON p.goods_no=tg.goods_no
-		  WHERE t.trade_type=1 AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
+		  WHERE t.trade_type NOT IN (8,12) AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
 		  GROUP BY t.trade_id
 		) o GROUP BY sig ORDER BY month_orders DESC LIMIT 10`, part, partG, whPH)
 	args := append([]interface{}{dayStart, monStart, end}, whArgs...)
