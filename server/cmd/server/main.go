@@ -477,6 +477,7 @@ func main() {
 	mux.HandleFunc("/api/supply-chain/purchase-plan", pageProtected("supply_chain.plan_dashboard:view", cache24h(h.GetPurchasePlan)))
 	mux.HandleFunc("/api/supply-chain/in-transit-detail", pageProtected("supply_chain.plan_dashboard:view", cache24h(h.GetInTransitDetail)))
 	mux.HandleFunc("/api/supply-chain/stock-detail", pageProtected("supply_chain.plan_dashboard:view", cache24h(h.GetStockWarehouseDetail)))
+	mux.HandleFunc("/api/supply-chain/sales-daily-report", pageProtected("supply_chain.sales_daily_report:view", h.GetSalesDailyReport))
 	mux.HandleFunc("/api/supply-chain/sync-ys-stock", pageProtected("supply_chain.plan_dashboard:view", h.SyncYSStock))
 	mux.HandleFunc("/api/supply-chain/sync-ys-progress", pageProtected("supply_chain.plan_dashboard:view", h.GetSyncYSProgress))
 	mux.HandleFunc("/api/supply-chain/qc-alert", pageProtected("supply_chain.qc_alert:view", cache24h(h.GetQCAlert)))

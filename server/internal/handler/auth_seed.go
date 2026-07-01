@@ -87,6 +87,7 @@ var permissionSeeds = []permissionSeed{
 	{Code: "supply_chain.daily_alerts:view", Name: "供应链-每日预警", Type: "page"},
 	{Code: "supply_chain.monthly_billing:view", Name: "供应链-月度账单分析", Type: "page"},
 	{Code: "supply_chain.qc_alert:view", Name: "供应链-质检预警", Type: "page"},
+	{Code: "supply_chain.sales_daily_report:view", Name: "供应链-销售日报", Type: "page"},
 	{Code: "profit:view", Name: "查看利润", Type: "field"},
 	{Code: "cost:view", Name: "查看成本", Type: "field"},
 	{Code: "gross_margin:view", Name: "查看毛利率", Type: "field"},
@@ -124,7 +125,7 @@ var roleDefaultPermissions = map[string][]string{
 		"instant_retail:view", "instant_retail.store_preview:view", "instant_retail.store_dashboard:view", "instant_retail.product_dashboard:view", "instant_retail.special_channel_allot:view",
 		"finance:view", "finance.overview:view", "finance.department_profit:view", "finance.monthly_profit:view", "finance.product_profit:view", "finance.expense:view", "finance.report:view",
 		"customer:view", "customer.overview:view", "customer.comment:view", "customer.service_score:view",
-		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view", "supply_chain.qc_alert:view",
+		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view", "supply_chain.qc_alert:view", "supply_chain.sales_daily_report:view",
 		"profit:view", "cost:view", "gross_margin:view",
 		"profile.hesi_bot:view",
 	},
@@ -157,7 +158,7 @@ var roleDefaultPermissions = map[string][]string{
 	},
 	"supply_chain": {
 		"brand:view", "brand.overview:view", "brand.awareness:view", "brand.affinity:view", "brand.binding:view",
-		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view", "supply_chain.qc_alert:view",
+		"supply_chain:view", "supply_chain.plan_dashboard:view", "supply_chain.inventory_warning:view", "supply_chain.logistics_analysis:view", "supply_chain.daily_alerts:view", "supply_chain.monthly_billing:view", "supply_chain.qc_alert:view", "supply_chain.sales_daily_report:view",
 	},
 	"ys_tool": {
 		"system.yonbip:use",
