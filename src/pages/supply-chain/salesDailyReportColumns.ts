@@ -13,15 +13,20 @@ export const num0 = (v: number): string => Math.round(v || 0).toLocaleString('en
 export const perOrderStr = (v: number, orders: number, digits = 2): string =>
   orders ? (v / orders).toFixed(digits) : (0).toFixed(digits);
 
-// 当日/当月两组并排(对齐 Excel), 每行含 today + month
+// 当日/当月两组并排(对齐 Excel), 每行含 today + month, prev* 算环比
 export interface ChannelStat { orders: number; bottles: number; weightKg: number; }
-export interface ChannelRow { platform: string; channel: string; today: ChannelStat; month: ChannelStat; }
+export interface ChannelRow { platform: string; channel: string; today: ChannelStat; month: ChannelStat; prevOrders: number; }
 
 export interface GoodsStat { orders: number; bottles: number; boxes: number; pallets: number; }
-export interface GoodsRow { goodsNo: string; goodsName: string; boxQty: number; today: GoodsStat; month: GoodsStat; }
+export interface GoodsRow { goodsNo: string; goodsName: string; boxQty: number; today: GoodsStat; month: GoodsStat; prevBottles: number; }
 
 export interface ComboStat { orders: number; bottles: number; weightKg: number; }
-export interface ComboRow { display: string; today: ComboStat; month: ComboStat; }
+export interface ComboRow { display: string; today: ComboStat; month: ComboStat; prevOrders: number; }
+
+// yoy 环比(今值/前值-1, 前值0返null=显示—)
+export const yoy = (cur: number, prev: number): number | null => (prev > 0 ? cur / prev - 1 : null);
+// signPct 环比带正负号(涨绿跌红由前端上色)
+export const signPct = (v: number | null): string => (v === null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`);
 
 // isSummaryChannel 合计/总计行判定(渲染时加粗)
 export const isSummaryChannel = (c: string): boolean => c === '总计' || c.endsWith('合计');

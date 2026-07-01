@@ -6,8 +6,8 @@ import PageLoading from '../../components/PageLoading';
 import { API_BASE } from '../../config';
 import ChannelMapManager from './ChannelMapManager';
 import {
-  pct, kg1, int0, num0, perOrderStr, isSummaryChannel,
-  type ChannelRow, type GoodsRow, type ComboRow, type ChannelStat,
+  pct, int0, num0, perOrderStr, isSummaryChannel, yoy, signPct,
+  type ChannelRow, type GoodsRow, type ComboRow,
 } from './salesDailyReportColumns';
 
 const { Title, Text } = Typography;
@@ -19,60 +19,83 @@ interface ReportData {
   combos: ComboRow[];
 }
 
-// 渠道块列: 平台/渠道 固定, 当日 + 当月累计 两组并排(对齐 Excel)。占比按各自组的总单数算。
-const channelCols = (todayGrand: number, monthGrand: number): ColumnsType<ChannelRow> => {
-  const grp = (s: (r: ChannelRow) => ChannelStat, grand: number, prefix: string, dm: string): ColumnsType<ChannelRow> => [
-    { title: dm + '发货量', key: prefix + 'o', align: 'right', render: (_: unknown, r: ChannelRow) => num0(s(r).orders) },
-    { title: dm + '发货件数', key: prefix + 'b', align: 'right', render: (_: unknown, r: ChannelRow) => num0(s(r).bottles) },
-    { title: '占比', key: prefix + 'r', align: 'right', render: (_: unknown, r: ChannelRow) => pct(grand ? s(r).orders / grand : 0) },
-    { title: '单件比', key: prefix + 'p', align: 'right', render: (_: unknown, r: ChannelRow) => perOrderStr(s(r).bottles, s(r).orders) },
-    { title: '单均重量(kg)', key: prefix + 'w', align: 'right', render: (_: unknown, r: ChannelRow) => perOrderStr(s(r).weightKg, s(r).orders, 1) },
-  ];
-  return [
-    { title: '平台', dataIndex: 'platform', key: 'platform', fixed: 'left', width: 70,
-      render: (v: string, r: ChannelRow) => (isSummaryChannel(r.channel) ? '' : v) },
-    { title: '渠道', dataIndex: 'channel', key: 'channel', fixed: 'left', width: 100,
-      render: (v: string) => (isSummaryChannel(v) ? <b>{v}</b> : v) },
-    { title: '当日', children: grp(r => r.today, todayGrand, 't', '日') },
-    { title: '当月累计', children: grp(r => r.month, monthGrand, 'm', '月') },
-  ];
+// 环比单元格: 涨绿跌红(语义色, 非装饰)
+const yoyCell = (cur: number, prev: number) => {
+  const v = yoy(cur, prev);
+  const color = v === null ? undefined : v >= 0 ? '#3f8600' : '#cf1322';
+  return <span style={{ color }}>{signPct(v)}</span>;
 };
 
-const goodsCols: ColumnsType<GoodsRow> = [
-  { title: '货品', dataIndex: 'goodsName', key: 'goodsName', fixed: 'left', width: 240 },
-  { title: '箱规', dataIndex: 'boxQty', key: 'boxQty', align: 'right', width: 60,
-    render: (v: number) => (v > 0 ? int0(v) : '—') },
+// 渠道块列(照 Excel): 平台/渠道 ‖ 当日[日发货量·占比·环比·日发货件数·单件比·单均重量] ‖ 当月[月发货量·占比·月发货件数·单件比·单均重量]
+// 占比分母=各组发货量(订单数)总计; 环比=当日发货量÷前一发货日
+const channelCols = (todayGrand: number, monthGrand: number): ColumnsType<ChannelRow> => [
+  { title: '平台', dataIndex: 'platform', key: 'platform', fixed: 'left', width: 64,
+    render: (v: string, r: ChannelRow) => (isSummaryChannel(r.channel) ? '' : v) },
+  { title: '渠道', dataIndex: 'channel', key: 'channel', fixed: 'left', width: 90,
+    render: (v: string) => (isSummaryChannel(v) ? <b>{v}</b> : v) },
   { title: '当日', children: [
-    { title: '日发货量', key: 'to', align: 'right', render: (_: unknown, r: GoodsRow) => num0(r.today.orders) },
+    { title: '日发货量', key: 'to', align: 'right', render: (_: unknown, r: ChannelRow) => num0(r.today.orders) },
+    { title: '日发货量占比', key: 'tr', align: 'right', render: (_: unknown, r: ChannelRow) => pct(todayGrand ? r.today.orders / todayGrand : 0) },
+    { title: '日发货量环比', key: 'ty', align: 'right', render: (_: unknown, r: ChannelRow) => yoyCell(r.today.orders, r.prevOrders) },
+    { title: '日发货件数', key: 'tb', align: 'right', render: (_: unknown, r: ChannelRow) => num0(r.today.bottles) },
+    { title: '单件比', key: 'tp', align: 'right', render: (_: unknown, r: ChannelRow) => perOrderStr(r.today.bottles, r.today.orders) },
+    { title: '单均重量(kg)', key: 'tw', align: 'right', render: (_: unknown, r: ChannelRow) => perOrderStr(r.today.weightKg, r.today.orders, 1) },
+  ] },
+  { title: '当月累计', children: [
+    { title: '月发货量', key: 'mo', align: 'right', render: (_: unknown, r: ChannelRow) => num0(r.month.orders) },
+    { title: '月发货量占比', key: 'mr', align: 'right', render: (_: unknown, r: ChannelRow) => pct(monthGrand ? r.month.orders / monthGrand : 0) },
+    { title: '月发货件数', key: 'mb', align: 'right', render: (_: unknown, r: ChannelRow) => num0(r.month.bottles) },
+    { title: '单件比', key: 'mp', align: 'right', render: (_: unknown, r: ChannelRow) => perOrderStr(r.month.bottles, r.month.orders) },
+    { title: '单均重量(kg)', key: 'mw', align: 'right', render: (_: unknown, r: ChannelRow) => perOrderStr(r.month.weightKg, r.month.orders, 1) },
+  ] },
+];
+
+// 单品块列(照 Excel): 货品 ‖ 当日[日发货件数·日发货量占比·日发货量环比·箱规·发货箱数·发货托数] ‖ 当月[月发货件数·月发货量占比·日均发货箱数·月发货箱数·月发货托数]
+// 单品占比分母=渠道总计发货件数; 单品环比按发货件数; 日均发货箱数=月发货箱数÷本月天数
+const goodsCols = (todayBottleGrand: number, monthBottleGrand: number, dayOfMonth: number): ColumnsType<GoodsRow> => [
+  { title: '货品', dataIndex: 'goodsName', key: 'goodsName', fixed: 'left', width: 230 },
+  { title: '当日', children: [
     { title: '日发货件数', key: 'tb', align: 'right', render: (_: unknown, r: GoodsRow) => num0(r.today.bottles) },
+    { title: '日发货量占比', key: 'tr', align: 'right', render: (_: unknown, r: GoodsRow) => pct(todayBottleGrand ? r.today.bottles / todayBottleGrand : 0) },
+    { title: '日发货量环比', key: 'ty', align: 'right', render: (_: unknown, r: GoodsRow) => yoyCell(r.today.bottles, r.prevBottles) },
+    { title: '箱规', dataIndex: 'boxQty', key: 'boxQty', align: 'right', render: (v: number) => (v > 0 ? int0(v) : '—') },
     { title: '发货箱数', key: 'tx', align: 'right', render: (_: unknown, r: GoodsRow) => int0(r.today.boxes) },
     { title: '发货托数', key: 'tp', align: 'right', render: (_: unknown, r: GoodsRow) => (r.today.pallets > 0 ? r.today.pallets.toFixed(2) : '—') },
   ] },
   { title: '当月累计', children: [
-    { title: '月发货量', key: 'mo', align: 'right', render: (_: unknown, r: GoodsRow) => num0(r.month.orders) },
     { title: '月发货件数', key: 'mb', align: 'right', render: (_: unknown, r: GoodsRow) => num0(r.month.bottles) },
-    { title: '发货箱数', key: 'mx', align: 'right', render: (_: unknown, r: GoodsRow) => int0(r.month.boxes) },
-    { title: '发货托数', key: 'mp', align: 'right', render: (_: unknown, r: GoodsRow) => (r.month.pallets > 0 ? r.month.pallets.toFixed(2) : '—') },
+    { title: '月发货量占比', key: 'mr', align: 'right', render: (_: unknown, r: GoodsRow) => pct(monthBottleGrand ? r.month.bottles / monthBottleGrand : 0) },
+    { title: '日均发货箱数', key: 'mavg', align: 'right', render: (_: unknown, r: GoodsRow) => (dayOfMonth ? (r.month.boxes / dayOfMonth).toFixed(2) : '—') },
+    { title: '月发货箱数', key: 'mx', align: 'right', render: (_: unknown, r: GoodsRow) => int0(r.month.boxes) },
+    { title: '月发货托数', key: 'mp', align: 'right', render: (_: unknown, r: GoodsRow) => (r.month.pallets > 0 ? r.month.pallets.toFixed(2) : '—') },
   ] },
 ];
 
-const comboCols: ColumnsType<ComboRow> = [
-  { title: '货品组合', dataIndex: 'display', key: 'display', fixed: 'left', width: 320 },
+// 组合块列(照 Excel): 货品组合 ‖ 当日[日发货量·占比·环比·日发货件数·单件比·单均重量] ‖ 当月[月发货量·占比·月发货件数·单件比·单均重量]
+// 组合占比分母=渠道总计发货量(订单数); 环比=当日发货量÷前一发货日
+const comboCols = (todayGrand: number, monthGrand: number): ColumnsType<ComboRow> => [
+  { title: '货品组合', dataIndex: 'display', key: 'display', fixed: 'left', width: 300 },
   { title: '当日', children: [
     { title: '日发货量', key: 'to', align: 'right', render: (_: unknown, r: ComboRow) => num0(r.today.orders) },
+    { title: '日发货量占比', key: 'tr', align: 'right', render: (_: unknown, r: ComboRow) => pct(todayGrand ? r.today.orders / todayGrand : 0) },
+    { title: '日发货量环比', key: 'ty', align: 'right', render: (_: unknown, r: ComboRow) => yoyCell(r.today.orders, r.prevOrders) },
     { title: '日发货件数', key: 'tb', align: 'right', render: (_: unknown, r: ComboRow) => num0(r.today.bottles) },
-    { title: '重量(kg)', key: 'tw', align: 'right', render: (_: unknown, r: ComboRow) => kg1(r.today.weightKg) },
+    { title: '单件比', key: 'tp', align: 'right', render: (_: unknown, r: ComboRow) => perOrderStr(r.today.bottles, r.today.orders) },
+    { title: '单均重量(kg)', key: 'tw', align: 'right', render: (_: unknown, r: ComboRow) => perOrderStr(r.today.weightKg, r.today.orders, 1) },
   ] },
   { title: '当月累计', children: [
     { title: '月发货量', key: 'mo', align: 'right', render: (_: unknown, r: ComboRow) => num0(r.month.orders) },
+    { title: '月发货量占比', key: 'mr', align: 'right', render: (_: unknown, r: ComboRow) => pct(monthGrand ? r.month.orders / monthGrand : 0) },
     { title: '月发货件数', key: 'mb', align: 'right', render: (_: unknown, r: ComboRow) => num0(r.month.bottles) },
-    { title: '重量(kg)', key: 'mw', align: 'right', render: (_: unknown, r: ComboRow) => kg1(r.month.weightKg) },
+    { title: '单件比', key: 'mp', align: 'right', render: (_: unknown, r: ComboRow) => perOrderStr(r.month.bottles, r.month.orders) },
+    { title: '单均重量(kg)', key: 'mw', align: 'right', render: (_: unknown, r: ComboRow) => perOrderStr(r.month.weightKg, r.month.orders, 1) },
   ] },
 ];
 
-const grandOrders = (rows: ChannelRow[], which: 'today' | 'month'): number => {
+// 从渠道总计行取分母(订单数 / 发货件数)
+const grandFrom = (rows: ChannelRow[], which: 'today' | 'month', field: 'orders' | 'bottles'): number => {
   const g = rows.find(r => r.channel === '总计');
-  return g ? g[which].orders : 0;
+  return g ? g[which][field] : 0;
 };
 
 const SalesDailyReport: React.FC = () => {
@@ -104,6 +127,12 @@ const SalesDailyReport: React.FC = () => {
   const channels = data?.channels || [];
   const goods = data?.goods || [];
   const combos = data?.combos || [];
+  // 占比分母(渠道总计行) + 本月天数(日均箱数用 = 所选日是本月第几天)
+  const todayOrdersGrand = grandFrom(channels, 'today', 'orders');
+  const monthOrdersGrand = grandFrom(channels, 'month', 'orders');
+  const todayBottleGrand = grandFrom(channels, 'today', 'bottles');
+  const monthBottleGrand = grandFrom(channels, 'month', 'bottles');
+  const dayOfMonth = date ? dayjs(date).date() : 0;
 
   return (
     <div style={{ padding: 16 }}>
@@ -121,7 +150,7 @@ const SalesDailyReport: React.FC = () => {
         extra={<ChannelMapManager onSaved={() => fetchData(date)} />}>
         <Table
           rowKey={(r) => r.platform + '|' + r.channel}
-          columns={channelCols(grandOrders(channels, 'today'), grandOrders(channels, 'month'))}
+          columns={channelCols(todayOrdersGrand, monthOrdersGrand)}
           dataSource={channels}
           pagination={false}
           size="small"
@@ -130,11 +159,11 @@ const SalesDailyReport: React.FC = () => {
       </Card>
 
       <Card title="TOP10 单品" size="small" style={{ marginBottom: 16 }} loading={loading}>
-        <Table rowKey="goodsNo" columns={goodsCols} dataSource={goods} pagination={false} size="small" scroll={{ x: 'max-content' }} />
+        <Table rowKey="goodsNo" columns={goodsCols(todayBottleGrand, monthBottleGrand, dayOfMonth)} dataSource={goods} pagination={false} size="small" scroll={{ x: 'max-content' }} />
       </Card>
 
       <Card title="TOP10 货品组合" size="small" loading={loading}>
-        <Table rowKey="display" columns={comboCols} dataSource={combos} pagination={false} size="small" scroll={{ x: 'max-content' }} />
+        <Table rowKey="display" columns={comboCols(todayOrdersGrand, monthOrdersGrand)} dataSource={combos} pagination={false} size="small" scroll={{ x: 'max-content' }} />
       </Card>
     </div>
   );
