@@ -135,7 +135,7 @@ func importBoxSpec(db *sql.DB, path string) int {
 }
 
 // importPalletSpec 读箱规拖规(Sheet1: A=名称, B=箱规, C=托规),名称→goods_no(经 goods 表),
-// 补 box_qty(优先本表箱规)与 pallet_box_qty
+// **只补 pallet_box_qty(托规), 不碰 box_qty(箱规)** —— 箱规以 RPA映射表为准(跑哥定, 箱规拖规里的箱规会误覆盖)。
 func importPalletSpec(db *sql.DB, path string) int {
 	f, err := excelize.OpenFile(path)
 	if err != nil {
@@ -152,8 +152,10 @@ func importPalletSpec(db *sql.DB, path string) int {
 		if name == "" {
 			continue
 		}
-		box := safeCell(r, 1)
 		pallet := safeCell(r, 2)
+		if pallet == "" {
+			continue
+		}
 		var no string
 		err := db.QueryRow(`SELECT goods_no FROM goods WHERE goods_name=? AND is_delete=0 LIMIT 1`, name).Scan(&no)
 		if err == sql.ErrNoRows {
@@ -162,9 +164,10 @@ func importPalletSpec(db *sql.DB, path string) int {
 		} else if err != nil {
 			log.Fatalf("查 goods %q: %v", name, err)
 		}
-		if _, err := db.Exec(`INSERT INTO dim_goods_pack_spec(goods_no,box_qty,pallet_box_qty) VALUES(?,?,?)
-			ON DUPLICATE KEY UPDATE box_qty=VALUES(box_qty), pallet_box_qty=VALUES(pallet_box_qty)`,
-			no, nullIfEmpty(box), nullIfEmpty(pallet)); err != nil {
+		// 只写托规: 若该 goods_no 还没箱规行则插一条(箱规留 NULL, 后续 RPA映射表箱规导入会补); 有则只更托规。
+		if _, err := db.Exec(`INSERT INTO dim_goods_pack_spec(goods_no,pallet_box_qty) VALUES(?,?)
+			ON DUPLICATE KEY UPDATE pallet_box_qty=VALUES(pallet_box_qty)`,
+			no, pallet); err != nil {
 			log.Fatalf("upsert 托规 %q: %v", no, err)
 		}
 		cnt++
@@ -177,13 +180,6 @@ func safeCell(r []string, idx int) string {
 		return ""
 	}
 	return strings.TrimSpace(r[idx])
-}
-
-func nullIfEmpty(s string) interface{} {
-	if s == "" {
-		return nil
-	}
-	return s
 }
 
 func connectDB(configPath string) (*sql.DB, error) {
