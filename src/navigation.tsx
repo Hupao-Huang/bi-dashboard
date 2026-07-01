@@ -197,6 +197,7 @@ export const menuDefinitions: MenuDefinition[] = [
       { key: '/supply-chain/daily-alerts', icon: <WarningOutlined />, label: '每日预警', permission: 'supply_chain.daily_alerts:view' },
       { key: '/supply-chain/monthly-billing', icon: <FileTextOutlined />, label: '月度账单分析', permission: 'supply_chain.monthly_billing:view' },
       { key: '/supply-chain/qc-alert', icon: <SafetyCertificateOutlined />, label: '质检预警', permission: 'supply_chain.qc_alert:view' },
+      { key: '/supply-chain/sales-daily-report', icon: <FileTextOutlined />, label: '销售日报', permission: 'supply_chain.sales_daily_report:view' },
     ],
   },
   {
@@ -295,6 +296,7 @@ export const pageTitleMap: Record<string, string> = {
   '/supply-chain/daily-alerts': '每日预警',
   '/supply-chain/monthly-billing': '月度账单分析',
   '/supply-chain/qc-alert': '质检预警',
+  '/supply-chain/sales-daily-report': '销售日报',
   '/brand': '心智渗透',
   '/brand/overview': '心智健康度总览',
   '/brand/awareness': '知名度层',
@@ -409,6 +411,7 @@ export const routePermissions: Array<{ path: string; permission: string }> = [
   { path: '/supply-chain/daily-alerts', permission: 'supply_chain.daily_alerts:view' },
   { path: '/supply-chain/monthly-billing', permission: 'supply_chain.monthly_billing:view' },
   { path: '/supply-chain/qc-alert', permission: 'supply_chain.qc_alert:view' },
+  { path: '/supply-chain/sales-daily-report', permission: 'supply_chain.sales_daily_report:view' },
   { path: '/system/access', permission: 'user.manage' },
   { path: '/system/roles', permission: 'role.manage' },
   { path: '/system/feedback', permission: 'feedback.manage' },

@@ -64,6 +64,7 @@ const LogisticsAnalysis = lazy(() => import('./pages/supply-chain/LogisticsAnaly
 const DailyAlerts = lazy(() => import('./pages/supply-chain/DailyAlerts'));
 const MonthlyBilling = lazy(() => import('./pages/supply-chain/MonthlyBilling'));
 const QCAlert = lazy(() => import('./pages/supply-chain/QCAlert'));
+const SalesDailyReport = lazy(() => import('./pages/supply-chain/SalesDailyReport'));
 const LoginPage = lazy(() => import('./pages/Login'));
 const ForbiddenPage = lazy(() => import('./pages/Forbidden'));
 const NotFoundPage = lazy(() => import('./pages/NotFound'));
@@ -204,6 +205,7 @@ const App: React.FC = () => (
               <Route path="/supply-chain/daily-alerts" element={guard('supply_chain.daily_alerts:view', <DailyAlerts />)} />
               <Route path="/supply-chain/monthly-billing" element={guard('supply_chain.monthly_billing:view', <MonthlyBilling />)} />
               <Route path="/supply-chain/qc-alert" element={guard('supply_chain.qc_alert:view', <QCAlert />)} />
+              <Route path="/supply-chain/sales-daily-report" element={guard('supply_chain.sales_daily_report:view', <SalesDailyReport />)} />
               <Route path="/brand" element={<Navigate to="/brand/overview" replace />} />
               <Route path="/brand/overview" element={guard('brand.overview:view', <BrandOverview />)} />
               <Route path="/brand/awareness" element={guard('brand.awareness:view', <BrandAwareness />)} />
