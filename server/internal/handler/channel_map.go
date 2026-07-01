@@ -45,8 +45,8 @@ func (h *DashboardHandler) GetChannelMap(w http.ResponseWriter, r *http.Request)
 		`SELECT sc.channel_name,
 		        IFNULL(m.channel,''), IFNULL(m.platform,''),
 		        IF(m.shop_name IS NULL, 0, 1) AS mapped,
-		        IFNULL(NULLIF(sc.cate_name,''),'') AS cate_name
-		 FROM (SELECT DISTINCT channel_name FROM sales_channel WHERE channel_name<>'') sc
+		        IFNULL(sc.cate_name,'') AS cate_name
+		 FROM (SELECT channel_name, MAX(cate_name) AS cate_name FROM sales_channel WHERE channel_name<>'' GROUP BY channel_name) sc
 		 LEFT JOIN dim_sales_channel_map m ON m.shop_name=sc.channel_name
 		 UNION
 		 SELECT m2.shop_name, m2.channel, m2.platform, 1, ''
