@@ -49,6 +49,32 @@ func main() {
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	yesterday := now.AddDate(0, 0, -1)
 
+	// 根因修复(2026-07-01)：月初(1号)时"当月1号"晚于"昨天"(=上月最后一天),
+	// 原逻辑 for monthStart..yesterday 一次都不跑 → 上月最后一天永远被漏(每月月末必缺、要手动补)。
+	// 收敛起始日到"昨天",保证上月最后一天被自动补上;月中 monthStart<yesterday,行为完全不变。
+	if monthStart.After(yesterday) {
+		monthStart = yesterday
+	}
+
+	// 手动补跑：传 SYNC_START_DATE / SYNC_END_DATE 可覆盖日期范围（聚合逻辑完全不变）
+	// 用途：补月末最后一天——日常任务 monthStart 基于"当月1号"，月初永远跑不到上月末
+	if s := os.Getenv("SYNC_START_DATE"); s != "" {
+		if sd, e := time.Parse("2006-01-02", s); e == nil {
+			monthStart = sd
+			log.Printf("[手动补跑] 起始日覆盖为 %s", s)
+		} else {
+			log.Fatalf("SYNC_START_DATE 格式错误(应为 yyyy-MM-dd): %v", e)
+		}
+	}
+	if s := os.Getenv("SYNC_END_DATE"); s != "" {
+		if ed, e := time.Parse("2006-01-02", s); e == nil {
+			yesterday = ed
+			log.Printf("[手动补跑] 结束日覆盖为 %s", s)
+		} else {
+			log.Fatalf("SYNC_END_DATE 格式错误(应为 yyyy-MM-dd): %v", e)
+		}
+	}
+
 	summaryTotal := 0
 	totalDeleted := int64(0)
 	for d := monthStart; !d.After(yesterday); d = d.AddDate(0, 0, 1) {
