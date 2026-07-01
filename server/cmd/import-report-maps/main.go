@@ -79,15 +79,33 @@ func ensureTables(db *sql.DB) error {
 }
 
 // importChannelMap 读『销售渠道映射』(A=销售渠道I店铺, B=渠道分组, C=销售渠道II细渠道)
+// importChannelMap 读『销售渠道映射』(A=销售渠道I店铺, B=渠道分组, C=销售渠道II细渠道)
 // shop_name=A, channel=C, platform=platformOf(C)
+// 2026-07-01 起渠道映射改吉客云驱动(前端列 sales_channel 店铺 + 业务手动配): 这里只导「吉客云 sales_channel 里还有的店铺」,
+// 不再灌入吉客云已删/停用的死店铺(否则污染回来)。此 CLI 主要用于首次初始化, 日常维护走页面。
 func importChannelMap(db *sql.DB, path string) int {
+	// 先拉吉客云现有店铺集合
+	valid := map[string]bool{}
+	vrows, err := db.Query(`SELECT DISTINCT channel_name FROM sales_channel WHERE channel_name<>''`)
+	if err != nil {
+		log.Fatalf("查 sales_channel: %v", err)
+	}
+	for vrows.Next() {
+		var name string
+		if err := vrows.Scan(&name); err != nil {
+			log.Fatalf("scan sales_channel: %v", err)
+		}
+		valid[name] = true
+	}
+	vrows.Close()
+
 	f, err := excelize.OpenFile(path)
 	if err != nil {
 		log.Fatalf("打开 %s 失败: %v", path, err)
 	}
 	defer f.Close()
 	rows, _ := f.GetRows("销售渠道映射")
-	cnt := 0
+	cnt, skipped := 0, 0
 	for i, r := range rows {
 		if i == 0 {
 			continue
@@ -97,12 +115,19 @@ func importChannelMap(db *sql.DB, path string) int {
 		if shop == "" || chII == "" {
 			continue
 		}
+		if !valid[shop] { // 吉客云已没有的店铺, 跳过不导
+			skipped++
+			continue
+		}
 		if _, err := db.Exec(`INSERT INTO dim_sales_channel_map(shop_name,channel,platform) VALUES(?,?,?)
 			ON DUPLICATE KEY UPDATE channel=VALUES(channel), platform=VALUES(platform)`,
 			shop, chII, platformOf(chII)); err != nil {
 			log.Fatalf("upsert 渠道 %q: %v", shop, err)
 		}
 		cnt++
+	}
+	if skipped > 0 {
+		log.Printf("渠道映射: 跳过 %d 条吉客云已没有的店铺", skipped)
 	}
 	return cnt
 }
