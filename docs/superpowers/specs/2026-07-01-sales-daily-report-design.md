@@ -154,6 +154,19 @@ GET /api/supply-chain/sales-daily-report?date=YYYY-MM-DD
 4. **平台分组**:渠道→平台归类表最终以业务确认为准。
 5. 上线前拿一个真实发货日,SQL 复核三块合计与页面一致(**不以模板 Excel 数字为准**)。
 
+## 12. code-review 二审结论(2026-07-01, /code-review max)
+
+已修 4 处 correctness(commit cf419ec):
+- queryTopCombos 用 `h.DB.Conn()` 锁单连接跑 SET group_concat_max_len(连接池下 SET 会落别的连接 → 长篮子仍截断 1024)。
+- queryChannel 改 LEFT JOIN + COALESCE 兜底未映射店铺为「其他/未分类」(原 INNER JOIN 会把漏映射店铺整单丢掉 → 总计 < 4 仓真实、且与不 join 映射的 TOP10 对不上)。实测 6 月那个漏映射店铺 6 单现进兜底列。
+- 各 query 出错补 log(不再把分区表缺失/超时静默成空数据)。
+- combo 签名 `CAST AS SIGNED`(防退货负数 UNSIGNED 环绕)+ GROUP BY 去冗余 sig_display(SKU 改名不拆篮)+ latestConsignDate 月初回退上月分区。
+
+未改(记录, 非阻塞):
+- `report_maps.sql` 与 import CLI 的 ensureTables 是重复 DDL(双源),留 .sql 作 schema 文档;改 schema 时两处都要动。
+- 后端 `ratio`/`perOrder` 纯函数当前未被 handler 调(占比/单均在前端算),留待物化版复用。
+- 前端 combo 表 `rowKey="display"`:同名不同码组合都进 TOP10 时理论上 key 重复(低概率,仅 React warning);理想改后端返回 sig 当 key。
+
 ## 8. 前端
 
 - 新页 `src/pages/supply-chain/SalesDailyReport.tsx`,路由 `/supply-chain/sales-daily-report`,`guard('supply_chain.sales_daily_report:view', …)`,菜单加 `navigation.tsx`,权限位 `auth_seed`。
