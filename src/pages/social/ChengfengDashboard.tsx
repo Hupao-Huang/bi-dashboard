@@ -135,7 +135,7 @@ const ChengfengDashboard: React.FC = () => {
     }).catch(() => message.error('删除常用方案失败'));
   }, [loadPresets]);
 
-  // 初次拉 filters：默认数据更新时间 = 最新一天
+  // 初次拉 filters：默认数据更新时间 = 本月（本月1号 → 最新一天）
   useEffect(() => {
     fetch(`${API_BASE}/api/xiaohongshu/chengfeng/filters`)
       .then((r) => r.json())
@@ -146,7 +146,8 @@ const ChengfengDashboard: React.FC = () => {
         setColumns(cols);
         // 没在本地存过列选择 → 默认全部展示（不写本地，用户手动选过才记）
         setVisibleKeys((prev) => (prev == null ? cols.map((c) => c.key) : prev));
-        if (f.latestDate) { setStart(f.latestDate); setEnd(f.latestDate); }
+        // 默认「本月」：本月1号 → 最新一天（与千帆同口径，DateFilter 的「本月」预设会自动高亮）
+        if (f.latestDate) { setStart(f.latestDate.slice(0, 7) + '-01'); setEnd(f.latestDate); }
       })
       .catch(() => {});
   }, []);
