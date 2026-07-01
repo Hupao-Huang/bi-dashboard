@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -147,18 +148,28 @@ func (h *DashboardHandler) GetSalesDailyReport(w http.ResponseWriter, r *http.Re
 	writeJSON(w, resp)
 }
 
-// latestConsignDate 最近有发货数据的日期(4仓/销售), 默认取当月分区; 空则退当天
+// latestConsignDate 最近有发货数据的日期(4仓/销售)。先查当月分区, 月初当月还没发货数据
+// (或当月表还没建)时回退查上月分区, 而不是无脑退"昨天"(那样月初会跳到上月末且分区可能对不上)。
 func (h *DashboardHandler) latestConsignDate() string {
-	now := time.Now()
-	part := "trade_" + now.Format("200601")
 	whPH, whArgs := whereWarehouseArgs()
-	q := fmt.Sprintf(`SELECT IFNULL(DATE_FORMAT(MAX(consign_time),'%%Y-%%m-%%d'),'')
-		FROM %s WHERE trade_type=1 AND warehouse_name IN (%s)`, part, whPH)
-	var s string
-	if err := h.DB.QueryRow(q, whArgs...).Scan(&s); err != nil || s == "" {
-		return now.AddDate(0, 0, -1).Format("2006-01-02")
+	tryMonth := func(t time.Time) string {
+		part := "trade_" + t.Format("200601")
+		q := fmt.Sprintf(`SELECT IFNULL(DATE_FORMAT(MAX(consign_time),'%%Y-%%m-%%d'),'')
+			FROM %s WHERE trade_type=1 AND warehouse_name IN (%s)`, part, whPH)
+		var s string
+		if err := h.DB.QueryRow(q, whArgs...).Scan(&s); err != nil {
+			return "" // 表不存在等, 交给上层回退上月
+		}
+		return s
 	}
-	return s
+	now := time.Now()
+	if s := tryMonth(now); s != "" {
+		return s
+	}
+	if s := tryMonth(now.AddDate(0, 0, -1)); s != "" { // 上月末(可能是上一个分区)
+		return s
+	}
+	return now.AddDate(0, 0, -1).Format("2006-01-02")
 }
 
 // queryChannel 渠道块: 订单+重量按订单粒度, 单瓶按明细粒度, 按 channel 合并后 rollup
@@ -167,24 +178,28 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, start,
 	defer cancel()
 	whPH, whArgs := whereWarehouseArgs()
 
-	// 订单数 + 重量(克→kg), 按 平台/渠道
-	qOrders := fmt.Sprintf(`SELECT m.platform, m.channel, COUNT(*) AS orders,
+	// 订单数 + 重量(克→kg), 按 平台/渠道。LEFT JOIN + 兜底: 没渠道映射的店铺归「其他/未分类」,
+	// 不能丢单(否则渠道总计 < 4仓真实销售单, 且与不 join 映射的 TOP10 单品/组合对不上)。
+	qOrders := fmt.Sprintf(`SELECT COALESCE(m.platform,'其他') AS platform,
+		COALESCE(m.channel,'未分类') AS channel, COUNT(*) AS orders,
 		IFNULL(SUM(t.estimate_weight),0)/1000 AS weight_kg
-		FROM %s t JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
+		FROM %s t LEFT JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
 		WHERE t.trade_type=1 AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
-		GROUP BY m.platform, m.channel`, part, whPH)
-	// 单瓶数(sell_count×箱规, 缺箱规×1), 按 渠道
-	qBottles := fmt.Sprintf(`SELECT m.channel, IFNULL(SUM(tg.sell_count*COALESCE(p.box_qty,1)),0) AS bottles
+		GROUP BY COALESCE(m.platform,'其他'), COALESCE(m.channel,'未分类')`, part, whPH)
+	// 单瓶数(sell_count×箱规, 缺箱规×1), 按 渠道(同样兜底未分类)
+	qBottles := fmt.Sprintf(`SELECT COALESCE(m.channel,'未分类') AS channel,
+		IFNULL(SUM(tg.sell_count*COALESCE(p.box_qty,1)),0) AS bottles
 		FROM %s t JOIN %s tg ON tg.trade_id=t.trade_id
-		JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
+		LEFT JOIN dim_sales_channel_map m ON m.shop_name=t.shop_name
 		LEFT JOIN dim_goods_pack_spec p ON p.goods_no=tg.goods_no
 		WHERE t.trade_type=1 AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
-		GROUP BY m.channel`, part, partG, whPH)
+		GROUP BY COALESCE(m.channel,'未分类')`, part, partG, whPH)
 
 	args := append([]interface{}{start, end}, whArgs...)
 	byCh := map[string]*ChannelRow{}
 	rows, err := h.DB.QueryContext(ctx, qOrders, args...)
 	if err != nil {
+		log.Printf("[sales-daily-report] queryChannel qOrders 失败 (%s %s~%s): %v", part, start, end, err)
 		return nil
 	}
 	for rows.Next() {
@@ -200,6 +215,7 @@ func (h *DashboardHandler) queryChannel(ctx context.Context, part, partG, start,
 
 	brows, err := h.DB.QueryContext(ctx, qBottles, args...)
 	if err != nil {
+		log.Printf("[sales-daily-report] queryChannel qBottles 失败 (%s %s~%s): %v", part, start, end, err)
 		return nil
 	}
 	for brows.Next() {
@@ -239,6 +255,7 @@ func (h *DashboardHandler) queryTopGoods(ctx context.Context, part, partG, start
 	args := append([]interface{}{start, end}, whArgs...)
 	rows, err := h.DB.QueryContext(ctx, q, args...)
 	if err != nil {
+		log.Printf("[sales-daily-report] queryTopGoods 失败 (%s %s~%s): %v", part, start, end, err)
 		return nil
 	}
 	defer rows.Close()
@@ -247,6 +264,7 @@ func (h *DashboardHandler) queryTopGoods(ctx context.Context, part, partG, start
 		var g GoodsRow
 		var pallet sql.NullFloat64
 		if err := rows.Scan(&g.GoodsNo, &g.GoodsName, &g.Orders, &g.Bottles, &g.Boxes, &pallet); err != nil {
+			log.Printf("[sales-daily-report] queryTopGoods scan 失败: %v", err)
 			return nil
 		}
 		if pallet.Valid {
@@ -261,26 +279,36 @@ func (h *DashboardHandler) queryTopGoods(ctx context.Context, part, partG, start
 func (h *DashboardHandler) queryTopCombos(ctx context.Context, part, partG, start, end string) []ComboRow {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	// 防长篮子被 group_concat 截断
-	if _, err := h.DB.ExecContext(ctx, "SET SESSION group_concat_max_len = 100000"); err != nil {
+	// SET SESSION 与后续查询必须落在同一物理连接: h.DB 是连接池, ExecContext 设的 session 变量
+	// 可能作用在别的连接上, 导致长篮子 GROUP_CONCAT 仍按默认 1024 截断。用 Conn() 锁定单连接。
+	conn, err := h.DB.Conn(ctx)
+	if err != nil {
+		log.Printf("[sales-daily-report] queryTopCombos 取连接失败: %v", err)
+		return nil
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SET SESSION group_concat_max_len = 100000"); err != nil {
+		log.Printf("[sales-daily-report] queryTopCombos SET group_concat_max_len 失败: %v", err)
 		return nil
 	}
 	whPH, whArgs := whereWarehouseArgs()
-	q := fmt.Sprintf(`SELECT sig_display, COUNT(*) AS orders,
+	// sig 用 SIGNED (sell_count 理论上销售单为正, 但退货/改数场景可能出现负/小数, UNSIGNED 会环绕成天文数字污染签名)
+	q := fmt.Sprintf(`SELECT MAX(sig_display) AS sig_display, COUNT(*) AS orders,
 		IFNULL(SUM(ob),0) AS bottles, IFNULL(SUM(ow),0)/1000 AS weight_kg
 		FROM (
 		  SELECT t.trade_id, MAX(t.estimate_weight) AS ow,
-		    GROUP_CONCAT(tg.goods_no,'#',CAST(tg.sell_count AS UNSIGNED) ORDER BY tg.goods_no SEPARATOR '|') AS sig,
-		    GROUP_CONCAT(tg.goods_name,'(',CAST(tg.sell_count AS UNSIGNED),')' ORDER BY tg.goods_no SEPARATOR ', ') AS sig_display,
+		    GROUP_CONCAT(tg.goods_no,'#',CAST(tg.sell_count AS SIGNED) ORDER BY tg.goods_no SEPARATOR '|') AS sig,
+		    GROUP_CONCAT(tg.goods_name,'(',CAST(tg.sell_count AS SIGNED),')' ORDER BY tg.goods_no SEPARATOR ', ') AS sig_display,
 		    SUM(tg.sell_count*COALESCE(p.box_qty,1)) AS ob
 		  FROM %s t JOIN %s tg ON tg.trade_id=t.trade_id
 		  LEFT JOIN dim_goods_pack_spec p ON p.goods_no=tg.goods_no
 		  WHERE t.trade_type=1 AND t.consign_time>=? AND t.consign_time<? AND t.warehouse_name IN (%s)
 		  GROUP BY t.trade_id
-		) o GROUP BY sig, sig_display ORDER BY orders DESC LIMIT 10`, part, partG, whPH)
+		) o GROUP BY sig ORDER BY orders DESC LIMIT 10`, part, partG, whPH)
 	args := append([]interface{}{start, end}, whArgs...)
-	rows, err := h.DB.QueryContext(ctx, q, args...)
+	rows, err := conn.QueryContext(ctx, q, args...)
 	if err != nil {
+		log.Printf("[sales-daily-report] queryTopCombos 查询失败 (%s %s~%s): %v", part, start, end, err)
 		return nil
 	}
 	defer rows.Close()
@@ -288,6 +316,7 @@ func (h *DashboardHandler) queryTopCombos(ctx context.Context, part, partG, star
 	for rows.Next() {
 		var c ComboRow
 		if err := rows.Scan(&c.Display, &c.Orders, &c.Bottles, &c.WeightKg); err != nil {
+			log.Printf("[sales-daily-report] queryTopCombos scan 失败: %v", err)
 			return nil
 		}
 		out = append(out, c)
