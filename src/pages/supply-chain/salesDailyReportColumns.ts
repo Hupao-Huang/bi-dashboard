@@ -13,15 +13,15 @@ export const num0 = (v: number): string => Math.round(v || 0).toLocaleString('en
 export const perOrderStr = (v: number, orders: number, digits = 2): string =>
   orders ? (v / orders).toFixed(digits) : (0).toFixed(digits);
 
-export interface ChannelRow {
-  platform: string; channel: string; orders: number; bottles: number; weightKg: number;
-}
-export interface GoodsRow {
-  goodsNo: string; goodsName: string; orders: number; bottles: number; boxes: number; pallets: number;
-}
-export interface ComboRow {
-  display: string; orders: number; bottles: number; weightKg: number;
-}
+// 当日/当月两组并排(对齐 Excel), 每行含 today + month
+export interface ChannelStat { orders: number; bottles: number; weightKg: number; }
+export interface ChannelRow { platform: string; channel: string; today: ChannelStat; month: ChannelStat; }
+
+export interface GoodsStat { orders: number; bottles: number; boxes: number; pallets: number; }
+export interface GoodsRow { goodsNo: string; goodsName: string; boxQty: number; today: GoodsStat; month: GoodsStat; }
+
+export interface ComboStat { orders: number; bottles: number; weightKg: number; }
+export interface ComboRow { display: string; today: ComboStat; month: ComboStat; }
 
 // isSummaryChannel 合计/总计行判定(渲染时加粗)
 export const isSummaryChannel = (c: string): boolean => c === '总计' || c.endsWith('合计');

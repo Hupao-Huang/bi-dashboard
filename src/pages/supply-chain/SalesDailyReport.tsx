@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, DatePicker, Space, Segmented, message, Typography } from 'antd';
+import { Card, Table, DatePicker, Space, message, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import PageLoading from '../../components/PageLoading';
@@ -7,60 +7,78 @@ import { API_BASE } from '../../config';
 import ChannelMapManager from './ChannelMapManager';
 import {
   pct, kg1, int0, num0, perOrderStr, isSummaryChannel,
-  type ChannelRow, type GoodsRow, type ComboRow,
+  type ChannelRow, type GoodsRow, type ComboRow, type ChannelStat,
 } from './salesDailyReportColumns';
 
 const { Title, Text } = Typography;
 
 interface ReportData {
   date: string;
-  channelToday: ChannelRow[]; channelMonth: ChannelRow[];
-  goodsToday: GoodsRow[]; goodsMonth: GoodsRow[];
-  comboToday: ComboRow[]; comboMonth: ComboRow[];
+  channels: ChannelRow[];
+  goods: GoodsRow[];
+  combos: ComboRow[];
 }
 
-// 渠道块列(占比按传入的总单数算)
-const channelCols = (grandOrders: number): ColumnsType<ChannelRow> => [
-  { title: '平台', dataIndex: 'platform', key: 'platform',
-    render: (v: string, r: ChannelRow) => (isSummaryChannel(r.channel) ? '' : v) },
-  { title: '渠道', dataIndex: 'channel', key: 'channel',
-    render: (v: string) => (isSummaryChannel(v) ? <b>{v}</b> : v) },
-  { title: '发货单数', dataIndex: 'orders', key: 'orders', align: 'right', render: num0 },
-  { title: '发货量(单瓶)', dataIndex: 'bottles', key: 'bottles', align: 'right', render: num0 },
-  { title: '占比', key: 'ratio', align: 'right',
-    render: (_: unknown, r: ChannelRow) => pct(grandOrders ? r.orders / grandOrders : 0) },
-  { title: '单件比', key: 'ppo', align: 'right',
-    render: (_: unknown, r: ChannelRow) => perOrderStr(r.bottles, r.orders) },
-  { title: '单均重量(kg)', key: 'wpo', align: 'right',
-    render: (_: unknown, r: ChannelRow) => perOrderStr(r.weightKg, r.orders, 1) },
-];
+// 渠道块列: 平台/渠道 固定, 当日 + 当月累计 两组并排(对齐 Excel)。占比按各自组的总单数算。
+const channelCols = (todayGrand: number, monthGrand: number): ColumnsType<ChannelRow> => {
+  const grp = (s: (r: ChannelRow) => ChannelStat, grand: number, prefix: string): ColumnsType<ChannelRow> => [
+    { title: '发货单数', key: prefix + 'o', align: 'right', render: (_: unknown, r: ChannelRow) => num0(s(r).orders) },
+    { title: '发货量(单瓶)', key: prefix + 'b', align: 'right', render: (_: unknown, r: ChannelRow) => num0(s(r).bottles) },
+    { title: '占比', key: prefix + 'r', align: 'right', render: (_: unknown, r: ChannelRow) => pct(grand ? s(r).orders / grand : 0) },
+    { title: '单件比', key: prefix + 'p', align: 'right', render: (_: unknown, r: ChannelRow) => perOrderStr(s(r).bottles, s(r).orders) },
+    { title: '单均重量(kg)', key: prefix + 'w', align: 'right', render: (_: unknown, r: ChannelRow) => perOrderStr(s(r).weightKg, s(r).orders, 1) },
+  ];
+  return [
+    { title: '平台', dataIndex: 'platform', key: 'platform', fixed: 'left', width: 70,
+      render: (v: string, r: ChannelRow) => (isSummaryChannel(r.channel) ? '' : v) },
+    { title: '渠道', dataIndex: 'channel', key: 'channel', fixed: 'left', width: 100,
+      render: (v: string) => (isSummaryChannel(v) ? <b>{v}</b> : v) },
+    { title: '当日', children: grp(r => r.today, todayGrand, 't') },
+    { title: '当月累计', children: grp(r => r.month, monthGrand, 'm') },
+  ];
+};
 
 const goodsCols: ColumnsType<GoodsRow> = [
-  { title: '货品', dataIndex: 'goodsName', key: 'goodsName' },
-  { title: '发货单数', dataIndex: 'orders', key: 'orders', align: 'right', render: num0 },
-  { title: '发货量(单瓶)', dataIndex: 'bottles', key: 'bottles', align: 'right', render: num0 },
-  { title: '发货箱数', dataIndex: 'boxes', key: 'boxes', align: 'right', render: int0 },
-  { title: '发货托数', dataIndex: 'pallets', key: 'pallets', align: 'right',
-    render: (v: number) => (v > 0 ? v.toFixed(2) : '—') },
+  { title: '货品', dataIndex: 'goodsName', key: 'goodsName', fixed: 'left', width: 240 },
+  { title: '箱规', dataIndex: 'boxQty', key: 'boxQty', align: 'right', width: 60,
+    render: (v: number) => (v > 0 ? int0(v) : '—') },
+  { title: '当日', children: [
+    { title: '发货单数', key: 'to', align: 'right', render: (_: unknown, r: GoodsRow) => num0(r.today.orders) },
+    { title: '发货量(单瓶)', key: 'tb', align: 'right', render: (_: unknown, r: GoodsRow) => num0(r.today.bottles) },
+    { title: '发货箱数', key: 'tx', align: 'right', render: (_: unknown, r: GoodsRow) => int0(r.today.boxes) },
+    { title: '发货托数', key: 'tp', align: 'right', render: (_: unknown, r: GoodsRow) => (r.today.pallets > 0 ? r.today.pallets.toFixed(2) : '—') },
+  ] },
+  { title: '当月累计', children: [
+    { title: '发货单数', key: 'mo', align: 'right', render: (_: unknown, r: GoodsRow) => num0(r.month.orders) },
+    { title: '发货量(单瓶)', key: 'mb', align: 'right', render: (_: unknown, r: GoodsRow) => num0(r.month.bottles) },
+    { title: '发货箱数', key: 'mx', align: 'right', render: (_: unknown, r: GoodsRow) => int0(r.month.boxes) },
+    { title: '发货托数', key: 'mp', align: 'right', render: (_: unknown, r: GoodsRow) => (r.month.pallets > 0 ? r.month.pallets.toFixed(2) : '—') },
+  ] },
 ];
 
 const comboCols: ColumnsType<ComboRow> = [
-  { title: '货品组合', dataIndex: 'display', key: 'display' },
-  { title: '订单数', dataIndex: 'orders', key: 'orders', align: 'right', render: num0 },
-  { title: '发货量(单瓶)', dataIndex: 'bottles', key: 'bottles', align: 'right', render: num0 },
-  { title: '重量(kg)', dataIndex: 'weightKg', key: 'weightKg', align: 'right', render: kg1 },
+  { title: '货品组合', dataIndex: 'display', key: 'display', fixed: 'left', width: 320 },
+  { title: '当日', children: [
+    { title: '订单数', key: 'to', align: 'right', render: (_: unknown, r: ComboRow) => num0(r.today.orders) },
+    { title: '发货量(单瓶)', key: 'tb', align: 'right', render: (_: unknown, r: ComboRow) => num0(r.today.bottles) },
+    { title: '重量(kg)', key: 'tw', align: 'right', render: (_: unknown, r: ComboRow) => kg1(r.today.weightKg) },
+  ] },
+  { title: '当月累计', children: [
+    { title: '订单数', key: 'mo', align: 'right', render: (_: unknown, r: ComboRow) => num0(r.month.orders) },
+    { title: '发货量(单瓶)', key: 'mb', align: 'right', render: (_: unknown, r: ComboRow) => num0(r.month.bottles) },
+    { title: '重量(kg)', key: 'mw', align: 'right', render: (_: unknown, r: ComboRow) => kg1(r.month.weightKg) },
+  ] },
 ];
 
-const grandOf = (rows: ChannelRow[]): number => {
+const grandOrders = (rows: ChannelRow[], which: 'today' | 'month'): number => {
   const g = rows.find(r => r.channel === '总计');
-  return g ? g.orders : 0;
+  return g ? g[which].orders : 0;
 };
 
 const SalesDailyReport: React.FC = () => {
   const [date, setDate] = useState<string>('');
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [scope, setScope] = useState<'today' | 'month'>('today'); // 当日 / 当月累计
 
   const fetchData = useCallback((d: string) => {
     setLoading(true);
@@ -83,9 +101,9 @@ const SalesDailyReport: React.FC = () => {
 
   if (loading && !data) return <PageLoading />;
 
-  const ch = scope === 'today' ? data?.channelToday : data?.channelMonth;
-  const gd = scope === 'today' ? data?.goodsToday : data?.goodsMonth;
-  const cb = scope === 'today' ? data?.comboToday : data?.comboMonth;
+  const channels = data?.channels || [];
+  const goods = data?.goods || [];
+  const combos = data?.combos || [];
 
   return (
     <div style={{ padding: 16 }}>
@@ -96,31 +114,27 @@ const SalesDailyReport: React.FC = () => {
           onChange={(d) => { const s = d ? d.format('YYYY-MM-DD') : ''; setDate(s); fetchData(s); }}
           allowClear={false}
         />
-        <Segmented
-          value={scope}
-          onChange={(v) => setScope(v as 'today' | 'month')}
-          options={[{ label: '当日', value: 'today' }, { label: '当月累计', value: 'month' }]}
-        />
-        <Text type="secondary">发货口径 · 仅统计 4 个成品仓 · 只算销售单</Text>
+        <Text type="secondary">发货口径 · 仅统计 4 个成品仓 · 只算销售单 · TOP10 按当月累计排</Text>
       </Space>
 
       <Card title="渠道汇总" size="small" style={{ marginBottom: 16 }} loading={loading}
         extra={<ChannelMapManager onSaved={() => fetchData(date)} />}>
         <Table
           rowKey={(r) => r.platform + '|' + r.channel}
-          columns={channelCols(grandOf(ch || []))}
-          dataSource={ch || []}
+          columns={channelCols(grandOrders(channels, 'today'), grandOrders(channels, 'month'))}
+          dataSource={channels}
           pagination={false}
           size="small"
+          scroll={{ x: 'max-content' }}
         />
       </Card>
 
       <Card title="TOP10 单品" size="small" style={{ marginBottom: 16 }} loading={loading}>
-        <Table rowKey="goodsNo" columns={goodsCols} dataSource={gd || []} pagination={false} size="small" />
+        <Table rowKey="goodsNo" columns={goodsCols} dataSource={goods} pagination={false} size="small" scroll={{ x: 'max-content' }} />
       </Card>
 
       <Card title="TOP10 货品组合" size="small" loading={loading}>
-        <Table rowKey="display" columns={comboCols} dataSource={cb || []} pagination={false} size="small" />
+        <Table rowKey="display" columns={comboCols} dataSource={combos} pagination={false} size="small" scroll={{ x: 'max-content' }} />
       </Card>
     </div>
   );
