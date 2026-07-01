@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS dim_sales_channel_map (
   platform   VARCHAR(20)  NOT NULL COMMENT '平台(社媒/电商/其他)',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (shop_name)
-) COMMENT='销售日报-渠道映射';
+) COMMENT='销售日报-渠道映射' COLLATE=utf8mb4_0900_ai_ci;
 
 -- 销售日报箱规托规(货品 → 每箱瓶数 / 每托箱数)
 CREATE TABLE IF NOT EXISTS dim_goods_pack_spec (
@@ -14,4 +14,4 @@ CREATE TABLE IF NOT EXISTS dim_goods_pack_spec (
   pallet_box_qty DECIMAL(14,4) NULL COMMENT '托规=每托箱数',
   updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (goods_no)
-) COMMENT='销售日报-箱规托规';
+) COMMENT='销售日报-箱规托规' COLLATE=utf8mb4_0900_ai_ci;
